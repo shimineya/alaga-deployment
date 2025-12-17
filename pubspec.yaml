@@ -1,0 +1,19 @@
+name: alaga
+description: A patient care mobile application
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0   
+  local_auth: ^2.1.8
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/

@@ -1,0 +1,12 @@
+# Ignore Node.js libraries
+node_modules/
+
+# Ignore Mac/Windows system files
+.DS_Store
+Thumbs.db
+
+# Ignore Environment Variables (Security Risk!)
+.env
+
+# Ignore Flutter build files (they are heavy)
+/mobile-app/build/

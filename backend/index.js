@@ -44,7 +44,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 2. LOGIN (Sign In) - THIS IS NEW
+// 2. LOGIN (Sign In)
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -57,13 +57,13 @@ app.post('/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // B. Check Password (Compare plain text vs. Hash)
+    // B. Check Password
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
       return res.status(401).json({ success: false, message: "Invalid Credentials" });
     }
 
-    // C. Success!
+    // C. Success
     res.json({ 
         success: true, 
         message: "Login Successful", 
@@ -74,6 +74,39 @@ app.post('/login', async (req, res) => {
     console.error(err.message);
     res.status(500).send('Server Error');
   }
+});
+
+// 3. SENSOR DATA INGESTION (New Route for ESP32)
+// This receives Heart Rate, SpO2, Temp, and Moisture
+app.post('/api/sensors', async (req, res) => {
+    try {
+        // 1. Deconstruct the data sent by the ESP32 or Simulation
+        const { patient_id, heart_rate, spo2, temperature, moisture_value } = req.body;
+
+        // 2. Basic Validation
+        if (!patient_id) {
+            return res.status(400).json({ error: "Patient ID is required" });
+        }
+
+        // 3. Insert into the 'sensor_readings' table
+        // Note: We do not need to send 'recorded_at', Postgres handles that automatically
+        const newReading = await pool.query(
+            `INSERT INTO sensor_readings (patient_id, heart_rate, spo2, temperature, moisture_value) 
+             VALUES ($1, $2, $3, $4, $5) RETURNING reading_id, recorded_at`,
+            [patient_id, heart_rate, spo2, temperature, moisture_value]
+        );
+
+        // Success Response
+        res.json({ 
+            success: true, 
+            message: "Data received", 
+            data: newReading.rows[0] 
+        });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server Error');
+    }
 });
 
 app.listen(port, () => {

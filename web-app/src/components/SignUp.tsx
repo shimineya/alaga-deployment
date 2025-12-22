@@ -102,19 +102,45 @@ export const SignUp: React.FC = () => {
     return true;
   };
 
-  const handleSubmit = () => {
+  // --- UPDATED SUBMIT LOGIC ---
+  const handleSubmit = async () => {
     if (!validateForm()) return;
 
-    // Store form data in sessionStorage for verification page
-    sessionStorage.setItem('signupData', JSON.stringify({
-      ...formData,
-      role: selectedRole,
-      idDocument: formData.idDocument?.name,
-      caregiverIdDocument: formData.caregiverIdDocument?.name,
-    }));
+    // 1. Map frontend role to database role format
+    const dbRole = selectedRole === 'medical_staff' ? 'Medical Staff' : 'Caregiver';
 
-    toast.success('Sending verification code to your email...');
-    navigate('/verify-email');
+    try {
+      // 2. Send data to Backend API
+      const response = await fetch('http://127.0.0.1:3000/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          password: formData.password,
+          email: formData.email,
+          role: dbRole,
+          // Sending extra fields just in case backend is updated to handle them later
+          first_name: formData.firstName, 
+          last_name: formData.lastName,
+          mobile_number: formData.mobileNumber
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast.success('Account created successfully!');
+        // 3. Skip "Verify Email" for now and go straight to Login
+        navigate('/login'); 
+      } else {
+        toast.error(data.message || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      toast.error('Cannot connect to server. Is the Backend running?');
+    }
   };
 
   const renderRoleSelection = () => (
@@ -584,7 +610,7 @@ export const SignUp: React.FC = () => {
                 style={{ backgroundColor: '#7DD3C0' }}
               >
                 <Check className="w-4 h-4 mr-2" />
-                Continue to Email Verification
+                Register Account
               </Button>
             </div>
 

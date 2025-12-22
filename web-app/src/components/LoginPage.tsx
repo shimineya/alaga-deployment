@@ -11,7 +11,9 @@ import { Heart, Activity, Droplets } from 'lucide-react';
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  
+  // CHANGED: State is now 'username', not 'email'
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,31 +24,19 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // First, validate credentials without actually logging in
-      // In real app, this would be an API call to check if credentials are correct
-      const mockUsers = [
-        { email: 'caregiver@alaga.com', password: 'password123' },
-        { email: 'medstaff@alaga.com', password: 'password123' }
-      ];
+      // CALL THE REAL BACKEND via auth-context
+      const success = await login(username, password);
 
-      const userExists = mockUsers.find(u => u.email === email && u.password === password);
-
-      if (!userExists) {
-        setError('Invalid email or password. Please try again.');
-        setLoading(false);
-        return;
+      if (success) {
+        // SUCCESS: Go straight to dashboard (Bypassing OTP for testing)
+        // Adjust this path if your main dashboard route is different
+        navigate('/dashboard'); 
+      } else {
+        setError('Invalid username or password.');
       }
-
-      // Store credentials temporarily for verification
-      sessionStorage.setItem('loginPendingVerification', JSON.stringify({
-        email,
-        password
-      }));
-
-      // Redirect to email verification
-      navigate('/login-verify');
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      setError('Server connection failed. Is the backend running?');
+    } finally {
       setLoading(false);
     }
   };
@@ -81,13 +71,14 @@ export const LoginPage: React.FC = () => {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                {/* CHANGED LABEL TO USERNAME */}
+                <Label htmlFor="username">Username</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="username"
+                  type="text"
+                  placeholder="Enter your username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   required
                   className="bg-input-background"
                 />

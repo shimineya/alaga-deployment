@@ -22,35 +22,45 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { user, isAuthenticated } = useAuth();
 
+  // Helper to normalize role checking (handles "Medical Staff", "medical_staff", etc.)
+  const role = user?.role || '';
+  const isMedical = role === 'Medical Staff' || role === 'medical_staff';
+  const isCaregiver = role === 'Caregiver' || role === 'caregiver';
+
   return (
     <Routes>
       {/* Public Routes */}
       <Route 
         path="/login" 
-        element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} 
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} 
       />
       <Route path="/signup" element={<SignUp />} />
       <Route path="/verify-email" element={<EmailVerification />} />
       <Route path="/login-verify" element={<LoginEmailVerification />} />
 
       {/* Protected Routes */}
+      {/* We add /dashboard explicitly since LoginPage redirects there */}
       <Route
-        path="/"
+        path="/dashboard"
         element={
           <ProtectedRoute>
-            {user?.role === 'caregiver' ? (
+            {isCaregiver ? (
               <CaregiverDashboardNew />
-            ) : user?.role === 'medical_staff' ? (
+            ) : isMedical ? (
               <MedicalStaffDashboard />
             ) : (
+              // If role is missing or unknown, go to login to clear state
               <Navigate to="/login" replace />
             )}
           </ProtectedRoute>
         }
       />
 
-      {/* Catch all - redirect to home */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Root path redirecting to dashboard */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+      {/* Catch all - redirect to dashboard */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

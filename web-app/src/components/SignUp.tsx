@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Activity, Upload, Eye, EyeOff, Check, ArrowLeft } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 export const SignUp: React.FC = () => {
   const navigate = useNavigate();
@@ -102,44 +102,116 @@ export const SignUp: React.FC = () => {
     return true;
   };
 
-  // --- UPDATED SUBMIT LOGIC ---
+  // REPLACE YOUR OLD handleSubmit WITH THIS:
   const handleSubmit = async () => {
     if (!validateForm()) return;
-
-    // 1. Map frontend role to database role format
-    const dbRole = selectedRole === 'medical_staff' ? 'Medical Staff' : 'Caregiver';
+    
+    // 1. Show loading state to user
+    const loadingToast = toast.loading('Creating your secure account...');
 
     try {
-      // 2. Send data to Backend API
-      const response = await fetch('http://127.0.0.1:3000/register', {
+      // =========================================================
+      // STEP 1: CREATE BASE ACCOUNT (The "Identity")
+      // =========================================================
+     // ✅ NEW SAFE CODE
+const signupResponse = await fetch('http://localhost:3000/api/auth/signup', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({
+  username: formData.username,
+  email: formData.email,
+  password: formData.password,
+  role: selectedRole,
+  first_name: formData.firstName,
+  last_name: formData.lastName,
+  mobile_number: formData.mobileNumber,
+  middle_initial: formData.middleInitial 
+  })
+});
+
+// CHECK STATUS BEFORE PARSING JSON
+if (!signupResponse.ok) {
+  // Read response as text first to avoid "Unexpected end of JSON" crash
+  const errorText = await signupResponse.text();
+  throw new Error(`Server Error (${signupResponse.status}): ${errorText || 'Route Not Found'}`);
+}
+
+const signupData = await signupResponse.json(); // Now it's safe to parse
+
+      const newUserId = signupData.user_id; // Capture the new ID
+      toast.dismiss(loadingToast);
+      toast.info('Account created! Saving professional profile...');
+
+      // =========================================================
+      // STEP 2: CREATE PROFESSIONAL PROFILE (The "Context")
+      // =========================================================
+      let profileUrl = '';
+      let profileBody = {};
+
+      if (selectedRole === 'medical_staff') {
+        profileUrl = 'http://localhost:3000/api/auth/profile/medical';
+        profileBody = {
+          user_id: newUserId,
+    license_number: formData.licenseNumber,
+    specialization: formData.professionalTitle, 
+    hospital_affiliation: formData.practiceAddress,
+    practice_type: formData.practiceType,           // <--- ADDED THIS
+    is_solo_practitioner: formData.soloPractitioner // <--- ADDED THIS
+        };
+      } else {
+        profileUrl = 'http://localhost:3000/api/auth/profile/caregiver';
+        profileBody = {
+          user_id: newUserId,
+    caregiver_type: formData.relationshipToPatient,
+    years_experience: parseInt(formData.yearsExperience) || 0,
+    agency_name: formData.primaryWorkArea,
+    work_shift: formData.workShift,                         // <--- ADDED THIS
+    notification_preferences: formData.notificationStyle    // <--- ADDED THIS
+        };
+      }
+
+      // Send Profile Data
+      await fetch(profileUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: formData.username,
-          password: formData.password,
-          email: formData.email,
-          role: dbRole,
-          // Sending extra fields just in case backend is updated to handle them later
-          first_name: formData.firstName, 
-          last_name: formData.lastName,
-          mobile_number: formData.mobileNumber
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileBody)
       });
 
-      const data = await response.json();
+      // =========================================================
+      // STEP 3: UPLOAD VERIFICATION DOC (The "Proof")
+      // =========================================================
+      toast.info('Uploading verification documents...');
+      
+      const documentFile = selectedRole === 'medical_staff' 
+        ? formData.idDocument 
+        : formData.caregiverIdDocument;
 
-      if (response.ok && data.success) {
-        toast.success('Account created successfully!');
-        // 3. Skip "Verify Email" for now and go straight to Login
-        navigate('/login'); 
-      } else {
-        toast.error(data.message || 'Registration failed');
+      if (documentFile) {
+        const formDataUpload = new FormData();
+        formDataUpload.append('user_id', newUserId);
+        formDataUpload.append('document_type', selectedRole === 'medical_staff' ? 'PRC_LICENSE' : 'GOV_ID');
+        formDataUpload.append('document_file', documentFile); 
+
+        // Note: fetch automatically sets the correct Content-Type for FormData
+        await fetch('http://localhost:3000/api/auth/upload-document', {
+          method: 'POST',
+          body: formDataUpload 
+        });
       }
-    } catch (error) {
-      console.error('Registration error:', error);
-      toast.error('Cannot connect to server. Is the Backend running?');
+
+      // =========================================================
+      // SUCCESS!
+      // =========================================================
+      toast.dismiss();
+      toast.success('Registration Complete! Please login.');
+      
+      // Navigate to Login Page
+      navigate('/login');
+
+    } catch (error: any) {
+      toast.dismiss();
+      console.error('Signup Error:', error);
+      toast.error(error.message || 'Registration failed. Is the server running?');
     }
   };
 

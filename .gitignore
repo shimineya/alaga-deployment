@@ -1,5 +1,9 @@
-# Ignore Node.js libraries
 node_modules/
+.env
+dist/
+build/
+uploads/
+.DS_Store
 
 # Ignore Mac/Windows system files
 .DS_Store

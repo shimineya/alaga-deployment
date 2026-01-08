@@ -77,6 +77,7 @@ export const SignUp: React.FC = () => {
       return false;
     }
 
+    // [Compliance] DPA: Ensure accurate contact info for medical alerts
     if (!formData.mobileNumber.match(/^\+63\s?\d{3}\s?\d{3}\s?\d{4}$/)) {
       toast.error('Invalid mobile number format. Use: +63 XXX XXX XXXX');
       return false;
@@ -102,49 +103,54 @@ export const SignUp: React.FC = () => {
     return true;
   };
 
-  // REPLACE YOUR OLD handleSubmit WITH THIS:
+  // --- SECURE COMMERCIAL-GRADE SUBMIT LOGIC ---
   const handleSubmit = async () => {
     if (!validateForm()) return;
     
-    // 1. Show loading state to user
     const loadingToast = toast.loading('Creating your secure account...');
+    // [Security] Whitelist: Ensure role is strictly lowercase for backend validation
+    const dbRole = selectedRole === 'medical_staff' ? 'medical_staff' : 'caregiver';
 
     try {
       // =========================================================
       // STEP 1: CREATE BASE ACCOUNT (The "Identity")
       // =========================================================
-     // ✅ NEW SAFE CODE
-const signupResponse = await fetch('http://localhost:3000/api/auth/signup', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({
-  username: formData.username,
-  email: formData.email,
-  password: formData.password,
-  role: selectedRole,
-  first_name: formData.firstName,
-  last_name: formData.lastName,
-  mobile_number: formData.mobileNumber,
-  middle_initial: formData.middleInitial 
-  })
-});
+      const signupResponse = await fetch('http://localhost:3000/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          role: dbRole, 
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          mobile_number: formData.mobileNumber,
+          middle_initial: formData.middleInitial 
+        })
+      });
 
-// CHECK STATUS BEFORE PARSING JSON
-if (!signupResponse.ok) {
-  // Read response as text first to avoid "Unexpected end of JSON" crash
-  const errorText = await signupResponse.text();
-  throw new Error(`Server Error (${signupResponse.status}): ${errorText || 'Route Not Found'}`);
-}
+      const signupData = await signupResponse.json();
 
-const signupData = await signupResponse.json(); // Now it's safe to parse
+      // [FIX] Smart Error Parsing for OWASP Security Responses
+      if (!signupResponse.ok) {
+        if (signupData.errors && Array.isArray(signupData.errors)) {
+          // Backend sent a list of security issues (e.g. "Password too weak")
+          throw new Error(signupData.errors[0].msg);
+        } else {
+          // Backend sent a generic error
+          throw new Error(signupData.message || 'Registration failed');
+        }
+      }
 
-      const newUserId = signupData.user_id; // Capture the new ID
+      const newUserId = signupData.user.user_id; // Capture the new ID
       toast.dismiss(loadingToast);
       toast.info('Account created! Saving professional profile...');
 
       // =========================================================
       // STEP 2: CREATE PROFESSIONAL PROFILE (The "Context")
       // =========================================================
+      // NOTE: You must update backend/index.js to support these routes!
       let profileUrl = '';
       let profileBody = {};
 
@@ -152,30 +158,34 @@ const signupData = await signupResponse.json(); // Now it's safe to parse
         profileUrl = 'http://localhost:3000/api/auth/profile/medical';
         profileBody = {
           user_id: newUserId,
-    license_number: formData.licenseNumber,
-    specialization: formData.professionalTitle, 
-    hospital_affiliation: formData.practiceAddress,
-    practice_type: formData.practiceType,           // <--- ADDED THIS
-    is_solo_practitioner: formData.soloPractitioner // <--- ADDED THIS
+          license_number: formData.licenseNumber,
+          specialization: formData.professionalTitle, 
+          hospital_affiliation: formData.practiceAddress,
+          practice_type: formData.practiceType,
+          is_solo_practitioner: formData.soloPractitioner
         };
       } else {
         profileUrl = 'http://localhost:3000/api/auth/profile/caregiver';
         profileBody = {
           user_id: newUserId,
-    caregiver_type: formData.relationshipToPatient,
-    years_experience: parseInt(formData.yearsExperience) || 0,
-    agency_name: formData.primaryWorkArea,
-    work_shift: formData.workShift,                         // <--- ADDED THIS
-    notification_preferences: formData.notificationStyle    // <--- ADDED THIS
+          caregiver_type: formData.relationshipToPatient,
+          years_experience: parseInt(formData.yearsExperience) || 0,
+          agency_name: formData.primaryWorkArea,
+          work_shift: formData.workShift,
+          notification_preferences: formData.notificationStyle
         };
       }
 
-      // Send Profile Data
-      await fetch(profileUrl, {
+      const profileResponse = await fetch(profileUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(profileBody)
       });
+
+      if (!profileResponse.ok) {
+        console.warn("Profile creation failed, but user exists."); 
+        // We don't throw here to ensure we try uploading the document
+      }
 
       // =========================================================
       // STEP 3: UPLOAD VERIFICATION DOC (The "Proof")
@@ -189,10 +199,9 @@ const signupData = await signupResponse.json(); // Now it's safe to parse
       if (documentFile) {
         const formDataUpload = new FormData();
         formDataUpload.append('user_id', newUserId);
-        formDataUpload.append('document_type', selectedRole === 'medical_staff' ? 'PRC_LICENSE' : 'GOV_ID');
+        formDataUpload.append('document_type', selectedRole === 'medical_staff' ? 'medical_license' : 'government_id'); // [Fix] Match backend whitelist
         formDataUpload.append('document_file', documentFile); 
 
-        // Note: fetch automatically sets the correct Content-Type for FormData
         await fetch('http://localhost:3000/api/auth/upload-document', {
           method: 'POST',
           body: formDataUpload 
@@ -204,13 +213,12 @@ const signupData = await signupResponse.json(); // Now it's safe to parse
       // =========================================================
       toast.dismiss();
       toast.success('Registration Complete! Please login.');
-      
-      // Navigate to Login Page
       navigate('/login');
 
     } catch (error: any) {
       toast.dismiss();
       console.error('Signup Error:', error);
+      // [UX] Show the specific message (e.g., "Password must contain...")
       toast.error(error.message || 'Registration failed. Is the server running?');
     }
   };

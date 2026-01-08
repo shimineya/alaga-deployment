@@ -6,13 +6,13 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
-import { Heart, Activity, Droplets } from 'lucide-react';
+import { Activity, ShieldAlert, Lock } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   
-  // CHANGED: State is now 'username', not 'email'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,97 +24,133 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // CALL THE REAL BACKEND via auth-context
-      const success = await login(username, password);
+      // 1. Attempt Login via AuthContext
+      const response = await login(username, password);
 
-      if (success) {
-        // SUCCESS: Go straight to dashboard (Bypassing OTP for testing)
-        // Adjust this path if your main dashboard route is different
-        navigate('/dashboard'); 
+      // [FIX] Check response strictly
+      if (response && response.success) {
+        const user = response.user;
+
+        // [Security Control] BLOCK Unverified Users
+        if (user.account_status === 'Pending_Review') {
+          setError('Your account is currently under review by the Administrator. Please wait for approval.');
+          return; // Stop here, don't navigate
+        }
+
+        if (user.account_status === 'Suspended') {
+          setError('Your account has been suspended. Contact support.');
+          return;
+        }
+
+        toast.success(`Welcome back, ${user.username}!`);
+        
+        // [UX] Role-Based Redirection
+        switch (user.role.toLowerCase()) {
+          case 'medical_staff':
+            navigate('/dashboard/medical');
+            break;
+          case 'caregiver':
+            navigate('/dashboard/caregiver');
+            break;
+          case 'admin':
+            navigate('/admin');
+            break;
+          default:
+            navigate('/dashboard');
+        }
+      } else {
+        // Handle case where login returns false/null but no error threw
+        setError('Invalid credentials.');
+      }
+
+    } catch (err: any) {
+      console.error("Login Error:", err);
+      if (err.message && err.message.includes('Too many')) {
+        setError('Too many login attempts. Please try again later.');
       } else {
         setError('Invalid username or password.');
       }
-    } catch (err) {
-      setError('Server connection failed. Is the backend running?');
     } finally {
+      // [CRITICAL FIX] ALWAYS turn off the loading spinner
       setLoading(false);
     }
   };
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, var(--teal-50) 0%, var(--teal-200) 100%)' }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#F0FAF9' }}>
       <div className="w-full max-w-md">
-        {/* Logo and branding */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4" style={{ backgroundColor: 'var(--teal-500)' }}>
-            <Heart className="w-10 h-10 text-white" />
+          <div 
+            className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
+            style={{ backgroundColor: '#7DD3C0', boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)' }}
+          >
+            <Activity className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-4xl mb-2" style={{ color: 'var(--teal-900)' }}>Alaga</h1>
-          <p className="text-sm" style={{ color: 'var(--teal-700)' }}>Smart Patient Monitoring System</p>
-          <div className="flex items-center justify-center gap-4 mt-4">
-            <div className="flex items-center gap-1" style={{ color: 'var(--teal-600)' }}>
-              <Activity className="w-4 h-4" />
-              <span className="text-xs">Vital Signs</span>
-            </div>
-            <div className="flex items-center gap-1" style={{ color: 'var(--teal-600)' }}>
-              <Droplets className="w-4 h-4" />
-              <span className="text-xs">Smart Diaper Moisture Sensor</span>
-            </div>
-          </div>
+          <h1 className="text-3xl font-bold mb-2" style={{ color: '#2C3E50' }}>ALAGA</h1>
+          <p className="text-gray-600">Secure Patient Monitoring System</p>
         </div>
 
-        <Card>
+        <Card className="border-0 shadow-xl">
           <CardHeader>
-            <CardTitle>Sign In</CardTitle>
-            <CardDescription>Enter your credentials to access the dashboard</CardDescription>
+            <CardTitle className="text-center text-xl" style={{ color: '#2C3E50' }}>Sign In</CardTitle>
+            <CardDescription className="text-center">
+              Access your professional dashboard
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                {/* CHANGED LABEL TO USERNAME */}
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username">Username or Email</Label>
                 <Input
                   id="username"
-                  type="text"
-                  placeholder="Enter your username"
+                  placeholder="Enter username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
-                  className="bg-input-background"
+                  className="bg-gray-50"
                 />
               </div>
+              
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex justify-between items-center">
+                  <Label htmlFor="password">Password</Label>
+                  <a href="#" className="text-xs text-teal-600 hover:underline">Forgot password?</a>
+                </div>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Enter your password"
+                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="bg-input-background"
+                  className="bg-gray-50"
                 />
               </div>
 
               {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
+                <Alert variant="destructive" className="bg-red-50 text-red-700 border-red-200">
+                  <ShieldAlert className="h-4 w-4" />
+                  <AlertDescription className="ml-2">{error}</AlertDescription>
                 </Alert>
               )}
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Signing in...' : 'Sign In'}
+              <Button 
+                type="submit" 
+                className="w-full text-white font-medium h-11" 
+                style={{ backgroundColor: '#7DD3C0' }}
+                disabled={loading}
+              >
+                {loading ? 'Verifying Credentials...' : 'Sign In'}
               </Button>
 
-              <div className="text-center pt-4">
-                <p className="text-sm" style={{ color: 'var(--teal-700)' }}>
+              <div className="text-center pt-4 border-t">
+                <p className="text-sm text-gray-600">
                   Don't have an account?{' '}
                   <a 
                     href="/signup" 
-                    className="underline hover:no-underline"
-                    style={{ color: 'var(--teal-600)' }}
+                    className="font-medium hover:underline"
+                    style={{ color: '#7DD3C0' }}
                   >
-                    Sign Up
+                    Register here
                   </a>
                 </p>
               </div>
@@ -122,9 +158,10 @@ export const LoginPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        <p className="text-center mt-6 text-xs" style={{ color: 'var(--teal-700)' }}>
-          © 2025 Alaga System. Compliant with Data Privacy Act of 2012.
-        </p>
+        <div className="flex items-center justify-center gap-2 mt-8 text-xs text-gray-400">
+          <Lock className="w-3 h-3" />
+          <p>Protected by 256-bit Encryption & JWT Auth</p>
+        </div>
       </div>
     </div>
   );

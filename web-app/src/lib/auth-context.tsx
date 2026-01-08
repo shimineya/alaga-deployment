@@ -3,8 +3,7 @@ import { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
-  // CHANGED: 'email' to 'username' to match your Backend requirement
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<any>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -22,14 +21,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error) {
         console.error('Failed to parse stored user:', error);
         localStorage.removeItem('alaga_user');
+        localStorage.removeItem('alaga_token'); 
       }
     }
   }, []);
 
-  // --- REAL LOGIN INTEGRATION ---
-  const login = async (username: string, password: string): Promise<boolean> => {
+  // --- SECURE LOGIN INTEGRATION ---
+  const login = async (username: string, password: string): Promise<any> => {
     try {
-      // We use 127.0.0.1 to avoid "localhost" network ambiguity
+      // Use 127.0.0.1 to avoid "localhost" network ambiguity
       const response = await fetch('http://127.0.0.1:3000/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -38,24 +38,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const data = await response.json();
 
-      if (data.success) {
-        // Save the real user data from Postgres
+      if (response.ok && data.success) {
+        
+        // [SECURITY PATCH] Gatekeeper: Check Status BEFORE saving session
+        // This ensures unverified users never get a valid session state.
+        if (data.user.account_status === 'Pending_Review' || data.user.account_status === 'Suspended') {
+            // We return the data so LoginPage can display the specific error,
+            // BUT we explicitly do NOT save to localStorage or update State.
+            return data;
+        }
+
+        // [Success] Only save session if Account is Active
+        if (data.token) {
+            localStorage.setItem('alaga_token', data.token);
+        }
+
         setUser(data.user);
         localStorage.setItem('alaga_user', JSON.stringify(data.user));
-        return true;
+        
+        return data; 
       } else {
-        return false;
+        throw new Error(data.message || 'Login failed');
       }
-    } catch (error) {
-      console.error('Login Connection Error:', error);
-      return false;
+    } catch (error: any) {
+      console.error('Login Process Error:', error);
+      throw error;
     }
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem('alaga_user');
-    window.location.href = '/login'; // Force redirect
+    localStorage.removeItem('alaga_token');
+    window.location.href = '/login'; 
   };
 
   return (

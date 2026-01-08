@@ -1,88 +1,143 @@
-// backend/index.js - THE GOLDEN MASTER V1.0
 const express = require('express');
 const cors = require('cors');
-const pool = require('./db'); 
+const helmet = require('helmet'); // [OWASP A02] Hides X-Powered-By headers
+const rateLimit = require('express-rate-limit'); // [OWASP A07] Mitigation
+const { body, validationResult } = require('express-validator'); // [OWASP A05] Input Validation
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const multer = require('multer'); 
+const pool = require('./db');
 const path = require('path');
-const fs = require('fs');
-require('dotenv').config(); 
+const multer = require('multer');
+const jwt = require('jsonwebtoken');
 
 const app = express();
+const port = process.env.PORT || 3000;
 
-// --- 1. MIDDLEWARE (CRITICAL) ---
-app.use(cors());
-app.use(express.json()); // Fixes "Cannot destructure property" error
+// [OWASP A02] Security Misconfiguration: Restrict Access
+// Only allow the frontend (Vite) to talk to the backend.
+app.use(cors({
+    origin: 'http://localhost:5173', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+}));
 
-// --- 2. CONFIG: FILE UPLOAD (Multer) ---
+// [OWASP A02] Add Security Headers
+app.use(helmet());
+
+app.use(express.json());
+
+// --- MULTER SECURITY CONFIGURATION ---
+// [Security] Store files with unique names to prevent overwriting
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const dir = './uploads/documents';
-        if (!fs.existsSync(dir)){
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        cb(null, dir);
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/'); // Ensure this folder exists!
     },
-    filename: function (req, file, cb) {
+    filename: (req, file, cb) => {
+        // [Privacy] Rename file to remove original user filename (avoid info leakage)
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, req.body.user_id + '-' + uniqueSuffix + path.extname(file.originalname));
+        cb(null, 'id-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
+// [OWASP A05] File Upload Security
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    limits: { fileSize: 5 * 1024 * 1024 }, // Limit: 5MB (Prevents DoS)
     fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-            cb(null, true);
-        } else {
-            cb(new Error('Only images and PDFs are allowed.'));
+        // [Security] Whitelist only safe file types
+        const filetypes = /jpeg|jpg|png|pdf/;
+        const mimetype = filetypes.test(file.mimetype);
+        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+
+        if (mimetype && extname) {
+            return cb(null, true);
         }
+        cb(new Error('Error: File upload only supports images and PDFs!'));
     }
 });
 
 app.use('/uploads', express.static('uploads'));
 const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 
-// ==========================================
-// 🚀 ROUTE 1: SIGNUP (With Mobile Number & JSON Error Handling)
-// ==========================================
-app.post('/api/auth/signup', async (req, res) => {
-    try {
-        console.log("📝 Registering:", req.body.email); 
+// [Security Strategy] Define validation rules for Registration
+const registerValidation = [
+    // Validate Email
+    body('email')
+        .isEmail().withMessage('Must be a valid email address')
+        .normalizeEmail(), // Sanitize: specific@gmail.com -> specific@gmail.com
+    
+    // Validate Username
+    body('username')
+        .trim()
+        .isLength({ min: 3 }).withMessage('Username must be at least 3 characters')
+        .escape(), // [OWASP A05] Prevent XSS payloads in username
+        
+    // Validate Password (NIST Guidelines: Length > Complexity)
+    body('password')
+        .isLength({ min: 8 }).withMessage('Password must be at least 8 characters long')
+        // Enforce at least one number and one special char for "Commercial Grade" strength
+        .matches(/\d/).withMessage('Password must contain a number')
+        .matches(/[!@#$%^&*]/).withMessage('Password must contain a special character'),
+        
+    // Validate Role (RBAC Enforcement)
+    body('role')
+        .isIn(['caregiver', 'medical_staff', 'admin']).withMessage('Invalid Role Assignment')
+];
 
-const { username, email, password, role, first_name, last_name, mobile_number, middle_initial } = req.body; // Added middle_initial
-        // Check Duplicates
-        const userCheck = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
+// [OWASP A07] Rate Limiting: Prevent Brute Force Account Creation
+const createAccountLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour window
+    max: 5, // Limit each IP to 5 account creations per hour
+    message: "Too many accounts created from this IP, please try again after an hour."
+});
+
+// 1. SECURE REGISTER (Updated Route & Fields)
+app.post('/api/auth/signup', // <--- FIX: Matches Frontend Route
+    createAccountLimiter, 
+    registerValidation,   
+    async (req, res) => {
+    
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    try {
+        // [Data Integrity] Deconstruct ALL fields sent by SignUp.tsx
+        const { username, password, email, role, mobile_number, first_name, last_name, middle_initial } = req.body;
+        
+        const userCheck = await pool.query(
+            'SELECT * FROM users WHERE username = $1 OR email = $2', 
+            [username, email]
+        );
+        
         if (userCheck.rows.length > 0) {
-            return res.status(400).json({ success: false, message: 'Email or Username already exists.' });
+            return res.status(409).json({ success: false, message: 'Username or Email already exists' });
         }
 
-        // Hash Password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+        const salt = await bcrypt.genSalt(12);
+        const password_hash = await bcrypt.hash(password, salt);
 
-        // Insert User
-       const newUser = await pool.query(
-    `INSERT INTO users (username, email, password_hash, role, first_name, last_name, mobile_number, middle_initial, is_verified, account_status) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'Pending_Review') 
-     RETURNING user_id, email, role`,
-    [username, email, hashedPassword, role, first_name, last_name, mobile_number || null, middle_initial || null]
-);
-
-        console.log("✅ User created ID:", newUser.rows[0].user_id);
+        // [Fix] Update INSERT to include new Progress Report fields
+        const newUser = await pool.query(
+            `INSERT INTO users (
+                username, password_hash, email, role, 
+                mobile_number, first_name, last_name, middle_initial, 
+                created_at
+            ) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) 
+             RETURNING user_id, username, role`,
+            [username, password_hash, email, role, mobile_number, first_name, last_name, middle_initial]
+        );
 
         res.status(201).json({ 
             success: true, 
-            message: "Account created.", 
-            user_id: newUser.rows[0].user_id,
-            role: newUser.rows[0].role
+            message: "User registered successfully",
+            user: newUser.rows[0] 
         });
 
     } catch (err) {
-        console.error("❌ Signup Error:", err.message);
-        res.status(500).json({ success: false, message: "Server Error: " + err.message });
+        console.error("Registration Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server Error: Registration Failed' });
     }
 });
 
@@ -125,39 +180,87 @@ const { user_id, caregiver_type, years_experience, agency_name, work_shift, noti
 // ==========================================
 // 🚀 ROUTE 4: DOCUMENT UPLOAD
 // ==========================================
+// [OWASP A05] Input Validation: Whitelist allowed document types
+const ALLOWED_DOC_TYPES = ['government_id', 'medical_license', 'prc_id'];
+
 app.post('/api/auth/upload-document', upload.single('document_file'), async (req, res) => {
+    // 1. Transaction Setup: Get a dedicated client from the pool
+    const client = await pool.connect();
+    
     try {
-        if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded." });
+        // [Validation] Check file existence
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "No file uploaded." });
+        }
 
+        // [Validation] Check Inputs
         const { user_id, document_type } = req.body;
-        const fileUrl = `/uploads/documents/${req.file.filename}`;
+        
+        if (!ALLOWED_DOC_TYPES.includes(document_type)) {
+            // [Security] Prevent junk data insertion
+            return res.status(400).json({ success: false, message: "Invalid document type." });
+        }
 
-        await pool.query(
-            `INSERT INTO user_documents (user_id, document_type, file_url, verification_status)
-             VALUES ($1, $2, $3, 'Pending')`,
+        // [Security Debt] user_id currently comes from body. 
+        // TODO: Move to req.user.id once JWT Middleware is implemented (OWASP A01).
+
+        const fileUrl = `/uploads/${req.file.filename}`; // Adjusted path to match Multer config
+
+        // 2. START TRANSACTION
+        await client.query('BEGIN');
+
+        // Step A: Insert the document record
+        await client.query(
+            // [Fix] match DB schema column 'upload_date'
+`INSERT INTO user_documents (user_id, document_type, file_url, verification_status, upload_date)
+ VALUES ($1, $2, $3, 'Pending', NOW())`,
             [user_id, document_type, fileUrl]
         );
         
-        // Ensure user status is set to Pending Review
-        await pool.query("UPDATE users SET account_status = 'Pending_Review' WHERE user_id = $1", [user_id]);
+        // Step B: Update the user's status to trigger Admin Review
+        await client.query(
+            "UPDATE users SET account_status = 'Pending_Review' WHERE user_id = $1", 
+            [user_id]
+        );
 
-        res.json({ success: true, message: "Document uploaded.", file_url: fileUrl });
+        // 3. COMMIT TRANSACTION (Save changes only if both steps succeeded)
+        await client.query('COMMIT');
+
+        res.json({ 
+            success: true, 
+            message: "Document uploaded securely. Account is now Pending Review.", 
+            file_url: fileUrl 
+        });
+
     } catch (err) {
-        console.error("Upload Error:", err.message);
-        res.status(500).json({ success: false, message: "Upload failed." });
+        // 4. ROLLBACK (Undo everything if error occurs)
+        await client.query('ROLLBACK');
+        
+        console.error("Upload Transaction Error:", err.message);
+        
+        // [OWASP A10] Generic error to client
+        res.status(500).json({ success: false, message: "Upload failed due to server error." });
+    } finally {
+        // 5. Release client back to the pool
+        client.release();
     }
 });
 
 // ==========================================
-// 🚀 ROUTE 5: LOGIN (This was missing!)
+// 🚀 ROUTE 5: LOGIN (Corrected & Merged)
 // ==========================================
-app.post('/login', async (req, res) => {
+// [OWASP A07] Rate Limiter for Login (Prevent Brute Force)
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
+
+// [FIX] We merged the rate limiter AND the logic into ONE single route.
+app.post('/login', loginLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
         
         // Allow login by Email OR Username
         const result = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $1', [username]); 
         
+        // [Security] Generic error message for both cases
         if (result.rows.length === 0) return res.status(401).json({ success: false, message: "Invalid Credentials" });
 
         const user = result.rows[0];
@@ -165,6 +268,7 @@ app.post('/login', async (req, res) => {
         
         if (!validPassword) return res.status(401).json({ success: false, message: "Invalid Credentials" });
 
+        // [Security] Generate JWT Token
         const token = jwt.sign({ id: user.user_id, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
 
         res.json({ 
@@ -179,12 +283,12 @@ app.post('/login', async (req, res) => {
             } 
         });
     } catch (err) {
-        console.error(err.message);
+        console.error("Login Error:", err.message);
         res.status(500).send('Server Error');
     }
 });
 
 // --- Start Server ---
-app.listen(3000, () => {
-    console.log('✅ ALAGA Server running on port 3000');
+app.listen(port, () => {
+    console.log(`✅ ALAGA Server running on port ${port}`);
 });

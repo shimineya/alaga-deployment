@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/auth-context';
-import { Patient, Alert, VitalSign } from '../types';
+import { Patient, Alert, VitalSign, DoctorsOrdersData } from '../types';
 import { mockPatients, mockAlerts, mockUsers, generateMockVitalSigns } from '../lib/mock-data';
+import { generateAlertsFromDoctorsOrders, checkVitalSignThresholds } from '../lib/alert-generator';
 import { DashboardSidebar } from './DashboardSidebar';
 import { NotificationPanel } from './NotificationPanel';
+import { DoctorsOrders } from './DoctorsOrders';
+import { Bulletin } from './Bulletin';
+import { PatientProfile } from './PatientProfile';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -34,7 +38,13 @@ import {
   Search,
   Shield,
   Key,
-  ArrowLeft
+  ArrowLeft,
+  Archive,
+  Trash2,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  Check
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar } from 'recharts';
@@ -86,6 +96,82 @@ export const MedicalStaffDashboard: React.FC = () => {
     caregiverEmail: ''
   });
 
+  // Doctor's Orders state
+  const [doctorsOrdersData, setDoctorsOrdersData] = useState<DoctorsOrdersData | null>(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12;
+
+  // View mode for patient profile
+  const [viewMode, setViewMode] = useState<'dashboard' | 'profile'>('dashboard');
+
+  // Auto-delete settings for trash
+  const [autoDeletePeriod, setAutoDeletePeriod] = useState<'1week' | '1month' | '3months' | '6months' | '1year'>('1month');
+
+  // Alarm sound state
+  const [alarmSound, setAlarmSound] = useState<HTMLAudioElement | null>(null);
+  const [playingAlarms, setPlayingAlarms] = useState<Set<string>>(new Set());
+  const [silencedPatients, setSilencedPatients] = useState<Set<string>>(new Set());
+
+  // Initialize alarm sound
+  useEffect(() => {
+    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUKnl7a1gGgU7k9n3zH4tBSh+zPLajUIKFV644u+nUxQJRp/i8bllHgYugM/y4Y44CBttv/DooEoMDU+t6PKjYB4EOo/Y88B+LQUofM/y14xBCRZmuuPwp1QVCkaf4fK0YyAFLIDP8t2JOQYZ');
+    audio.loop = true;
+    setAlarmSound(audio);
+    return () => {
+      audio.pause();
+      audio.src = '';
+    };
+  }, []);
+
+  // Clear silenced status for patients that are now stable
+  useEffect(() => {
+    setSilencedPatients(prev => {
+      const newSilenced = new Set(prev);
+      let hasChanges = false;
+      
+      prev.forEach(patientId => {
+        const patient = patients.find(p => p.id === patientId);
+        if (patient) {
+          const patientAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged && a.severity === 'critical');
+          const deviceOffline = !patient.deviceConnected || !patient.hrDeviceConnected || !patient.diaperDeviceConnected;
+          // Remove from silenced if no more critical issues
+          if (patientAlerts.length === 0 && !deviceOffline) {
+            newSilenced.delete(patientId);
+            hasChanges = true;
+          }
+        }
+      });
+      
+      return hasChanges ? newSilenced : prev;
+    });
+  }, [patients, alerts]);
+
+  // Monitor for critical alerts and device offline
+  useEffect(() => {
+    if (!alarmSound) return;
+
+    const criticalPatients = patients.filter(p => {
+      if (p.deleted || p.archived || silencedPatients.has(p.id)) return false;
+      const patientAlerts = alerts.filter(a => a.patientId === p.id && !a.acknowledged && a.severity === 'critical');
+      const deviceOffline = !p.deviceConnected || !p.hrDeviceConnected || !p.diaperDeviceConnected;
+      return patientAlerts.length > 0 || deviceOffline;
+    });
+
+    const newPlayingAlarms = new Set(criticalPatients.map(p => p.id));
+    
+    if (newPlayingAlarms.size > 0) {
+      alarmSound.play().catch(() => {
+        console.log('Alarm sound blocked by browser');
+      });
+    } else {
+      alarmSound.pause();
+    }
+
+    setPlayingAlarms(newPlayingAlarms);
+  }, [patients, alerts, alarmSound, silencedPatients]);
+
   useEffect(() => {
     if (selectedPatient) {
       const vitals = generateMockVitalSigns(selectedPatient.id, selectedPatient.baselineVitals);
@@ -102,6 +188,43 @@ export const MedicalStaffDashboard: React.FC = () => {
       setVitalSigns(filtered);
     }
   }, [selectedPatient, timeRange]);
+
+  // Generate alerts from doctor's orders
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newAlerts: Alert[] = [];
+      
+      // Generate alerts from each patient's doctor's orders
+      patients.forEach(patient => {
+        const doctorOrderAlerts = generateAlertsFromDoctorsOrders(patient);
+        newAlerts.push(...doctorOrderAlerts);
+        
+        // Check vital sign thresholds
+        const latestVital = vitalSigns.find(v => v.patientId === patient.id);
+        if (latestVital && patient.doctorsOrders) {
+          const thresholdAlert = checkVitalSignThresholds(patient, {
+            heartRate: latestVital.heartRate,
+            temperature: latestVital.temperature,
+            spo2: latestVital.spo2
+          });
+          if (thresholdAlert) {
+            newAlerts.push(thresholdAlert);
+          }
+        }
+      });
+      
+      // Add new alerts (avoid duplicates by checking if alert already exists)
+      if (newAlerts.length > 0) {
+        setAlerts(prev => {
+          const existingIds = new Set(prev.map(a => a.id));
+          const uniqueNewAlerts = newAlerts.filter(a => !existingIds.has(a.id));
+          return [...prev, ...uniqueNewAlerts];
+        });
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [patients, vitalSigns]);
 
   const handleAcknowledgeAlert = (alertId: string) => {
     setAlerts(prev => 
@@ -149,7 +272,8 @@ export const MedicalStaffDashboard: React.FC = () => {
       deviceId: newPatientForm.deviceId,
       deviceBattery: 100,
       deviceConnected: true,
-      lastUpdated: new Date()
+      lastUpdated: new Date(),
+      doctorsOrders: doctorsOrdersData || undefined
     };
 
     setPatients(prev => [...prev, newPatient]);
@@ -166,6 +290,7 @@ export const MedicalStaffDashboard: React.FC = () => {
     
     toast.success(`Assignment request sent to ${caregiver.name}. Awaiting response.`);
     setNewPatientForm({ name: '', age: '', medicalConditions: '', deviceId: '', caregiverEmail: '' });
+    setDoctorsOrdersData(null);
   };
 
   const handleDownloadReport = (type: 'analytics') => {
@@ -219,15 +344,38 @@ export const MedicalStaffDashboard: React.FC = () => {
   };
 
   const renderContent = () => {
+    // If viewing patient profile, show it
+    if (viewMode === 'profile' && selectedPatient) {
+      const caregiver = mockUsers.find(u => u.id === selectedPatient.caregiverId);
+      return (
+        <PatientProfile 
+          patient={selectedPatient}
+          onBack={() => {
+            setViewMode('dashboard');
+            setSelectedPatient(null);
+          }}
+          caregiverName={caregiver?.name}
+        />
+      );
+    }
+
     switch (activeNavItem) {
       case 'dashboard':
         return renderDashboard();
       case 'add-patient':
         return renderAddPatient();
+      case 'archived':
+        return renderArchived();
+      case 'trash':
+        return renderTrash();
       case 'master-list':
         return renderMasterList();
-      case 'analytics-reports':
-        return detailView === 'detail' ? renderAnalyticsDetail() : renderAnalyticsList();
+      case 'bulletin':
+        return <Bulletin userRole="medical_staff" userName={user?.name || 'Medical Staff'} />;
+      case 'alerts':
+        return renderAlerts();
+      case 'reports':
+        return renderReports();
       case 'health-trends':
         return detailView === 'detail' ? renderHealthTrendsDetail() : renderHealthTrendsList();
       case 'activity-logs':
@@ -286,103 +434,186 @@ export const MedicalStaffDashboard: React.FC = () => {
         </Card>
       </div>
 
-      {/* Search for Patient */}
-      <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
-        <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
-              placeholder="Search patients..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Search and Pagination Controls */}
+      <div className="flex items-center justify-between gap-4">
+        {/* Search (Upper Left) */}
+        <div className="relative w-80">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            placeholder="Search patients..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="pl-10"
+          />
+        </div>
 
-      {/* Patients List with Quick Overview */}
-      <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
-        <CardHeader>
-          <CardTitle style={{ color: '#2C3E50' }}>Patients Overview</CardTitle>
-          <CardDescription>Quick status of all patients in facility</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(patient => {
-              const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
-              const latestVital = vitals[vitals.length - 1];
-              const caregiver = mockUsers.find(u => u.id === patient.caregiverId);
-              
-              return (
-                <div 
-                  key={patient.id}
-                  className="p-4 rounded-lg border hover:shadow-md transition-all cursor-pointer"
-                  style={{ backgroundColor: '#FAFAFA' }}
-                  onClick={() => {
-                    setSelectedPatient(patient);
-                    setActiveNavItem('health-trends');
-                    setDetailView('detail');
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${patient.deviceConnected ? 'bg-[#2ECC71] animate-pulse' : 'bg-[#E74C3C]'}`} />
-                      <div>
-                        <h4 style={{ color: '#2C3E50' }}>{patient.name}</h4>
-                        <p className="text-xs" style={{ color: '#7F8C8D' }}>
-                          {patient.age} years • {caregiver?.name || 'Unassigned'}
-                        </p>
-                      </div>
+        {/* Pagination (Upper Right) */}
+        {(() => {
+          const filteredCount = patients.filter(p => !p.archived && !p.deleted && p.name.toLowerCase().includes(searchQuery.toLowerCase())).length;
+          const totalPages = Math.ceil(filteredCount / itemsPerPage);
+          return (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <span className="text-sm px-3" style={{ color: '#2C3E50' }}>
+                Page {currentPage} of {totalPages || 1}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages || totalPages === 0}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Enhanced Patients Card Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        {(() => {
+          // Sort by alerts
+          const sortedPatients = [...patients]
+            .filter(p => !p.archived && !p.deleted && p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+            .map(patient => {
+              const patientAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
+              const criticalCount = patientAlerts.filter(a => a.severity === 'critical').length;
+              const latestAlertTime = patientAlerts.length > 0 ? Math.max(...patientAlerts.map(a => a.timestamp.getTime())) : 0;
+              return { patient, criticalCount, latestAlertTime, patientAlerts };
+            })
+            .sort((a, b) => {
+              if (a.criticalCount !== b.criticalCount) return b.criticalCount - a.criticalCount;
+              return b.latestAlertTime - a.latestAlertTime;
+            });
+
+          // Pagination
+          const startIndex = (currentPage - 1) * itemsPerPage;
+          const paginatedPatients = sortedPatients.slice(startIndex, startIndex + itemsPerPage);
+
+          return paginatedPatients.map(({ patient, patientAlerts }) => {
+            const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
+            const latestVital = vitals[vitals.length - 1];
+            const hasCriticalAlerts = patientAlerts.some(a => a.severity === 'critical');
+            const deviceOffline = !patient.deviceConnected || !patient.hrDeviceConnected || !patient.diaperDeviceConnected;
+            const caregiver = mockUsers.find(u => u.id === patient.caregiverId);
+            const isAlarming = hasCriticalAlerts || deviceOffline;
+            
+            return (
+              <Card 
+                key={patient.id}
+                className={`border-0 cursor-pointer hover:shadow-lg transition-all ${isAlarming ? 'animate-pulse' : ''}`}
+                style={{ 
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  backgroundColor: isAlarming ? '#fee2e2' : 'white'
+                }}
+                onClick={() => {
+                  setSelectedPatient(patient);
+                  setViewMode('profile');
+                }}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <CardTitle className="text-sm" style={{ color: '#2C3E50' }}>{patient.name}</CardTitle>
+                      <CardDescription className="text-xs">
+                        {patient.age} yrs • Room {patient.roomNumber || 'N/A'}
+                      </CardDescription>
                     </div>
-                    <Badge className={patient.deviceConnected ? 'bg-[#2ECC71] text-white' : 'bg-[#E74C3C] text-white'}>
-                      {patient.deviceConnected ? 'Online' : 'Offline'}
-                    </Badge>
                   </div>
-                  
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="text-center p-2 rounded bg-white">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Heart className="w-3 h-3" style={{ color: '#E74C3C' }} />
-                        <p className="text-xs" style={{ color: '#7F8C8D' }}>HR</p>
+                </CardHeader>
+                <CardContent className="space-y-2 pb-3">
+                  {/* Caregiver */}
+                  <div className="text-xs" style={{ color: '#7F8C8D' }}>
+                    <span className="font-medium">Caregiver:</span> {caregiver?.name || 'Unassigned'}
+                  </div>
+
+                  {/* Device IDs with Status */}
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: '#7F8C8D' }} className="truncate mr-1">HR: {patient.hrDeviceId || 'N/A'}</span>
+                      <div className="flex items-center gap-1">
+                        <Battery className="w-3 h-3" style={{ color: (patient.hrDeviceBattery || 0) > 50 ? '#2ECC71' : (patient.hrDeviceBattery || 0) > 20 ? '#F39C12' : '#E74C3C' }} />
+                        <span style={{ color: '#2C3E50' }}>{patient.hrDeviceBattery || 0}%</span>
+                        {patient.hrDeviceConnected ? <Wifi className="w-3 h-3" style={{ color: '#2ECC71' }} /> : <WifiOff className="w-3 h-3" style={{ color: '#E74C3C' }} />}
                       </div>
-                      <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.heartRate || patient.baselineVitals.heartRate)}</p>
-                      <p className="text-xs" style={{ color: '#7F8C8D' }}>bpm</p>
                     </div>
-                    
-                    <div className="text-center p-2 rounded bg-white">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Thermometer className="w-3 h-3" style={{ color: '#F39C12' }} />
-                        <p className="text-xs" style={{ color: '#7F8C8D' }}>Temp</p>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: '#7F8C8D' }} className="truncate mr-1">Diaper: {patient.diaperDeviceId || 'N/A'}</span>
+                      <div className="flex items-center gap-1">
+                        <Battery className="w-3 h-3" style={{ color: (patient.diaperDeviceBattery || 0) > 50 ? '#2ECC71' : (patient.diaperDeviceBattery || 0) > 20 ? '#F39C12' : '#E74C3C' }} />
+                        <span style={{ color: '#2C3E50' }}>{patient.diaperDeviceBattery || 0}%</span>
+                        {patient.diaperDeviceConnected ? <Wifi className="w-3 h-3" style={{ color: '#2ECC71' }} /> : <WifiOff className="w-3 h-3" style={{ color: '#E74C3C' }} />}
                       </div>
-                      <p className="text-lg" style={{ color: '#2C3E50' }}>{(latestVital?.temperature || patient.baselineVitals.temperature).toFixed(1)}</p>
-                      <p className="text-xs" style={{ color: '#7F8C8D' }}>°C</p>
-                    </div>
-                    
-                    <div className="text-center p-2 rounded bg-white">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Activity className="w-3 h-3" style={{ color: '#3498DB' }} />
-                        <p className="text-xs" style={{ color: '#7F8C8D' }}>SpO₂</p>
-                      </div>
-                      <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.spo2 || patient.baselineVitals.spo2)}</p>
-                      <p className="text-xs" style={{ color: '#7F8C8D' }}>%</p>
-                    </div>
-                    
-                    <div className="text-center p-2 rounded bg-white">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Droplets className="w-3 h-3" style={{ color: '#7DD3C0' }} />
-                        <p className="text-xs" style={{ color: '#7F8C8D' }}>Moisture</p>
-                      </div>
-                      <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.moistureLevel || 0)}</p>
-                      <p className="text-xs" style={{ color: '#7F8C8D' }}>%</p>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+
+                  {/* All Vital Signs - 4 boxes */}
+                  <div className="grid grid-cols-2 gap-1 pt-1">
+                    <div className="text-center p-1 rounded text-xs" style={{ backgroundColor: '#FEF2F2' }}>
+                      <Heart className="w-3 h-3 mx-auto mb-0.5" style={{ color: '#E74C3C' }} />
+                      <div style={{ color: '#2C3E50' }}>{Math.round(latestVital?.heartRate || patient.baselineVitals.heartRate)} bpm</div>
+                    </div>
+                    <div className="text-center p-1 rounded text-xs" style={{ backgroundColor: '#FFFBEB' }}>
+                      <Thermometer className="w-3 h-3 mx-auto mb-0.5" style={{ color: '#F39C12' }} />
+                      <div style={{ color: '#2C3E50' }}>{(latestVital?.temperature || patient.baselineVitals.temperature).toFixed(1)}°C</div>
+                    </div>
+                    <div className="text-center p-1 rounded text-xs" style={{ backgroundColor: '#EFF6FF' }}>
+                      <Activity className="w-3 h-3 mx-auto mb-0.5" style={{ color: '#3498DB' }} />
+                      <div style={{ color: '#2C3E50' }}>{Math.round(latestVital?.spo2 || patient.baselineVitals.spo2)}%</div>
+                    </div>
+                    <div className="text-center p-1 rounded text-xs" style={{ backgroundColor: '#F0FAF9' }}>
+                      <Droplets className="w-3 h-3 mx-auto mb-0.5" style={{ color: '#7DD3C0' }} />
+                      <div style={{ color: '#2C3E50' }}>{Math.round(latestVital?.moistureLevel || 0)}%</div>
+                    </div>
+                  </div>
+
+                  {/* Alerts and Acknowledge Button */}
+                  {(patientAlerts.length > 0 || deviceOffline) && (
+                    <div className="flex items-center justify-between gap-1 pt-1">
+                      <Badge className={isAlarming ? 'bg-[#E74C3C] text-white' : 'bg-[#F39C12] text-white'} style={{ fontSize: '10px' }}>
+                        {deviceOffline ? 'Device Offline' : `${patientAlerts.length} Alert${patientAlerts.length > 1 ? 's' : ''}`}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-xs px-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Silence the alarm for this patient
+                          setSilencedPatients(prev => new Set(prev).add(patient.id));
+                          // Acknowledge alerts
+                          setAlerts(prev => prev.map(alert =>
+                            alert.patientId === patient.id && !alert.acknowledged
+                              ? { ...alert, acknowledged: true, acknowledgedBy: user?.id, acknowledgedAt: new Date() }
+                              : alert
+                          ));
+                          toast.success('Alerts acknowledged and alarm silenced');
+                        }}
+                      >
+                        <Check className="w-3 h-3 mr-1" />
+                        ACK
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          });
+        })()}
+      </div>
+
+
 
       {/* Alerts Section */}
       <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
@@ -446,7 +677,7 @@ export const MedicalStaffDashboard: React.FC = () => {
 
   // Add New Patient (with proper spacing)
   const renderAddPatient = () => (
-    <div className="max-w-2xl">
+    <div className="space-y-6">
       <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
         <CardHeader>
           <CardTitle style={{ color: '#2C3E50' }}>Patient Enrollment</CardTitle>
@@ -568,6 +799,15 @@ export const MedicalStaffDashboard: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Doctor's Orders Module */}
+      {newPatientForm.name && (
+        <DoctorsOrders
+          patientName={newPatientForm.name}
+          onSave={(data) => setDoctorsOrdersData(data)}
+          initialData={doctorsOrdersData || undefined}
+        />
+      )}
     </div>
   );
 
@@ -597,66 +837,275 @@ export const MedicalStaffDashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredPatients.map(patient => {
-            const caregiver = mockUsers.find(u => u.id === patient.caregiverId);
-            const patientAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
-            const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
-            const latestVital = vitals[vitals.length - 1];
-            
-            return (
-              <Card 
-                key={patient.id}
-                className="border-0 cursor-pointer hover:shadow-lg transition-all"
-                style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}
-                onClick={() => {
-                  setSelectedPatient(patient);
-                  setDetailView('detail');
-                }}
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-base" style={{ color: '#2C3E50' }}>{patient.name}</CardTitle>
-                      <CardDescription>{patient.age} years old</CardDescription>
+        <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+          <CardHeader>
+            <CardTitle style={{ color: '#2C3E50' }}>Master Patient List</CardTitle>
+            <CardDescription>Detailed patient monitoring with vital signs</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {filteredPatients.map(patient => {
+                const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
+                const latestVital = vitals[vitals.length - 1];
+                const caregiver = mockUsers.find(u => u.id === patient.caregiverId);
+                
+                return (
+                  <div 
+                    key={patient.id}
+                    className="p-4 rounded-lg border hover:shadow-md transition-all cursor-pointer"
+                    style={{ backgroundColor: '#FAFAFA' }}
+                    onClick={() => {
+                      setSelectedPatient(patient);
+                      setDetailView('detail');
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${patient.deviceConnected ? 'bg-[#2ECC71] animate-pulse' : 'bg-[#E74C3C]'}`} />
+                        <div>
+                          <h4 style={{ color: '#2C3E50' }}>{patient.name}</h4>
+                          <p className="text-xs" style={{ color: '#7F8C8D' }}>
+                            {patient.age} years • {caregiver?.name || 'Unassigned'}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge className={patient.deviceConnected ? 'bg-[#2ECC71] text-white' : 'bg-[#E74C3C] text-white'}>
+                        {patient.deviceConnected ? 'Online' : 'Offline'}
+                      </Badge>
                     </div>
-                    <div className={`w-3 h-3 rounded-full ${patient.deviceConnected ? 'bg-[#2ECC71]' : 'bg-[#E74C3C]'}`} />
+                    
+                    <div className="grid grid-cols-4 gap-3">
+                      <div className="text-center p-2 rounded bg-white">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Heart className="w-3 h-3" style={{ color: '#E74C3C' }} />
+                          <p className="text-xs" style={{ color: '#7F8C8D' }}>HR</p>
+                        </div>
+                        <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.heartRate || patient.baselineVitals.heartRate)}</p>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>bpm</p>
+                      </div>
+                      
+                      <div className="text-center p-2 rounded bg-white">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Thermometer className="w-3 h-3" style={{ color: '#F39C12' }} />
+                          <p className="text-xs" style={{ color: '#7F8C8D' }}>Temp</p>
+                        </div>
+                        <p className="text-lg" style={{ color: '#2C3E50' }}>{(latestVital?.temperature || patient.baselineVitals.temperature).toFixed(1)}</p>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>°C</p>
+                      </div>
+                      
+                      <div className="text-center p-2 rounded bg-white">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Activity className="w-3 h-3" style={{ color: '#3498DB' }} />
+                          <p className="text-xs" style={{ color: '#7F8C8D' }}>SpO₂</p>
+                        </div>
+                        <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.spo2 || patient.baselineVitals.spo2)}</p>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>%</p>
+                      </div>
+                      
+                      <div className="text-center p-2 rounded bg-white">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Droplets className="w-3 h-3" style={{ color: '#7DD3C0' }} />
+                          <p className="text-xs" style={{ color: '#7F8C8D' }}>Moisture</p>
+                        </div>
+                        <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.moistureLevel || 0)}</p>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>%</p>
+                      </div>
+                    </div>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div>
-                    <p className="text-xs mb-1" style={{ color: '#7F8C8D' }}>Assigned Caregiver</p>
-                    <p className="text-sm" style={{ color: '#2C3E50' }}>
-                      {caregiver?.name || 'Unassigned'}
-                    </p>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // Archived Patients
+  const renderArchived = () => {
+    const archivedPatients = patients.filter(p => p.archived && !p.deleted);
+    
+    const handleRestore = (patientId: string) => {
+      setPatients(prev => prev.map(p =>
+        p.id === patientId ? { ...p, archived: false, archivedAt: undefined } : p
+      ));
+      toast.success('Patient restored from archive');
+    };
+
+    const handlePermanentDelete = (patientId: string) => {
+      if (confirm('Are you sure you want to permanently delete this patient? This action cannot be undone.')) {
+        setPatients(prev => prev.filter(p => p.id !== patientId));
+        toast.success('Patient permanently deleted');
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2" style={{ color: '#2C3E50' }}>
+              <Archive className="w-5 h-5" />
+              Archived Patients
+            </CardTitle>
+            <CardDescription>Patients that have been archived</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {archivedPatients.length === 0 ? (
+              <p className="text-center py-8" style={{ color: '#7F8C8D' }}>No archived patients</p>
+            ) : (
+              <div className="space-y-3">
+                {archivedPatients.map(patient => (
+                  <div 
+                    key={patient.id}
+                    className="p-4 rounded-lg border"
+                    style={{ backgroundColor: '#FAFAFA' }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 style={{ color: '#2C3E50' }}>{patient.name}</h4>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>
+                          Archived on: {patient.archivedAt ? new Date(patient.archivedAt).toLocaleDateString() : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRestore(patient.id)}
+                        >
+                          <RotateCcw className="w-4 h-4 mr-1" />
+                          Restore
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handlePermanentDelete(patient.id)}
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs mb-1" style={{ color: '#7F8C8D' }}>Device ID</p>
-                    <p className="text-sm" style={{ color: '#2C3E50' }}>{patient.deviceId}</p>
-                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // Trash (Deleted Patients)
+  const renderTrash = () => {
+    const deletedPatients = patients.filter(p => p.deleted);
+    
+    const handleRestore = (patientId: string) => {
+      setPatients(prev => prev.map(p =>
+        p.id === patientId ? { ...p, deleted: false, deletedAt: undefined } : p
+      ));
+      toast.success('Patient restored from trash');
+    };
+
+    const handlePermanentDelete = (patientId: string) => {
+      if (confirm('Are you sure you want to permanently delete this patient? This action cannot be undone.')) {
+        setPatients(prev => prev.filter(p => p.id !== patientId));
+        toast.success('Patient permanently deleted');
+      }
+    };
+
+    const getAutoDeleteDays = () => {
+      const periods = {
+        '1week': 7,
+        '1month': 30,
+        '3months': 90,
+        '6months': 180,
+        '1year': 365
+      };
+      return periods[autoDeletePeriod];
+    };
+
+    return (
+      <div className="space-y-6">
+        <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2" style={{ color: '#2C3E50' }}>
+                  <Trash2 className="w-5 h-5" />
+                  Trash
+                </CardTitle>
+                <CardDescription>Deleted patients (auto-delete after selected period)</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm" style={{ color: '#7F8C8D' }}>Auto-delete after:</Label>
+                <Select value={autoDeletePeriod} onValueChange={(val: any) => setAutoDeletePeriod(val)}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1week">1 Week</SelectItem>
+                    <SelectItem value="1month">1 Month</SelectItem>
+                    <SelectItem value="3months">3 Months</SelectItem>
+                    <SelectItem value="6months">6 Months</SelectItem>
+                    <SelectItem value="1year">1 Year</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {deletedPatients.length === 0 ? (
+              <p className="text-center py-8" style={{ color: '#7F8C8D' }}>Trash is empty</p>
+            ) : (
+              <div className="space-y-3">
+                {deletedPatients.map(patient => {
+                  const daysLeft = patient.deletedAt 
+                    ? Math.max(0, getAutoDeleteDays() - Math.floor((Date.now() - new Date(patient.deletedAt).getTime()) / (1000 * 60 * 60 * 24)))
+                    : getAutoDeleteDays();
                   
-                  {/* Quick Overview */}
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t">
-                    <div>
-                      <p className="text-xs" style={{ color: '#7F8C8D' }}>HR</p>
-                      <p className="text-sm" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.heartRate || patient.baselineVitals.heartRate)} bpm</p>
+                  return (
+                    <div 
+                      key={patient.id}
+                      className="p-4 rounded-lg border"
+                      style={{ backgroundColor: '#FEF2F2' }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 style={{ color: '#2C3E50' }}>{patient.name}</h4>
+                          <p className="text-xs" style={{ color: '#7F8C8D' }}>
+                            Deleted on: {patient.deletedAt ? new Date(patient.deletedAt).toLocaleDateString() : 'N/A'}
+                          </p>
+                          <p className="text-xs" style={{ color: '#E74C3C' }}>
+                            Auto-delete in {daysLeft} days
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRestore(patient.id)}
+                          >
+                            <RotateCcw className="w-4 h-4 mr-1" />
+                            Restore
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handlePermanentDelete(patient.id)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            Delete Now
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs" style={{ color: '#7F8C8D' }}>Temp</p>
-                      <p className="text-sm" style={{ color: '#2C3E50' }}>{(latestVital?.temperature || patient.baselineVitals.temperature).toFixed(1)}°C</p>
-                    </div>
-                  </div>
-                  
-                  {patientAlerts.length > 0 && (
-                    <Badge className="bg-[#E74C3C] text-white">
-                      {patientAlerts.length} Alert{patientAlerts.length > 1 ? 's' : ''}
-                    </Badge>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   };
@@ -1223,6 +1672,152 @@ export const MedicalStaffDashboard: React.FC = () => {
       </Card>
     </div>
   );
+
+  // Alerts Only (No Patient Overview)
+  const renderAlerts = () => {
+    const unacknowledgedAlerts = alerts.filter(a => !a.acknowledged);
+    
+    return (
+      <div className="space-y-6">
+        <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle style={{ color: '#2C3E50' }}>Active Alerts</CardTitle>
+                <CardDescription>Current system notifications requiring attention</CardDescription>
+              </div>
+              <Badge className="bg-[#E74C3C] text-white">
+                {unacknowledgedAlerts.length} Unacknowledged
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {unacknowledgedAlerts.length === 0 ? (
+                <div className="text-center py-12" style={{ color: '#7F8C8D' }}>
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>No active alerts</p>
+                </div>
+              ) : (
+                unacknowledgedAlerts.map(alert => {
+                  const patient = patients.find(p => p.id === alert.patientId);
+                  const Icon = getAlertIcon(alert.type);
+                  
+                  return (
+                    <div 
+                      key={alert.id} 
+                      className="p-4 rounded-lg border-l-4" 
+                      style={{ 
+                        borderLeftColor: alert.severity === 'critical' ? '#E74C3C' : '#F39C12',
+                        backgroundColor: '#FAFAFA'
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Icon className="w-5 h-5 mt-0.5" style={{ color: alert.severity === 'critical' ? '#E74C3C' : '#F39C12' }} />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p style={{ color: '#2C3E50' }}>{patient?.name}: {alert.title}</p>
+                            <Badge className={getSeverityBadge(alert.severity)}>{alert.severity.toUpperCase()}</Badge>
+                          </div>
+                          <p className="text-sm mb-2" style={{ color: '#7F8C8D' }}>{alert.message}</p>
+                          <div className="flex items-center gap-1 text-xs" style={{ color: '#7F8C8D' }}>
+                            <Clock className="w-3 h-3" />
+                            <span>{formatTimestamp(alert.timestamp)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // Reports Only
+  const renderReports = () => {
+    const acknowledgedAlerts = alerts.filter(a => a.acknowledged);
+    
+    return (
+      <div className="space-y-6">
+        <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+          <CardHeader>
+            <CardTitle style={{ color: '#2C3E50' }}>Alert History & Reports</CardTitle>
+            <CardDescription>Archived alerts and system reports</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {acknowledgedAlerts.slice(0, 20).map(alert => {
+                const patient = patients.find(p => p.id === alert.patientId);
+                
+                return (
+                  <div key={alert.id} className="p-3 rounded-lg bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm" style={{ color: '#2C3E50' }}>
+                          {patient?.name} - {alert.title}
+                        </p>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>
+                          {new Date(alert.timestamp).toLocaleString()}
+                          {alert.acknowledgedAt && (
+                            <span className="ml-2 text-green-600">
+                              ✓ Acknowledged: {new Date(alert.acknowledgedAt).toLocaleString()}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <Badge className={getSeverityBadge(alert.severity)}>
+                        {alert.severity}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
+          <CardHeader>
+            <CardTitle style={{ color: '#2C3E50' }}>Assignment History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {assignments.map(assignment => {
+                const patient = patients.find(p => p.id === assignment.patientId);
+                const caregiver = mockUsers.find(u => u.id === assignment.caregiverId);
+                
+                return (
+                  <div key={assignment.id} className="p-3 rounded-lg bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm" style={{ color: '#2C3E50' }}>
+                          {caregiver?.name} {assignment.status === 'rejected' ? 'rejected' : assignment.status === 'accepted' ? 'accepted' : 'pending'} {patient?.name}
+                        </p>
+                        <p className="text-xs" style={{ color: '#7F8C8D' }}>
+                          {new Date(assignment.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                      <Badge className={
+                        assignment.status === 'accepted' ? 'bg-[#2ECC71] text-white' :
+                        assignment.status === 'pending' ? 'bg-[#F39C12] text-white' :
+                        'bg-[#E74C3C] text-white'
+                      }>
+                        {assignment.status}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
 
   // Sensor Health
   const renderSensorHealth = () => (

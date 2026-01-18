@@ -14,7 +14,11 @@ import {
   UserPlus,
   TrendingUp,
   ClipboardList,
-  Cpu
+  Cpu,
+  Megaphone,
+  AlertCircle,
+  Archive,
+  Trash2
 } from 'lucide-react';
 
 interface DashboardSidebarProps {
@@ -27,22 +31,30 @@ const caregiverMenuItems = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { id: 'my-patients', icon: Users, label: 'My Patients' },
   { id: 'add-patient', icon: UserPlus, label: 'Add A New Patient' },
-  { id: 'alerts-reports', icon: Bell, label: 'Alerts & Reports' },
+  { id: 'bulletin', icon: Megaphone, label: 'Bulletin Board' },
+  { id: 'alerts', icon: Bell, label: 'Alerts' },
+  { id: 'reports', icon: FileText, label: 'Reports' },
   { id: 'analytics', icon: BarChart3, label: 'Analytics' },
   { id: 'vital-signs', icon: Heart, label: 'Vital Signs' },
   { id: 'device-status', icon: Wifi, label: 'Device Status' },
+  { id: 'archived', icon: Archive, label: 'Archived' },
+  { id: 'trash', icon: Trash2, label: 'Trash' },
   { id: 'settings', icon: Settings, label: 'Settings' },
   { id: 'profile', icon: User, label: 'Profile' },
 ];
 
 const medicalStaffMenuItems = [
-  { id: 'dashboard', icon: LayoutDashboard, label: 'Main Dashboard' },
+  { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { id: 'add-patient', icon: UserPlus, label: 'Add New Patient' },
   { id: 'master-list', icon: List, label: 'Master Patient List' },
-  { id: 'analytics-reports', icon: FileText, label: 'Analytics & Reports' },
+  { id: 'bulletin', icon: Megaphone, label: 'Bulletin Board' },
+  { id: 'alerts', icon: AlertCircle, label: 'Alerts' },
+  { id: 'reports', icon: FileText, label: 'Reports' },
   { id: 'health-trends', icon: TrendingUp, label: 'Health Trends' },
   { id: 'activity-logs', icon: ClipboardList, label: 'Activity & Logs' },
   { id: 'sensor-health', icon: Cpu, label: 'Sensor Health' },
+  { id: 'archived', icon: Archive, label: 'Archived' },
+  { id: 'trash', icon: Trash2, label: 'Trash' },
   { id: 'system-settings', icon: Settings, label: 'System Settings' },
   { id: 'profile', icon: User, label: 'Profile' },
 ];

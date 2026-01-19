@@ -1,52 +1,101 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from '../types';
-import { mockUsers } from './mock-data';
+
+// Define the User Shape based on your Database
+interface User {
+  user_id: number;
+  username: string;
+  email: string;
+  role: 'admin' | 'medical_staff' | 'caregiver';
+  account_status: string;
+}
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  // [Fix] Added isAuthenticated back so App.tsx works
   isAuthenticated: boolean;
+  login: (usernameOrEmail: string, password: string) => Promise<{ success: boolean; user?: User; message?: string }>;
+  logout: () => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
+  // 1. Check for existing token on app load (Auto-Login)
   useEffect(() => {
-    // Check if user is stored in localStorage
-    const storedUser = localStorage.getItem('alaga_user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Failed to parse stored user:', error);
-        localStorage.removeItem('alaga_user');
+    const checkLogin = () => {
+      const token = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
+      
+      if (token && storedUser) {
+        try {
+          setUser(JSON.parse(storedUser));
+        } catch (e) {
+          console.error("Failed to parse stored user", e);
+          localStorage.clear();
+        }
       }
-    }
+      setIsLoading(false);
+    };
+    checkLogin();
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock authentication - in production, this would call your API
-    const foundUser = mockUsers.find(u => u.email === email);
+  // 2. REAL Login Function (Connected to Backend)
+  const login = async (usernameOrEmail: string, password: string) => {
+    console.log("🔵 AuthContext: Initiating Login for:", usernameOrEmail);
     
-    if (foundUser && password.length >= 8) {
-      setUser(foundUser);
-      localStorage.setItem('alaga_user', JSON.stringify(foundUser));
-      return true;
+    try {
+      // [API CALL] Talking to your actual backend
+      const response = await fetch('http://localhost:3000/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            username: usernameOrEmail, 
+            password 
+        }),
+      });
+
+      const data = await response.json();
+      console.log("🟢 AuthContext: Server Response:", data);
+
+      if (response.ok && data.success) {
+        // [SUCCESS] Save Data & Update State
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setUser(data.user);
+        return { success: true, user: data.user };
+      } else {
+        // [FAILURE] Return server message
+        return { success: false, message: data.message || "Login failed" };
+      }
+
+    } catch (error) {
+      console.error("🔴 AuthContext: Network Error:", error);
+      return { success: false, message: "Server connection failed. Is the backend running?" };
     }
-    
-    return false;
   };
 
   const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
-    localStorage.removeItem('alaga_user');
+    window.location.href = '/login'; 
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ 
+        user, 
+        login, 
+        logout, 
+        isLoading,
+        // [Fix] Derived state for App.tsx
+        isAuthenticated: !!user 
+    }}>
       {children}
     </AuthContext.Provider>
   );

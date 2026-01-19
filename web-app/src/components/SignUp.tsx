@@ -4,16 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Textarea } from './ui/textarea';
-import { Activity, Upload, Eye, EyeOff, Check, ArrowLeft } from 'lucide-react';
+import { Activity, Eye, EyeOff, Check, ArrowLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const SignUp: React.FC = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState<'role-select' | 'form'>('role-select');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'medical_staff' | 'caregiver' | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     // Section 1: Common Fields
@@ -23,23 +23,10 @@ export const SignUp: React.FC = () => {
     email: '',
     username: '',
     password: '',
+    confirmPassword: '', 
     mobileNumber: '',
     
-    // Section 2: Medical Staff Fields
-    professionalTitle: '',
-    licenseNumber: '',
-    practiceType: '',
-    practiceAddress: '',
-    idDocument: null as File | null,
-    soloPractitioner: false,
-    
-    // Section 2: Caregiver Fields
-    relationshipToPatient: '',
-    primaryWorkArea: '',
-    yearsExperience: '',
-    workShift: '',
-    notificationStyle: [] as string[],
-    caregiverIdDocument: null as File | null,
+    // [Cleaned] Removed unused Section 2 fields from state to avoid confusion
   });
 
   const handleRoleSelect = (role: 'medical_staff' | 'caregiver') => {
@@ -48,26 +35,19 @@ export const SignUp: React.FC = () => {
   };
 
   const handleInputChange = (field: string, value: any) => {
+    if (field === 'mobileNumber') {
+        if (!/^\d*$/.test(value)) return;
+        if (value.length > 11) return;
+    }
+    if (field === 'middleInitial' && value.length > 2) return;
+
     setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleNotificationToggle = (style: string) => {
-    setFormData(prev => ({
-      ...prev,
-      notificationStyle: prev.notificationStyle.includes(style)
-        ? prev.notificationStyle.filter(s => s !== style)
-        : [...prev.notificationStyle, style]
-    }));
-  };
-
-  const handleFileUpload = (field: string, file: File | null) => {
-    setFormData(prev => ({ ...prev, [field]: file }));
   };
 
   const validateForm = () => {
     // Section 1 Validation
     if (!formData.firstName || !formData.lastName || !formData.email || 
-        !formData.username || !formData.password || !formData.mobileNumber) {
+        !formData.password || !formData.mobileNumber) {
       toast.error('Please fill all required fields');
       return false;
     }
@@ -77,149 +57,69 @@ export const SignUp: React.FC = () => {
       return false;
     }
 
-    // [Compliance] DPA: Ensure accurate contact info for medical alerts
-    if (!formData.mobileNumber.match(/^\+63\s?\d{3}\s?\d{3}\s?\d{4}$/)) {
-      toast.error('Invalid mobile number format. Use: +63 XXX XXX XXXX');
+    if (formData.password !== formData.confirmPassword) {
+      toast.error('Passwords do not match');
       return false;
     }
 
-    // Role-specific validation
-    if (selectedRole === 'medical_staff') {
-      if (!formData.professionalTitle || !formData.licenseNumber || 
-          !formData.practiceType || !formData.practiceAddress || !formData.idDocument) {
-        toast.error('Please fill all medical staff required fields');
-        return false;
-      }
+    if (formData.mobileNumber.length !== 11) {
+      toast.error('Mobile number must be 11 digits (e.g. 09xxxxxxxxx)');
+      return false;
     }
 
-    if (selectedRole === 'caregiver') {
-      if (!formData.relationshipToPatient || !formData.primaryWorkArea || 
-          !formData.yearsExperience || !formData.workShift || !formData.caregiverIdDocument) {
-        toast.error('Please fill all caregiver required fields');
-        return false;
-      }
-    }
+    // [FIX] REMOVED the Medical Staff specific validation block here.
+    // Since you removed the inputs from the UI, we should not check them anymore.
 
     return true;
   };
 
-  // --- SECURE COMMERCIAL-GRADE SUBMIT LOGIC ---
   const handleSubmit = async () => {
     if (!validateForm()) return;
-    
-    const loadingToast = toast.loading('Creating your secure account...');
-    // [Security] Whitelist: Ensure role is strictly lowercase for backend validation
-    const dbRole = selectedRole === 'medical_staff' ? 'medical_staff' : 'caregiver';
+    setIsLoading(true);
 
     try {
-      // =========================================================
-      // STEP 1: CREATE BASE ACCOUNT (The "Identity")
-      // =========================================================
-      const signupResponse = await fetch('http://localhost:3000/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: formData.username,
-          email: formData.email,
-          password: formData.password,
-          role: dbRole, 
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-          mobile_number: formData.mobileNumber,
-          middle_initial: formData.middleInitial 
-        })
-      });
-
-      const signupData = await signupResponse.json();
-
-      // [FIX] Smart Error Parsing for OWASP Security Responses
-      if (!signupResponse.ok) {
-        if (signupData.errors && Array.isArray(signupData.errors)) {
-          // Backend sent a list of security issues (e.g. "Password too weak")
-          throw new Error(signupData.errors[0].msg);
-        } else {
-          // Backend sent a generic error
-          throw new Error(signupData.message || 'Registration failed');
-        }
-      }
-
-      const newUserId = signupData.user.user_id; // Capture the new ID
-      toast.dismiss(loadingToast);
-      toast.info('Account created! Saving professional profile...');
-
-      // =========================================================
-      // STEP 2: CREATE PROFESSIONAL PROFILE (The "Context")
-      // =========================================================
-      // NOTE: You must update backend/index.js to support these routes!
-      let profileUrl = '';
-      let profileBody = {};
-
-      if (selectedRole === 'medical_staff') {
-        profileUrl = 'http://localhost:3000/api/auth/profile/medical';
-        profileBody = {
-          user_id: newUserId,
-          license_number: formData.licenseNumber,
-          specialization: formData.professionalTitle, 
-          hospital_affiliation: formData.practiceAddress,
-          practice_type: formData.practiceType,
-          is_solo_practitioner: formData.soloPractitioner
+        const payload = {
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            middle_initial: formData.middleInitial,
+            username: formData.username,
+            email: formData.email,
+            password: formData.password,
+            mobile_number: formData.mobileNumber,
+            role: selectedRole
         };
-      } else {
-        profileUrl = 'http://localhost:3000/api/auth/profile/caregiver';
-        profileBody = {
-          user_id: newUserId,
-          caregiver_type: formData.relationshipToPatient,
-          years_experience: parseInt(formData.yearsExperience) || 0,
-          agency_name: formData.primaryWorkArea,
-          work_shift: formData.workShift,
-          notification_preferences: formData.notificationStyle
-        };
-      }
 
-      const profileResponse = await fetch(profileUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profileBody)
-      });
-
-      if (!profileResponse.ok) {
-        console.warn("Profile creation failed, but user exists."); 
-        // We don't throw here to ensure we try uploading the document
-      }
-
-      // =========================================================
-      // STEP 3: UPLOAD VERIFICATION DOC (The "Proof")
-      // =========================================================
-      toast.info('Uploading verification documents...');
-      
-      const documentFile = selectedRole === 'medical_staff' 
-        ? formData.idDocument 
-        : formData.caregiverIdDocument;
-
-      if (documentFile) {
-        const formDataUpload = new FormData();
-        formDataUpload.append('user_id', newUserId);
-        formDataUpload.append('document_type', selectedRole === 'medical_staff' ? 'medical_license' : 'government_id'); // [Fix] Match backend whitelist
-        formDataUpload.append('document_file', documentFile); 
-
-        await fetch('http://localhost:3000/api/auth/upload-document', {
-          method: 'POST',
-          body: formDataUpload 
+        const response = await fetch('http://localhost:3000/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-      }
 
-      // =========================================================
-      // SUCCESS!
-      // =========================================================
-      toast.dismiss();
-      toast.success('Registration Complete! Please login.');
-      navigate('/login');
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Registration failed');
+        }
+
+        toast.success('Account created successfully!');
+
+        if (data.token) {
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            
+            if (selectedRole === 'caregiver') {
+                navigate('/dashboard/caregiver');
+            } else {
+                navigate('/dashboard/medical'); 
+            }
+        } else {
+            navigate('/login');
+        }
 
     } catch (error: any) {
-      toast.dismiss();
-      console.error('Signup Error:', error);
-      // [UX] Show the specific message (e.g., "Password must contain...")
-      toast.error(error.message || 'Registration failed. Is the server running?');
+        toast.error(error.message || 'Server connection failed');
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -375,7 +275,7 @@ export const SignUp: React.FC = () => {
                   <Label>M.I.</Label>
                   <Input
                     placeholder="M.I."
-                    maxLength={1}
+                    maxLength={2}
                     value={formData.middleInitial}
                     onChange={(e) => handleInputChange('middleInitial', e.target.value.toUpperCase())}
                   />
@@ -402,7 +302,7 @@ export const SignUp: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>Username *</Label>
+                <Label>Username (Optional)</Label>
                 <Input
                   placeholder="Choose a unique username"
                   value={formData.username}
@@ -411,276 +311,58 @@ export const SignUp: React.FC = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>Password *</Label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Minimum 8 characters with symbols/numbers"
-                    value={formData.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4 text-gray-400" />
-                    ) : (
-                      <Eye className="w-4 h-4 text-gray-400" />
-                    )}
-                  </button>
-                </div>
-                {formData.password && formData.password.length < 8 && (
-                  <p className="text-xs text-red-600">Password must be at least 8 characters</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
                 <Label>Mobile Number *</Label>
                 <Input
-                  placeholder="+63 XXX XXX XXXX"
+                  placeholder="09xxxxxxxxx"
+                  maxLength={11}
                   value={formData.mobileNumber}
                   onChange={(e) => handleInputChange('mobileNumber', e.target.value)}
                 />
                 <p className="text-xs" style={{ color: '#7F8C8D' }}>
-                  Required for urgent medical SMS alerts
+                  Must be 11 digits (e.g., 09171234567)
                 </p>
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label>Password *</Label>
+                    <div className="relative">
+                    <Input
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Min 8 chars"
+                        value={formData.password}
+                        onChange={(e) => handleInputChange('password', e.target.value)}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                    >
+                        {showPassword ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                    </button>
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <Label>Confirm Password *</Label>
+                    <div className="relative">
+                    <Input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        placeholder="Re-enter password"
+                        value={formData.confirmPassword}
+                        onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                        className={formData.confirmPassword && formData.password !== formData.confirmPassword ? "border-red-500" : ""}
+                    />
+                     <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                    >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                    </button>
+                    </div>
+                </div>
+              </div>
             </div>
-
-            {/* Section 2: Role-Specific Fields */}
-            {selectedRole === 'medical_staff' && (
-              <div className="space-y-6">
-                <div className="pb-2 border-b">
-                  <h3 className="text-lg" style={{ color: '#2C3E50' }}>Section 2: Professional Information</h3>
-                  <p className="text-sm" style={{ color: '#7F8C8D' }}>Medical staff credentials</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Professional Title *</Label>
-                  <Select value={formData.professionalTitle} onValueChange={(v) => handleInputChange('professionalTitle', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your title" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="private_physician">Private Physician</SelectItem>
-                      <SelectItem value="independent_nurse">Independent Nurse</SelectItem>
-                      <SelectItem value="consultant">Consultant</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Medical License Number *</Label>
-                  <Input
-                    placeholder="e.g., PRC License or Board ID"
-                    value={formData.licenseNumber}
-                    onChange={(e) => handleInputChange('licenseNumber', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Type of Practice *</Label>
-                  <Select value={formData.practiceType} onValueChange={(v) => handleInputChange('practiceType', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select practice type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="solo">Solo/Private Practice</SelectItem>
-                      <SelectItem value="clinic">Clinic-Affiliated</SelectItem>
-                      <SelectItem value="home_health">Independent Home-Health</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Practice/Office Address *</Label>
-                  <Textarea
-                    placeholder="Physical location of your medical services"
-                    value={formData.practiceAddress}
-                    onChange={(e) => handleInputChange('practiceAddress', e.target.value)}
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Identity Verification *</Label>
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center" style={{ borderColor: '#E8F6F3' }}>
-                    <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: '#7DD3C0' }} />
-                    <p className="text-sm mb-2" style={{ color: '#2C3E50' }}>
-                      {formData.idDocument ? formData.idDocument.name : 'Upload Professional ID/License'}
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => handleFileUpload('idDocument', e.target.files?.[0] || null)}
-                      className="hidden"
-                      id="med-id-upload"
-                    />
-                    <label htmlFor="med-id-upload">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => document.getElementById('med-id-upload')?.click()}
-                      >
-                        Choose File
-                      </Button>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="solo-practitioner"
-                    checked={formData.soloPractitioner}
-                    onChange={(e) => handleInputChange('soloPractitioner', e.target.checked)}
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: '#7DD3C0' }}
-                  />
-                  <label htmlFor="solo-practitioner" className="text-sm" style={{ color: '#2C3E50' }}>
-                    I am operating independently without a company/facility
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {selectedRole === 'caregiver' && (
-              <div className="space-y-6">
-                <div className="pb-2 border-b">
-                  <h3 className="text-lg" style={{ color: '#2C3E50' }}>Section 2: Caregiver Information</h3>
-                  <p className="text-sm" style={{ color: '#7F8C8D' }}>Your caregiving details</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Relationship to Patient *</Label>
-                  <Select value={formData.relationshipToPatient} onValueChange={(v) => handleInputChange('relationshipToPatient', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select relationship" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="parent">Parent</SelectItem>
-                      <SelectItem value="spouse">Spouse</SelectItem>
-                      <SelectItem value="child">Child</SelectItem>
-                      <SelectItem value="sibling">Sibling</SelectItem>
-                      <SelectItem value="hired_help">Private Hired Help</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Primary Work Area *</Label>
-                  <Input
-                    placeholder="e.g., Home Address, Room Number, or Specific Residence"
-                    value={formData.primaryWorkArea}
-                    onChange={(e) => handleInputChange('primaryWorkArea', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Years of Experience *</Label>
-                  <Input
-                    type="number"
-                    placeholder="Number of years in caregiving role"
-                    value={formData.yearsExperience}
-                    onChange={(e) => handleInputChange('yearsExperience', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Primary Work Shift *</Label>
-                  <Select value={formData.workShift} onValueChange={(v) => handleInputChange('workShift', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select shift" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="morning">Morning</SelectItem>
-                      <SelectItem value="afternoon">Afternoon</SelectItem>
-                      <SelectItem value="night">Night</SelectItem>
-                      <SelectItem value="24_7">24/7 Live-in</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Notification Style *</Label>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="notif-alarm"
-                        checked={formData.notificationStyle.includes('alarm')}
-                        onChange={() => handleNotificationToggle('alarm')}
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: '#7DD3C0' }}
-                      />
-                      <label htmlFor="notif-alarm" className="text-sm" style={{ color: '#2C3E50' }}>
-                        High-Volume Alarm
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="notif-push"
-                        checked={formData.notificationStyle.includes('push')}
-                        onChange={() => handleNotificationToggle('push')}
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: '#7DD3C0' }}
-                      />
-                      <label htmlFor="notif-push" className="text-sm" style={{ color: '#2C3E50' }}>
-                        Silent Push Notification
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="notif-sms"
-                        checked={formData.notificationStyle.includes('sms')}
-                        onChange={() => handleNotificationToggle('sms')}
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: '#7DD3C0' }}
-                      />
-                      <label htmlFor="notif-sms" className="text-sm" style={{ color: '#2C3E50' }}>
-                        SMS Only
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Identity Verification *</Label>
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center" style={{ borderColor: '#E8F6F3' }}>
-                    <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: '#7DD3C0' }} />
-                    <p className="text-sm mb-2" style={{ color: '#2C3E50' }}>
-                      {formData.caregiverIdDocument ? formData.caregiverIdDocument.name : 'Upload ID Document'}
-                    </p>
-                    <p className="text-xs mb-3" style={{ color: '#7F8C8D' }}>
-                      Caregiver ID, Facility ID, or Government ID
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => handleFileUpload('caregiverIdDocument', e.target.files?.[0] || null)}
-                      className="hidden"
-                      id="caregiver-id-upload"
-                    />
-                    <label htmlFor="caregiver-id-upload">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => document.getElementById('caregiver-id-upload')?.click()}
-                      >
-                        Choose File
-                      </Button>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Submit Button */}
             <div className="pt-6">
@@ -688,9 +370,14 @@ export const SignUp: React.FC = () => {
                 onClick={handleSubmit}
                 className="w-full text-white"
                 style={{ backgroundColor: '#7DD3C0' }}
+                disabled={isLoading}
               >
-                <Check className="w-4 h-4 mr-2" />
-                Register Account
+                {isLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                    <Check className="w-4 h-4 mr-2" />
+                )}
+                {isLoading ? "Registering..." : "Register Account"}
               </Button>
             </div>
 
@@ -705,3 +392,5 @@ export const SignUp: React.FC = () => {
 
   return step === 'role-select' ? renderRoleSelection() : renderForm();
 };
+
+export default SignUp;

@@ -32,35 +32,27 @@ export const LoginPage: React.FC = () => {
         const user = response.user;
 
         // [Security Control] BLOCK Unverified Users
-        if (user.account_status === 'Pending_Review') {
+        if (user?.account_status === 'Pending_Review') {
           setError('Your account is currently under review by the Administrator. Please wait for approval.');
+          setLoading(false);
           return; // Stop here, don't navigate
         }
 
-        if (user.account_status === 'Suspended') {
+        if (user?.account_status === 'Suspended') {
           setError('Your account has been suspended. Contact support.');
+          setLoading(false);
           return;
         }
 
-        toast.success(`Welcome back, ${user.username}!`);
+        toast.success(`Welcome back, ${user?.username}!`);
         
-        // [UX] Role-Based Redirection
-        switch (user.role.toLowerCase()) {
-          case 'medical_staff':
-            navigate('/dashboard/medical');
-            break;
-          case 'caregiver':
-            navigate('/dashboard/caregiver');
-            break;
-          case 'admin':
-            navigate('/admin');
-            break;
-          default:
-            navigate('/dashboard');
-        }
+        // [FIX] Simplify Navigation - Let App.tsx handle role routing
+        navigate('/dashboard'); 
+
       } else {
         // Handle case where login returns false/null but no error threw
-        setError('Invalid credentials.');
+        setError(response.message || 'Invalid credentials.');
+        setLoading(false);
       }
 
     } catch (err: any) {
@@ -70,11 +62,12 @@ export const LoginPage: React.FC = () => {
       } else {
         setError('Invalid username or password.');
       }
-    } finally {
-      // [CRITICAL FIX] ALWAYS turn off the loading spinner
       setLoading(false);
     }
+    // Note: We intentionally DO NOT set loading(false) on success 
+    // so the spinner stays visible until the page actually changes.
   };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#F0FAF9' }}>
       <div className="w-full max-w-md">
@@ -107,6 +100,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setUsername(e.target.value)}
                   required
                   className="bg-gray-50"
+                  disabled={loading}
                 />
               </div>
               
@@ -123,6 +117,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   className="bg-gray-50"
+                  disabled={loading}
                 />
               </div>
 
@@ -149,6 +144,10 @@ export const LoginPage: React.FC = () => {
                     href="/signup" 
                     className="font-medium hover:underline"
                     style={{ color: '#7DD3C0' }}
+                    onClick={(e) => {
+                        e.preventDefault();
+                        navigate('/signup');
+                    }}
                   >
                     Register here
                   </a>

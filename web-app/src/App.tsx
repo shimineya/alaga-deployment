@@ -9,6 +9,17 @@ import { CaregiverDashboardNew } from './components/CaregiverDashboardNew';
 import { MedicalStaffDashboard } from './components/MedicalStaffDashboard';
 import { Toaster } from './components/ui/sonner';
 
+// [Admin Module] Imports
+import AdminLayout from './components/admin/AdminLayout';
+import ComplianceHub from './components/admin/ComplianceHub';
+import DeviceGovernance from './components/admin/DeviceGovernance';
+import SystemOverview from './components/admin/SystemOverview';
+import UserManagement from './components/admin/UserManagement';
+import SystemSettings from './components/admin/SystemSettings';
+import InventoryManagement from './components/admin/InventoryManagement';
+import SecurityControls from './components/admin/SecurityControls';
+
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   
@@ -22,24 +33,29 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { user, isAuthenticated } = useAuth();
 
-  // Helper to normalize role checking (handles "Medical Staff", "medical_staff", etc.)
+  // Helper to normalize role checking
   const role = user?.role || '';
   const isMedical = role === 'Medical Staff' || role === 'medical_staff';
   const isCaregiver = role === 'Caregiver' || role === 'caregiver';
+  const isAdmin = role === 'admin'; // [Security] Check for admin role
 
   return (
     <Routes>
       {/* Public Routes */}
       <Route 
         path="/login" 
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} 
+        element={
+            isAuthenticated 
+            ? (isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/dashboard" replace />) 
+            : <LoginPage />
+        } 
       />
       <Route path="/signup" element={<SignUp />} />
       <Route path="/verify-email" element={<EmailVerification />} />
       <Route path="/login-verify" element={<LoginEmailVerification />} />
 
       {/* Protected Routes */}
-      {/* We add /dashboard explicitly since LoginPage redirects there */}
+      {/* Logic: Redirects to the correct dashboard based on Role */}
       <Route
         path="/dashboard"
         element={
@@ -48,6 +64,9 @@ function AppContent() {
               <CaregiverDashboardNew />
             ) : isMedical ? (
               <MedicalStaffDashboard />
+            ) : isAdmin ? (
+              // [UX] Admins shouldn't be here, send them to their layout
+              <Navigate to="/admin" replace />
             ) : (
               // If role is missing or unknown, go to login to clear state
               <Navigate to="/login" replace />
@@ -55,6 +74,20 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* 🚀 ADMIN MODULE ROUTES */}
+      {/* This layout wrapper enforces "Admins Only" via AdminLayout.tsx */}
+<Route path="/admin" element={<AdminLayout />}>
+    {/* 2. Replace the placeholder div with this: */}
+    <Route index element={<SystemOverview />} />
+    
+    <Route path="compliance" element={<ComplianceHub />} />
+    <Route path="devices" element={<DeviceGovernance />} />
+    <Route path="users" element={<UserManagement />} />
+    <Route path="settings" element={<SystemSettings />} />
+    <Route path="inventory" element={<InventoryManagement />} />
+    <Route path="security" element={<SecurityControls />} />
+      </Route>
 
       {/* Root path redirecting to dashboard */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

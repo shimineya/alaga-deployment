@@ -1,14 +1,14 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  BarChart3, 
-  List, 
-  Heart, 
-  Bell, 
-  FileText, 
-  Wifi, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Users,
+  BarChart3,
+  List,
+  Heart,
+  Bell,
+  FileText,
+  Wifi,
+  Settings,
   User,
   Activity,
   UserPlus,
@@ -29,16 +29,13 @@ interface DashboardSidebarProps {
 
 const caregiverMenuItems = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { id: 'my-patients', icon: Users, label: 'My Patients' },
-  { id: 'add-patient', icon: UserPlus, label: 'Add A New Patient' },
-  { id: 'bulletin', icon: Megaphone, label: 'Bulletin Board' },
-  { id: 'alerts', icon: Bell, label: 'Alerts' },
+  { id: 'add-device', icon: Cpu, label: 'Add New Device' },
+  { id: 'add-patient', icon: UserPlus, label: 'Add New Patient' },
+  { id: 'patient-list', icon: List, label: 'Patient List' },
+  { id: 'assignment-tracker', icon: ClipboardList, label: 'Assignment Tracker' },
+  { id: 'user-management', icon: Users, label: 'User Management' },
+  { id: 'device-management', icon: Wifi, label: 'Device Management' },
   { id: 'reports', icon: FileText, label: 'Reports' },
-  { id: 'analytics', icon: BarChart3, label: 'Analytics' },
-  { id: 'vital-signs', icon: Heart, label: 'Vital Signs' },
-  { id: 'device-status', icon: Wifi, label: 'Device Status' },
-  { id: 'archived', icon: Archive, label: 'Archived' },
-  { id: 'trash', icon: Trash2, label: 'Trash' },
   { id: 'settings', icon: Settings, label: 'Settings' },
   { id: 'profile', icon: User, label: 'Profile' },
 ];
@@ -59,7 +56,8 @@ const medicalStaffMenuItems = [
   { id: 'profile', icon: User, label: 'Profile' },
 ];
 
-export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ 
+
+export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
   activeItem = 'dashboard',
   onItemClick,
   userRole = 'caregiver'
@@ -67,16 +65,16 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
   const menuItems = userRole === 'medical_staff' ? medicalStaffMenuItems : caregiverMenuItems;
 
   return (
-    <aside 
+    <aside
       className="fixed left-0 top-0 h-screen w-60 flex flex-col"
       style={{ backgroundColor: '#2C3E50', zIndex: 50 }}
     >
       {/* Logo Section */}
       <div className="p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div 
+          <div
             className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105"
-            style={{ 
+            style={{
               backgroundColor: '#7DD3C0',
               boxShadow: '0 0 20px rgba(125, 211, 192, 0.3)'
             }}
@@ -96,7 +94,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeItem === item.id;
-            
+
             return (
               <li key={item.id}>
                 <button
@@ -104,8 +102,8 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
                     transition-all duration-300 relative
-                    ${isActive 
-                      ? 'text-white' 
+                    ${isActive
+                      ? 'text-white'
                       : 'hover:text-white'
                     }
                   `}
@@ -129,15 +127,15 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
                 >
                   {/* Active indicator bar */}
                   {isActive && (
-                    <div 
+                    <div
                       className="absolute left-0 top-0 bottom-0 w-1 rounded-r"
-                      style={{ 
+                      style={{
                         backgroundColor: '#7DD3C0',
                         boxShadow: '0 0 10px rgba(125, 211, 192, 0.5)'
                       }}
                     />
                   )}
-                  
+
                   <Icon className="w-5 h-5 flex-shrink-0" style={isActive ? { color: '#7DD3C0' } : {}} />
                   <span>{item.label}</span>
                 </button>

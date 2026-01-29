@@ -9,19 +9,39 @@ const path = require('path');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 
+// --- IMPORTS: ROUTE MODULES ---
+// [ISO 25010] Modularity: Separating Admin logic from the main server file
+const adminRoutes = require('./routes/adminRoutes');
+
 const app = express();
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 
 // [OWASP A02] Security Configuration
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'], 
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
 
+const fs = require('fs');
+
 app.use(helmet());
 app.use(express.json());
+
+// [FIX] Handle JSON Parse Errors (e.g. malformed body) which cause 400
+app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        console.error('Bad JSON Body:', err.message);
+        return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
+    }
+    next(err);
+});
+
+app.use((req, res, next) => {
+    fs.appendFileSync('server.log', `[REQUEST] ${req.method} ${req.url}\n`);
+    next();
+});
 
 // --- MULTER CONFIGURATION (File Uploads) ---
 const storage = multer.diskStorage({
@@ -34,7 +54,7 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ 
+const upload = multer({
     storage: storage,
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB Limit
     fileFilter: (req, file, cb) => {
@@ -51,7 +71,7 @@ app.use('/uploads', express.static('uploads'));
 // --- VALIDATION RULES ---
 const registerValidation = [
     body('email').isEmail().normalizeEmail(),
-    body('username').optional({ checkFalsy: true }).trim().escape(), 
+    body('username').optional({ checkFalsy: true }).trim().escape(),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
     body('role').isIn(['caregiver', 'medical_staff', 'admin'])
 ];
@@ -74,21 +94,21 @@ app.post('/api/auth/signup', authLimiter, registerValidation, async (req, res) =
 
     try {
         let { username, password, email, role, mobile_number, first_name, last_name, middle_initial } = req.body;
-        
+
         // [Fix] Force Email to Lowercase immediately for consistency
-        const safeEmail = email.toLowerCase().trim(); 
+        const safeEmail = email.toLowerCase().trim();
 
         // Auto-generate Username if empty
         if (!username || username.trim() === '') {
-            username = safeEmail.split('@')[0]; 
+            username = safeEmail.split('@')[0];
         }
 
         // Check if user exists
         const userCheck = await pool.query(
-            'SELECT * FROM users WHERE username = $1 OR email = $2', 
+            'SELECT * FROM users WHERE username = $1 OR email = $2',
             [username, safeEmail]
         );
-        
+
         if (userCheck.rows.length > 0) {
             return res.status(409).json({ success: false, message: 'Username or Email already exists' });
         }
@@ -106,14 +126,14 @@ app.post('/api/auth/signup', authLimiter, registerValidation, async (req, res) =
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Active', NOW()) 
              RETURNING user_id, username, role, email, account_status`,
             [
-                username, 
-                password_hash, 
+                username,
+                password_hash,
                 safeEmail, // Storing as lowercase
                 role || 'caregiver',
-                mobile_number, 
-                first_name, 
-                last_name, 
-                middle_initial || null 
+                mobile_number,
+                first_name,
+                last_name,
+                middle_initial || null
             ]
         );
 
@@ -121,15 +141,15 @@ app.post('/api/auth/signup', authLimiter, registerValidation, async (req, res) =
 
         // Generate Token (Auto-Login)
         const token = jwt.sign(
-            { id: createdUser.user_id, role: createdUser.role }, 
-            JWT_SECRET, 
-            { expiresIn: '30d' } 
+            { id: createdUser.user_id, role: createdUser.role },
+            JWT_SECRET,
+            { expiresIn: '30d' }
         );
 
-        res.status(201).json({ 
-            success: true, 
+        res.status(201).json({
+            success: true,
             message: "User registered successfully",
-            token: token, 
+            token: token,
             user: createdUser
         });
 
@@ -142,7 +162,6 @@ app.post('/api/auth/signup', authLimiter, registerValidation, async (req, res) =
 // ==========================================
 // 🚀 ROUTE 2: LOGIN (Dual Path + Fixed Logic)
 // ==========================================
-// Accepts request on both paths to prevent 404 errors from different frontends
 app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
@@ -159,15 +178,20 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 
         // Database Query
         const result = await pool.query(
-            'SELECT * FROM users WHERE email = $1 OR username = $1', 
+            'SELECT * FROM users WHERE email = $1 OR username = $1',
             [searchKey]
-        ); 
-        
+        );
+
         if (result.rows.length === 0) {
             return res.status(401).json({ success: false, message: "Invalid Credentials" });
         }
 
         const user = result.rows[0];
+
+        // [OWASP A07] Check if account is locked
+        if (user.is_locked) {
+            return res.status(403).json({ success: false, message: "Account is locked. Contact Admin." });
+        }
 
         // Password Check
         const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -175,26 +199,23 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             return res.status(401).json({ success: false, message: "Invalid Credentials" });
         }
 
-        // Account Status Check (Optional: You can uncomment to block pending users)
-        // if (user.account_status !== 'Active') { ... }
-
         // Success Token
         const token = jwt.sign(
-            { id: user.user_id, role: user.role }, 
-            JWT_SECRET, 
+            { id: user.user_id, role: user.role },
+            JWT_SECRET,
             { expiresIn: '8h' }
         );
 
-        res.json({ 
-            success: true, 
-            token, 
-            user: { 
-                id: user.user_id, 
-                username: user.username, 
+        res.json({
+            success: true,
+            token,
+            user: {
+                id: user.user_id,
+                username: user.username,
                 email: user.email,
                 role: user.role,
-                account_status: user.account_status 
-            } 
+                account_status: user.account_status
+            }
         });
 
     } catch (err) {
@@ -226,9 +247,9 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
              VALUES ($1, $2, $3, 'Pending', NOW())`,
             [user_id, document_type, fileUrl]
         );
-        
+
         await client.query(
-            "UPDATE users SET account_status = 'Pending_Review' WHERE user_id = $1", 
+            "UPDATE users SET account_status = 'Pending_Review' WHERE user_id = $1",
             [user_id]
         );
 
@@ -243,6 +264,14 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
         client.release();
     }
 });
+
+// ==========================================
+// 🚀 ROUTE 4: ADMIN DASHBOARD MODULE
+// ==========================================
+// [Security] Mounts the admin router. All routes inside are protected by verifyToken + verifyAdmin
+// URL Prefix: http://localhost:3000/api/admin/audit-logs
+app.use('/api/admin', adminRoutes);
+
 
 // --- Start Server ---
 app.listen(port, () => {

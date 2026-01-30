@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/auth-context';
 import { LoginPage } from './components/LoginPage';
 import { LoginEmailVerification } from './components/LoginEmailVerification';
 import { SignUp } from './components/SignUp';
+import { UserTypeSelection } from './components/UserTypeSelection';
 import { EmailVerification } from './components/EmailVerification';
 import { CaregiverDashboardNew } from './components/CaregiverDashboardNew';
 import { MedicalStaffDashboard } from './components/MedicalStaffDashboard';
@@ -22,11 +23,11 @@ import SecurityControls from './components/admin/SecurityControls';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-  
+
   return <>{children}</>;
 }
 
@@ -42,15 +43,16 @@ function AppContent() {
   return (
     <Routes>
       {/* Public Routes */}
-      <Route 
-        path="/login" 
+      <Route
+        path="/login"
         element={
-            isAuthenticated 
-            ? (isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/dashboard" replace />) 
+          isAuthenticated
+            ? (isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/dashboard" replace />)
             : <LoginPage />
-        } 
+        }
       />
-      <Route path="/signup" element={<SignUp />} />
+      <Route path="/signup" element={<UserTypeSelection />} />
+      <Route path="/registration" element={<SignUp />} />
       <Route path="/verify-email" element={<EmailVerification />} />
       <Route path="/login-verify" element={<LoginEmailVerification />} />
 
@@ -77,16 +79,16 @@ function AppContent() {
 
       {/* 🚀 ADMIN MODULE ROUTES */}
       {/* This layout wrapper enforces "Admins Only" via AdminLayout.tsx */}
-<Route path="/admin" element={<AdminLayout />}>
-    {/* 2. Replace the placeholder div with this: */}
-    <Route index element={<SystemOverview />} />
-    
-    <Route path="compliance" element={<ComplianceHub />} />
-    <Route path="devices" element={<DeviceGovernance />} />
-    <Route path="users" element={<UserManagement />} />
-    <Route path="settings" element={<SystemSettings />} />
-    <Route path="inventory" element={<InventoryManagement />} />
-    <Route path="security" element={<SecurityControls />} />
+      <Route path="/admin" element={<AdminLayout />}>
+        {/* 2. Replace the placeholder div with this: */}
+        <Route index element={<SystemOverview />} />
+
+        <Route path="compliance" element={<ComplianceHub />} />
+        <Route path="devices" element={<DeviceGovernance />} />
+        <Route path="users" element={<UserManagement />} />
+        <Route path="settings" element={<SystemSettings />} />
+        <Route path="inventory" element={<InventoryManagement />} />
+        <Route path="security" element={<SecurityControls />} />
       </Route>
 
       {/* Root path redirecting to dashboard */}

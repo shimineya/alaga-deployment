@@ -14,7 +14,7 @@ export const SignUp: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'medical_staff' | 'caregiver' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     // Section 1: Common Fields
     firstName: '',
@@ -23,9 +23,9 @@ export const SignUp: React.FC = () => {
     email: '',
     username: '',
     password: '',
-    confirmPassword: '', 
+    confirmPassword: '',
     mobileNumber: '',
-    
+
     // [Cleaned] Removed unused Section 2 fields from state to avoid confusion
   });
 
@@ -36,8 +36,8 @@ export const SignUp: React.FC = () => {
 
   const handleInputChange = (field: string, value: any) => {
     if (field === 'mobileNumber') {
-        if (!/^\d*$/.test(value)) return;
-        if (value.length > 11) return;
+      if (!/^\d*$/.test(value)) return;
+      if (value.length > 11) return;
     }
     if (field === 'middleInitial' && value.length > 2) return;
 
@@ -46,8 +46,8 @@ export const SignUp: React.FC = () => {
 
   const validateForm = () => {
     // Section 1 Validation
-    if (!formData.firstName || !formData.lastName || !formData.email || 
-        !formData.password || !formData.mobileNumber) {
+    if (!formData.firstName || !formData.lastName || !formData.email ||
+      !formData.password || !formData.mobileNumber) {
       toast.error('Please fill all required fields');
       return false;
     }
@@ -78,59 +78,69 @@ export const SignUp: React.FC = () => {
     setIsLoading(true);
 
     try {
-        const payload = {
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            middle_initial: formData.middleInitial,
-            username: formData.username,
-            email: formData.email,
-            password: formData.password,
-            mobile_number: formData.mobileNumber,
-            role: selectedRole
-        };
+      const payload = {
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        middle_initial: formData.middleInitial,
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+        mobile_number: formData.mobileNumber,
+        role: selectedRole
+      };
 
-        const response = await fetch('http://localhost:3000/api/auth/signup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+      const response = await fetch('http://localhost:3000/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-        const data = await response.json();
+      const data = await response.json();
 
-        if (!response.ok) {
-            throw new Error(data.message || 'Registration failed');
-        }
+      if (!response.ok) {
+        throw new Error(data.message || 'Registration failed');
+      }
 
-        toast.success('Account created successfully!');
+      toast.success('Account created successfully!');
 
-        if (data.token) {
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
-            
-            if (selectedRole === 'caregiver') {
-                navigate('/dashboard/caregiver');
-            } else {
-                navigate('/dashboard/medical'); 
-            }
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+
+        if (selectedRole === 'caregiver') {
+          navigate('/dashboard/caregiver');
         } else {
-            navigate('/login');
+          navigate('/dashboard/medical');
         }
+      } else {
+        navigate('/login');
+      }
 
     } catch (error: any) {
-        toast.error(error.message || 'Server connection failed');
+      toast.error(error.message || 'Server connection failed');
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
   const renderRoleSelection = () => (
-    <div className="min-h-screen flex items-center justify-center p-6" style={{ backgroundColor: '#F0FAF9' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ backgroundColor: '#F0FAF9' }}>
+      <div className="w-full max-w-2xl mb-4">
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/signup')}
+          className="pl-0 hover:bg-transparent hover:text-[#7DD3C0]"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back
+        </Button>
+      </div>
       <Card className="w-full max-w-2xl border-0" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)' }}>
         <CardHeader className="text-center pb-8">
           <div className="flex justify-center mb-4">
-            <div 
+            <div
               className="w-16 h-16 rounded-full flex items-center justify-center"
-              style={{ 
+              style={{
                 backgroundColor: '#7DD3C0',
                 boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)'
               }}
@@ -155,7 +165,7 @@ export const SignUp: React.FC = () => {
             <div
               onClick={() => handleRoleSelect('medical_staff')}
               className="p-6 rounded-lg border-2 cursor-pointer transition-all hover:shadow-lg"
-              style={{ 
+              style={{
                 borderColor: '#E8F6F3',
                 backgroundColor: 'white'
               }}
@@ -182,7 +192,7 @@ export const SignUp: React.FC = () => {
             <div
               onClick={() => handleRoleSelect('caregiver')}
               className="p-6 rounded-lg border-2 cursor-pointer transition-all hover:shadow-lg"
-              style={{ 
+              style={{
                 borderColor: '#E8F6F3',
                 backgroundColor: 'white'
               }}
@@ -210,7 +220,7 @@ export const SignUp: React.FC = () => {
           <div className="text-center pt-4">
             <p className="text-sm" style={{ color: '#7F8C8D' }}>
               Already have an account?{' '}
-              <button 
+              <button
                 onClick={() => navigate('/login')}
                 className="underline"
                 style={{ color: '#7DD3C0' }}
@@ -227,8 +237,8 @@ export const SignUp: React.FC = () => {
   const renderForm = () => (
     <div className="min-h-screen py-12 px-6" style={{ backgroundColor: '#F0FAF9' }}>
       <div className="max-w-3xl mx-auto">
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           onClick={() => setStep('role-select')}
           className="mb-4"
         >
@@ -239,7 +249,7 @@ export const SignUp: React.FC = () => {
         <Card className="border-0" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)' }}>
           <CardHeader>
             <div className="flex items-center gap-3 mb-2">
-              <div 
+              <div
                 className="w-10 h-10 rounded-full flex items-center justify-center"
                 style={{ backgroundColor: '#7DD3C0' }}
               >
@@ -325,57 +335,57 @@ export const SignUp: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                    <Label>Password *</Label>
-                    <div className="relative">
+                  <Label>Password *</Label>
+                  <div className="relative">
                     <Input
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="Min 8 chars"
-                        value={formData.password}
-                        onChange={(e) => handleInputChange('password', e.target.value)}
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Min 8 chars"
+                      value={formData.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
                     />
                     <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2"
                     >
-                        {showPassword ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                      {showPassword ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
                     </button>
-                    </div>
+                  </div>
                 </div>
                 <div className="space-y-2">
-                    <Label>Confirm Password *</Label>
-                    <div className="relative">
+                  <Label>Confirm Password *</Label>
+                  <div className="relative">
                     <Input
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        placeholder="Re-enter password"
-                        value={formData.confirmPassword}
-                        onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                        className={formData.confirmPassword && formData.password !== formData.confirmPassword ? "border-red-500" : ""}
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      placeholder="Re-enter password"
+                      value={formData.confirmPassword}
+                      onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                      className={formData.confirmPassword && formData.password !== formData.confirmPassword ? "border-red-500" : ""}
                     />
-                     <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2"
                     >
-                        {showConfirmPassword ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
                     </button>
-                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Submit Button */}
             <div className="pt-6">
-              <Button 
+              <Button
                 onClick={handleSubmit}
                 className="w-full text-white"
                 style={{ backgroundColor: '#7DD3C0' }}
                 disabled={isLoading}
               >
                 {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 ) : (
-                    <Check className="w-4 h-4 mr-2" />
+                  <Check className="w-4 h-4 mr-2" />
                 )}
                 {isLoading ? "Registering..." : "Register Account"}
               </Button>

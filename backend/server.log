@@ -148,3 +148,6 @@
 [REQUEST] GET /api/admin/stats
 [REQUEST] GET /api/admin/stats
 [REQUEST] GET /api/admin/stats
+[REQUEST] POST /login
+[REQUEST] POST /login
+[REQUEST] POST /login

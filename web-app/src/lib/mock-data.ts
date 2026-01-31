@@ -21,11 +21,7 @@ export const mockPatients: Patient[] = [
     name: 'Patient A',
     age: 45,
     medicalConditions: ['Hypertension'],
-    baselineVitals: {
-      heartRate: 72,
-      temperature: 36.9,
-      spo2: 97,
-    },
+    baselineVitals: { heartRate: 72, temperature: 36.9, spo2: 97 },
     caregiverId: '1',
     deviceId: 'ESP32-000',
     hrDeviceId: 'HR-SENSOR-000',
@@ -38,11 +34,7 @@ export const mockPatients: Patient[] = [
     diaperDeviceConnected: true,
     roomNumber: 'A101',
     illness: 'Hypertension management',
-    emergencyContact: {
-      name: 'Juan Santos',
-      relationship: 'Son',
-      phone: '+63 912 345 6789'
-    },
+    emergencyContact: { name: 'Juan Santos', relationship: 'Son', phone: '+63 912 345 6789' },
     lastUpdated: new Date(),
   },
   {
@@ -50,11 +42,7 @@ export const mockPatients: Patient[] = [
     name: 'Baby Miguel',
     age: 1,
     medicalConditions: ['Nocturnal Enuresis'],
-    baselineVitals: {
-      heartRate: 120,
-      temperature: 37.0,
-      spo2: 98,
-    },
+    baselineVitals: { heartRate: 120, temperature: 37.0, spo2: 98 },
     caregiverId: '1',
     deviceId: 'ESP32-001',
     hrDeviceId: 'HR-SENSOR-001',
@@ -67,11 +55,7 @@ export const mockPatients: Patient[] = [
     diaperDeviceConnected: true,
     roomNumber: 'B205',
     illness: 'Nocturnal Enuresis monitoring',
-    emergencyContact: {
-      name: 'Rosa Miguel',
-      relationship: 'Mother',
-      phone: '+63 917 234 5678'
-    },
+    emergencyContact: { name: 'Rosa Miguel', relationship: 'Mother', phone: '+63 917 234 5678' },
     lastUpdated: new Date(),
   },
   {
@@ -79,11 +63,7 @@ export const mockPatients: Patient[] = [
     name: 'Lola Carmen',
     age: 78,
     medicalConditions: ['Diabetes', 'Hypertension', 'Incontinence'],
-    baselineVitals: {
-      heartRate: 75,
-      temperature: 36.8,
-      spo2: 96,
-    },
+    baselineVitals: { heartRate: 75, temperature: 36.8, spo2: 96 },
     caregiverId: '1',
     deviceId: 'ESP32-002',
     hrDeviceId: 'HR-SENSOR-002',
@@ -96,52 +76,37 @@ export const mockPatients: Patient[] = [
     diaperDeviceConnected: true,
     roomNumber: 'C312',
     illness: 'Diabetes Type 2, Incontinence',
-    emergencyContact: {
-      name: 'Pedro Carmen',
-      relationship: 'Husband',
-      phone: '+63 918 345 6789'
-    },
+    emergencyContact: { name: 'Pedro Carmen', relationship: 'Husband', phone: '+63 918 345 6789' },
     lastUpdated: new Date(),
   },
   {
     id: 'p3',
     name: 'Lolo Pedro',
     age: 82,
-    medicalConditions: ['Chronic Obstructive Pulmonary Disease'],
-    baselineVitals: {
-      heartRate: 68,
-      temperature: 36.7,
-      spo2: 94,
-    },
-    caregiverId: '2',
+    medicalConditions: ['COPD'],
+    baselineVitals: { heartRate: 68, temperature: 36.7, spo2: 94 },
+    // [CHANGE] Reassigned to '1' so he appears on your dashboard for the demo
+    caregiverId: '1',
     deviceId: 'ESP32-003',
     hrDeviceId: 'HR-SENSOR-003',
     diaperDeviceId: 'DIAPER-003',
     deviceBattery: 15,
     hrDeviceBattery: 12,
     diaperDeviceBattery: 18,
-    deviceConnected: false,
+    deviceConnected: false, // Critical Alert: Offline
     hrDeviceConnected: false,
     diaperDeviceConnected: false,
     roomNumber: 'D101',
     illness: 'COPD - Respiratory monitoring',
-    emergencyContact: {
-      name: 'Ana Pedro',
-      relationship: 'Daughter',
-      phone: '+63 919 456 7890'
-    },
+    emergencyContact: { name: 'Ana Pedro', relationship: 'Daughter', phone: '+63 919 456 7890' },
     lastUpdated: new Date(Date.now() - 300000),
   },
   {
     id: 'p4',
     name: 'Mrs. Elena Cruz',
     age: 65,
-    medicalConditions: ['Post-Stroke', 'Bedsore Prevention'],
-    baselineVitals: {
-      heartRate: 78,
-      temperature: 36.9,
-      spo2: 95,
-    },
+    medicalConditions: ['Post-Stroke'],
+    baselineVitals: { heartRate: 78, temperature: 36.9, spo2: 95 },
     caregiverId: '1',
     deviceId: 'ESP32-004',
     hrDeviceId: 'HR-SENSOR-004',
@@ -154,23 +119,15 @@ export const mockPatients: Patient[] = [
     diaperDeviceConnected: true,
     roomNumber: 'A203',
     illness: 'Post-stroke rehabilitation',
-    emergencyContact: {
-      name: 'Carlos Cruz',
-      relationship: 'Husband',
-      phone: '+63 920 567 8901'
-    },
+    emergencyContact: { name: 'Carlos Cruz', relationship: 'Husband', phone: '+63 920 567 8901' },
     lastUpdated: new Date(),
   },
   {
     id: 'p5',
     name: 'Baby Sofia',
     age: 0.5,
-    medicalConditions: ['Premature Birth Monitoring'],
-    baselineVitals: {
-      heartRate: 135,
-      temperature: 37.1,
-      spo2: 97,
-    },
+    medicalConditions: ['Premature Birth'],
+    baselineVitals: { heartRate: 135, temperature: 37.1, spo2: 97 },
     caregiverId: '1',
     deviceId: 'ESP32-005',
     hrDeviceId: 'HR-SENSOR-005',
@@ -183,24 +140,17 @@ export const mockPatients: Patient[] = [
     diaperDeviceConnected: true,
     roomNumber: 'B102',
     illness: 'Premature Birth Monitoring',
-    emergencyContact: {
-      name: 'Luisa Sofia',
-      relationship: 'Mother',
-      phone: '+63 921 678 9012'
-    },
+    emergencyContact: { name: 'Luisa Sofia', relationship: 'Mother', phone: '+63 921 678 9012' },
     lastUpdated: new Date(),
   },
   {
     id: 'p6',
     name: 'Mr. Roberto Tan',
     age: 70,
-    medicalConditions: ['Congestive Heart Failure', 'Diabetes'],
-    baselineVitals: {
-      heartRate: 82,
-      temperature: 36.6,
-      spo2: 93,
-    },
-    caregiverId: '2',
+    medicalConditions: ['Heart Failure', 'Diabetes'],
+    baselineVitals: { heartRate: 82, temperature: 36.6, spo2: 93 },
+    // [CHANGE] Reassigned to '1'
+    caregiverId: '1',
     deviceId: 'ESP32-006',
     hrDeviceId: 'HR-SENSOR-006',
     diaperDeviceId: 'DIAPER-006',
@@ -211,24 +161,16 @@ export const mockPatients: Patient[] = [
     hrDeviceConnected: true,
     diaperDeviceConnected: true,
     roomNumber: 'C204',
-    illness: 'Congestive Heart Failure, Diabetes Type 2',
-    emergencyContact: {
-      name: 'Maria Tan',
-      relationship: 'Wife',
-      phone: '+63 922 789 0123'
-    },
+    illness: 'Congestive Heart Failure',
+    emergencyContact: { name: 'Maria Tan', relationship: 'Wife', phone: '+63 922 789 0123' },
     lastUpdated: new Date(),
   },
   {
     id: 'p7',
     name: 'Baby Lucas',
     age: 2,
-    medicalConditions: ['Nocturnal Enuresis', 'Sleep Apnea Monitoring'],
-    baselineVitals: {
-      heartRate: 110,
-      temperature: 36.8,
-      spo2: 96,
-    },
+    medicalConditions: ['Nocturnal Enuresis'],
+    baselineVitals: { heartRate: 110, temperature: 36.8, spo2: 96 },
     caregiverId: '1',
     deviceId: 'ESP32-007',
     hrDeviceId: 'HR-SENSOR-007',
@@ -240,25 +182,17 @@ export const mockPatients: Patient[] = [
     hrDeviceConnected: true,
     diaperDeviceConnected: true,
     roomNumber: 'B206',
-    illness: 'Nocturnal Enuresis, Sleep Apnea Monitoring',
-    emergencyContact: {
-      name: 'Ana Lucas',
-      relationship: 'Mother',
-      phone: '+63 923 890 1234'
-    },
+    illness: 'Nocturnal Enuresis',
+    emergencyContact: { name: 'Ana Lucas', relationship: 'Mother', phone: '+63 923 890 1234' },
     lastUpdated: new Date(),
   },
   {
     id: 'p8',
     name: 'Mrs. Gloria Ramos',
     age: 75,
-    medicalConditions: ['Alzheimer\'s Disease', 'Incontinence'],
-    baselineVitals: {
-      heartRate: 70,
-      temperature: 36.7,
-      spo2: 95,
-    },
-    caregiverId: '2',
+    medicalConditions: ['Alzheimer\'s'],
+    baselineVitals: { heartRate: 70, temperature: 36.7, spo2: 95 },
+    caregiverId: '2', // Kept one for '2' just in case
     deviceId: 'ESP32-008',
     hrDeviceId: 'HR-SENSOR-008',
     diaperDeviceId: 'DIAPER-008',
@@ -269,12 +203,8 @@ export const mockPatients: Patient[] = [
     hrDeviceConnected: true,
     diaperDeviceConnected: true,
     roomNumber: 'D202',
-    illness: 'Alzheimer\'s Disease, Incontinence',
-    emergencyContact: {
-      name: 'Juan Ramos',
-      relationship: 'Son',
-      phone: '+63 924 901 2345'
-    },
+    illness: 'Alzheimer\'s Disease',
+    emergencyContact: { name: 'Juan Ramos', relationship: 'Son', phone: '+63 924 901 2345' },
     lastUpdated: new Date(),
   },
 ];
@@ -283,7 +213,7 @@ export const mockPatients: Patient[] = [
 export const generateMockVitalSigns = (patientId: string, baseline: Patient['baselineVitals']): VitalSign[] => {
   const vitals: VitalSign[] = [];
   const now = Date.now();
-  
+
   for (let i = 0; i < 288; i++) { // Every 5 minutes for 24 hours
     const timestamp = new Date(now - i * 5 * 60 * 1000);
     vitals.push({
@@ -296,7 +226,7 @@ export const generateMockVitalSigns = (patientId: string, baseline: Patient['bas
       moistureLevel: Math.random() * 20,
     });
   }
-  
+
   return vitals.reverse();
 };
 
@@ -333,7 +263,7 @@ export const mockAlerts: Alert[] = [
   },
   {
     id: 'a4',
-    patientId: 'p3',
+    patientId: 'p3', // Lolo Pedro (Now assigned to You)
     type: 'device',
     severity: 'critical',
     title: 'Device Disconnected',
@@ -356,33 +286,12 @@ export const mockAlerts: Alert[] = [
 ];
 
 export const mockEvents: Event[] = [
+  // Keeping events as is for history
   {
     id: 'e1',
     patientId: 'p1',
     type: 'bedwetting',
     timestamp: new Date(Date.now() - 600000),
     data: { moistureLevel: 85, duration: 120 },
-  },
-  {
-    id: 'e2',
-    patientId: 'p1',
-    type: 'bedwetting',
-    timestamp: new Date(Date.now() - 14400000),
-    data: { moistureLevel: 78, duration: 95 },
-  },
-  {
-    id: 'e3',
-    patientId: 'p2',
-    type: 'vital_change',
-    timestamp: new Date(Date.now() - 900000),
-    data: { heartRate: 105, temperature: 37.2 },
-  },
-  {
-    id: 'e4',
-    patientId: 'p1',
-    type: 'anomaly',
-    timestamp: new Date(Date.now() - 7200000),
-    data: { type: 'frequent_bedwetting', pattern: 'unusual_timing' },
-    confidence: 0.87,
   },
 ];

@@ -1,12 +1,12 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
-import { 
-  ShieldAlert, 
-  Activity, 
-  Lock, 
-  Users, 
-  LogOut, 
+import {
+  ShieldAlert,
+  Activity,
+  Lock,
+  Users,
+  LogOut,
   Settings,
   FileText
 } from 'lucide-react';
@@ -17,7 +17,7 @@ const adminItems = [
   { title: "System Overview", url: "/admin", icon: Activity },
   { title: "Compliance Hub", url: "/admin/compliance", icon: ShieldAlert },
   { title: "Device Governance", url: "/admin/devices", icon: Lock },
-  { title: "Inventory & Assign", url: "/admin/inventory", icon: Box }, 
+  { title: "Inventory & Assign", url: "/admin/inventory", icon: Box },
   { title: "User Management", url: "/admin/users", icon: Users },
   { title: "System Config", url: "/admin/settings", icon: Settings },
   { title: "Security Controls", url: "/admin/security", icon: Lock },
@@ -34,16 +34,16 @@ export function AdminSidebar() {
   };
 
   return (
-    <aside 
+    <aside
       className="fixed left-0 top-0 h-screen w-60 flex flex-col"
       style={{ backgroundColor: '#2C3E50', zIndex: 50 }}
     >
       {/* 1. Header / Logo Section */}
       <div className="p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div 
+          <div
             className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105"
-            style={{ 
+            style={{
               backgroundColor: '#7DD3C0',
               boxShadow: '0 0 20px rgba(125, 211, 192, 0.3)'
             }}
@@ -62,7 +62,7 @@ export function AdminSidebar() {
         <ul className="space-y-1 px-3">
           {adminItems.map((item) => {
             const isActive = location.pathname === item.url;
-            
+
             return (
               <li key={item.title}>
                 <Link
@@ -82,15 +82,15 @@ export function AdminSidebar() {
                 >
                   {/* Active Indicator Bar */}
                   {isActive && (
-                    <div 
+                    <div
                       className="absolute left-0 top-0 bottom-0 w-1 rounded-r"
-                      style={{ 
+                      style={{
                         backgroundColor: '#7DD3C0',
                         boxShadow: '0 0 10px rgba(125, 211, 192, 0.5)'
                       }}
                     />
                   )}
-                  
+
                   <item.icon className="w-5 h-5 flex-shrink-0" style={isActive ? { color: '#7DD3C0' } : {}} />
                   <span>{item.title}</span>
                 </Link>

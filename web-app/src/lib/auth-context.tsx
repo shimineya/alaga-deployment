@@ -16,12 +16,14 @@ interface AuthContextType {
   login: (usernameOrEmail: string, password: string) => Promise<{ success: boolean; user?: User; message?: string }>;
   logout: () => void;
   isLoading: boolean;
+  token: string | null; // [Fix] Expose token
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token')); // [Fix] Initialize from LS
   const [isLoading, setIsLoading] = useState(true);
 
   // 1. Check for existing token on app load (Auto-Login)
@@ -29,10 +31,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkLogin = () => {
       const token = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
-      
+
       if (token && storedUser) {
         try {
           setUser(JSON.parse(storedUser));
+          setToken(token); // Ensure state matches LS
         } catch (e) {
           console.error("Failed to parse stored user", e);
           localStorage.clear();
@@ -46,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 2. REAL Login Function (Connected to Backend)
   const login = async (usernameOrEmail: string, password: string) => {
     console.log("🔵 AuthContext: Initiating Login for:", usernameOrEmail);
-    
+
     try {
       // [API CALL] Talking to your actual backend
       const response = await fetch('http://localhost:3000/login', {
@@ -54,9 +57,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-            username: usernameOrEmail, 
-            password 
+        body: JSON.stringify({
+          username: usernameOrEmail,
+          password
         }),
       });
 
@@ -68,6 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         setUser(data.user);
+        setToken(data.token); // [Fix] Update token state
         return { success: true, user: data.user };
       } else {
         // [FAILURE] Return server message
@@ -84,17 +88,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
-    window.location.href = '/login'; 
+    setToken(null); // [Fix] Clear token state
+    window.location.href = '/login';
   };
 
   return (
-    <AuthContext.Provider value={{ 
-        user, 
-        login, 
-        logout, 
-        isLoading,
-        // [Fix] Derived state for App.tsx
-        isAuthenticated: !!user 
+    <AuthContext.Provider value={{
+      user,
+      login,
+      logout,
+      isLoading,
+      // [Fix] Derived state for App.tsx
+      isAuthenticated: !!user,
+      token // [Fix] Expose token
     }}>
       {children}
     </AuthContext.Provider>

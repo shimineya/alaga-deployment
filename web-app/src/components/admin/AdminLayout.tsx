@@ -15,7 +15,7 @@ export default function AdminLayout() {
       if (!user) {
         navigate('/login');
       } else if (user.role !== 'admin') {
-        navigate('/dashboard'); 
+        navigate('/dashboard');
       }
     }
   }, [user, isLoading, navigate]);
@@ -29,7 +29,7 @@ export default function AdminLayout() {
 
       {/* 2. Main Content Area (Pushed 240px to the right) */}
       <div className="ml-60 transition-all duration-300">
-        
+
         {/* Admin Header */}
         <header className="bg-white dark:bg-slate-950 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-40 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -54,7 +54,7 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
-      
+
       <Toaster />
     </div>
   );

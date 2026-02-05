@@ -16,15 +16,15 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Switch } from './ui/switch';
-import { 
-  Bell, 
-  LogOut, 
-  User, 
-  Download, 
-  TrendingUp, 
-  Users, 
-  Activity, 
-  AlertTriangle, 
+import {
+  Bell,
+  LogOut,
+  User,
+  Download,
+  TrendingUp,
+  Users,
+  Activity,
+  AlertTriangle,
   UserPlus,
   CheckCircle,
   XCircle,
@@ -69,7 +69,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
   const [timeRange, setTimeRange] = useState<'8h' | '24h' | '7d' | '30d'>('24h');
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
-  
+
   const [assignments, setAssignments] = useState<AssignmentRequest[]>([
     {
       id: 'req1',
@@ -130,7 +130,7 @@ export const MedicalStaffDashboard: React.FC = () => {
     setSilencedPatients(prev => {
       const newSilenced = new Set(prev);
       let hasChanges = false;
-      
+
       prev.forEach(patientId => {
         const patient = patients.find(p => p.id === patientId);
         if (patient) {
@@ -143,7 +143,7 @@ export const MedicalStaffDashboard: React.FC = () => {
           }
         }
       });
-      
+
       return hasChanges ? newSilenced : prev;
     });
   }, [patients, alerts]);
@@ -160,7 +160,7 @@ export const MedicalStaffDashboard: React.FC = () => {
     });
 
     const newPlayingAlarms = new Set(criticalPatients.map(p => p.id));
-    
+
     if (newPlayingAlarms.size > 0) {
       alarmSound.play().catch(() => {
         console.log('Alarm sound blocked by browser');
@@ -182,7 +182,7 @@ export const MedicalStaffDashboard: React.FC = () => {
         '7d': 7 * 24 * 60 * 60 * 1000,
         '30d': 30 * 24 * 60 * 60 * 1000,
       };
-      const filtered = vitals.filter(v => 
+      const filtered = vitals.filter(v =>
         now - new Date(v.timestamp).getTime() <= ranges[timeRange]
       );
       setVitalSigns(filtered);
@@ -193,12 +193,12 @@ export const MedicalStaffDashboard: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       const newAlerts: Alert[] = [];
-      
+
       // Generate alerts from each patient's doctor's orders
       patients.forEach(patient => {
         const doctorOrderAlerts = generateAlertsFromDoctorsOrders(patient);
         newAlerts.push(...doctorOrderAlerts);
-        
+
         // Check vital sign thresholds
         const latestVital = vitalSigns.find(v => v.patientId === patient.id);
         if (latestVital && patient.doctorsOrders) {
@@ -212,7 +212,7 @@ export const MedicalStaffDashboard: React.FC = () => {
           }
         }
       });
-      
+
       // Add new alerts (avoid duplicates by checking if alert already exists)
       if (newAlerts.length > 0) {
         setAlerts(prev => {
@@ -227,9 +227,9 @@ export const MedicalStaffDashboard: React.FC = () => {
   }, [patients, vitalSigns]);
 
   const handleAcknowledgeAlert = (alertId: string) => {
-    setAlerts(prev => 
-      prev.map(alert => 
-        alert.id === alertId 
+    setAlerts(prev =>
+      prev.map(alert =>
+        alert.id === alertId
           ? { ...alert, acknowledged: true, acknowledgedBy: user?.id, acknowledgedAt: new Date() }
           : alert
       )
@@ -238,7 +238,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   };
 
   const handleMarkAllRead = () => {
-    setAlerts(prev => 
+    setAlerts(prev =>
       prev.map(alert => ({ ...alert, acknowledged: true, acknowledgedBy: user?.id, acknowledgedAt: new Date() }))
     );
     toast.success('All alerts marked as read');
@@ -252,7 +252,7 @@ export const MedicalStaffDashboard: React.FC = () => {
 
     // Find caregiver by email
     const caregiver = mockUsers.find(u => u.email === newPatientForm.caregiverEmail && u.role === 'caregiver');
-    
+
     if (!caregiver) {
       toast.error('Caregiver with this email not found');
       return;
@@ -277,7 +277,7 @@ export const MedicalStaffDashboard: React.FC = () => {
     };
 
     setPatients(prev => [...prev, newPatient]);
-    
+
     const newAssignment: AssignmentRequest = {
       id: `req${assignments.length + 1}`,
       patientId: newPatient.id,
@@ -285,9 +285,9 @@ export const MedicalStaffDashboard: React.FC = () => {
       status: 'pending',
       timestamp: new Date()
     };
-    
+
     setAssignments(prev => [...prev, newAssignment]);
-    
+
     toast.success(`Assignment request sent to ${caregiver.name}. Awaiting response.`);
     setNewPatientForm({ name: '', age: '', medicalConditions: '', deviceId: '', caregiverEmail: '' });
     setDoctorsOrdersData(null);
@@ -295,14 +295,14 @@ export const MedicalStaffDashboard: React.FC = () => {
 
   const handleDownloadReport = (type: 'analytics') => {
     if (!selectedPatient) return;
-    
+
     const filename = `${selectedPatient.name}_${type}_${timeRange}_${new Date().toISOString().split('T')[0]}.csv`;
     toast.success(`Downloading ${filename}`);
   };
 
   const unacknowledgedAlerts = alerts.filter(a => !a.acknowledged);
   const criticalAlerts = unacknowledgedAlerts.filter(a => a.severity === 'critical');
-  
+
   const patientNamesMap = patients.reduce((acc, patient) => {
     acc[patient.id] = patient.name;
     return acc;
@@ -318,7 +318,7 @@ export const MedicalStaffDashboard: React.FC = () => {
     const now = new Date();
     const diff = now.getTime() - new Date(date).getTime();
     const minutes = Math.floor(diff / 60000);
-    
+
     if (minutes < 1) return 'Just now';
     if (minutes < 60) return `${minutes}m ago`;
     if (minutes < 1440) return `${Math.floor(minutes / 60)}h ago`;
@@ -348,7 +348,7 @@ export const MedicalStaffDashboard: React.FC = () => {
     if (viewMode === 'profile' && selectedPatient) {
       const caregiver = mockUsers.find(u => u.id === selectedPatient.caregiverId);
       return (
-        <PatientProfile 
+        <PatientProfile
           patient={selectedPatient}
           onBack={() => {
             setViewMode('dashboard');
@@ -508,12 +508,12 @@ export const MedicalStaffDashboard: React.FC = () => {
             const deviceOffline = !patient.deviceConnected || !patient.hrDeviceConnected || !patient.diaperDeviceConnected;
             const caregiver = mockUsers.find(u => u.id === patient.caregiverId);
             const isAlarming = hasCriticalAlerts || deviceOffline;
-            
+
             return (
-              <Card 
+              <Card
                 key={patient.id}
                 className={`border-0 cursor-pointer hover:shadow-lg transition-all ${isAlarming ? 'animate-pulse' : ''}`}
-                style={{ 
+                style={{
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
                   backgroundColor: isAlarming ? '#fee2e2' : 'white'
                 }}
@@ -630,12 +630,12 @@ export const MedicalStaffDashboard: React.FC = () => {
             {alerts.slice(0, 5).map(alert => {
               const Icon = getAlertIcon(alert.type);
               const patient = patients.find(p => p.id === alert.patientId);
-              
+
               return (
-                <div 
+                <div
                   key={alert.id}
                   className="p-3 rounded-lg border-l-4"
-                  style={{ 
+                  style={{
                     borderLeftColor: alert.severity === 'critical' ? '#E74C3C' : '#F39C12',
                     backgroundColor: '#F9FAFB'
                   }}
@@ -662,7 +662,7 @@ export const MedicalStaffDashboard: React.FC = () => {
       {/* Analytics Button */}
       <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
         <CardContent className="pt-6">
-          <Button 
+          <Button
             onClick={() => setActiveNavItem('analytics-reports')}
             className="w-full text-white"
             style={{ backgroundColor: '#7DD3C0' }}
@@ -729,7 +729,7 @@ export const MedicalStaffDashboard: React.FC = () => {
               Enter the email address of the caregiver you want to assign
             </p>
           </div>
-          <Button 
+          <Button
             onClick={handleAssignPatient}
             className="w-full text-white"
             style={{ backgroundColor: '#7DD3C0' }}
@@ -751,9 +751,9 @@ export const MedicalStaffDashboard: React.FC = () => {
             {assignments.map(assignment => {
               const patient = patients.find(p => p.id === assignment.patientId);
               const caregiver = mockUsers.find(u => u.id === assignment.caregiverId);
-              
+
               return (
-                <div 
+                <div
                   key={assignment.id}
                   className="p-4 rounded-lg border"
                   style={{ backgroundColor: '#FAFAFA' }}
@@ -817,7 +817,7 @@ export const MedicalStaffDashboard: React.FC = () => {
       return renderPatientDetail();
     }
 
-    const filteredPatients = patients.filter(p => 
+    const filteredPatients = patients.filter(p =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
@@ -848,9 +848,9 @@ export const MedicalStaffDashboard: React.FC = () => {
                 const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
                 const latestVital = vitals[vitals.length - 1];
                 const caregiver = mockUsers.find(u => u.id === patient.caregiverId);
-                
+
                 return (
-                  <div 
+                  <div
                     key={patient.id}
                     className="p-4 rounded-lg border hover:shadow-md transition-all cursor-pointer"
                     style={{ backgroundColor: '#FAFAFA' }}
@@ -873,7 +873,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                         {patient.deviceConnected ? 'Online' : 'Offline'}
                       </Badge>
                     </div>
-                    
+
                     <div className="grid grid-cols-4 gap-3">
                       <div className="text-center p-2 rounded bg-white">
                         <div className="flex items-center justify-center gap-1 mb-1">
@@ -883,7 +883,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                         <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.heartRate || patient.baselineVitals.heartRate)}</p>
                         <p className="text-xs" style={{ color: '#7F8C8D' }}>bpm</p>
                       </div>
-                      
+
                       <div className="text-center p-2 rounded bg-white">
                         <div className="flex items-center justify-center gap-1 mb-1">
                           <Thermometer className="w-3 h-3" style={{ color: '#F39C12' }} />
@@ -892,7 +892,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                         <p className="text-lg" style={{ color: '#2C3E50' }}>{(latestVital?.temperature || patient.baselineVitals.temperature).toFixed(1)}</p>
                         <p className="text-xs" style={{ color: '#7F8C8D' }}>°C</p>
                       </div>
-                      
+
                       <div className="text-center p-2 rounded bg-white">
                         <div className="flex items-center justify-center gap-1 mb-1">
                           <Activity className="w-3 h-3" style={{ color: '#3498DB' }} />
@@ -901,7 +901,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                         <p className="text-lg" style={{ color: '#2C3E50' }}>{Math.round(latestVital?.spo2 || patient.baselineVitals.spo2)}</p>
                         <p className="text-xs" style={{ color: '#7F8C8D' }}>%</p>
                       </div>
-                      
+
                       <div className="text-center p-2 rounded bg-white">
                         <div className="flex items-center justify-center gap-1 mb-1">
                           <Droplets className="w-3 h-3" style={{ color: '#7DD3C0' }} />
@@ -924,7 +924,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   // Archived Patients
   const renderArchived = () => {
     const archivedPatients = patients.filter(p => p.archived && !p.deleted);
-    
+
     const handleRestore = (patientId: string) => {
       setPatients(prev => prev.map(p =>
         p.id === patientId ? { ...p, archived: false, archivedAt: undefined } : p
@@ -955,7 +955,7 @@ export const MedicalStaffDashboard: React.FC = () => {
             ) : (
               <div className="space-y-3">
                 {archivedPatients.map(patient => (
-                  <div 
+                  <div
                     key={patient.id}
                     className="p-4 rounded-lg border"
                     style={{ backgroundColor: '#FAFAFA' }}
@@ -999,7 +999,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   // Trash (Deleted Patients)
   const renderTrash = () => {
     const deletedPatients = patients.filter(p => p.deleted);
-    
+
     const handleRestore = (patientId: string) => {
       setPatients(prev => prev.map(p =>
         p.id === patientId ? { ...p, deleted: false, deletedAt: undefined } : p
@@ -1060,12 +1060,12 @@ export const MedicalStaffDashboard: React.FC = () => {
             ) : (
               <div className="space-y-3">
                 {deletedPatients.map(patient => {
-                  const daysLeft = patient.deletedAt 
+                  const daysLeft = patient.deletedAt
                     ? Math.max(0, getAutoDeleteDays() - Math.floor((Date.now() - new Date(patient.deletedAt).getTime()) / (1000 * 60 * 60 * 24)))
                     : getAutoDeleteDays();
-                  
+
                   return (
-                    <div 
+                    <div
                       key={patient.id}
                       className="p-4 rounded-lg border"
                       style={{ backgroundColor: '#FEF2F2' }}
@@ -1122,9 +1122,9 @@ export const MedicalStaffDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setDetailView('list')}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -1162,7 +1162,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                   </Badge>
                 </div>
               </div>
-              
+
               <div>
                 <p className="text-xs mb-1" style={{ color: '#7F8C8D' }}>Assigned Caregiver</p>
                 <p style={{ color: '#2C3E50' }}>{caregiver?.name || 'Unassigned'}</p>
@@ -1232,7 +1232,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <Battery className="w-5 h-5" style={{ 
+                <Battery className="w-5 h-5" style={{
                   color: selectedPatient.deviceBattery > 50 ? '#2ECC71' : selectedPatient.deviceBattery > 20 ? '#F39C12' : '#E74C3C'
                 }} />
                 <div>
@@ -1258,7 +1258,7 @@ export const MedicalStaffDashboard: React.FC = () => {
               {patientAlerts.slice(0, 5).map(alert => {
                 const Icon = getAlertIcon(alert.type);
                 return (
-                  <div key={alert.id} className="p-3 rounded-lg border-l-4" style={{ 
+                  <div key={alert.id} className="p-3 rounded-lg border-l-4" style={{
                     borderLeftColor: alert.severity === 'critical' ? '#E74C3C' : '#F39C12',
                     backgroundColor: '#FAFAFA'
                   }}>
@@ -1299,7 +1299,7 @@ export const MedicalStaffDashboard: React.FC = () => {
               const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
               const avgHR = vitals.reduce((sum, v) => sum + v.heartRate, 0) / vitals.length;
               const avgTemp = vitals.reduce((sum, v) => sum + v.temperature, 0) / vitals.length;
-              
+
               return (
                 <div
                   key={patient.id}
@@ -1317,7 +1317,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                     </div>
                     <TrendingUp className="w-5 h-5" style={{ color: '#7DD3C0' }} />
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <p className="text-xs mb-1" style={{ color: '#7F8C8D' }}>Avg Heart Rate</p>
@@ -1344,9 +1344,9 @@ export const MedicalStaffDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setDetailView('list')}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -1373,7 +1373,7 @@ export const MedicalStaffDashboard: React.FC = () => {
                     <SelectItem value="30d">Last Month</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button 
+                <Button
                   onClick={() => handleDownloadReport('analytics')}
                   size="sm"
                   style={{ backgroundColor: '#7DD3C0', color: 'white' }}
@@ -1391,8 +1391,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={vitalSigns}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E8F6F3" />
-                    <XAxis 
-                      dataKey="timestamp" 
+                    <XAxis
+                      dataKey="timestamp"
                       tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       tick={{ fontSize: 12, fill: '#7F8C8D' }}
                     />
@@ -1410,8 +1410,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={vitalSigns}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E8F6F3" />
-                    <XAxis 
-                      dataKey="timestamp" 
+                    <XAxis
+                      dataKey="timestamp"
                       tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       tick={{ fontSize: 12, fill: '#7F8C8D' }}
                     />
@@ -1429,8 +1429,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={vitalSigns}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E8F6F3" />
-                    <XAxis 
-                      dataKey="timestamp" 
+                    <XAxis
+                      dataKey="timestamp"
                       tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       tick={{ fontSize: 12, fill: '#7F8C8D' }}
                     />
@@ -1454,8 +1454,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E8F6F3" />
-                    <XAxis 
-                      dataKey="timestamp" 
+                    <XAxis
+                      dataKey="timestamp"
                       tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       tick={{ fontSize: 12, fill: '#7F8C8D' }}
                     />
@@ -1485,7 +1485,7 @@ export const MedicalStaffDashboard: React.FC = () => {
             {patients.map(patient => {
               const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
               const trend = vitals.length > 10 ? 'Stable' : 'Monitoring';
-              
+
               return (
                 <div
                   key={patient.id}
@@ -1522,9 +1522,9 @@ export const MedicalStaffDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setDetailView('list')}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -1546,8 +1546,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={vitalSigns}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E8F6F3" />
-                    <XAxis 
-                      dataKey="timestamp" 
+                    <XAxis
+                      dataKey="timestamp"
                       tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       tick={{ fontSize: 12, fill: '#7F8C8D' }}
                     />
@@ -1573,8 +1573,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E8F6F3" />
-                    <XAxis 
-                      dataKey="timestamp" 
+                    <XAxis
+                      dataKey="timestamp"
                       tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       tick={{ fontSize: 12, fill: '#7F8C8D' }}
                     />
@@ -1604,9 +1604,9 @@ export const MedicalStaffDashboard: React.FC = () => {
             {alerts.map(alert => {
               const patient = patients.find(p => p.id === alert.patientId);
               const Icon = getAlertIcon(alert.type);
-              
+
               return (
-                <div key={alert.id} className="p-4 rounded-lg border-l-4" style={{ 
+                <div key={alert.id} className="p-4 rounded-lg border-l-4" style={{
                   borderLeftColor: alert.acknowledged ? '#2ECC71' : '#F39C12',
                   backgroundColor: '#FAFAFA'
                 }}>
@@ -1644,7 +1644,7 @@ export const MedicalStaffDashboard: React.FC = () => {
             {assignments.map(assignment => {
               const patient = patients.find(p => p.id === assignment.patientId);
               const caregiver = mockUsers.find(u => u.id === assignment.caregiverId);
-              
+
               return (
                 <div key={assignment.id} className="p-3 rounded-lg bg-gray-50">
                   <div className="flex items-center justify-between">
@@ -1658,8 +1658,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                     </div>
                     <Badge className={
                       assignment.status === 'accepted' ? 'bg-[#2ECC71] text-white' :
-                      assignment.status === 'pending' ? 'bg-[#F39C12] text-white' :
-                      'bg-[#E74C3C] text-white'
+                        assignment.status === 'pending' ? 'bg-[#F39C12] text-white' :
+                          'bg-[#E74C3C] text-white'
                     }>
                       {assignment.status}
                     </Badge>
@@ -1676,7 +1676,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   // Alerts Only (No Patient Overview)
   const renderAlerts = () => {
     const unacknowledgedAlerts = alerts.filter(a => !a.acknowledged);
-    
+
     return (
       <div className="space-y-6">
         <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
@@ -1702,12 +1702,12 @@ export const MedicalStaffDashboard: React.FC = () => {
                 unacknowledgedAlerts.map(alert => {
                   const patient = patients.find(p => p.id === alert.patientId);
                   const Icon = getAlertIcon(alert.type);
-                  
+
                   return (
-                    <div 
-                      key={alert.id} 
-                      className="p-4 rounded-lg border-l-4" 
-                      style={{ 
+                    <div
+                      key={alert.id}
+                      className="p-4 rounded-lg border-l-4"
+                      style={{
                         borderLeftColor: alert.severity === 'critical' ? '#E74C3C' : '#F39C12',
                         backgroundColor: '#FAFAFA'
                       }}
@@ -1740,7 +1740,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   // Reports Only
   const renderReports = () => {
     const acknowledgedAlerts = alerts.filter(a => a.acknowledged);
-    
+
     return (
       <div className="space-y-6">
         <Card className="border-0" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)' }}>
@@ -1752,7 +1752,7 @@ export const MedicalStaffDashboard: React.FC = () => {
             <div className="space-y-2">
               {acknowledgedAlerts.slice(0, 20).map(alert => {
                 const patient = patients.find(p => p.id === alert.patientId);
-                
+
                 return (
                   <div key={alert.id} className="p-3 rounded-lg bg-gray-50">
                     <div className="flex items-center justify-between">
@@ -1789,7 +1789,7 @@ export const MedicalStaffDashboard: React.FC = () => {
               {assignments.map(assignment => {
                 const patient = patients.find(p => p.id === assignment.patientId);
                 const caregiver = mockUsers.find(u => u.id === assignment.caregiverId);
-                
+
                 return (
                   <div key={assignment.id} className="p-3 rounded-lg bg-gray-50">
                     <div className="flex items-center justify-between">
@@ -1803,8 +1803,8 @@ export const MedicalStaffDashboard: React.FC = () => {
                       </div>
                       <Badge className={
                         assignment.status === 'accepted' ? 'bg-[#2ECC71] text-white' :
-                        assignment.status === 'pending' ? 'bg-[#F39C12] text-white' :
-                        'bg-[#E74C3C] text-white'
+                          assignment.status === 'pending' ? 'bg-[#F39C12] text-white' :
+                            'bg-[#E74C3C] text-white'
                       }>
                         {assignment.status}
                       </Badge>
@@ -1832,12 +1832,12 @@ export const MedicalStaffDashboard: React.FC = () => {
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Battery className="w-4 h-4" style={{ 
+                  <Battery className="w-4 h-4" style={{
                     color: patient.deviceBattery > 50 ? '#2ECC71' : patient.deviceBattery > 20 ? '#F39C12' : '#E74C3C'
                   }} />
                   <span className="text-sm">Battery</span>
                 </div>
-                <span className="text-sm" style={{ 
+                <span className="text-sm" style={{
                   color: patient.deviceBattery > 50 ? '#2ECC71' : patient.deviceBattery > 20 ? '#F39C12' : '#E74C3C'
                 }}>
                   {patient.deviceBattery}%
@@ -1953,8 +1953,8 @@ export const MedicalStaffDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardSidebar 
-        activeItem={activeNavItem} 
+      <DashboardSidebar
+        activeItem={activeNavItem}
         onItemClick={(item) => {
           setActiveNavItem(item);
           setDetailView('list');
@@ -1980,12 +1980,12 @@ export const MedicalStaffDashboard: React.FC = () => {
                   onMarkAllRead={handleMarkAllRead}
                   patientNames={patientNamesMap}
                 />
-                
+
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted">
                   <User className="w-4 h-4" />
                   <span className="text-sm">{user?.name}</span>
                 </div>
-                
+
                 <Button variant="outline" size="sm" onClick={logout}>
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout

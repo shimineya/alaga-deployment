@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useAuth } from '../lib/auth-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -13,12 +14,14 @@ interface AddNewDeviceProps {
 }
 
 export const AddNewDevice: React.FC<AddNewDeviceProps> = ({ onDeviceAdded, onCancel }) => {
+    const { token } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const [activeTab, setActiveTab] = useState("manual");
 
     // Form State
     const [vitalDeviceNo, setVitalDeviceNo] = useState("");
     const [diaperDeviceNo, setDiaperDeviceNo] = useState("");
+    const [errors, setErrors] = useState<Record<string, string>>({});
 
     // File Upload Ref
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -30,8 +33,8 @@ export const AddNewDevice: React.FC<AddNewDeviceProps> = ({ onDeviceAdded, onCan
             toast.info("Analyzing QR Code...");
 
             setTimeout(() => {
-                setVitalDeviceNo("ESP32-HR-8821");
-                setDiaperDeviceNo("ESP32-DP-9902");
+                setVitalDeviceNo("VS-2025-001");
+                setDiaperDeviceNo("SD-2025-002");
                 setIsLoading(false);
                 setActiveTab("manual");
                 toast.success("QR Code Scanned Successfully!");
@@ -39,33 +42,81 @@ export const AddNewDevice: React.FC<AddNewDeviceProps> = ({ onDeviceAdded, onCan
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+    const validateForm = () => {
+        const newErrors: Record<string, string> = {};
 
-        if (!vitalDeviceNo.trim() || !diaperDeviceNo.trim()) {
-            toast.error("Both Device IDs are required.");
-            return;
+        if (!vitalDeviceNo.trim()) {
+            newErrors.vitalDeviceNo = "Vital device No. is required";
+        } else if (!/^VS-\d{4}-\d{3,}$/.test(vitalDeviceNo.trim())) {
+            newErrors.vitalDeviceNo = "Format: VS-YYYY-XXX (e.g. VS-2025-001)";
         }
 
-        if (vitalDeviceNo === diaperDeviceNo) {
-            toast.error("Vital Sign and Diaper Device IDs cannot be the same.");
+        if (!diaperDeviceNo.trim()) {
+            newErrors.diaperDeviceNo = "Diaper device No. is required";
+        } else if (!/^SD-\d{4}-\d{3,}$/.test(diaperDeviceNo.trim())) {
+            newErrors.diaperDeviceNo = "Format: SD-YYYY-XXX (e.g. SD-2025-001)";
+        }
+
+        if (vitalDeviceNo && diaperDeviceNo && vitalDeviceNo === diaperDeviceNo) {
+            newErrors.diaperDeviceNo = "Device IDs cannot be the same";
+        }
+
+        return newErrors;
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        const formErrors = validateForm();
+        if (Object.keys(formErrors).length > 0) {
+            setErrors(formErrors);
+            const firstErrorField = Object.keys(formErrors)[0];
+            const element = document.getElementById(firstErrorField);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            toast.error("Please fix the errors below.");
             return;
         }
 
         setIsLoading(true);
 
-        setTimeout(() => {
+        setIsLoading(true);
+
+        try {
+            const response = await fetch('http://localhost:3000/api/caregiver/devices', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    vitalDeviceNo: vitalDeviceNo,
+                    diaperDeviceNo: diaperDeviceNo
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                toast.success("Devices registered successfully.");
+                onDeviceAdded();
+            } else {
+                toast.error(data.message || "Failed to register devices");
+            }
+        } catch (error) {
+            console.error("Device Reg Error:", error);
+            toast.error("Network Error: Could not register devices");
+        } finally {
             setIsLoading(false);
-            toast.success("Devices registered successfully.");
-            onDeviceAdded();
-        }, 1000);
+        }
     };
 
     return (
         <div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-6 h-12">
+                <TabsList className="grid w-full grid-cols-2 mb-4 h-12">
                     <TabsTrigger value="manual" className="flex items-center gap-2">
                         <Keyboard className="w-4 h-4" /> Manual
                     </TabsTrigger>
@@ -76,46 +127,56 @@ export const AddNewDevice: React.FC<AddNewDeviceProps> = ({ onDeviceAdded, onCan
 
                 <TabsContent value="manual" className="mt-0">
                     <Card className="border-slate-200 shadow-sm overflow-hidden">
-                        <CardHeader className="bg-slate-50/50 pb-4">
+                        <CardHeader className="bg-slate-50/50 pb-2">
                             <CardTitle className="text-lg">Device Details</CardTitle>
                             <CardDescription>
                                 Enter the unique serial numbers found on the hardware.
                             </CardDescription>
                         </CardHeader>
-                        <CardContent className="pt-6">
-                            <form onSubmit={handleSubmit} className="space-y-6">
+                        <CardContent className="pt-4">
+                            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
 
-                                <div className="space-y-2">
-                                    <Label htmlFor="vital-id" className="flex items-center gap-2 text-slate-700">
-                                        <Smartphone className="w-4 h-4 text-rose-500" />
-                                        Vital Sign Device No. <span className="text-red-500">*</span>
-                                    </Label>
-                                    <Input
-                                        id="vital-id"
-                                        placeholder="e.g. VS-2024-XXXX"
-                                        value={vitalDeviceNo}
-                                        onChange={(e) => setVitalDeviceNo(e.target.value)}
-                                        className="font-mono text-sm uppercase"
-                                        required
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <Label htmlFor="vitalDeviceNo" className="flex items-center gap-2 text-slate-700">
+                                            <Smartphone className="w-4 h-4 text-rose-500" />
+                                            Vital Sign Device No. <span className="text-red-500">*</span>
+                                        </Label>
+                                        <Input
+                                            id="vitalDeviceNo"
+                                            placeholder="e.g. VS-2025-001"
+                                            value={vitalDeviceNo}
+                                            onChange={(e) => {
+                                                setVitalDeviceNo(e.target.value);
+                                                if (errors.vitalDeviceNo) setErrors({ ...errors, vitalDeviceNo: '' });
+                                            }}
+                                            className={`font-mono text-sm uppercase ${errors.vitalDeviceNo ? 'border-red-500' : ''}`}
+                                            style={{ scrollMarginTop: '150px' }}
+                                        />
+                                        {errors.vitalDeviceNo && <span className="text-red-500 text-xs">{errors.vitalDeviceNo}</span>}
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <Label htmlFor="diaperDeviceNo" className="flex items-center gap-2 text-slate-700">
+                                            <Smartphone className="w-4 h-4 text-blue-500" />
+                                            Smart Diaper Device No. <span className="text-red-500">*</span>
+                                        </Label>
+                                        <Input
+                                            id="diaperDeviceNo"
+                                            placeholder="e.g. SD-2025-001"
+                                            value={diaperDeviceNo}
+                                            onChange={(e) => {
+                                                setDiaperDeviceNo(e.target.value);
+                                                if (errors.diaperDeviceNo) setErrors({ ...errors, diaperDeviceNo: '' });
+                                            }}
+                                            className={`font-mono text-sm uppercase ${errors.diaperDeviceNo ? 'border-red-500' : ''}`}
+                                            style={{ scrollMarginTop: '150px' }}
+                                        />
+                                        {errors.diaperDeviceNo && <span className="text-red-500 text-xs">{errors.diaperDeviceNo}</span>}
+                                    </div>
                                 </div>
 
-                                <div className="space-y-2">
-                                    <Label htmlFor="diaper-id" className="flex items-center gap-2 text-slate-700">
-                                        <Smartphone className="w-4 h-4 text-blue-500" />
-                                        Smart Diaper Device No. <span className="text-red-500">*</span>
-                                    </Label>
-                                    <Input
-                                        id="diaper-id"
-                                        placeholder="e.g. SD-2024-XXXX"
-                                        value={diaperDeviceNo}
-                                        onChange={(e) => setDiaperDeviceNo(e.target.value)}
-                                        className="font-mono text-sm uppercase"
-                                        required
-                                    />
-                                </div>
-
-                                <div className="pt-4 flex gap-3">
+                                <div className="pt-2 grid grid-cols-2 gap-3">
                                     <Button
                                         type="button"
                                         variant="outline"

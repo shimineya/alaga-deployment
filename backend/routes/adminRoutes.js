@@ -39,7 +39,7 @@ router.post('/whitelist-device', async (req, res) => {
 
         // [OWASP A05] Parameterized Query
         await pool.query(
-            `INSERT INTO device_whitelist (mac_address, device_name, added_by)
+            `INSERT INTO device_whitelist (serial_number, device_name, added_by)
              VALUES ($1, $2, $3)`,
             [mac_address, device_name, req.user.id]
         );
@@ -47,7 +47,7 @@ router.post('/whitelist-device', async (req, res) => {
         // [OWASP A09] Log the action
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected) VALUES ($1, 'DEVICE_WHITELIST_ADD', $2)`,
-            [req.user.id, `MAC: ${mac_address}`]
+            [req.user.id, `SN: ${mac_address}`]
         );
 
         res.json({ success: true, message: 'Device whitelisted successfully' });
@@ -115,10 +115,10 @@ router.get('/stats', async (req, res) => {
         const [patientCount, alertCount, deviceCount, userCount] = await Promise.all([
             // 1. Total Active Patients
             pool.query("SELECT COUNT(*) FROM patients WHERE is_archived = FALSE"),
-            
+
             // 2. Unresolved Critical Alerts (Patient Safety)
             pool.query("SELECT COUNT(*) FROM alert_notifications WHERE severity = 'critical' AND status = 'unread'"),
-            
+
             // 3. Online IoT Devices (Connectivity Check)
             // Note: Assuming you have a 'status' or 'last_heartbeat' column. 
             // If not, we count total whitelisted devices for now.
@@ -206,7 +206,7 @@ router.post('/legal-docs', async (req, res) => {
     const client = await pool.connect();
     try {
         const { doc_type, title, content, version } = req.body;
-        
+
         await client.query('BEGIN');
 
         // 1. Deactivate old versions
@@ -259,21 +259,21 @@ router.get('/devices', async (req, res) => {
 });
 
 // [Security] The IoT Kill Switch
-router.put('/devices/:mac/status', async (req, res) => {
+router.put('/devices/:sn/status', async (req, res) => {
     try {
-        const { mac } = req.params;
+        const { sn } = req.params;
         const { status } = req.body; // 'ACTIVE', 'REVOKED', 'MAINTENANCE'
 
         await pool.query(
-            'UPDATE device_whitelist SET status = $1 WHERE mac_address = $2',
-            [status, mac]
+            'UPDATE device_whitelist SET status = $1 WHERE serial_number = $2',
+            [status, sn]
         );
 
         // [Compliance] Log the revocation
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity) 
              VALUES ($1, 'DEVICE_STATUS_CHANGE', $2, 'CRITICAL')`,
-            [req.user.id, `Device ${mac} set to ${status}`]
+            [req.user.id, `Device ${sn} set to ${status}`]
         );
 
         res.json({ success: true, message: `Device status updated to ${status}` });
@@ -382,14 +382,14 @@ router.get('/inventory', async (req, res) => {
 router.post('/inventory/assign', async (req, res) => {
     const client = await pool.connect();
     try {
-        const { mac_address, patient_id } = req.body;
+        const { serial_number, patient_id } = req.body;
 
         await client.query('BEGIN');
 
         // Check if device is already assigned
         const check = await client.query(
-            "SELECT * FROM device_whitelist WHERE mac_address = $1 AND assigned_patient_id IS NOT NULL",
-            [mac_address]
+            "SELECT * FROM device_whitelist WHERE serial_number = $1 AND assigned_patient_id IS NOT NULL",
+            [serial_number]
         );
 
         if (check.rows.length > 0) {
@@ -398,20 +398,20 @@ router.post('/inventory/assign', async (req, res) => {
 
         // Assign
         await client.query(
-            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE mac_address = $2",
-            [patient_id, mac_address]
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
+            [patient_id, serial_number]
         );
 
         // Update Patient Record (Redundant but useful for quick access)
         await client.query(
-            "UPDATE patients SET device_mac_address = $1 WHERE patient_id = $2",
-            [mac_address, patient_id]
+            "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
+            [serial_number, patient_id]
         );
 
         // Log it
         await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected) VALUES ($1, 'DEVICE_ASSIGN', $2)`,
-            [req.user.id, `Assigned ${mac_address} to Patient ${patient_id}`]
+            [req.user.id, `Assigned ${serial_number} to Patient ${patient_id}`]
         );
 
         await client.query('COMMIT');
@@ -595,10 +595,10 @@ router.get('/announcements', async (req, res) => {
 router.post('/announcements', async (req, res) => {
     try {
         const { title, message } = req.body;
-        
+
         // Deactivate old active announcements (Optional rule: Only 1 active at a time?)
         // For now, let's just insert a new one.
-        
+
         await pool.query(
             "INSERT INTO announcements (title, message, created_by) VALUES ($1, $2, $3)",
             [title, message, req.user.id]
@@ -653,7 +653,7 @@ router.get('/security', async (req, res) => {
             pool.query("SELECT * FROM ip_blacklist ORDER BY banned_at DESC"),
             pool.query("SELECT config_value FROM system_configs WHERE config_key = 'rate_limit'")
         ]);
-        
+
         res.json({
             success: true,
             data: {

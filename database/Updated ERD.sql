@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS public.anomaly_events
 
 CREATE TABLE IF NOT EXISTS public.device_whitelist
 (
-    mac_address macaddr NOT NULL,
+    serial_number character varying(50) COLLATE pg_catalog."default" NOT NULL,
     device_name character varying(50) COLLATE pg_catalog."default",
     firmware_version character varying(20) COLLATE pg_catalog."default",
     status character varying(20) COLLATE pg_catalog."default" DEFAULT 'ACTIVE'::character varying,
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS public.device_whitelist
     last_heartbeat timestamp with time zone,
     assigned_patient_id integer,
     last_serviced_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT device_whitelist_pkey PRIMARY KEY (mac_address)
+    CONSTRAINT device_whitelist_pkey PRIMARY KEY (serial_number)
 );
 
 CREATE TABLE IF NOT EXISTS public.ip_blacklist
@@ -107,12 +107,12 @@ CREATE TABLE IF NOT EXISTS public.patients
     name character varying(100) COLLATE pg_catalog."default" NOT NULL,
     birthdate date NOT NULL,
     patient_type character varying(50) COLLATE pg_catalog."default",
-    device_mac_address character varying(50) COLLATE pg_catalog."default",
+    device_serial_number character varying(50) COLLATE pg_catalog."default",
     baseline_data jsonb,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     is_archived boolean DEFAULT false,
     CONSTRAINT patients_pkey PRIMARY KEY (patient_id),
-    CONSTRAINT patients_device_mac_address_key UNIQUE (device_mac_address)
+    CONSTRAINT patients_device_mac_address_key UNIQUE (device_serial_number)
 );
 
 CREATE TABLE IF NOT EXISTS public.profiles_caregivers

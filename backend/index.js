@@ -272,6 +272,13 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
 // URL Prefix: http://localhost:3000/api/admin/audit-logs
 app.use('/api/admin', adminRoutes);
 
+// [NEW] Caregiver & Patient Management Routes
+const caregiverRoutes = require('./routes/caregiverRoutes');
+app.use('/api/caregiver', caregiverRoutes);
+
+const assignmentRoutes = require('./routes/assignmentRoutes');
+app.use('/api/assignments', assignmentRoutes);
+
 
 // --- Start Server ---
 app.listen(port, () => {

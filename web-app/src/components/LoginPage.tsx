@@ -12,15 +12,28 @@ import { toast } from 'sonner';
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
-  
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    if (!username) newErrors.username = "Username/Email is required";
+    if (!password) newErrors.password = "Password is required";
+
+    setFieldErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!validateForm()) return;
+
     setLoading(true);
 
     try {
@@ -45,9 +58,9 @@ export const LoginPage: React.FC = () => {
         }
 
         toast.success(`Welcome back, ${user?.username}!`);
-        
+
         // [FIX] Simplify Navigation - Let App.tsx handle role routing
-        navigate('/dashboard'); 
+        navigate('/dashboard');
 
       } else {
         // Handle case where login returns false/null but no error threw
@@ -72,7 +85,7 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#F0FAF9' }}>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div 
+          <div
             className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
             style={{ backgroundColor: '#7DD3C0', boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)' }}
           >
@@ -90,20 +103,23 @@ export const LoginPage: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div className="space-y-2">
                 <Label htmlFor="username">Username or Email</Label>
                 <Input
                   id="username"
                   placeholder="Enter username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  className="bg-gray-50"
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    if (fieldErrors.username) setFieldErrors({ ...fieldErrors, username: '' });
+                  }}
+                  className={`bg-gray-50 ${fieldErrors.username ? 'border-red-500' : ''}`}
                   disabled={loading}
                 />
+                {fieldErrors.username && <span className="text-red-500 text-xs">{fieldErrors.username}</span>}
               </div>
-              
+
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <Label htmlFor="password">Password</Label>
@@ -114,11 +130,14 @@ export const LoginPage: React.FC = () => {
                   type="password"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="bg-gray-50"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (fieldErrors.password) setFieldErrors({ ...fieldErrors, password: '' });
+                  }}
+                  className={`bg-gray-50 ${fieldErrors.password ? 'border-red-500' : ''}`}
                   disabled={loading}
                 />
+                {fieldErrors.password && <span className="text-red-500 text-xs">{fieldErrors.password}</span>}
               </div>
 
               {error && (
@@ -128,9 +147,9 @@ export const LoginPage: React.FC = () => {
                 </Alert>
               )}
 
-              <Button 
-                type="submit" 
-                className="w-full text-white font-medium h-11" 
+              <Button
+                type="submit"
+                className="w-full text-white font-medium h-11"
                 style={{ backgroundColor: '#7DD3C0' }}
                 disabled={loading}
               >
@@ -140,13 +159,13 @@ export const LoginPage: React.FC = () => {
               <div className="text-center pt-4 border-t">
                 <p className="text-sm text-gray-600">
                   Don't have an account?{' '}
-                  <a 
-                    href="/signup" 
+                  <a
+                    href="/signup"
                     className="font-medium hover:underline"
                     style={{ color: '#7DD3C0' }}
                     onClick={(e) => {
-                        e.preventDefault();
-                        navigate('/signup');
+                      e.preventDefault();
+                      navigate('/signup');
                     }}
                   >
                     Register here

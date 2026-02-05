@@ -9,7 +9,10 @@ import { NotificationPanel } from './NotificationPanel';
 import { DoctorsOrders } from './DoctorsOrders';
 import { Bulletin } from './Bulletin';
 import { PatientProfile } from './PatientProfile';
-import { AddNewDevice } from './AddNewDevice'; // Add this near top
+import { AddNewPatient } from './AddNewPatient';
+import { PatientList } from './PatientList';
+import { AddNewDevice } from './AddNewDevice';
+import { AssignmentTracker } from './AssignmentTracker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -69,7 +72,7 @@ import {
 } from 'recharts';
 
 export const CaregiverDashboardNew: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth(); // [MODIFIED] Added token extraction
 
   // --- State Management ---
   const [patients, setPatients] = useState<Patient[]>([]); // Starts Empty
@@ -81,13 +84,7 @@ export const CaregiverDashboardNew: React.FC = () => {
   const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Forms & Settings
-  const [newPatientForm, setNewPatientForm] = useState({
-    name: '',
-    age: '',
-    medicalConditions: '',
-    deviceId: ''
-  });
+  // Settings
   const [doctorsOrdersData, setDoctorsOrdersData] = useState<DoctorsOrdersData | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
@@ -165,14 +162,55 @@ export const CaregiverDashboardNew: React.FC = () => {
   }, [patients, alerts, alarmSound, silencedPatients]);
 
   // --- Data Loading & Generation ---
-  // [REMOVED] The useEffect that forced 'mockPatients' to load on start.
-  // The 'patients' state now starts empty and relies on 'handleAddPatient'.
+  // [NEW] Fetch Real Patients
+  useEffect(() => {
+    const fetchPatients = async () => {
+      if (!token) return;
+      try {
+        const response = await fetch('http://localhost:3000/api/caregiver/patients', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+          // [ADAPTER] Convert DB shape to Frontend Shape
+          const mappedPatients: Patient[] = data.data.map((p: any) => ({
+            id: p.patient_id.toString(), // DB is int, frontend uses string usually
+            name: p.name,
+            age: new Date().getFullYear() - new Date(p.birthdate).getFullYear(),
+            roomNumber: 'Home', // Default for now
+            condition: p.baseline_data?.condition || 'Stable', // Extract from JSONB
+            admissionDate: new Date(p.created_at).toISOString().split('T')[0],
+            dischargeDate: undefined,
+            status: 'Stable', // Default
+            baselineVitals: {
+              heartRate: 75,
+              spo2: 98,
+              temperature: 37.0
+            },
+            medicalConditions: p.baseline_data?.condition ? [p.baseline_data.condition] : [],
+            doctorsOrders: [],
+            deviceConnected: !!p.device_serial_number, // [NEW] Connected if serial number exists
+            hrDeviceConnected: !!p.device_serial_number,
+            diaperDeviceConnected: !!p.device_serial_number,
+            assignedCaregiverName: p.assigned_caregiver_name, // [NEW] Map from API
+            deleted: false,
+            archived: false
+          }));
+          setPatients(mappedPatients);
+        }
+      } catch (err) {
+        console.error("Failed to fetch patients", err);
+        // Fallback or Toast?
+      }
+    };
+
+    fetchPatients();
+  }, [token, activeNavItem]); // Refetch when nav changes (e.g. after adding patient)
 
   useEffect(() => {
-    if (selectedPatient) {
-      const vitals = generateMockVitalSigns(selectedPatient.id, selectedPatient.baselineVitals);
-      setVitalSigns(vitals);
-    }
+    // [MODIFIED] User requested NO mock data even if connected.
+    // We clear vitals so the UI shows '--'
+    setVitalSigns([]);
   }, [selectedPatient, timeRange]);
 
   // Alert Generation Loop
@@ -219,30 +257,6 @@ export const CaregiverDashboardNew: React.FC = () => {
     toast.success('All alerts marked as read');
   };
 
-  const handleAddPatient = () => {
-    if (!newPatientForm.name || !newPatientForm.age || !newPatientForm.deviceId) {
-      toast.error('Please fill all required fields');
-      return;
-    }
-    const newPatient: Patient = {
-      id: `p${patients.length + 1}`,
-      name: newPatientForm.name,
-      age: parseInt(newPatientForm.age),
-      medicalConditions: newPatientForm.medicalConditions.split(',').filter(c => c),
-      baselineVitals: { heartRate: 75, temperature: 36.8, spo2: 97 },
-      caregiverId: user?.id,
-      deviceId: newPatientForm.deviceId,
-      deviceBattery: 100,
-      deviceConnected: true,
-      lastUpdated: new Date(),
-      doctorsOrders: doctorsOrdersData || undefined
-    };
-    setPatients(prev => [...prev, newPatient]);
-    toast.success('Patient added');
-    setNewPatientForm({ name: '', age: '', medicalConditions: '', deviceId: '' });
-    setActiveNavItem('dashboard');
-  };
-
   const handleDownloadReport = (type: string) => toast.success(`Downloading ${type} report...`);
 
   // --- Helpers ---
@@ -256,52 +270,52 @@ export const CaregiverDashboardNew: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Critical Card */}
         <Card className="border-l-4 border-l-red-500 shadow-sm">
-          <CardContent className="p-6 flex justify-between items-center">
+          <CardContent className="p-4 flex justify-between items-center">
             <div>
-              <p className="text-sm font-medium text-gray-500">Critical Status</p>
-              <h3 className="text-3xl font-bold text-red-600">{metrics.critical}</h3>
+              <p className="text-xs font-medium text-gray-500">Critical Status</p>
+              <h3 className="text-2xl font-bold text-red-600">{metrics.critical}</h3>
             </div>
-            <div className="p-3 bg-red-50 rounded-full">
-              <AlertCircle className="w-6 h-6 text-red-600" />
+            <div className="p-2 bg-red-50 rounded-full">
+              <AlertCircle className="w-5 h-5 text-red-600" />
             </div>
           </CardContent>
         </Card>
 
         {/* Stable Card */}
         <Card className="border-l-4 border-l-emerald-500 shadow-sm">
-          <CardContent className="p-6 flex justify-between items-center">
+          <CardContent className="p-4 flex justify-between items-center">
             <div>
-              <p className="text-sm font-medium text-gray-500">Stable</p>
-              <h3 className="text-3xl font-bold text-emerald-600">{metrics.stable}</h3>
+              <p className="text-xs font-medium text-gray-500">Stable</p>
+              <h3 className="text-2xl font-bold text-emerald-600">{metrics.stable}</h3>
             </div>
-            <div className="p-3 bg-emerald-50 rounded-full">
-              <Activity className="w-6 h-6 text-emerald-600" />
+            <div className="p-2 bg-emerald-50 rounded-full">
+              <Activity className="w-5 h-5 text-emerald-600" />
             </div>
           </CardContent>
         </Card>
 
         {/* Unassigned Card */}
         <Card className="border-l-4 border-l-gray-400 shadow-sm">
-          <CardContent className="p-6 flex justify-between items-center">
+          <CardContent className="p-4 flex justify-between items-center">
             <div>
-              <p className="text-sm font-medium text-gray-500">Unassigned</p>
-              <h3 className="text-3xl font-bold text-gray-600">{metrics.unassigned}</h3>
+              <p className="text-xs font-medium text-gray-500">Unassigned</p>
+              <h3 className="text-2xl font-bold text-gray-600">{metrics.unassigned}</h3>
             </div>
-            <div className="p-3 bg-gray-50 rounded-full">
-              <Users className="w-6 h-6 text-gray-600" />
+            <div className="p-2 bg-gray-50 rounded-full">
+              <Users className="w-5 h-5 text-gray-600" />
             </div>
           </CardContent>
         </Card>
 
         {/* Total Card */}
         <Card className="border-l-4 border-l-blue-500 shadow-sm">
-          <CardContent className="p-6 flex justify-between items-center">
+          <CardContent className="p-4 flex justify-between items-center">
             <div>
-              <p className="text-sm font-medium text-gray-500">Total Patients</p>
-              <h3 className="text-3xl font-bold text-blue-600">{metrics.total}</h3>
+              <p className="text-xs font-medium text-gray-500">Total Patients</p>
+              <h3 className="text-2xl font-bold text-blue-600">{metrics.total}</h3>
             </div>
-            <div className="p-3 bg-blue-50 rounded-full">
-              <Users className="w-6 h-6 text-blue-600" />
+            <div className="p-2 bg-blue-50 rounded-full">
+              <Users className="w-5 h-5 text-blue-600" />
             </div>
           </CardContent>
         </Card>
@@ -310,15 +324,15 @@ export const CaregiverDashboardNew: React.FC = () => {
       {/* ZONE B: Analytical Context */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 shadow-sm border-slate-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-slate-500" />
+          <CardHeader className="py-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TrendingUp className="w-4 h-4 text-slate-500" />
               Status Trends (24h)
             </CardTitle>
-            <CardDescription>Monitoring alert frequency vs stability over time</CardDescription>
+            <CardDescription className="text-xs">Monitoring alert frequency vs stability over time</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="h-[250px] w-full">
+          <CardContent className="pt-0">
+            <div className="h-[180px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trendData}>
                   <defs>
@@ -332,8 +346,8 @@ export const CaregiverDashboardNew: React.FC = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="time" stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="time" stroke="#64748B" fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#64748B" fontSize={10} tickLine={false} axisLine={false} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #E2E8F0' }}
                     itemStyle={{ fontSize: '12px' }}
@@ -347,19 +361,19 @@ export const CaregiverDashboardNew: React.FC = () => {
         </Card>
 
         <Card className="shadow-sm border-slate-200">
-          <CardHeader>
-            <CardTitle>Distribution</CardTitle>
-            <CardDescription>Current Patient Status</CardDescription>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">Distribution</CardTitle>
+            <CardDescription className="text-xs">Current Patient Status</CardDescription>
           </CardHeader>
-          <CardContent className="flex justify-center items-center h-[250px]">
+          <CardContent className="flex justify-center items-center h-[180px] pt-0">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={distributionData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
+                  innerRadius={50}
+                  outerRadius={70}
                   paddingAngle={5}
                   dataKey="value"
                 >
@@ -369,8 +383,8 @@ export const CaregiverDashboardNew: React.FC = () => {
                 </Pie>
                 <Tooltip />
                 <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle">
-                  <tspan x="50%" dy="-0.5em" fontSize="24" fontWeight="bold" fill="#1E293B">{metrics.total}</tspan>
-                  <tspan x="50%" dy="1.5em" fontSize="12" fill="#64748B">Patients</tspan>
+                  <tspan x="50%" dy="-0.5em" fontSize="20" fontWeight="bold" fill="#1E293B">{metrics.total}</tspan>
+                  <tspan x="50%" dy="1.5em" fontSize="10" fill="#64748B">Patients</tspan>
                 </text>
               </PieChart>
             </ResponsiveContainer>
@@ -417,7 +431,7 @@ export const CaregiverDashboardNew: React.FC = () => {
         </div>
 
         {/* Patient Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {(() => {
             const filtered = patients.filter(p => !p.archived && !p.deleted && p.name.toLowerCase().includes(searchQuery.toLowerCase()));
             const sorted = filtered.sort((a, b) => {
@@ -432,9 +446,18 @@ export const CaregiverDashboardNew: React.FC = () => {
             }
 
             return paginated.map(patient => {
-              // Generate simulation vitals if not in history
-              const vitals = generateMockVitalSigns(patient.id, patient.baselineVitals);
-              const latestVital = vitals[vitals.length - 1];
+              // Generate simulation vitals ONLY if connected
+              let latestVital: VitalSign | undefined;
+
+              if (patient.deviceConnected) {
+                // [MODIFIED] No mock data generation. 
+                // We leave latestVital as undefined so it renders as '--'
+                const existingVitals = vitalSigns.filter(v => v.patientId === patient.id);
+                if (existingVitals.length > 0) {
+                  latestVital = existingVitals[existingVitals.length - 1];
+                }
+              }
+
               const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
               const isCritical = activeAlerts.some(a => a.severity === 'critical');
               const isOffline = !patient.deviceConnected;
@@ -461,19 +484,19 @@ export const CaregiverDashboardNew: React.FC = () => {
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-white/60 p-2 rounded text-center">
                         <Heart className="w-4 h-4 mx-auto text-rose-500 mb-1" />
-                        <span className="text-sm font-bold text-slate-700">{Math.round(latestVital?.heartRate || 75)}</span> <span className="text-[10px] text-slate-500">bpm</span>
+                        <span className="text-sm font-bold text-slate-700">{!latestVital ? '--' : Math.round(latestVital.heartRate)}</span> <span className="text-[10px] text-slate-500">bpm</span>
                       </div>
                       <div className="bg-white/60 p-2 rounded text-center">
                         <Thermometer className="w-4 h-4 mx-auto text-amber-500 mb-1" />
-                        <span className="text-sm font-bold text-slate-700">{(latestVital?.temperature || 36.5).toFixed(1)}</span> <span className="text-[10px] text-slate-500">°C</span>
+                        <span className="text-sm font-bold text-slate-700">{!latestVital ? '--' : (latestVital.temperature).toFixed(1)}</span> <span className="text-[10px] text-slate-500">°C</span>
                       </div>
                       <div className="bg-white/60 p-2 rounded text-center">
                         <Activity className="w-4 h-4 mx-auto text-blue-500 mb-1" />
-                        <span className="text-sm font-bold text-slate-700">{Math.round(latestVital?.spo2 || 98)}</span> <span className="text-[10px] text-slate-500">%</span>
+                        <span className="text-sm font-bold text-slate-700">{!latestVital ? '--' : Math.round(latestVital.spo2)}</span> <span className="text-[10px] text-slate-500">%</span>
                       </div>
                       <div className="bg-white/60 p-2 rounded text-center">
                         <Droplets className="w-4 h-4 mx-auto text-teal-500 mb-1" />
-                        <span className="text-sm font-bold text-slate-700">{Math.round(latestVital?.moistureLevel || 0)}</span> <span className="text-[10px] text-slate-500">%</span>
+                        <span className="text-sm font-bold text-slate-700">{!latestVital ? '--' : Math.round(latestVital.moistureLevel)}</span> <span className="text-[10px] text-slate-500">%</span>
                       </div>
                     </div>
 
@@ -502,41 +525,45 @@ export const CaregiverDashboardNew: React.FC = () => {
     </div>
   );
 
-  const renderAddPatient = () => (
-    <div className="space-y-6">
-      <Card className="border-0 shadow-sm">
-        <CardHeader>
-          <CardTitle>Add New Patient</CardTitle>
-          <CardDescription>Register a new patient to monitoring</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2"><Label>Name</Label><Input value={newPatientForm.name} onChange={e => setNewPatientForm({ ...newPatientForm, name: e.target.value })} /></div>
-          <div className="space-y-2"><Label>Age</Label><Input value={newPatientForm.age} onChange={e => setNewPatientForm({ ...newPatientForm, age: e.target.value })} /></div>
-          <div className="space-y-2"><Label>Device ID</Label><Input value={newPatientForm.deviceId} onChange={e => setNewPatientForm({ ...newPatientForm, deviceId: e.target.value })} /></div>
-          <Button onClick={handleAddPatient} className="w-full bg-teal-500 text-white">Add Patient</Button>
-        </CardContent>
-      </Card>
-      {newPatientForm.name && <DoctorsOrders patientName={newPatientForm.name} onSave={setDoctorsOrdersData} initialData={doctorsOrdersData || undefined} />}
-    </div>
-  );
-
   const renderContent = () => {
     if (viewMode === 'profile' && selectedPatient) {
-      // [MODIFIED] Removed mockUsers lookup. Using auth context user name.
-      return <PatientProfile patient={selectedPatient} onBack={() => { setViewMode('dashboard'); setSelectedPatient(null); }} caregiverName={user?.name} />;
+      // [MODIFIED] Use assigned caregiver name if available, otherwise fallback to current user
+      return <PatientProfile patient={selectedPatient} onBack={() => { setViewMode('dashboard'); setSelectedPatient(null); }} caregiverName={selectedPatient.assignedCaregiverName || user?.name} />;
     }
     switch (activeNavItem) {
       case 'dashboard': return renderDashboard();
-      case 'add-patient': return renderAddPatient();
-      case 'add-device': return (
-        <AddNewDevice
-          onDeviceAdded={() => {
+
+      // [MODIFIED] Integrated new AddNewPatient module
+      case 'add-patient': return (
+        <AddNewPatient
+          onSuccess={() => {
+            toast.success("Patient List Updated");
             setActiveNavItem('dashboard');
-            // Optional: Refresh lists or show notification
           }}
           onCancel={() => setActiveNavItem('dashboard')}
         />
       );
+
+      case 'patient-list': return (
+        <PatientList
+          patients={patients}
+          vitalSigns={vitalSigns}
+          onSelectPatient={(patient) => {
+            setSelectedPatient(patient);
+            setViewMode('profile');
+          }}
+        />
+      );
+
+      case 'add-device': return (
+        <AddNewDevice
+          onDeviceAdded={() => setActiveNavItem('dashboard')}
+          onCancel={() => setActiveNavItem('dashboard')}
+        />
+      );
+
+      case 'assignment-tracker': return <AssignmentTracker />;
+
       default: return renderDashboard();
     }
   };

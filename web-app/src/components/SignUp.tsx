@@ -29,6 +29,8 @@ export const SignUp: React.FC = () => {
     // [Cleaned] Removed unused Section 2 fields from state to avoid confusion
   });
 
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const handleRoleSelect = (role: 'medical_staff' | 'caregiver') => {
     setSelectedRole(role);
     setStep('form');
@@ -42,33 +44,41 @@ export const SignUp: React.FC = () => {
     if (field === 'middleInitial' && value.length > 2) return;
 
     setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error for field on change
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
   };
 
   const validateForm = () => {
-    // Section 1 Validation
-    if (!formData.firstName || !formData.lastName || !formData.email ||
-      !formData.password || !formData.mobileNumber) {
-      toast.error('Please fill all required fields');
-      return false;
-    }
+    const newErrors: Record<string, string> = {};
 
-    if (formData.password.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return false;
-    }
+    if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
+    if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
+    if (!formData.email.trim()) newErrors.email = 'Email is required';
+    else if (!/^\S+@\S+\.\S+$/.test(formData.email)) newErrors.email = 'Invalid email format';
+
+    if (!formData.password) newErrors.password = 'Password is required';
+    else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
 
     if (formData.password !== formData.confirmPassword) {
-      toast.error('Passwords do not match');
-      return false;
+      newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (formData.mobileNumber.length !== 11) {
-      toast.error('Mobile number must be 11 digits (e.g. 09xxxxxxxxx)');
+    if (!formData.mobileNumber) newErrors.mobileNumber = 'Mobile number is required';
+    else if (formData.mobileNumber.length !== 11) newErrors.mobileNumber = 'Mobile number must be 11 digits';
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      const firstErrorField = Object.keys(newErrors)[0];
+      const element = document.getElementById(firstErrorField); // Assuming IDs match field names
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      toast.error('Please fix the errors below.');
       return false;
     }
-
-    // [FIX] REMOVED the Medical Staff specific validation block here.
-    // Since you removed the inputs from the UI, we should not check them anymore.
 
     return true;
   };
@@ -276,10 +286,14 @@ export const SignUp: React.FC = () => {
                 <div className="md:col-span-2 space-y-2">
                   <Label>First Name *</Label>
                   <Input
+                    id="firstName"
                     placeholder="Enter first name"
                     value={formData.firstName}
                     onChange={(e) => handleInputChange('firstName', e.target.value)}
+                    className={errors.firstName ? "border-red-500" : ""}
+                    style={{ scrollMarginTop: '150px' }}
                   />
+                  {errors.firstName && <span className="text-xs text-red-500">{errors.firstName}</span>}
                 </div>
                 <div className="space-y-2">
                   <Label>M.I.</Label>
@@ -295,20 +309,28 @@ export const SignUp: React.FC = () => {
               <div className="space-y-2">
                 <Label>Last Name *</Label>
                 <Input
+                  id="lastName"
                   placeholder="Enter last name"
                   value={formData.lastName}
                   onChange={(e) => handleInputChange('lastName', e.target.value)}
+                  className={errors.lastName ? "border-red-500" : ""}
+                  style={{ scrollMarginTop: '150px' }}
                 />
+                {errors.lastName && <span className="text-xs text-red-500">{errors.lastName}</span>}
               </div>
 
               <div className="space-y-2">
                 <Label>Email Address *</Label>
                 <Input
+                  id="email"
                   type="email"
                   placeholder="name@email.com"
                   value={formData.email}
                   onChange={(e) => handleInputChange('email', e.target.value)}
+                  className={errors.email ? "border-red-500" : ""}
+                  style={{ scrollMarginTop: '150px' }}
                 />
+                {errors.email && <span className="text-xs text-red-500">{errors.email}</span>}
               </div>
 
               <div className="space-y-2">
@@ -323,11 +345,15 @@ export const SignUp: React.FC = () => {
               <div className="space-y-2">
                 <Label>Mobile Number *</Label>
                 <Input
+                  id="mobileNumber"
                   placeholder="09xxxxxxxxx"
                   maxLength={11}
                   value={formData.mobileNumber}
                   onChange={(e) => handleInputChange('mobileNumber', e.target.value)}
+                  className={errors.mobileNumber ? "border-red-500" : ""}
+                  style={{ scrollMarginTop: '150px' }}
                 />
+                {errors.mobileNumber && <span className="text-xs text-red-500">{errors.mobileNumber}</span>}
                 <p className="text-xs" style={{ color: '#7F8C8D' }}>
                   Must be 11 digits (e.g., 09171234567)
                 </p>
@@ -338,11 +364,15 @@ export const SignUp: React.FC = () => {
                   <Label>Password *</Label>
                   <div className="relative">
                     <Input
+                      id="password"
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Min 8 chars"
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
+                      className={errors.password ? "border-red-500" : ""}
+                      style={{ scrollMarginTop: '150px' }}
                     />
+                    {errors.password && <span className="text-xs text-red-500 absolute -bottom-5 block w-full">{errors.password}</span>}
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
@@ -356,12 +386,15 @@ export const SignUp: React.FC = () => {
                   <Label>Confirm Password *</Label>
                   <div className="relative">
                     <Input
+                      id="confirmPassword"
                       type={showConfirmPassword ? 'text' : 'password'}
                       placeholder="Re-enter password"
                       value={formData.confirmPassword}
                       onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                      className={formData.confirmPassword && formData.password !== formData.confirmPassword ? "border-red-500" : ""}
+                      className={errors.confirmPassword ? "border-red-500" : ""}
+                      style={{ scrollMarginTop: '150px' }}
                     />
+                    {errors.confirmPassword && <span className="text-xs text-red-500 absolute -bottom-5 block w-full">{errors.confirmPassword}</span>}
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}

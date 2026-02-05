@@ -13,6 +13,7 @@ import { AddNewPatient } from './AddNewPatient';
 import { PatientList } from './PatientList';
 import { AddNewDevice } from './AddNewDevice';
 import { AssignmentTracker } from './AssignmentTracker';
+import { CaregiverUserManagement } from './CaregiverUserManagement';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -77,6 +78,8 @@ export const CaregiverDashboardNew: React.FC = () => {
   // --- State Management ---
   const [patients, setPatients] = useState<Patient[]>([]); // Starts Empty
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [viewMode, setViewMode] = useState<'dashboard' | 'profile'>('dashboard');
+  const [profileInitialTab, setProfileInitialTab] = useState<string>('overview'); // [NEW] Control initial tab
   const [alerts, setAlerts] = useState<Alert[]>([]); // Starts Empty
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [timeRange, setTimeRange] = useState<'8h' | '24h' | '7d' | '30d'>('24h');
@@ -88,7 +91,6 @@ export const CaregiverDashboardNew: React.FC = () => {
   const [doctorsOrdersData, setDoctorsOrdersData] = useState<DoctorsOrdersData | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
-  const [viewMode, setViewMode] = useState<'dashboard' | 'profile'>('dashboard');
   const [autoDeletePeriod, setAutoDeletePeriod] = useState<'1week' | '1month' | '3months' | '6months' | '1year'>('1month');
 
   // Alarm System
@@ -131,7 +133,7 @@ export const CaregiverDashboardNew: React.FC = () => {
 
   // --- Audio Initialization ---
   useEffect(() => {
-    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUKnl7a1gGgU7k9n3zH4tBSh+zPLajUIKFV644u+nUxQJRp/i8bllHgYugM/y4Y44CBttv/DooEoMDU+t6PKjYB4EOo/Y88B+LQUofM/y14xBCRZmuuPwp1QVCkaf4fK0YyAFLIDP8t2JOQYZ');
+    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtjMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUKnl7a1gGgU7k9n3zH4tBSh+zPLajUIKFV644u+nUxQJRp/i8bllHgYugM/y4Y44CBttv/DooEoMDU+t6PKjYB4EOo/Y88B+LQUofM/y14xBCRZmuuPwp1QVCkaf4fK0YyAFLIDP8t2JOQYZ');
     audio.loop = true;
     setAlarmSound(audio);
     return () => {
@@ -193,6 +195,7 @@ export const CaregiverDashboardNew: React.FC = () => {
             hrDeviceConnected: !!p.device_serial_number,
             diaperDeviceConnected: !!p.device_serial_number,
             assignedCaregiverName: p.assigned_caregiver_name, // [NEW] Map from API
+            accessLevel: p.access_level, // [NEW] Map access level
             deleted: false,
             archived: false
           }));
@@ -528,7 +531,20 @@ export const CaregiverDashboardNew: React.FC = () => {
   const renderContent = () => {
     if (viewMode === 'profile' && selectedPatient) {
       // [MODIFIED] Use assigned caregiver name if available, otherwise fallback to current user
-      return <PatientProfile patient={selectedPatient} onBack={() => { setViewMode('dashboard'); setSelectedPatient(null); }} caregiverName={selectedPatient.assignedCaregiverName || user?.name} />;
+      return (
+        <PatientProfile
+          patient={selectedPatient}
+          onBack={() => {
+            setViewMode('dashboard');
+            setSelectedPatient(null);
+            setProfileInitialTab('overview'); // Reset tab
+            // If we came from user-management, maybe we should go back there?
+            // For now, dashboard is safe.
+          }}
+          caregiverName={selectedPatient.assignedCaregiverName || user?.name}
+          initialTab={profileInitialTab}
+        />
+      );
     }
     switch (activeNavItem) {
       case 'dashboard': return renderDashboard();
@@ -563,6 +579,15 @@ export const CaregiverDashboardNew: React.FC = () => {
       );
 
       case 'assignment-tracker': return <AssignmentTracker />;
+
+      // [NEW] Map 'user-management' to a patient selection screen for Care Team management
+      // [NEW] Use dedicated CaregiverUserManagement component
+      case 'user-management': return (
+        <CaregiverUserManagement
+          patients={patients}
+          user={user}
+        />
+      );
 
       default: return renderDashboard();
     }

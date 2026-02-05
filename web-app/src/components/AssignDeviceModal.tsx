@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -91,8 +92,8 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
 
     if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-slate-200">
                 {/* Header */}
                 <div className="flex justify-between items-center p-4 border-b bg-slate-50">
@@ -148,6 +149,7 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
                     </Button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };

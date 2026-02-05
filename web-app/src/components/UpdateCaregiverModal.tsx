@@ -1,64 +1,72 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
 import { X } from 'lucide-react';
 
-interface AssignCaregiverModalProps {
+interface UpdateCaregiverModalProps {
     isOpen: boolean;
     onClose: () => void;
     patientId: string;
-    patientName: string;
+    caregiver: {
+        user_id: string;
+        first_name: string;
+        last_name: string;
+        relationship: string;
+        access_level: string;
+    } | null;
     onSuccess: () => void;
 }
 
-export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
+export const UpdateCaregiverModal: React.FC<UpdateCaregiverModalProps> = ({
     isOpen,
     onClose,
     patientId,
-    patientName,
+    caregiver,
     onSuccess
 }) => {
     const { token } = useAuth();
-    const [email, setEmail] = useState('');
-    const [relationship, setRelationship] = useState('Secondary Caregiver');
+    const [relationship, setRelationship] = useState('');
+    const [accessLevel, setAccessLevel] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const handleInvite = async () => {
-        if (!email) {
-            toast.error("Please enter an email address.");
-            return;
+    useEffect(() => {
+        if (caregiver) {
+            setRelationship(caregiver.relationship);
+            setAccessLevel(caregiver.access_level);
         }
+    }, [caregiver]);
+
+    const handleUpdate = async () => {
+        if (!caregiver) return;
 
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/caregiver/invite', {
-                method: 'POST',
+            const response = await fetch('http://localhost:3000/api/assignments/caregiver/permissions', {
+                method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
                     patient_id: patientId,
-                    invite_email: email,
+                    target_user_id: caregiver.user_id,
                     relationship: relationship,
-                    access_level: 'View' // Default to View only for safety
+                    access_level: accessLevel
                 })
             });
 
             const data = await response.json();
 
             if (data.success) {
-                toast.success(`Invitation sent to ${email}`);
+                toast.success(`Permissions updated for ${caregiver.first_name}`);
                 onSuccess();
                 onClose();
-                setEmail('');
             } else {
-                toast.error(data.message || "Failed to invite caregiver");
+                toast.error(data.message || "Failed to update permissions");
             }
         } catch (err) {
             console.error(err);
@@ -68,7 +76,7 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
         }
     };
 
-    if (!isOpen) return null;
+    if (!isOpen || !caregiver) return null;
 
     return createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
@@ -76,8 +84,8 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                 {/* Header */}
                 <div className="flex justify-between items-center p-4 border-b bg-slate-50">
                     <div>
-                        <h3 className="text-lg font-semibold text-slate-800">Invite Caregiver</h3>
-                        <p className="text-xs text-slate-500">For patient: {patientName}</p>
+                        <h3 className="text-lg font-semibold text-slate-800">Update Permissions</h3>
+                        <p className="text-xs text-slate-500">{caregiver.first_name} {caregiver.last_name}</p>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 text-slate-400 hover:text-slate-600">
                         <X className="w-4 h-4" />
@@ -87,25 +95,13 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                 {/* Body */}
                 <div className="p-4 space-y-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="email">Caregiver's Email Address</Label>
-                        <Input
-                            id="email"
-                            placeholder="user@example.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                        />
-                        <p className="text-xs text-slate-500">
-                            The user must already have an account to be invited.
-                        </p>
-                    </div>
-
-                    <div className="grid gap-2">
                         <Label htmlFor="relation">Relationship</Label>
                         <Select value={relationship} onValueChange={setRelationship}>
                             <SelectTrigger id="relation">
                                 <SelectValue placeholder="Select relationship" />
                             </SelectTrigger>
                             <SelectContent>
+                                <SelectItem value="Primary Caregiver">Primary Caregiver</SelectItem>
                                 <SelectItem value="Secondary Caregiver">Secondary Caregiver</SelectItem>
                                 <SelectItem value="Nurse">Nurse / Medical Staff</SelectItem>
                                 <SelectItem value="Family Member">Family Member</SelectItem>
@@ -113,13 +109,32 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                             </SelectContent>
                         </Select>
                     </div>
+
+                    <div className="grid gap-2">
+                        <Label htmlFor="access">Access Level</Label>
+                        <Select value={accessLevel} onValueChange={setAccessLevel}>
+                            <SelectTrigger id="access">
+                                <SelectValue placeholder="Select access level" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="View">View Only (Read-Only)</SelectItem>
+                                <SelectItem value="Edit">Edit (Can manage devices/alerts)</SelectItem>
+                                <SelectItem value="Admin">Admin (Full Control)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">
+                            <strong>View:</strong> Can see vital signs and reports.<br />
+                            <strong>Edit:</strong> Can link devices and resolve alerts.<br />
+                            <strong>Admin:</strong> Can manage other caregivers.
+                        </p>
+                    </div>
                 </div>
 
                 {/* Footer */}
                 <div className="p-4 border-t bg-slate-50 flex justify-end gap-2">
                     <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-                    <Button onClick={handleInvite} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white">
-                        {loading ? 'Sending...' : 'Send Invitation'}
+                    <Button onClick={handleUpdate} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                        {loading ? 'Updating...' : 'Save Changes'}
                     </Button>
                 </div>
             </div>

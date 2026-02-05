@@ -266,3 +266,132 @@ router.post('/device/unlink', async (req, res) => {
 });
 
 module.exports = router;
+
+// ==========================================
+// 6. UPDATE CAREGIVER PERMISSIONS
+// ==========================================
+router.put('/caregiver/permissions', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { patient_id, target_user_id, relationship, access_level } = req.body;
+
+        // [OWASP A01] Security Check
+        const authCheck = await client.query(
+            `SELECT access_level FROM patient_access WHERE user_id = $1 AND patient_id = $2`,
+            [req.user.id, patient_id]
+        );
+        if (authCheck.rows.length === 0 || (authCheck.rows[0].access_level !== 'Edit' && authCheck.rows[0].access_level !== 'Admin')) {
+            return res.status(403).json({ success: false, message: 'Unauthorized: Insufficient permissions.' });
+        }
+
+        // Prevent modifying own permissions to avoid lockout (e.g., Edit -> View)
+        if (parseInt(target_user_id) === req.user.id) {
+            return res.status(400).json({ success: false, message: 'You cannot modify your own permissions.' });
+        }
+
+        await client.query('BEGIN');
+
+        // Update Access
+        const updateRes = await client.query(
+            `UPDATE patient_access 
+             SET relationship = $1, access_level = $2
+             WHERE user_id = $3 AND patient_id = $4
+             RETURNING *`,
+            [relationship, access_level, target_user_id, patient_id]
+        );
+
+        if (updateRes.rowCount === 0) {
+            throw new Error("Target caregiver not found.");
+        }
+
+        // [Compliance] Audit Log
+        await client.query(
+            `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected) 
+             VALUES ($1, $2, 'CAREGIVER_UPDATE', $3)`,
+            [req.user.id, patient_id, `Updated UserID ${target_user_id} to ${access_level}`]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Permissions updated successfully.' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Permission Update Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to update permissions' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 7. GET ACTIVITY LOG
+// ==========================================
+router.get('/caregiver/activity-log/:patient_id', async (req, res) => {
+    try {
+        const { patient_id } = req.params;
+
+        // [OWASP A01] Security Check
+        const authCheck = await pool.query(
+            `SELECT access_level FROM patient_access WHERE user_id = $1 AND patient_id = $2`,
+            [req.user.id, patient_id]
+        );
+
+        // Allow 'View' access to see logs? Or limit to 'Edit'? 
+        // Decision: Let's restrict to 'Edit'/'Admin' to protect caregiver privacy (e.g. knowing who logged in when).
+        if (authCheck.rows.length === 0 || (authCheck.rows[0].access_level !== 'Edit' && authCheck.rows[0].access_level !== 'Admin')) {
+            return res.status(403).json({ success: false, message: 'Unauthorized.' });
+        }
+
+        const stats = await pool.query(
+            `SELECT al.log_id, al.action, al.resource_affected as details, al.timestamp,
+                    u.first_name, u.last_name, u.email
+             FROM access_logs al
+             JOIN users u ON al.user_id = u.user_id
+             WHERE al.target_patient_id = $1
+             ORDER BY al.timestamp DESC
+             LIMIT 50`, // Pagination can be added later
+            [patient_id]
+        );
+
+        res.json({ success: true, data: stats.rows });
+
+    } catch (err) {
+        console.error("Activity Log Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+});
+
+// ==========================================
+// 8. GET CAREGIVER TEAM
+// ==========================================
+router.get('/caregiver/team/:patient_id', async (req, res) => {
+    try {
+        const { patient_id } = req.params;
+
+        // [OWASP A01] Security Check
+        const authCheck = await pool.query(
+            `SELECT access_level FROM patient_access WHERE user_id = $1 AND patient_id = $2`,
+            [req.user.id, patient_id]
+        );
+
+        if (authCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Unauthorized.' });
+        }
+
+        const team = await pool.query(
+            `SELECT DISTINCT ON (u.user_id) 
+             u.user_id, u.first_name, u.last_name, u.email, u.role, pa.relationship, pa.access_level
+             FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             WHERE pa.patient_id = $1
+             ORDER BY u.user_id, pa.access_level ASC`,
+            [patient_id]
+        );
+
+        res.json({ success: true, data: team.rows });
+
+    } catch (err) {
+        console.error("Get Team Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+});

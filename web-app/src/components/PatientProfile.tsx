@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { SmartDiaperEvents } from './patient/SmartDiaperEvents';
 import { CareLogs } from './patient/CareLogs';
 import { AlertHistory } from './patient/AlertHistory';
+import { CaregiverManagement } from './CaregiverManagement';
 
 import {
   ArrowLeft,
@@ -35,9 +36,12 @@ interface PatientProfileProps {
   patient: Patient;
   onBack: () => void;
   caregiverName?: string;
+  // currentUserAccessLevel is now implicitly part of patient prop or should be passed?
+  // Since we updated Patient interface, patient.accessLevel should be available.
+  initialTab?: string; // [NEW] Allow setting the starting tab
 }
 
-export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack, caregiverName }) => {
+export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack, caregiverName, initialTab = "overview" }) => {
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [timeRange, setTimeRange] = useState<'8h' | '24h' | '7d'>('24h');
 
@@ -105,6 +109,11 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
               <Badge variant="outline" className={patient.deviceConnected ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500'}>
                 {patient.deviceConnected ? 'Online' : 'Offline'}
               </Badge>
+              {patient.accessLevel && (
+                <Badge variant="secondary" className="ml-2">
+                  {patient.accessLevel} Access
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -114,7 +123,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
         </Button>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="flex w-full justify-start border-b border-slate-200 bg-transparent h-auto p-0 space-x-6 overflow-x-auto scrollbar-none">
           <TabsTrigger
             value="overview"
@@ -145,6 +154,12 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
             className="cursor-pointer rounded-none border-b-2 border-transparent data-[state=active]:!border-primary data-[state=active]:!text-accent-foreground data-[state=active]:!bg-accent data-[state=active]:!shadow-none px-4 py-3 bg-transparent font-medium text-slate-500 hover:text-accent-foreground hover:bg-accent transition-colors"
           >
             Alerts
+          </TabsTrigger>
+          <TabsTrigger
+            value="care-team"
+            className="cursor-pointer rounded-none border-b-2 border-transparent data-[state=active]:!border-primary data-[state=active]:!text-accent-foreground data-[state=active]:!bg-accent data-[state=active]:!shadow-none px-4 py-3 bg-transparent font-medium text-slate-500 hover:text-accent-foreground hover:bg-accent transition-colors"
+          >
+            Care Team
           </TabsTrigger>
         </TabsList>
 
@@ -345,6 +360,15 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
         {/* TAB: ALERTS */}
         <TabsContent value="alerts" className="mt-6">
           <AlertHistory />
+        </TabsContent>
+
+        {/* TAB: CARE TEAM */}
+        <TabsContent value="care-team" className="mt-6">
+          <CaregiverManagement
+            patientId={patient.id}
+            patientName={patient.name}
+            currentUserAccessLevel={patient.accessLevel || 'View'}
+          />
         </TabsContent>
 
       </Tabs>

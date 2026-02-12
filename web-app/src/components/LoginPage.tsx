@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
-import { Activity, ShieldAlert, Lock } from 'lucide-react';
+import { Activity, ShieldAlert, Lock, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const LoginPage: React.FC = () => {
@@ -16,171 +16,99 @@ export const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
-    if (!username) newErrors.username = "Username/Email is required";
-    if (!password) newErrors.password = "Password is required";
-
-    setFieldErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!validateForm()) return;
+    if (!username || !password) {
+      setError("Please fill in all fields");
+      return;
+    }
 
     setLoading(true);
-
     try {
-      // 1. Attempt Login via AuthContext
-      const response = await login(username, password);
-
-      // [FIX] Check response strictly
-      if (response && response.success) {
-        const user = response.user;
-
-        // [Security Control] BLOCK Unverified Users
-        if (user?.account_status === 'Pending_Review') {
-          setError('Your account is currently under review by the Administrator. Please wait for approval.');
-          setLoading(false);
-          return; // Stop here, don't navigate
-        }
-
-        if (user?.account_status === 'Suspended') {
-          setError('Your account has been suspended. Contact support.');
-          setLoading(false);
-          return;
-        }
-
-        toast.success(`Welcome back, ${user?.username}!`);
-
-        // [FIX] Simplify Navigation - Let App.tsx handle role routing
-        navigate('/dashboard');
-
-      } else {
-        // Handle case where login returns false/null but no error threw
-        setError(response.message || 'Invalid credentials.');
-        setLoading(false);
-      }
-
+      await login(username, password);
+      toast.success("Welcome back!");
+      // Navigation is handled by auth-context or App.tsx based on user role
     } catch (err: any) {
-      console.error("Login Error:", err);
-      if (err.message && err.message.includes('Too many')) {
-        setError('Too many login attempts. Please try again later.');
-      } else {
-        setError('Invalid username or password.');
-      }
+      setError(err.message || "Invalid credentials");
+      toast.error("Login failed");
+    } finally {
       setLoading(false);
     }
-    // Note: We intentionally DO NOT set loading(false) on success 
-    // so the spinner stays visible until the page actually changes.
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#F0FAF9' }}>
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div
-            className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ backgroundColor: '#7DD3C0', boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)' }}
-          >
-            <Activity className="w-10 h-10 text-white" />
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <Card className="w-full max-w-[360px] shadow-lg border-0">
+        <CardHeader className="text-center pb-2 space-y-1 pt-6">
+          <div className="mx-auto w-10 h-10 bg-teal-50 rounded-full flex items-center justify-center mb-1">
+            <Activity className="w-6 h-6 text-teal-600" />
           </div>
-          <h1 className="text-3xl font-bold mb-2" style={{ color: '#2C3E50' }}>ALAGA</h1>
-          <p className="text-gray-600">Secure Patient Monitoring System</p>
-        </div>
+          <CardTitle className="text-lg font-bold text-slate-800">Alaga Login</CardTitle>
+          <CardDescription className="text-xs">Secure access for Caregivers & Staff</CardDescription>
+        </CardHeader>
+        
+        <CardContent className="px-6 pb-6">
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {error && (
+              <Alert variant="destructive" className="py-2 px-3 text-xs bg-red-50 text-red-700 border-red-200">
+                <ShieldAlert className="h-3 w-3 mr-2" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        <Card className="border-0 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-center text-xl" style={{ color: '#2C3E50' }}>Sign In</CardTitle>
-            <CardDescription className="text-center">
-              Access your professional dashboard
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-              <div className="space-y-2">
-                <Label htmlFor="username">Username or Email</Label>
-                <Input
-                  id="username"
-                  placeholder="Enter username"
-                  value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    if (fieldErrors.username) setFieldErrors({ ...fieldErrors, username: '' });
-                  }}
-                  className={`bg-gray-50 ${fieldErrors.username ? 'border-red-500' : ''}`}
-                  disabled={loading}
-                />
-                {fieldErrors.username && <span className="text-red-500 text-xs">{fieldErrors.username}</span>}
+            <div className="space-y-1">
+              <Label htmlFor="username" className="text-xs font-semibold text-slate-500 uppercase">Username</Label>
+              <Input 
+                id="username" 
+                type="text" 
+                placeholder="Enter username"
+                className="h-9 text-sm"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="password" className="text-xs font-semibold text-slate-500 uppercase">Password</Label>
               </div>
+              <Input 
+                id="password" 
+                type="password" 
+                className="h-9 text-sm"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
 
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <Label htmlFor="password">Password</Label>
-                  <a href="#" className="text-xs text-teal-600 hover:underline">Forgot password?</a>
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (fieldErrors.password) setFieldErrors({ ...fieldErrors, password: '' });
-                  }}
-                  className={`bg-gray-50 ${fieldErrors.password ? 'border-red-500' : ''}`}
-                  disabled={loading}
-                />
-                {fieldErrors.password && <span className="text-red-500 text-xs">{fieldErrors.password}</span>}
-              </div>
+            <Button 
+              type="submit" 
+              className="w-full h-9 bg-teal-600 hover:bg-teal-700 text-white font-medium mt-2 text-xs"
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Lock className="w-3 h-3 mr-2" />}
+              {loading ? 'Verifying...' : 'Sign In'}
+            </Button>
 
-              {error && (
-                <Alert variant="destructive" className="bg-red-50 text-red-700 border-red-200">
-                  <ShieldAlert className="h-4 w-4" />
-                  <AlertDescription className="ml-2">{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button
-                type="submit"
-                className="w-full text-white font-medium h-11"
-                style={{ backgroundColor: '#7DD3C0' }}
-                disabled={loading}
-              >
-                {loading ? 'Verifying Credentials...' : 'Sign In'}
-              </Button>
-
-              <div className="text-center pt-4 border-t">
-                <p className="text-sm text-gray-600">
-                  Don't have an account?{' '}
-                  <a
-                    href="/signup"
-                    className="font-medium hover:underline"
-                    style={{ color: '#7DD3C0' }}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate('/signup');
-                    }}
-                  >
-                    Register here
-                  </a>
-                </p>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <div className="flex items-center justify-center gap-2 mt-8 text-xs text-gray-400">
-          <Lock className="w-3 h-3" />
-          <p>Protected by 256-bit Encryption & JWT Auth</p>
-        </div>
-      </div>
+            <div className="text-center mt-3">
+              <p className="text-xs text-gray-500">
+                New user?{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/signup')}
+                  className="font-medium text-teal-600 hover:underline"
+                >
+                  Create account
+                </button>
+              </p>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 };

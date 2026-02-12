@@ -8,6 +8,7 @@ const pool = require('./db');
 const path = require('path');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -24,8 +25,6 @@ app.use(cors({
     credentials: true
 }));
 
-const fs = require('fs');
-
 app.use(helmet());
 app.use(express.json());
 
@@ -38,14 +37,18 @@ app.use((err, req, res, next) => {
     next(err);
 });
 
+// Request Logging for Debugging
 app.use((req, res, next) => {
-    fs.appendFileSync('server.log', `[REQUEST] ${req.method} ${req.url}\n`);
+    const log = `[${new Date().toISOString()}] ${req.method} ${req.url}`;
+    console.log(log);
+    fs.appendFileSync('server.log', log + '\n');
     next();
 });
 
 // --- MULTER CONFIGURATION (File Uploads) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
+        if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
         cb(null, 'uploads/'); // Ensure this folder exists
     },
     filename: (req, file, cb) => {
@@ -70,30 +73,35 @@ app.use('/uploads', express.static('uploads'));
 
 // --- VALIDATION RULES ---
 const registerValidation = [
-    body('email').isEmail().normalizeEmail(),
+    body('email').isEmail().withMessage('Please enter a valid email').normalizeEmail(),
     body('username').optional({ checkFalsy: true }).trim().escape(),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
-    body('role').isIn(['caregiver', 'medical_staff', 'admin'])
+    body('role').isIn(['caregiver', 'medical_staff', 'admin']).withMessage('Invalid role selected')
 ];
 
 // --- RATE LIMITERS ---
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // Limit each IP to 20 requests per window
+    max: 50, // Increased limit for testing purposes
     message: "Too many login attempts, please try again later."
 });
 
 // ==========================================
-// 🚀 ROUTE 1: REGISTER (Home Use Optimized)
+// 🚀 ROUTE 1: REGISTER (Renamed to match Frontend)
 // ==========================================
-app.post('/api/auth/signup', authLimiter, registerValidation, async (req, res) => {
+// [FIX] Changed path from '/signup' to '/register' to match SignUp.tsx
+app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValidation, async (req, res) => {
+    // [FIX] Extract the specific error message for the frontend
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        return res.status(400).json({ success: false, errors: errors.array() });
+        const firstError = errors.array()[0].msg;
+        console.log("Validation Failed:", firstError);
+        return res.status(400).json({ success: false, message: firstError, errors: errors.array() });
     }
 
     try {
         let { username, password, email, role, mobile_number, first_name, last_name, middle_initial } = req.body;
+        console.log(`Registering user: ${email}`);
 
         // [Fix] Force Email to Lowercase immediately for consistency
         const safeEmail = email.toLowerCase().trim();
@@ -148,26 +156,27 @@ app.post('/api/auth/signup', authLimiter, registerValidation, async (req, res) =
 
         res.status(201).json({
             success: true,
-            message: "User registered successfully",
+            message: "Account created successfully",
             token: token,
             user: createdUser
         });
 
     } catch (err) {
         console.error("Registration Error:", err.message);
-        res.status(500).json({ success: false, message: 'Server Error' });
+        res.status(500).json({ success: false, message: 'Server Error: ' + err.message });
     }
 });
 
 // ==========================================
-// 🚀 ROUTE 2: LOGIN (Dual Path + Fixed Logic)
+// 🚀 ROUTE 2: LOGIN (Debug Mode Enabled)
 // ==========================================
 app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
+        console.log(`Login attempt for: ${username}`);
 
         if (!username || !password) {
-            return res.status(400).json({ success: false, message: "Missing username or password" });
+            return res.status(400).json({ success: false, message: "Please enter both username and password" });
         }
 
         // [Fix] Normalization Logic (Matches Registration)
@@ -182,8 +191,10 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             [searchKey]
         );
 
+        // [FIX] Specific Error: User Not Found
         if (result.rows.length === 0) {
-            return res.status(401).json({ success: false, message: "Invalid Credentials" });
+            console.log("Login failed: User not found");
+            return res.status(404).json({ success: false, message: "User not found. Please register." });
         }
 
         const user = result.rows[0];
@@ -195,8 +206,11 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 
         // Password Check
         const validPassword = await bcrypt.compare(password, user.password_hash);
+
+        // [FIX] Specific Error: Wrong Password
         if (!validPassword) {
-            return res.status(401).json({ success: false, message: "Invalid Credentials" });
+            console.log("Login failed: Incorrect Password");
+            return res.status(401).json({ success: false, message: "Incorrect password. Please try again." });
         }
 
         // Success Token
@@ -208,19 +222,21 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 
         res.json({
             success: true,
+            message: "Welcome back!",
             token,
             user: {
                 id: user.user_id,
                 username: user.username,
                 email: user.email,
                 role: user.role,
+                name: user.first_name, // Added for frontend display
                 account_status: user.account_status
             }
         });
 
     } catch (err) {
         console.error("Login Error:", err.message);
-        res.status(500).send('Server Error');
+        res.status(500).json({ success: false, message: 'Server Error during login' });
     }
 });
 

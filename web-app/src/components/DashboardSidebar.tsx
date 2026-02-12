@@ -2,24 +2,19 @@ import React from 'react';
 import {
   LayoutDashboard,
   Users,
-  BarChart3,
   List,
-  Heart,
-  Bell,
   FileText,
   Wifi,
   Settings,
   User,
   Activity,
   UserPlus,
-  TrendingUp,
   ClipboardList,
   Cpu,
-  Megaphone,
-  AlertCircle,
-  Archive,
-  Trash2
+  LogOut
 } from 'lucide-react';
+import { Button } from './ui/button';
+import { useAuth } from '../lib/auth-context';
 
 interface DashboardSidebarProps {
   activeItem?: string;
@@ -29,12 +24,12 @@ interface DashboardSidebarProps {
 
 const caregiverMenuItems = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { id: 'add-device', icon: Cpu, label: 'Add New Device' },
-  { id: 'add-patient', icon: UserPlus, label: 'Add New Patient' },
+  { id: 'add-device', icon: Cpu, label: 'Add Device' },
+  { id: 'add-patient', icon: UserPlus, label: 'Add Patient' },
   { id: 'patient-list', icon: List, label: 'Patient List' },
-  { id: 'assignment-tracker', icon: ClipboardList, label: 'Assignment Tracker' },
-  { id: 'user-management', icon: Users, label: 'User Management' },
-  { id: 'device-management', icon: Wifi, label: 'Device Management' },
+  { id: 'assignment-tracker', icon: ClipboardList, label: 'Assignments' },
+  { id: 'user-management', icon: Users, label: 'Care Team' },
+  { id: 'device-management', icon: Wifi, label: 'Devices' },
   { id: 'reports', icon: FileText, label: 'Reports' },
   { id: 'settings', icon: Settings, label: 'Settings' },
   { id: 'profile', icon: User, label: 'Profile' },
@@ -42,101 +37,54 @@ const caregiverMenuItems = [
 
 const medicalStaffMenuItems = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { id: 'add-patient', icon: UserPlus, label: 'Add New Patient' },
-  { id: 'master-list', icon: List, label: 'Master Patient List' },
-  { id: 'bulletin', icon: Megaphone, label: 'Bulletin Board' },
-  { id: 'alerts', icon: AlertCircle, label: 'Alerts' },
+  { id: 'patient-list', icon: Users, label: 'Directory' },
+  { id: 'medical-calendar', icon: Activity, label: 'Calendar' },
   { id: 'reports', icon: FileText, label: 'Reports' },
-  { id: 'health-trends', icon: TrendingUp, label: 'Health Trends' },
-  { id: 'activity-logs', icon: ClipboardList, label: 'Activity & Logs' },
-  { id: 'sensor-health', icon: Cpu, label: 'Sensor Health' },
-  { id: 'archived', icon: Archive, label: 'Archived' },
-  { id: 'trash', icon: Trash2, label: 'Trash' },
-  { id: 'system-settings', icon: Settings, label: 'System Settings' },
+  { id: 'settings', icon: Settings, label: 'Settings' },
   { id: 'profile', icon: User, label: 'Profile' },
 ];
 
-
+// [FIX] Named Export to match your import { DashboardSidebar }
 export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
   activeItem = 'dashboard',
   onItemClick,
-  userRole = 'caregiver'
+  userRole = 'caregiver',
 }) => {
   const menuItems = userRole === 'medical_staff' ? medicalStaffMenuItems : caregiverMenuItems;
+  const { signOut } = useAuth();
 
   return (
-    <aside
-      className="fixed left-0 top-0 h-screen w-60 flex flex-col"
-      style={{ backgroundColor: '#2C3E50', zIndex: 50 }}
-    >
-      {/* Logo Section */}
-      <div className="p-6 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105"
-            style={{
-              backgroundColor: '#7DD3C0',
-              boxShadow: '0 0 20px rgba(125, 211, 192, 0.3)'
-            }}
-          >
-            <Activity className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-white text-lg tracking-tight">ALAGA</h1>
-            <p className="text-xs" style={{ color: '#BDC3C7' }}>Patient Monitoring</p>
-          </div>
+    // [LAYOUT] Flexbox Sidebar (No 'fixed', no 'z-50')
+    <aside className="w-64 flex-shrink-0 h-screen bg-white border-r border-slate-200 flex flex-col transition-all duration-300">
+      
+      {/* Compact Header */}
+      <div className="h-14 flex items-center px-5 border-b border-slate-100">
+        <div className="flex items-center gap-2 text-teal-600">
+          <Activity className="w-5 h-5" />
+          <span className="font-bold text-lg tracking-tight">Alaga</span>
         </div>
       </div>
 
-      {/* Navigation Menu */}
-      <nav className="flex-1 py-4 overflow-y-auto">
-        <ul className="space-y-1 px-3">
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto py-3">
+        <ul className="space-y-0.5 px-3">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeItem === item.id;
-
+            
             return (
               <li key={item.id}>
                 <button
                   onClick={() => onItemClick?.(item.id)}
                   className={`
-                    w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
-                    transition-all duration-300 relative
-                    ${isActive
-                      ? 'text-white'
-                      : 'hover:text-white'
+                    w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
+                    ${isActive 
+                      ? 'bg-teal-50 text-teal-700 shadow-sm ring-1 ring-teal-100' 
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }
                   `}
-                  style={isActive ? {
-                    backgroundColor: 'rgba(125, 211, 192, 0.15)',
-                    color: '#FFFFFF',
-                    boxShadow: '0 0 15px rgba(125, 211, 192, 0.2)'
-                  } : {
-                    color: '#BDC3C7'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.backgroundColor = 'rgba(232, 246, 243, 0.1)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }
-                  }}
                 >
-                  {/* Active indicator bar */}
-                  {isActive && (
-                    <div
-                      className="absolute left-0 top-0 bottom-0 w-1 rounded-r"
-                      style={{
-                        backgroundColor: '#7DD3C0',
-                        boxShadow: '0 0 10px rgba(125, 211, 192, 0.5)'
-                      }}
-                    />
-                  )}
-
-                  <Icon className="w-5 h-5 flex-shrink-0" style={isActive ? { color: '#7DD3C0' } : {}} />
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-teal-600' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                 </button>
               </li>
@@ -146,11 +94,16 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-white/10">
-        <div className="text-xs text-center" style={{ color: '#7F8C8D' }}>
-          <p>© 2025 Alaga System</p>
-          <p className="mt-1">Version 1.0.0</p>
-        </div>
+      <div className="p-3 border-t border-slate-100">
+         <Button 
+            variant="ghost" 
+            size="sm"
+            className="w-full justify-start text-slate-500 hover:text-red-600 hover:bg-red-50 h-9"
+            onClick={() => signOut()}
+         >
+            <LogOut className="w-4 h-4 mr-2" />
+            <span className="text-xs font-medium">Sign Out</span>
+         </Button>
       </div>
     </aside>
   );

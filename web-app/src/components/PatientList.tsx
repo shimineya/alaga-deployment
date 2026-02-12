@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Patient, VitalSign } from '../types';
 import {
@@ -13,46 +12,35 @@ import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
-import { Search, Filter, MoreHorizontal, Activity, Thermometer, Droplets, Heart, AlertCircle, Eye } from "lucide-react";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+import { Card, CardContent } from "./ui/card";
+import { Search, Activity, Thermometer, Heart, Eye, UserPlus } from "lucide-react";
+// [NEW] Import the Modal
+import { AddNewPatientModal } from './AddNewPatient';
 
 interface PatientListProps {
     patients: Patient[];
     onSelectPatient: (patient: Patient) => void;
-    // We might want to pass vital signs map if available, or just rely on patient data if it has vitals
     vitalSigns: VitalSign[];
+    onRefresh?: () => void; // [NEW] Callback for data refresh
 }
 
-export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPatient, vitalSigns }) => {
+export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPatient, vitalSigns, onRefresh }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeTab, setActiveTab] = useState<'all' | 'active'>('all');
 
+    // [NEW] Modal State
+    const [isAddPatientOpen, setIsAddPatientOpen] = useState(false);
+
     // Filter Logic
     const filteredPatients = patients.filter(patient => {
-        // 1. Text Search
         const matchesSearch = patient.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             patient.roomNumber?.toLowerCase().includes(searchQuery.toLowerCase());
-
-        // 2. Tab Filter
         const isActive = patient.deviceConnected || patient.status === 'Critical' || patient.status === 'Warning';
         const matchesTab = activeTab === 'all' ? true : isActive;
-
         return matchesSearch && matchesTab && !patient.deleted && !patient.archived;
     });
 
-    // Helper to get latest vital for a patient
     const getLatestVital = (patientId: string) => {
-        // Assuming vitalSigns is an array of all recent vitals. 
-        // In a real app, this might be a Map<string, VitalSign> for O(1) lookup.
-        // For now, we filter and find last.
         const patientVitals = vitalSigns.filter(v => v.patientId === patientId);
         return patientVitals.length > 0 ? patientVitals[patientVitals.length - 1] : null;
     };
@@ -74,9 +62,14 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
                             className="pl-10"
                         />
                     </div>
-                    {/* <Button variant="outline" size="icon">
-              <Filter className="w-4 h-4" />
-            </Button> */}
+                    {/* [NEW] Quick Add Button */}
+                    <Button
+                        onClick={() => setIsAddPatientOpen(true)}
+                        className="bg-teal-600 hover:bg-teal-700 text-white"
+                    >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Add Patient
+                    </Button>
                 </div>
             </div>
 
@@ -93,6 +86,16 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
                     <PatientTable patients={filteredPatients} getLatestVital={getLatestVital} onSelectPatient={onSelectPatient} />
                 </TabsContent>
             </Tabs>
+
+            {/* [NEW] Modal Component */}
+            <AddNewPatientModal
+                isOpen={isAddPatientOpen}
+                onOpenChange={setIsAddPatientOpen}
+                onSuccess={() => {
+                    setIsAddPatientOpen(false);
+                    if (onRefresh) onRefresh(); // Trigger data reload in parent
+                }}
+            />
         </div>
     );
 };
@@ -132,7 +135,6 @@ const PatientTable: React.FC<PatientTableProps> = ({ patients, getLatestVital, o
                             const vital = getLatestVital(patient.id);
                             const isOffline = !patient.deviceConnected;
 
-                            // Determine status badge
                             let statusColor = "bg-slate-100 text-slate-800";
                             let statusText = "Stable";
 
@@ -150,7 +152,6 @@ const PatientTable: React.FC<PatientTableProps> = ({ patients, getLatestVital, o
                                 statusText = "Stable";
                             }
 
-
                             return (
                                 <TableRow key={patient.id} className="cursor-pointer hover:bg-slate-50/50" onClick={() => onSelectPatient(patient)}>
                                     <TableCell className="font-medium">
@@ -159,16 +160,12 @@ const PatientTable: React.FC<PatientTableProps> = ({ patients, getLatestVital, o
                                             <span className="text-xs text-slate-500">ID: {patient.id}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell>
-                                        Room {patient.roomNumber || 'N/A'}
-                                    </TableCell>
+                                    <TableCell>Room {patient.roomNumber || 'N/A'}</TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className={`${statusColor} border`}>
                                             {statusText}
                                         </Badge>
                                     </TableCell>
-
-                                    {/* Vitals Columns - Only show if online/data available */}
                                     <TableCell className="text-center">
                                         {vital && !isOffline ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
@@ -193,7 +190,6 @@ const PatientTable: React.FC<PatientTableProps> = ({ patients, getLatestVital, o
                                             </div>
                                         ) : <span className="text-slate-400">--</span>}
                                     </TableCell>
-
                                     <TableCell>
                                         <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onSelectPatient(patient); }}>
                                             <Eye className="w-4 h-4 text-slate-500" />

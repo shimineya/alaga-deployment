@@ -1,36 +1,115 @@
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+
 @custom-variant dark (&:is(.dark *));
 
+/* 1. Theme Configuration (The "Alaga" Design System) */
+@theme {
+  /* Brand Colors (Teal) */
+  --color-teal-50: #f0faf9;
+  --color-teal-100: #d4f1f0;
+  --color-teal-200: #b8e6e4;
+  --color-teal-300: #9ddcd9;
+  --color-teal-400: #7dd3cf;
+  --color-teal-500: #4db8b3;
+  --color-teal-600: #3a9d98;
+  --color-teal-700: #2a7d7a;
+  --color-teal-800: #1a5d5b;
+  --color-teal-900: #0a4a47;
+
+  /* Status Colors */
+  --color-status-normal: #4db8b3;
+  --color-status-warning: #f0ad4e;
+  --color-status-critical: #d9534f;
+  --color-status-success: #5cb85c;
+
+  /* Semantic Maps */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Chart & Sidebar Mappings */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* 2. CSS Variables (The "Root" definitions) */
 :root {
   --font-size: 16px;
+  
+  /* ALAGA Light Theme */
   --background: #f0faf9;
   --foreground: #0a4a47;
+  
   --card: #ffffff;
   --card-foreground: #0a4a47;
+  
   --popover: #ffffff;
   --popover-foreground: #0a4a47;
+  
   --primary: #4db8b3;
   --primary-foreground: #ffffff;
+  
   --secondary: #b8e6e4;
   --secondary-foreground: #0a4a47;
+  
   --muted: #d4f1f0;
   --muted-foreground: #5a8a87;
+  
   --accent: #7dd3cf;
   --accent-foreground: #0a4a47;
+  
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
+  
   --border: rgba(77, 184, 179, 0.2);
   --input: transparent;
   --input-background: #e6f7f6;
-  --switch-background: #b8e6e4;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
+  
   --ring: #4db8b3;
+  --radius: 0.625rem;
+
+  /* Chart Colors */
   --chart-1: #4db8b3;
   --chart-2: #7dd3cf;
   --chart-3: #2a9d8f;
   --chart-4: #b8e6e4;
   --chart-5: #5fbdb7;
-  --radius: 0.625rem;
+
+  /* Sidebar */
   --sidebar: #ffffff;
   --sidebar-foreground: #0a4a47;
   --sidebar-primary: #4db8b3;
@@ -40,23 +119,9 @@
   --sidebar-border: rgba(77, 184, 179, 0.2);
   --sidebar-ring: #4db8b3;
 
-  /* Pastel teal shades */
-  --teal-50: #f0faf9;
-  --teal-100: #d4f1f0;
-  --teal-200: #b8e6e4;
-  --teal-300: #9ddcd9;
-  --teal-400: #7dd3cf;
-  --teal-500: #4db8b3;
+  /* Helper vars if needed manually */
   --teal-600: #3a9d98;
   --teal-700: #2a7d7a;
-  --teal-800: #1a5d5b;
-  --teal-900: #0a4a47;
-
-  /* Status colors */
-  --status-normal: #4db8b3;
-  --status-warning: #f0ad4e;
-  --status-critical: #d9534f;
-  --status-success: #5cb85c;
 }
 
 .dark {
@@ -79,13 +144,6 @@
   --border: rgba(77, 184, 179, 0.3);
   --input: #2a7d7a;
   --ring: #7dd3cf;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --chart-1: #7dd3cf;
-  --chart-2: #b8e6e4;
-  --chart-3: #4db8b3;
-  --chart-4: #9ddcd9;
-  --chart-5: #5fbdb7;
   --sidebar: #1a5d5b;
   --sidebar-foreground: #f0faf9;
   --sidebar-primary: #7dd3cf;
@@ -96,128 +154,47 @@
   --sidebar-ring: #7dd3cf;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-input-background: var(--input-background);
-  --color-switch-background: var(--switch-background);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-
-  /* --- ADDED: REGISTER TEAL COLORS TO THEME --- */
-  --color-teal-50: var(--teal-50);
-  --color-teal-100: var(--teal-100);
-  --color-teal-200: var(--teal-200);
-  --color-teal-300: var(--teal-300);
-  --color-teal-400: var(--teal-400);
-  --color-teal-500: var(--teal-500);
-  --color-teal-600: var(--teal-600);
-  --color-teal-700: var(--teal-700);
-  --color-teal-800: var(--teal-800);
-  --color-teal-900: var(--teal-900);
-  /* --------------------------------------------- */
-
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-}
-
+/* 3. Base Styles (Typography & Resets) */
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+  html {
+    font-size: var(--font-size);
   }
-
+  
+  * {
+    @apply border-border;
+  }
+  
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  
+  h1 { @apply text-2xl font-medium; }
+  h2 { @apply text-xl font-medium; }
+  h3 { @apply text-lg font-medium; }
+  h4 { @apply text-base font-medium; }
 }
 
-/**
- * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
- */
-@layer base {
-  :where( :not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
-    h1 {
-      font-size: var(--text-2xl);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h2 {
-      font-size: var(--text-xl);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h3 {
-      font-size: var(--text-lg);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h4 {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    label {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    button {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    input {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-normal);
-      line-height: 1.5;
-    }
-  }
+/* 4. Utilities */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-teal-200);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-teal-400);
 }
 
-
-/* --- Fallback Utilities (Technical Debt: Missing in Tailwind Build) --- */
+/* 5. Legacy Manual Overrides (From your index.css) 
+   These ensure that if the compiler misses something, these specific overrides persist.
+*/
 .bg-teal-600 {
   background-color: var(--teal-600) !important;
-}
-
-.hover\:bg-teal-700:hover {
-  background-color: var(--teal-700) !important;
 }

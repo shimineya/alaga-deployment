@@ -1,266 +1,515 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
 import {
     Users,
-    Wifi,
-    WifiOff,
-    UserPlus,
+    Smartphone,
+    Link as LinkIcon,
+    Unlink,
+    RefreshCw,
     PlusCircle,
-    Trash2,
-    Shield,
-    User,
-    Activity,
-    Unplug
+    UserPlus,
+    AlertCircle,
+    ArrowRightLeft,
+    MoreHorizontal,
+    Search
 } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Input } from './ui/input';
+
+// Modals
 import { AssignCaregiverModal } from './AssignCaregiverModal';
 import { AssignDeviceModal } from './AssignDeviceModal';
+import { AddNewDeviceModal } from './AddNewDevice';
+import { ManageCareTeamModal } from './ManageCareTeamModal';
 
-interface CareTeamMember {
-    user_id: number;
-    first_name: string;
-    last_name: string;
-    email: string;
-    role: string;
-    relationship: string;
-    access_level: string;
-}
-
-interface AssignedPatient {
+// --- TYPES ---
+interface PatientDB {
     patient_id: number;
     name: string;
-    device_serial_number: string | null;
-    access_level: string; // My access level
-    relationship: string;
-    care_team: CareTeamMember[];
+    medical_condition: string;
+    vital_device_sn: string | null;
+    diaper_device_sn: string | null;
+    assigned_caregiver_id: number | null;
+    caregiver_name?: string;
 }
 
-export const AssignmentTracker: React.FC = () => {
-    const { token, user } = useAuth();
-    const [assignments, setAssignments] = useState<AssignedPatient[]>([]);
-    const [loading, setLoading] = useState(true);
+interface UnassignedDevice {
+    serial_number: string;
+    device_name: string;
+    type: 'Vital Monitor' | 'Smart Diaper';
+    status: 'Available';
+}
 
-    // Modal States
-    const [caregiverModalOpen, setCaregiverModalOpen] = useState(false);
-    const [deviceModalOpen, setDeviceModalOpen] = useState(false);
-    const [selectedPatient, setSelectedPatient] = useState<{ id: string, name: string } | null>(null);
+interface AssignmentTrackerProps {
+    onRefresh?: () => void;
+}
 
-    const fetchData = async () => {
-        setLoading(true);
+export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh }) => {
+    const { token } = useAuth();
+    const [isLoading, setIsLoading] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    // Data State
+    const [assignments, setAssignments] = useState<PatientDB[]>([]);
+    const [unassignedDevices, setUnassignedDevices] = useState<UnassignedDevice[]>([]);
+
+    // Modal State
+    const [isCaregiverModalOpen, setCaregiverModalOpen] = useState(false);
+    const [isDeviceModalOpen, setDeviceModalOpen] = useState(false);
+    const [isRegisterDeviceOpen, setRegisterDeviceOpen] = useState(false);
+    const [isManageTeamOpen, setManageTeamOpen] = useState(false);
+
+    // Selection for Actions
+    const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
+    const [selectedPatientName, setSelectedPatientName] = useState<string>('');
+
+    // --- FETCH DATA ---
+    const fetchData = useCallback(async () => {
+        if (!token) return;
+        setIsLoading(true);
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/my-assignments', {
+            // 1. Fetch Patients
+            const resPatients = await fetch('http://localhost:3000/api/caregiver/patients', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            const data = await response.json();
-            if (data.success) {
-                setAssignments(data.data);
+            const dataPatients = await resPatients.json();
+
+            if (dataPatients.success) {
+                setAssignments(dataPatients.data);
             }
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load assignments");
+
+            // 2. Fetch Inventory
+            const resDevices = await fetch('http://localhost:3000/api/caregiver/devices/available', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const dataDevices = await resDevices.json();
+
+            if (dataDevices.success) {
+                const mappedDevices = dataDevices.data.map((d: any) => ({
+                    serial_number: d.serial_number,
+                    device_name: d.device_name,
+                    type: d.device_name.includes('Diaper') ? 'Smart Diaper' : 'Vital Monitor',
+                    status: 'Available'
+                }));
+                setUnassignedDevices(mappedDevices);
+            }
+
+        } catch (error) {
+            console.error("Fetch Error:", error);
+            toast.error("Failed to load live data.");
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
-    };
+    }, [token]);
 
     useEffect(() => {
         fetchData();
-    }, [token]);
+    }, [fetchData]);
 
-    const handleUnlinkDevice = async (patientId: number, serialNumber: string) => {
-        if (!confirm(`Are you sure you want to unlink device ${serialNumber}?`)) return;
-
+    // --- ACTIONS ---
+    const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') => {
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/device/unlink', {
-                method: 'POST',
+            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/unlink-device`, {
+                method: 'PUT',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ patient_id: patientId, serial_number: serialNumber })
+                body: JSON.stringify({ type })
             });
 
             const data = await response.json();
             if (data.success) {
-                toast.success("Device unlinked");
+                toast.success("Device unlinked successfully");
                 fetchData();
+                if (onRefresh) onRefresh(); // Trigger parent refresh
             } else {
-                toast.error(data.message);
+                toast.error(data.message || "Failed to unlink device");
             }
-        } catch (err) {
-            toast.error("Network error");
+        } catch (error) {
+            console.error(error);
+            toast.error("Network error during unlink");
         }
     };
 
-    const handleRevokeCaregiver = async (patientId: number, targetUserId: number) => {
-        if (!confirm("Are you sure you want to remove this caregiver?")) return;
-
+    const handleUnlinkCaregiver = async (patientId: number) => {
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/caregiver/revoke', {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ patient_id: patientId, target_user_id: targetUserId })
+            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/unlink-caregiver`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
             });
 
             const data = await response.json();
             if (data.success) {
-                toast.success("Access revoked");
+                toast.success("Caregiver removed from patient");
                 fetchData();
+                if (onRefresh) onRefresh(); // Trigger parent refresh
             } else {
-                toast.error(data.message);
+                toast.error("Failed to remove caregiver");
             }
-        } catch (err) {
+        } catch (error) {
             toast.error("Network error");
         }
     };
 
-    const openInviteModal = (patient: AssignedPatient) => {
-        console.log("DEBUG: openInviteModal clicked for", patient.name);
-        setSelectedPatient({ id: patient.patient_id.toString(), name: patient.name });
-        setCaregiverModalOpen(true);
-    };
-
-    const openDeviceModal = (patient: AssignedPatient) => {
-        console.log("DEBUG: openDeviceModal clicked for", patient.name);
-        setSelectedPatient({ id: patient.patient_id.toString(), name: patient.name });
+    const openAssignDevice = (pId: number, pName: string) => {
+        setSelectedPatientId(pId);
+        setSelectedPatientName(pName);
         setDeviceModalOpen(true);
     };
 
-    if (loading) return <div className="p-8 text-center text-gray-500">Loading your ecosystem...</div>;
+    const openAssignCaregiver = (pId: number, pName: string) => {
+        setSelectedPatientId(pId);
+        setSelectedPatientName(pName);
+        setCaregiverModalOpen(true);
+    };
+
+    const openManageTeam = (pId: number, pName: string) => {
+        setSelectedPatientId(pId);
+        setSelectedPatientName(pName);
+        setManageTeamOpen(true);
+    };
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
+
+    // Filter Logic
+    const filteredAssignments = assignments.filter(a => {
+        const q = searchQuery.toLowerCase();
+        const pName = a.name?.toLowerCase() || '';
+        const vDev = a.vital_device_sn?.toLowerCase() || '';
+        const dDev = a.diaper_device_sn?.toLowerCase() || '';
+
+        return pName.includes(q) || vDev.includes(q) || dDev.includes(q);
+    });
+
+    // Pagination Logic
+    const totalPages = Math.ceil(filteredAssignments.length / itemsPerPage);
+    const paginatedAssignments = filteredAssignments.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    // Reset page on search
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery]);
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">My Care Ecosystem</h2>
-                <p className="text-slate-500">Manage your patients, their devices, and your care team.</p>
+        <div className="w-full max-w-[1600px] mx-auto px-4 pb-4 pt-2 space-y-4">
+            {/* ... Header ... */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-teal-500 rounded-lg shadow-sm">
+                        <LinkIcon className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-800 leading-tight">Assignment Command Center</h2>
+                        <p className="text-xs text-slate-500">Manage patient-device pairings</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={fetchData} disabled={isLoading} className="h-8 text-slate-500">
+                        <RefreshCw className={`w-3.5 h-3.5 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                    <Button
+                        className="bg-teal-600 hover:bg-teal-700 text-white h-8 text-xs shadow-sm"
+                        size="sm"
+                        onClick={() => setRegisterDeviceOpen(true)}
+                    >
+                        <PlusCircle className="w-3.5 h-3.5 mr-2" />
+                        Register Device
+                    </Button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
-                {assignments.map(patient => (
-                    <Card key={patient.patient_id} className="border-l-4 border-l-teal-500 shadow-sm">
-                        <CardHeader className="pb-3 border-b bg-slate-50/50">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <CardTitle className="text-xl flex items-center gap-2">
-                                        {patient.name}
-                                        <Badge variant="outline" className="text-xs font-normal bg-white">
-                                            {patient.relationship}
-                                        </Badge>
-                                    </CardTitle>
-                                    <CardDescription>Patient ID: #{patient.patient_id}</CardDescription>
-                                </div>
-                                {patient.access_level === 'Edit' && (
-                                    <div className="flex gap-2">
-                                        <Button size="sm" variant="outline" onClick={() => openDeviceModal(patient)}>
-                                            <Wifi className="w-4 h-4 mr-2" /> Link Device
-                                        </Button>
-                                        <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white" onClick={() => openInviteModal(patient)}>
-                                            <UserPlus className="w-4 h-4 mr-2" /> Invite Caregiver
-                                        </Button>
-                                    </div>
-                                )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* LEFT PANEL: ACTIVE ASSIGNMENTS LIST */}
+                <Card className="lg:col-span-2 border-slate-200 shadow-sm flex flex-col">
+                    <CardHeader className="bg-slate-50/50 border-b py-3">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                                <Users className="w-4 h-4 text-teal-600" />
+                                Current Assignments
+                            </CardTitle>
+                            <div className="relative w-48">
+                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                                <Input
+                                    placeholder="Search patient..."
+                                    className="h-8 pl-8 text-xs bg-white"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
                             </div>
-                        </CardHeader>
-                        <CardContent className="pt-6 grid md:grid-cols-2 gap-6">
-
-                            {/* SECTION: DEVICES */}
-                            <div className="space-y-3">
-                                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                    <Activity className="w-4 h-4 text-emerald-600" /> Assigned Devices
-                                </h4>
-                                {patient.device_serial_number ? (
-                                    <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-100 rounded-lg">
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-white rounded-full text-emerald-600">
-                                                <Wifi className="w-4 h-4" />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-emerald-900">Active Device</p>
-                                                <p className="text-xs text-emerald-700 font-mono">{patient.device_serial_number}</p>
-                                            </div>
-                                        </div>
-                                        {patient.access_level === 'Edit' && (
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-100 hover:text-red-700"
-                                                onClick={() => handleUnlinkDevice(patient.patient_id, patient.device_serial_number!)}>
-                                                <Unplug className="w-4 h-4" />
-                                            </Button>
-                                        )}
-                                    </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+                                <tr>
+                                    <th className="px-4 py-3 font-medium">Patient</th>
+                                    <th className="px-4 py-3 font-medium">Linked Devices</th>
+                                    <th className="px-4 py-3 font-medium">Caregiver</th>
+                                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {paginatedAssignments.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} className="p-8 text-center text-slate-400">
+                                            {isLoading ? "Loading patients..." : "No patients found. Enroll a patient first."}
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    <div className="p-4 border border-dashed rounded-lg text-center text-gray-400 text-sm">
-                                        <WifiOff className="w-5 h-5 mx-auto mb-1 text-gray-300" />
-                                        No device linked
-                                    </div>
+                                    paginatedAssignments.map((row) => (
+                                        <tr key={row.patient_id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-slate-700">
+                                                {row.name}
+                                                {(!row.vital_device_sn && !row.diaper_device_sn) && (
+                                                    <Badge variant="outline" className="ml-2 text-[10px] text-amber-600 border-amber-200 bg-amber-50">
+                                                        No Devices
+                                                    </Badge>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex flex-col gap-1.5">
+                                                    {row.vital_device_sn ? (
+                                                        <Badge variant="secondary" className="w-fit font-mono text-[10px] bg-rose-50 text-rose-700 border-rose-100">
+                                                            <Smartphone className="w-3 h-3 mr-1" />
+                                                            {row.vital_device_sn}
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-[10px] text-slate-400 italic">No Vital Monitor</span>
+                                                    )}
+
+                                                    {row.diaper_device_sn ? (
+                                                        <Badge variant="secondary" className="w-fit font-mono text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                            <Smartphone className="w-3 h-3 mr-1" />
+                                                            {row.diaper_device_sn}
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-[10px] text-slate-400 italic">No Smart Diaper</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {row.assigned_caregiver_id ? (
+                                                    <div className="flex items-center gap-1.5 text-slate-600">
+                                                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-700">
+                                                            C
+                                                        </div>
+                                                        <span className="text-xs">
+                                                            {/* @ts-ignore - DB returns assigned_caregiver_name */}
+                                                            {row.assigned_caregiver_name || `ID: ${row.assigned_caregiver_id}`}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-6 text-xs text-slate-400 hover:text-teal-600 hover:bg-teal-50"
+                                                        onClick={() => openAssignCaregiver(row.patient_id, row.name)}
+                                                    >
+                                                        <UserPlus className="w-3 h-3 mr-1" /> Assign
+                                                    </Button>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                            <MoreHorizontal className="w-4 h-4 text-slate-400" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end" className="w-48">
+                                                        <DropdownMenuLabel>Manage Access</DropdownMenuLabel>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem onClick={() => openManageTeam(row.patient_id, row.name)}>
+                                                            <Users className="w-3.5 h-3.5 mr-2" /> Manage Assigned Caregivers
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => openAssignDevice(row.patient_id, row.name)}>
+                                                            <ArrowRightLeft className="w-3.5 h-3.5 mr-2" /> Assign/Swap Device
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator />
+                                                        {row.vital_device_sn && (
+                                                            <DropdownMenuItem
+                                                                className="text-rose-600 focus:text-rose-600 focus:bg-rose-50"
+                                                                onClick={() => handleUnlinkDevice(row.patient_id, 'vital')}
+                                                            >
+                                                                <Unlink className="w-3.5 h-3.5 mr-2" /> Unlink Vital Mon.
+                                                            </DropdownMenuItem>
+                                                        )}
+                                                        {row.diaper_device_sn && (
+                                                            <DropdownMenuItem
+                                                                className="text-rose-600 focus:text-rose-600 focus:bg-rose-50"
+                                                                onClick={() => handleUnlinkDevice(row.patient_id, 'diaper')}
+                                                            >
+                                                                <Unlink className="w-3.5 h-3.5 mr-2" /> Unlink Diaper
+                                                            </DropdownMenuItem>
+                                                        )}
+                                                        {row.assigned_caregiver_id && (
+                                                            <DropdownMenuItem
+                                                                className="text-rose-600 focus:text-rose-600 focus:bg-rose-50"
+                                                                onClick={() => handleUnlinkCaregiver(row.patient_id)}
+                                                            >
+                                                                <Users className="w-3.5 h-3.5 mr-2" /> Remove Caregiver
+                                                            </DropdownMenuItem>
+                                                        )}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </td>
+                                        </tr>
+                                    ))
                                 )}
-                            </div>
+                            </tbody>
+                        </table>
 
-                            {/* SECTION: CARE TEAM */}
-                            <div className="space-y-3">
-                                <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                    <Users className="w-4 h-4 text-blue-600" /> Care Team
-                                </h4>
-                                <div className="space-y-2">
-                                    {patient.care_team.map(member => (
-                                        <div key={member.user_id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-md border border-transparent hover:border-slate-100 transition-all">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs">
-                                                    {member.first_name[0]}{member.last_name[0]}
+                        {/* Pagination Controls */}
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center p-4 border-t border-slate-100 gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                    disabled={currentPage === 1}
+                                    className="h-8 px-2"
+                                >
+                                    Previous
+                                </Button>
+                                <span className="text-xs text-slate-500 font-medium">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                    disabled={currentPage === totalPages}
+                                    className="h-8 px-2"
+                                >
+                                    Next
+                                </Button>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* RIGHT PANEL: ONLY UNASSIGNED DEVICES */}
+                <div className="h-[75vh]">
+                    <Card className="border-slate-200 shadow-sm flex flex-col h-full">
+                        <CardHeader className="bg-slate-50/50 border-b py-3">
+                            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                                <Smartphone className="w-4 h-4 text-slate-500" />
+                                Unassigned Devices
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0 flex-1 overflow-hidden relative">
+                            {unassignedDevices.length > 0 ? (
+                                <ScrollArea className="h-full">
+                                    <div className="divide-y divide-slate-100">
+                                        {unassignedDevices.map((device) => (
+                                            <div key={device.serial_number} className="p-3 flex items-center justify-between hover:bg-slate-50">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-1.5 rounded-md ${device.type.includes('Diaper') ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}>
+                                                        <Smartphone className="w-4 h-4" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-700">{device.serial_number}</p>
+                                                        <p className="text-[10px] text-slate-500">{device.type}</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-700">
-                                                        {member.first_name} {member.last_name}
-                                                        {member.user_id === user?.id && <span className="text-slate-400 text-xs ml-1">(You)</span>}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500">{member.relationship} • <span className="text-[10px] uppercase bg-slate-100 px-1 rounded">{member.access_level}</span></p>
-                                                </div>
+                                                <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-600 border-emerald-100">
+                                                    Available
+                                                </Badge>
                                             </div>
-
-                                            {/* Only allow removing others, not self (for now), and only if current user is Edit */}
-                                            {patient.access_level === 'Edit' && member.user_id !== user?.id && (
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-red-600"
-                                                    onClick={() => handleRevokeCaregiver(patient.patient_id, member.user_id)}>
-                                                    <Trash2 className="w-3 h-3" />
-                                                </Button>
-                                            )}
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
+                                </ScrollArea>
+                            ) : (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+                                    <div className="bg-slate-100 p-3 rounded-full mb-2">
+                                        <AlertCircle className="w-6 h-6 text-slate-400" />
+                                    </div>
+                                    <h3 className="text-sm font-medium text-slate-700">No Devices Available</h3>
+                                    <p className="text-xs text-slate-500 mb-4 max-w-[200px]">
+                                        All devices are currently in use or none have been registered.
+                                    </p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setRegisterDeviceOpen(true)}
+                                        className="text-teal-600 border-teal-200 hover:bg-teal-50"
+                                    >
+                                        Register New Device
+                                    </Button>
                                 </div>
-                            </div>
-
+                            )}
                         </CardContent>
                     </Card>
-                ))}
-
-                {assignments.length === 0 && (
-                    <div className="text-center py-12 bg-slate-50 rounded-lg border border-dashed">
-                        <User className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <h3 className="text-lg font-medium text-gray-600">No Patients Found</h3>
-                        <p className="text-sm text-gray-500">You are not assigned to any patients yet.</p>
-                    </div>
-                )}
+                </div>
             </div>
 
-            {/* Render Modals */}
-            {/* Render Modals - Always rendered to allow animation/state handling */}
-            <AssignCaregiverModal
-                isOpen={caregiverModalOpen}
-                onClose={() => { setCaregiverModalOpen(false); setSelectedPatient(null); }}
-                patientId={selectedPatient?.id || ''}
-                patientName={selectedPatient?.name || ''}
-                onSuccess={fetchData}
-            />
+            {/* --- MODALS --- */}
+
             <AssignDeviceModal
-                isOpen={deviceModalOpen}
-                onClose={() => { setDeviceModalOpen(false); setSelectedPatient(null); }}
-                patientId={selectedPatient?.id || ''}
-                patientName={selectedPatient?.name || ''}
-                onSuccess={fetchData}
+                isOpen={isDeviceModalOpen}
+                onClose={() => setDeviceModalOpen(false)}
+                patientId={selectedPatientId || 0}
+                patientName={selectedPatientName}
+                onSuccess={() => {
+                    setDeviceModalOpen(false);
+                    fetchData();
+                    if (onRefresh) onRefresh();
+                }}
+                onOpenCreate={() => {
+                    setDeviceModalOpen(false);
+                    setRegisterDeviceOpen(true);
+                }}
+            />
+
+            <AssignCaregiverModal
+                isOpen={isCaregiverModalOpen}
+                onClose={() => setCaregiverModalOpen(false)}
+                patientId={selectedPatientId || 0}
+                patientName={selectedPatientName}
+                onSuccess={() => {
+                    setCaregiverModalOpen(false);
+                    fetchData();
+                    if (onRefresh) onRefresh();
+                }}
+            />
+
+            <AddNewDeviceModal
+                isOpen={isRegisterDeviceOpen}
+                onOpenChange={setRegisterDeviceOpen}
+                onDeviceAdded={() => {
+                    fetchData();
+                    if (onRefresh) onRefresh();
+                }}
+            />
+
+            <ManageCareTeamModal
+                isOpen={isManageTeamOpen}
+                onClose={() => setManageTeamOpen(false)}
+                patientId={selectedPatientId || 0}
+                patientName={selectedPatientName}
+                onUpdate={() => {
+                    fetchData();
+                    if (onRefresh) onRefresh();
+                }}
             />
         </div>
     );

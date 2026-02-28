@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
-import { X } from 'lucide-react';
+import { UserPlus, Loader2, Mail, Search } from 'lucide-react';
 
 interface AssignCaregiverModalProps {
     isOpen: boolean;
     onClose: () => void;
-    patientId: string;
+    patientId: number;
     patientName: string;
     onSuccess: () => void;
 }
@@ -24,106 +24,167 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
     onSuccess
 }) => {
     const { token } = useAuth();
-    const [email, setEmail] = useState('');
-    const [relationship, setRelationship] = useState('Secondary Caregiver');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [relationship, setRelationship] = useState('Assigned Caregiver');
     const [loading, setLoading] = useState(false);
 
-    const handleInvite = async () => {
-        if (!email) {
-            toast.error("Please enter an email address.");
+    // Mock Search State
+    const [searchResults, setSearchResults] = useState<{ id: number, name: string, email: string }[]>([]);
+    const [hasSearched, setHasSearched] = useState(false);
+
+    const handleSearch = async () => {
+        if (!searchQuery) return;
+        setLoading(true);
+        setSearchResults([]); // Clear previous
+        try {
+            const response = await fetch(`http://localhost:3000/api/caregiver/search?query=${encodeURIComponent(searchQuery)}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+
+            if (data.success && Array.isArray(data.data)) {
+                // Map DB columns to UI expected format
+                const mapped = data.data.map((u: any) => ({
+                    id: u.user_id,
+                    name: `${u.first_name} ${u.last_name}`.trim() || u.username,
+                    email: u.email
+                }));
+                setSearchResults(mapped);
+            } else {
+                setSearchResults([]);
+            }
+        } catch (error) {
+            console.error("Search error:", error);
+            toast.error("Failed to search users");
+        } finally {
+            setHasSearched(true);
+            setLoading(false);
+        }
+    };
+
+    const handleAssign = async (caregiverId: number | null, email: string | null = null) => {
+        // [OWASP] If email (invite) logic is needed later, we can add it. For now, only ID assignment.
+        if (!caregiverId && email) {
+            toast.info("Email invitation feature coming soon.");
             return;
         }
+        if (!caregiverId) return;
 
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/caregiver/invite', {
+            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/assign-caregiver`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    patient_id: patientId,
-                    invite_email: email,
-                    relationship: relationship,
-                    access_level: 'View' // Default to View only for safety
+                    caregiverId,
+                    relationship
                 })
             });
 
             const data = await response.json();
 
             if (data.success) {
-                toast.success(`Invitation sent to ${email}`);
+                toast.success("Caregiver assigned successfully.");
                 onSuccess();
-                onClose();
-                setEmail('');
             } else {
-                toast.error(data.message || "Failed to invite caregiver");
+                toast.error(data.message || "Failed to assign caregiver");
             }
-        } catch (err) {
-            console.error(err);
-            toast.error("Network error. Please try again.");
+        } catch (error) {
+            console.error("Assignment error:", error);
+            toast.error("Network error: Failed to assign");
         } finally {
             setLoading(false);
         }
     };
 
-    if (!isOpen) return null;
+    return (
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="sm:max-w-[450px]">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-slate-800">
+                        <UserPlus className="w-5 h-5 text-teal-600" />
+                        Assign Caregiver
+                    </DialogTitle>
+                    <DialogDescription>
+                        Add a team member for <strong>{patientName}</strong>.
+                    </DialogDescription>
+                </DialogHeader>
 
-    return createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-slate-200">
-                {/* Header */}
-                <div className="flex justify-between items-center p-4 border-b bg-slate-50">
-                    <div>
-                        <h3 className="text-lg font-semibold text-slate-800">Invite Caregiver</h3>
-                        <p className="text-xs text-slate-500">For patient: {patientName}</p>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 text-slate-400 hover:text-slate-600">
-                        <X className="w-4 h-4" />
-                    </Button>
-                </div>
-
-                {/* Body */}
-                <div className="p-4 space-y-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="email">Caregiver's Email Address</Label>
-                        <Input
-                            id="email"
-                            placeholder="user@example.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                        />
-                        <p className="text-xs text-slate-500">
-                            The user must already have an account to be invited.
-                        </p>
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="relation">Relationship</Label>
+                <div className="space-y-4 py-2">
+                    <div className="space-y-2">
+                        <Label>Role / Relationship</Label>
                         <Select value={relationship} onValueChange={setRelationship}>
-                            <SelectTrigger id="relation">
-                                <SelectValue placeholder="Select relationship" />
+                            <SelectTrigger>
+                                <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
+                                <SelectItem value="Assigned Caregiver">Primary Caregiver (Assigned)</SelectItem>
                                 <SelectItem value="Secondary Caregiver">Secondary Caregiver</SelectItem>
                                 <SelectItem value="Nurse">Nurse / Medical Staff</SelectItem>
                                 <SelectItem value="Family Member">Family Member</SelectItem>
-                                <SelectItem value="Guardian">Guardian</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
+
+                    <div className="space-y-2">
+                        <Label>Search User</Label>
+                        <div className="flex gap-2">
+                            <Input
+                                placeholder="Email or Name"
+                                value={searchQuery}
+                                onChange={(e) => { setSearchQuery(e.target.value); setHasSearched(false); }}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            />
+                            <Button variant="secondary" onClick={handleSearch} disabled={loading}>
+                                <Search className="w-4 h-4" />
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* RESULTS AREA */}
+                    {loading ? (
+                        <div className="flex justify-center py-4">
+                            <Loader2 className="w-6 h-6 text-teal-600 animate-spin" />
+                        </div>
+                    ) : hasSearched && searchResults.length > 0 ? (
+                        <div className="border rounded-md divide-y">
+                            {searchResults.map(user => (
+                                <div key={user.id} className="p-3 flex items-center justify-between hover:bg-slate-50">
+                                    <div>
+                                        <p className="text-sm font-medium text-slate-700">{user.name}</p>
+                                        <p className="text-xs text-slate-500">{user.email}</p>
+                                    </div>
+                                    <Button size="sm" onClick={() => handleAssign(user.id)} className="bg-teal-600 text-white h-7 text-xs">
+                                        Select
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : hasSearched && searchResults.length === 0 ? (
+                        <div className="p-4 bg-amber-50 border border-amber-100 rounded-md text-center">
+                            <p className="text-sm text-amber-800 font-medium mb-1">User not found</p>
+                            <p className="text-xs text-amber-600 mb-3">
+                                No registered user found matching "{searchQuery}".
+                            </p>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full border-amber-300 text-amber-800 hover:bg-amber-100"
+                                onClick={() => handleAssign(null, searchQuery)}
+                            >
+                                <Mail className="w-3.5 h-3.5 mr-2" /> Send Invite to Email
+                            </Button>
+                        </div>
+                    ) : null}
                 </div>
 
-                {/* Footer */}
-                <div className="p-4 border-t bg-slate-50 flex justify-end gap-2">
-                    <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-                    <Button onClick={handleInvite} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white">
-                        {loading ? 'Sending...' : 'Send Invitation'}
-                    </Button>
+                <div className="flex justify-end pt-2">
+                    <Button variant="ghost" onClick={onClose}>Close</Button>
                 </div>
-            </div>
-        </div>,
-        document.body
+            </DialogContent>
+        </Dialog>
     );
 };

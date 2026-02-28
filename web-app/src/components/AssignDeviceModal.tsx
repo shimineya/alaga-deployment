@@ -1,24 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
-import { Wifi, X } from 'lucide-react';
+import { Smartphone, Loader2, Link as LinkIcon, Plus } from 'lucide-react';
 
 interface Device {
     serial_number: string;
     device_name: string;
-    status: string;
+    type: string;
 }
 
 interface AssignDeviceModalProps {
     isOpen: boolean;
     onClose: () => void;
-    patientId: string;
+    patientId: number;
     patientName: string;
     onSuccess: () => void;
+    onOpenCreate?: () => void; // Link to create new device
 }
 
 export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
@@ -26,7 +27,8 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
     onClose,
     patientId,
     patientName,
-    onSuccess
+    onSuccess,
+    onOpenCreate
 }) => {
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
@@ -34,122 +36,121 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(false);
 
-    // Fetch Available Devices
     useEffect(() => {
         if (isOpen) {
             setFetching(true);
-            fetch('http://localhost:3000/api/caregiver/devices/available', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-                .then(res => res.json())
-                .then(data => {
+            const fetchDevices = async () => {
+                try {
+                    const res = await fetch('http://localhost:3000/api/caregiver/devices/available', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const data = await res.json();
                     if (data.success) {
-                        setDevices(data.data);
+                        setDevices(data.data.map((d: any) => ({
+                            serial_number: d.serial_number,
+                            device_name: d.device_name,
+                            type: d.device_name.includes('Diaper') ? 'Diaper' : 'Vital'
+                        })));
                     }
-                })
-                .catch(err => console.error("Failed to load devices", err))
-                .finally(() => setFetching(false));
+                } catch (err) {
+                    toast.error("Failed to load devices");
+                } finally {
+                    setFetching(false);
+                }
+            };
+            fetchDevices();
+        } else {
+            setSelectedDevice('');
         }
     }, [isOpen, token]);
 
     const handleAssign = async () => {
-        if (!selectedDevice) {
-            toast.error("Please select a device.");
-            return;
-        }
-
+        if (!selectedDevice) return;
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/device/link', {
-                method: 'POST',
+            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/assign-device`, {
+                method: 'POST', // Changed from PUT to POST to match my backend addition
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({
-                    patient_id: patientId,
-                    serial_number: selectedDevice
-                })
+                body: JSON.stringify({ serialNumber: selectedDevice })
             });
 
             const data = await response.json();
 
             if (data.success) {
-                toast.success(`Device linked to ${patientName}`);
+                toast.success(`Assigned ${selectedDevice} to ${patientName}`);
                 onSuccess();
-                onClose();
-                setSelectedDevice('');
             } else {
-                toast.error(data.message || "Failed to link device");
+                toast.error(data.message || "Failed to assign device");
             }
-        } catch (err) {
-            console.error(err);
-            toast.error("Network error.");
+        } catch (error) {
+            console.error(error);
+            toast.error("Network error: Failed to assign device");
         } finally {
             setLoading(false);
         }
     };
 
-    if (!isOpen) return null;
+    return (
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-slate-800">
+                        <Smartphone className="w-5 h-5 text-teal-600" />
+                        Link Device
+                    </DialogTitle>
+                    <DialogDescription>
+                        Assign a monitoring device to <strong>{patientName}</strong>.
+                    </DialogDescription>
+                </DialogHeader>
 
-    return createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-slate-200">
-                {/* Header */}
-                <div className="flex justify-between items-center p-4 border-b bg-slate-50">
-                    <div>
-                        <h3 className="text-lg font-semibold text-slate-800">Link Device</h3>
-                        <p className="text-xs text-slate-500">For patient: {patientName}</p>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 text-slate-400 hover:text-slate-600">
-                        <X className="w-4 h-4" />
-                    </Button>
-                </div>
-
-                {/* Body */}
-                <div className="p-4 space-y-4">
+                <div className="py-4 space-y-4">
                     <div className="space-y-2">
-                        <Label htmlFor="device-select">Select Available Device</Label>
+                        <Label>Select Available Device</Label>
                         {fetching ? (
-                            <div className="p-3 text-sm text-center bg-slate-50 rounded border border-dashed text-slate-500">
-                                scanning for devices...
+                            <div className="flex items-center gap-2 text-sm text-slate-500 h-10 px-3 border rounded-md bg-slate-50">
+                                <Loader2 className="w-4 h-4 animate-spin" /> Loading inventory...
                             </div>
-                        ) : (
+                        ) : devices.length > 0 ? (
                             <Select value={selectedDevice} onValueChange={setSelectedDevice}>
-                                <SelectTrigger id="device-select" className="w-full">
-                                    <SelectValue placeholder="Choose a device..." />
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select device S/N..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {devices.length === 0 ? (
-                                        <div className="p-2 text-sm text-gray-500 text-center">No available devices found.</div>
-                                    ) : (
-                                        devices.map(dev => (
-                                            <SelectItem key={dev.serial_number} value={dev.serial_number}>
-                                                <span className="flex items-center gap-2">
-                                                    <Wifi className="w-3 h-3 text-emerald-500" />
-                                                    {dev.device_name} ({dev.serial_number})
-                                                </span>
-                                            </SelectItem>
-                                        ))
-                                    )}
+                                    {devices.map((dev) => (
+                                        <SelectItem key={dev.serial_number} value={dev.serial_number}>
+                                            <span className="font-mono">{dev.serial_number}</span> - {dev.device_name}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
+                        ) : (
+                            <div className="text-center p-4 border-2 border-dashed rounded-lg bg-slate-50">
+                                <p className="text-sm text-slate-500 mb-3">No available devices found.</p>
+                                {onOpenCreate && (
+                                    <Button size="sm" variant="outline" onClick={onOpenCreate} className="w-full border-teal-200 text-teal-700">
+                                        <Plus className="w-4 h-4 mr-2" /> Register New Device
+                                    </Button>
+                                )}
+                            </div>
                         )}
-                        <p className="text-xs text-slate-500">
-                            Only 'Active' and unassigned devices are shown here.
-                        </p>
                     </div>
                 </div>
 
-                {/* Footer */}
-                <div className="p-4 border-t bg-slate-50 flex justify-end gap-2">
-                    <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-                    <Button onClick={handleAssign} disabled={loading || !selectedDevice} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                        {loading ? 'Linking...' : 'Link Device'}
+                <div className="flex justify-end gap-3 pt-2">
+                    <Button variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
+                    <Button
+                        onClick={handleAssign}
+                        disabled={loading || !selectedDevice}
+                        className="bg-teal-600 hover:bg-teal-700 text-white"
+                    >
+                        {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                        Link Device
                     </Button>
                 </div>
-            </div>
-        </div>,
-        document.body
+            </DialogContent>
+        </Dialog>
     );
 };

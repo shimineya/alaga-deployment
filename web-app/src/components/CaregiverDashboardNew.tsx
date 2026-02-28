@@ -10,6 +10,8 @@ import { PatientList } from './PatientList';
 import { AddNewDevice } from './AddNewDevice';
 import { AssignmentTracker } from './AssignmentTracker';
 import { CaregiverUserManagement } from './CaregiverUserManagement';
+import { MyDevices } from './MyDevices';
+import { FirmwareOTA } from './FirmwareOTA';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -77,45 +79,46 @@ export const CaregiverDashboardNew: React.FC = () => {
   ];
 
   // --- 1. Backend Integration ---
-  useEffect(() => {
-    const fetchPatients = async () => {
-      if (!token) return;
-      try {
-        const response = await fetch('http://localhost:3000/api/caregiver/patients', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await response.json();
+  const fetchPatients = React.useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetch('http://localhost:3000/api/caregiver/patients', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
 
-        if (data.success && Array.isArray(data.data)) {
-          const mappedPatients: Patient[] = data.data.map((p: any) => ({
-            id: p.patient_id?.toString() || Math.random().toString(),
-            name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown',
-            age: p.birthdate ? new Date().getFullYear() - new Date(p.birthdate).getFullYear() : 0,
-            gender: p.gender || 'Unknown',
-            roomNumber: 'Home',
-            condition: p.baseline_data?.condition || 'Stable',
-            status: 'Stable',
-            medicalConditions: p.medical_history || [],
-            allergies: p.allergies || [],
-            medications: p.medications || [],
-            doctorsOrders: [],
-            // Default Vitals (Will be overwritten by sensors later)
-            baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
-            deviceConnected: !!p.device_serial_number, // Logic for "Unassigned"
-            assignedCaregiverName: p.assigned_caregiver_name,
-            emergencyContact: { name: 'N/A', phone: 'N/A', relation: 'N/A' },
-            deleted: false,
-            archived: false
-          }));
-          setPatients(mappedPatients);
-        }
-      } catch (err) {
-        console.error("Failed to fetch patients:", err);
-        toast.error("Could not load patient data");
+      if (data.success && Array.isArray(data.data)) {
+        const mappedPatients: Patient[] = data.data.map((p: any) => ({
+          id: p.patient_id?.toString() || Math.random().toString(),
+          name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown',
+          age: p.birthdate ? new Date().getFullYear() - new Date(p.birthdate).getFullYear() : 0,
+          gender: p.gender || 'Unknown',
+          roomNumber: 'Home',
+          condition: p.baseline_data?.condition || 'Stable',
+          status: 'Stable',
+          medicalConditions: p.medical_history || [],
+          allergies: p.allergies || [],
+          medications: p.medications || [],
+          doctorsOrders: [],
+          // Default Vitals (Will be overwritten by sensors later)
+          baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
+          deviceConnected: !!p.device_serial_number, // Logic for "Unassigned"
+          assignedCaregiverName: p.assigned_caregiver_name,
+          emergencyContact: { name: 'N/A', phone: 'N/A', relation: 'N/A' },
+          deleted: false,
+          archived: false
+        }));
+        setPatients(mappedPatients);
       }
-    };
+    } catch (err) {
+      console.error("Failed to fetch patients:", err);
+      toast.error("Could not load patient data");
+    }
+  }, [token]);
+
+  useEffect(() => {
     fetchPatients();
-  }, [token, activeNavItem]);
+  }, [fetchPatients]); // activeNavItem removed to prevent unnecessary re-fetches or to allow explicit refreshes
 
   // --- 2. Alert Logic ---
   useEffect(() => {
@@ -134,6 +137,16 @@ export const CaregiverDashboardNew: React.FC = () => {
       }
     }, 60000);
     return () => clearInterval(interval);
+  }, [patients]);
+
+  // [NEW] Sync selectedPatient when patients list updates (Fixes stale profile data)
+  useEffect(() => {
+    if (selectedPatient) {
+      const updatedPatient = patients.find(p => p.id === selectedPatient.id);
+      if (updatedPatient) {
+        setSelectedPatient(updatedPatient);
+      }
+    }
   }, [patients]);
 
   const handleAcknowledgeAlert = (alertId: string) => {
@@ -244,6 +257,13 @@ export const CaregiverDashboardNew: React.FC = () => {
                     <div>
                       <CardTitle className="text-sm font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{patient.name}</CardTitle>
                       <CardDescription className="text-[11px] text-slate-500">Room {patient.roomNumber}</CardDescription>
+                      {/* [NEW] Show Assigned Caregiver */}
+                      {patient.assignedCaregiverName && (
+                        <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-600 font-medium">
+                          <Users className="w-3 h-3" />
+                          {patient.assignedCaregiverName}
+                        </div>
+                      )}
                     </div>
                     {/* Badge Status */}
                     <Badge variant="outline" className={`text-[10px] h-5 ${isCritical ? 'text-red-600 border-red-200 bg-red-50' :
@@ -326,17 +346,19 @@ export const CaregiverDashboardNew: React.FC = () => {
         <PatientProfile
           patient={selectedPatient}
           onBack={() => { setViewMode('dashboard'); setSelectedPatient(null); setProfileInitialTab('overview'); }}
-          caregiverName={selectedPatient.assignedCaregiverName || user?.name}
+          caregiverName={selectedPatient.assignedCaregiverName}
           initialTab={profileInitialTab}
         />
       );
     }
     switch (activeNavItem) {
       case 'dashboard': return renderDashboard();
-      case 'add-patient': return <AddNewPatient onSuccess={() => { toast.success("Added"); setActiveNavItem('dashboard'); }} onCancel={() => setActiveNavItem('dashboard')} />;
-      case 'patient-list': return <PatientList patients={patients} vitalSigns={vitalSigns} onSelectPatient={(p) => { setSelectedPatient(p); setViewMode('profile'); }} />;
-      case 'add-device': return <AddNewDevice onDeviceAdded={() => setActiveNavItem('dashboard')} onCancel={() => setActiveNavItem('dashboard')} />;
-      case 'assignment-tracker': return <AssignmentTracker />;
+      case 'add-patient': return <AddNewPatient onSuccess={() => { toast.success("Added"); setActiveNavItem('dashboard'); fetchPatients(); }} onCancel={() => setActiveNavItem('dashboard')} />;
+      case 'patient-list': return <PatientList patients={patients} vitalSigns={vitalSigns} onSelectPatient={(p) => { setSelectedPatient(p); setViewMode('profile'); }} onRefresh={fetchPatients} />; // [NEW] onRefresh
+      case 'add-device': return <AddNewDevice onDeviceAdded={() => { setActiveNavItem('dashboard'); fetchPatients(); }} onCancel={() => setActiveNavItem('dashboard')} />; // [NEW] fetchPatients
+      case 'my-devices': return <MyDevices />;
+      case 'firmware-update': return <FirmwareOTA />;
+      case 'assignment-tracker': return <AssignmentTracker onRefresh={fetchPatients} />; // [NEW] onRefresh passed
       case 'user-management': return <CaregiverUserManagement patients={patients} user={user} />;
       default: return renderDashboard();
     }

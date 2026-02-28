@@ -1,0 +1,439 @@
+const router = require('express').Router();
+const pool = require('../db');
+const { verifyToken, verifyFacilityAdmin } = require('../middleware/authMiddleware');
+
+// Apply security middleware to ALL routes in this file
+// [OWASP A01] Every route requires a valid JWT + facility_admin role
+router.use(verifyToken);
+router.use(verifyFacilityAdmin);
+
+// =================================================================
+// MODULE A: FACILITY DASHBOARD STATS
+// Mandate: Row-Level Security — all queries scoped to facility_id
+// =================================================================
+router.get('/stats', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    try {
+        const [sensorStats, batteryWarnings, pendingStaff] = await Promise.all([
+            // [RLS] Count sensors only for this facility's patients
+            pool.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE dw.status = 'ACTIVE') AS online_count,
+                    COUNT(*) FILTER (WHERE dw.status != 'ACTIVE') AS offline_count
+                 FROM device_whitelist dw
+                 JOIN patients p ON dw.assigned_patient_id = p.patient_id
+                 WHERE p.facility_id = $1`,
+                [facilityId]
+            ),
+            // [RLS] Battery warnings for this facility's devices
+            pool.query(
+                `SELECT dw.serial_number, dw.device_name, dw.battery_level,
+                        p.first_name, p.last_name
+                 FROM device_whitelist dw
+                 JOIN patients p ON dw.assigned_patient_id = p.patient_id
+                 WHERE p.facility_id = $1
+                   AND dw.battery_level IS NOT NULL
+                   AND dw.battery_level < 20
+                 ORDER BY dw.battery_level ASC`,
+                [facilityId]
+            ),
+            // Pending staff approval for this facility
+            pool.query(
+                `SELECT COUNT(*) FROM users
+                 WHERE facility_id = $1 AND account_status = 'Pending_Review'`,
+                [facilityId]
+            )
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                online_sensors: parseInt(sensorStats.rows[0].online_count),
+                offline_sensors: parseInt(sensorStats.rows[0].offline_count),
+                battery_warnings: batteryWarnings.rows,
+                pending_staff: parseInt(pendingStaff.rows[0].count)
+            }
+        });
+    } catch (err) {
+        // [OWASP A10] Generic error — no stack trace to frontend
+        res.status(500).json({ success: false, message: 'Failed to fetch facility stats.' });
+    }
+});
+
+// =================================================================
+// MODULE B: WARD STAFF MANAGEMENT
+// Mandate: HIPAA Workforce Security — scoped to facility
+// =================================================================
+
+// Get all staff in this facility
+router.get('/staff', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    try {
+        // [Privacy] No password_hash returned
+        const result = await pool.query(
+            `SELECT user_id, username, email, role, account_status, is_locked,
+                    to_char(created_at, 'YYYY-MM-DD') as joined_at
+             FROM users
+             WHERE facility_id = $1 AND role IN ('caregiver', 'medical_staff')
+             ORDER BY created_at DESC`,
+            [facilityId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch staff list.' });
+    }
+});
+
+// Invite new staff member to this facility
+router.post('/staff/invite', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { email, role } = req.body;
+
+    // [OWASP A01] Facility Admin can only assign caregiver or medical_staff roles
+    const allowedRoles = ['caregiver', 'medical_staff'];
+    if (!allowedRoles.includes(role)) {
+        return res.status(400).json({ success: false, message: 'Invalid role. You can only invite Caregivers or Medical Staff.' });
+    }
+
+    try {
+        // Record the pending invitation
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_INVITE_SENT', $2, 'INFO')`,
+            [req.user.id, `Invite sent to ${email} for role ${role} in Facility ${facilityId}`]
+        );
+        // Note: Actual email sending requires the SMTP gateway (System Admin config)
+        res.json({ success: true, message: `Invitation logged for ${email}. Email delivery requires SMTP configuration by System Admin.` });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to process invitation.' });
+    }
+});
+
+// Instantly revoke a staff member's active sessions (local kill switch)
+router.post('/staff/:id/revoke-session', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const targetUserId = parseInt(req.params.id);
+
+    try {
+        // [OWASP A01] Verify the target user actually belongs to THIS facility
+        const ownerCheck = await pool.query(
+            'SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2',
+            [targetUserId, facilityId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Access Denied: User does not belong to your facility.' });
+        }
+
+        // Write revocation record — verifyToken will reject the user's next request
+        await pool.query(
+            `INSERT INTO session_revocations (user_id, revoked_before, revoked_by, reason)
+             VALUES ($1, NOW(), $2, 'Revoked by Facility Admin')
+             ON CONFLICT (user_id) DO UPDATE SET revoked_before = NOW(), revoked_by = $2`,
+            [targetUserId, req.user.id]
+        );
+
+        // [OWASP A09] Audit the action
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'SESSION_REVOKE', $2, 'CRITICAL')`,
+            [req.user.id, `Revoked sessions for User ID ${targetUserId}`]
+        );
+
+        res.json({ success: true, message: 'User sessions have been revoked. They will be logged out on their next action.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to revoke sessions.' });
+    }
+});
+
+// Assign caregiver to a patient (patient-user mapping)
+router.put('/patients/:patientId/assign-staff', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const { caregiver_id } = req.body;
+
+    try {
+        // [OWASP A01 / IDOR] Verify both patient and caregiver belong to this facility
+        const [patientCheck, caregiverCheck] = await Promise.all([
+            pool.query('SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2', [patientId, facilityId]),
+            pool.query('SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2', [caregiver_id, facilityId])
+        ]);
+
+        if (patientCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+        }
+        if (caregiverCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Caregiver not found in your facility.' });
+        }
+
+        // [OWASP A05] Parameterized query
+        await pool.query(
+            'UPDATE patients SET caregiver_id = $1 WHERE patient_id = $2 AND facility_id = $3',
+            [caregiver_id, patientId, facilityId]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected)
+             VALUES ($1, 'PATIENT_STAFF_ASSIGN', $2)`,
+            [req.user.id, `Assigned Caregiver ${caregiver_id} to Patient ${patientId}`]
+        );
+
+        res.json({ success: true, message: 'Caregiver assigned to patient successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Assignment failed.' });
+    }
+});
+
+// =================================================================
+// MODULE C: PATIENT ONBOARDING
+// Mandate: DPA § Informed Consent before data collection begins
+// =================================================================
+
+// Create new patient with consent verification
+router.post('/patients', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { first_name, last_name, age, gender, diagnosis, consent_confirmed } = req.body;
+
+    // [DPA 2012 § 13] Informed consent is mandatory before creating a health record
+    if (!consent_confirmed) {
+        return res.status(400).json({
+            success: false,
+            message: 'Informed consent must be confirmed before patient registration can proceed. (DPA § 13)'
+        });
+    }
+
+    try {
+        // [OWASP A05] Parameterized insert
+        const result = await pool.query(
+            `INSERT INTO patients (first_name, last_name, age, gender, diagnosis, facility_id, consent_collected_at, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
+             RETURNING patient_id`,
+            [first_name, last_name, age, gender, diagnosis, facilityId, req.user.id]
+        );
+        const newPatientId = result.rows[0].patient_id;
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'PATIENT_CREATE', $2, 'INFO')`,
+            [req.user.id, `Created Patient ID ${newPatientId} in Facility ${facilityId}`]
+        );
+
+        res.status(201).json({ success: true, message: 'Patient registered successfully.', patient_id: newPatientId });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to register patient.' });
+    }
+});
+
+// Pair an ESP32 device to a patient
+router.post('/patients/:patientId/pair-device', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const { serial_number } = req.body;
+
+    try {
+        // [OWASP A01 / IDOR] Verify patient belongs to this facility
+        const patientCheck = await pool.query(
+            'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+            [patientId, facilityId]
+        );
+        if (patientCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+        }
+
+        // Check device is whitelisted
+        const deviceCheck = await pool.query(
+            "SELECT serial_number FROM device_whitelist WHERE serial_number = $1 AND status = 'ACTIVE'",
+            [serial_number]
+        );
+        if (deviceCheck.rows.length === 0) {
+            return res.status(400).json({ success: false, message: 'Device not found or not active in whitelist. Contact System Admin.' });
+        }
+
+        await pool.query(
+            'UPDATE device_whitelist SET assigned_patient_id = $1 WHERE serial_number = $2',
+            [patientId, serial_number]
+        );
+        await pool.query(
+            'UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2',
+            [serial_number, patientId]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected)
+             VALUES ($1, 'DEVICE_PAIR', $2)`,
+            [req.user.id, `Paired device ${serial_number} to Patient ${patientId}`]
+        );
+
+        res.json({ success: true, message: 'Device paired to patient successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Device pairing failed.' });
+    }
+});
+
+// Reset SVM baseline for a patient
+router.post('/patients/:patientId/reset-baseline', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const { reason } = req.body;
+
+    try {
+        const patientCheck = await pool.query(
+            'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+            [patientId, facilityId]
+        );
+        if (patientCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+        }
+
+        // Clear SVM training data for this patient
+        await pool.query(
+            'UPDATE patients SET svm_baseline_data = NULL, baseline_reset_at = NOW() WHERE patient_id = $1',
+            [patientId]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'SVM_BASELINE_RESET', $2, 'WARNING')`,
+            [req.user.id, `Reset SVM baseline for Patient ${patientId}. Reason: ${reason || 'Not provided'}`]
+        );
+
+        res.json({ success: true, message: 'SVM baseline has been cleared. The system will re-learn this patient\'s normal patterns.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Baseline reset failed.' });
+    }
+});
+
+// =================================================================
+// MODULE D: CLINICAL ALERT CONFIGURATION
+// =================================================================
+
+// Get current thresholds for this facility
+router.get('/alerts/thresholds', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    try {
+        const result = await pool.query(
+            `SELECT config_key, config_value FROM system_configs
+             WHERE config_key LIKE $1`,
+            [`facility_${facilityId}_%`]
+        );
+        const thresholds = {};
+        result.rows.forEach(row => {
+            // Strip the facility prefix from the key name for the frontend
+            const key = row.config_key.replace(`facility_${facilityId}_`, '');
+            thresholds[key] = row.config_value;
+        });
+        res.json({ success: true, data: thresholds });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch thresholds.' });
+    }
+});
+
+// Update alert thresholds
+router.put('/alerts/thresholds', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { spo2_min, heart_rate_min, heart_rate_max, moisture_sensitivity, escalation_path } = req.body;
+
+    try {
+        const configs = [
+            [`facility_${facilityId}_spo2_min`, spo2_min],
+            [`facility_${facilityId}_heart_rate_min`, heart_rate_min],
+            [`facility_${facilityId}_heart_rate_max`, heart_rate_max],
+            [`facility_${facilityId}_moisture_sensitivity`, moisture_sensitivity],
+            [`facility_${facilityId}_escalation_path`, JSON.stringify(escalation_path)]
+        ].filter(([, val]) => val !== undefined);
+
+        for (const [key, value] of configs) {
+            // [OWASP A05] Parameterized upsert
+            await pool.query(
+                `INSERT INTO system_configs (config_key, config_value, updated_by)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (config_key) DO UPDATE SET config_value = $2, updated_by = $3, updated_at = NOW()`,
+                [key, String(value), req.user.id]
+            );
+        }
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ALERT_THRESHOLD_UPDATE', $2, 'WARNING')`,
+            [req.user.id, `Updated alert thresholds for Facility ${facilityId}`]
+        );
+
+        res.json({ success: true, message: 'Alert thresholds updated successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to update thresholds.' });
+    }
+});
+
+// =================================================================
+// MODULE E: READ-ONLY DIAGNOSTICS
+// Mandate: DPA — Strips ip_address and user_agent from patient access logs
+// =================================================================
+
+// Ping device to test signal (read-only, does not alter device config)
+router.get('/diagnostics/ping/:serialNumber', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { serialNumber } = req.params;
+
+    try {
+        // [OWASP A01 / IDOR] Verify device belongs to a patient in this facility
+        const deviceCheck = await pool.query(
+            `SELECT dw.serial_number, dw.device_name, dw.status, dw.last_heartbeat,
+                    p.first_name, p.last_name
+             FROM device_whitelist dw
+             JOIN patients p ON dw.assigned_patient_id = p.patient_id
+             WHERE dw.serial_number = $1 AND p.facility_id = $2`,
+            [serialNumber, facilityId]
+        );
+
+        if (deviceCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Device not found in your facility.' });
+        }
+
+        const device = deviceCheck.rows[0];
+        const isOnline = device.last_heartbeat &&
+            (new Date() - new Date(device.last_heartbeat)) < 60000; // Online if heartbeat < 60s ago
+
+        res.json({
+            success: true,
+            data: {
+                serial_number: device.serial_number,
+                device_name: device.device_name,
+                status: device.status,
+                last_heartbeat: device.last_heartbeat,
+                is_online: isOnline,
+                patient: `${device.first_name} ${device.last_name}`
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Ping failed.' });
+    }
+});
+
+// Patient record access log — DPA compliant (NO ip_address, NO user_agent)
+router.get('/diagnostics/access-log', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    try {
+        // [DPA 2012 Proportionality] Facility Admin only needs WHO and WHEN
+        // ip_address and user_agent are intentionally excluded
+        const result = await pool.query(
+            `SELECT
+                a.log_id,
+                u.username AS staff_name,
+                u.role AS staff_role,
+                a.action,
+                a.resource_affected AS patient_viewed,
+                to_char(a.timestamp, 'YYYY-MM-DD HH24:MI') AS access_time
+             FROM access_logs a
+             JOIN users u ON a.user_id = u.user_id
+             WHERE u.facility_id = $1
+               AND a.action IN ('PATIENT_VIEW', 'VITAL_SIGN_VIEW', 'PATIENT_UPDATE')
+             ORDER BY a.timestamp DESC
+             LIMIT 200`,
+            [facilityId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch access log.' });
+    }
+});
+
+module.exports = router;

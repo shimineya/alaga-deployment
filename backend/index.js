@@ -76,7 +76,8 @@ const registerValidation = [
     body('email').isEmail().withMessage('Please enter a valid email').normalizeEmail(),
     body('username').optional({ checkFalsy: true }).trim().escape(),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
-    body('role').isIn(['caregiver', 'medical_staff', 'admin']).withMessage('Invalid role selected')
+    // [OWASP A01] Added facility_admin and system_admin to the allowed role list
+    body('role').isIn(['caregiver', 'medical_staff', 'admin', 'facility_admin', 'system_admin']).withMessage('Invalid role selected')
 ];
 
 // --- RATE LIMITERS ---
@@ -282,13 +283,29 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
 });
 
 // ==========================================
-// 🚀 ROUTE 4: ADMIN DASHBOARD MODULE
+// ROUTE 4: LEGACY ADMIN MODULE (backward-compatible)
 // ==========================================
-// [Security] Mounts the admin router. All routes inside are protected by verifyToken + verifyAdmin
-// URL Prefix: http://localhost:3000/api/admin/audit-logs
+// [Security] Mounts the legacy admin router. All routes protected by verifyToken + verifyAdmin
+// URL Prefix: http://localhost:3000/api/admin/
 app.use('/api/admin', adminRoutes);
 
-// [NEW] Caregiver & Patient Management Routes
+// ==========================================
+// ROUTE 5: FACILITY ADMIN MODULE
+// ==========================================
+// [OWASP A01] Protected by verifyToken + verifyFacilityAdmin + RLS (facility_id scoping)
+// URL Prefix: http://localhost:3000/api/facility-admin/
+const facilityAdminRoutes = require('./routes/facilityAdminRoutes');
+app.use('/api/facility-admin', facilityAdminRoutes);
+
+// ==========================================
+// ROUTE 6: SYSTEM ADMIN MODULE
+// ==========================================
+// [OWASP A01] Protected by verifyToken + verifySuperAdmin (system_admin or admin role)
+// URL Prefix: http://localhost:3000/api/sysadmin/
+const sysAdminRoutes = require('./routes/sysAdminRoutes');
+app.use('/api/sysadmin', sysAdminRoutes);
+
+// Caregiver & Patient Management Routes
 const caregiverRoutes = require('./routes/caregiverRoutes');
 app.use('/api/caregiver', caregiverRoutes);
 

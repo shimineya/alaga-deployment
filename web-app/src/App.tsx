@@ -10,7 +10,7 @@ import { CaregiverDashboardNew } from './components/CaregiverDashboardNew';
 import { MedicalStaffDashboard } from './components/MedicalStaffDashboard';
 import { Toaster } from './components/ui/sonner';
 
-// [Admin Module] Imports
+// [Admin Module] Imports — Legacy admin module (backward compatible)
 import AdminLayout from './components/admin/AdminLayout';
 import ComplianceHub from './components/admin/ComplianceHub';
 import DeviceGovernance from './components/admin/DeviceGovernance';
@@ -19,6 +19,21 @@ import UserManagement from './components/admin/UserManagement';
 import SystemSettings from './components/admin/SystemSettings';
 import InventoryManagement from './components/admin/InventoryManagement';
 import SecurityControls from './components/admin/SecurityControls';
+
+// [OWASP A01] System Admin (CISO / IT Operations tier)
+import SysAdminLayout from './components/sysadmin/SysAdminLayout';
+import CommandCenter from './components/sysadmin/CommandCenter';
+import GlobalSecurity from './components/sysadmin/GlobalSecurity';
+import FirmwareManagement from './components/sysadmin/FirmwareManagement';
+import ForensicAuditTrails from './components/sysadmin/ForensicAuditTrails';
+
+// [OWASP A01] Facility Admin (Ward Operations tier)
+import FacilityAdminLayout from './components/facility-admin/FacilityAdminLayout';
+import FacilityDashboard from './components/facility-admin/FacilityDashboard';
+import WardStaffManagement from './components/facility-admin/WardStaffManagement';
+import PatientOnboarding from './components/facility-admin/PatientOnboarding';
+import AlertConfiguration from './components/facility-admin/AlertConfiguration';
+import ReadOnlyDiagnostics from './components/facility-admin/ReadOnlyDiagnostics';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -38,7 +53,10 @@ function AppContent() {
   const role = user?.role || '';
   const isMedical = role === 'Medical Staff' || role === 'medical_staff';
   const isCaregiver = role === 'Caregiver' || role === 'caregiver';
-  const isAdmin = role === 'admin'; // [Security] Check for admin role
+  // [OWASP A01] Distinguish between the two admin tiers
+  const isSysAdmin = role === 'system_admin' || role === 'admin';
+  const isFacilityAdmin = role === 'facility_admin';
+  const isAdmin = isSysAdmin || isFacilityAdmin;
 
   return (
     <Routes>
@@ -47,7 +65,11 @@ function AppContent() {
         path="/login"
         element={
           isAuthenticated
-            ? (isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/dashboard" replace />)
+            ? (isSysAdmin
+              ? <Navigate to="/sysadmin" replace />
+              : isFacilityAdmin
+                ? <Navigate to="/facility-admin" replace />
+                : <Navigate to="/dashboard" replace />)
             : <LoginPage />
         }
       />
@@ -66,29 +88,43 @@ function AppContent() {
               <CaregiverDashboardNew />
             ) : isMedical ? (
               <MedicalStaffDashboard />
-            ) : isAdmin ? (
-              // [UX] Admins shouldn't be here, send them to their layout
-              <Navigate to="/admin" replace />
+            ) : isSysAdmin ? (
+              <Navigate to="/sysadmin" replace />
+            ) : isFacilityAdmin ? (
+              <Navigate to="/facility-admin" replace />
             ) : (
-              // If role is missing or unknown, go to login to clear state
               <Navigate to="/login" replace />
             )}
           </ProtectedRoute>
         }
       />
 
-      {/* 🚀 ADMIN MODULE ROUTES */}
-      {/* This layout wrapper enforces "Admins Only" via AdminLayout.tsx */}
+      {/* LEGACY ADMIN ROUTE TREE — backward compatible */}
       <Route path="/admin" element={<AdminLayout />}>
-        {/* 2. Replace the placeholder div with this: */}
         <Route index element={<SystemOverview />} />
-
         <Route path="compliance" element={<ComplianceHub />} />
         <Route path="devices" element={<DeviceGovernance />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="settings" element={<SystemSettings />} />
         <Route path="inventory" element={<InventoryManagement />} />
         <Route path="security" element={<SecurityControls />} />
+      </Route>
+
+      {/* [OWASP A01] SYSTEM ADMIN ROUTE TREE — SysAdminLayout enforces system_admin or admin role */}
+      <Route path="/sysadmin" element={<SysAdminLayout />}>
+        <Route index element={<CommandCenter />} />
+        <Route path="security" element={<GlobalSecurity />} />
+        <Route path="firmware" element={<FirmwareManagement />} />
+        <Route path="audit" element={<ForensicAuditTrails />} />
+      </Route>
+
+      {/* [OWASP A01] FACILITY ADMIN ROUTE TREE — FacilityAdminLayout enforces facility_admin role + RLS */}
+      <Route path="/facility-admin" element={<FacilityAdminLayout />}>
+        <Route index element={<FacilityDashboard />} />
+        <Route path="staff" element={<WardStaffManagement />} />
+        <Route path="patients" element={<PatientOnboarding />} />
+        <Route path="alerts" element={<AlertConfiguration />} />
+        <Route path="diagnostics" element={<ReadOnlyDiagnostics />} />
       </Route>
 
       {/* Root path redirecting to dashboard */}

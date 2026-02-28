@@ -3,7 +3,28 @@ const pool = require('../db');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // Apply Security Middleware
+// Apply Security Middleware
 router.use(verifyToken);
+
+// ==========================================
+// 0. GET ALL DEVICES (Inventory - Moved to Top)
+// ==========================================
+router.get('/devices', async (req, res) => {
+    console.log("GET /api/caregiver/devices hit"); // [DEBUG] Confirm route is hit
+    try {
+        const result = await pool.query(
+            `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
+                    d.assigned_patient_id, p.name as assigned_patient_name
+             FROM device_whitelist d
+             LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
+             ORDER BY d.created_at DESC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Fetch Devices Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch device inventory' });
+    }
+});
 
 // ==========================================
 // 1. SEARCH USERS (For Caregiver Assignment)
@@ -30,6 +51,28 @@ router.get('/search', async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Search Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+});
+
+// ==========================================
+// 1.5. GET ALL CAREGIVERS (Directory)
+// ==========================================
+router.get('/all', async (req, res) => {
+    try {
+        // [OWASP A01] Allow Medical Staff & Caregivers to view the directory (e.g. for chat or assignment)
+        // Note: verifyAdmin is NOT required here, but verifyToken IS (middleware applied at top).
+
+        const result = await pool.query(
+            `SELECT user_id, username, first_name, last_name, email, role, 
+                    account_status, created_at, mobile_number
+             FROM users 
+             WHERE role IN ('caregiver', 'medical_staff')
+             ORDER BY created_at DESC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Fetch All Caregivers Error:", err.message);
         res.status(500).json({ success: false, message: 'Server Error' });
     }
 });
@@ -104,32 +147,181 @@ router.post('/patients', async (req, res) => {
 });
 
 // ==========================================
-// 3. GET MY PATIENTS
+// 3. GET MY PATIENTS (Updated with Device Info)
 // ==========================================
 router.get('/patients', async (req, res) => {
     try {
-        const result = await pool.query(
-            `SELECT DISTINCT ON (p.patient_id) 
-                p.*, 
-                pa.access_level,
-                (
-                    SELECT CONCAT(u.first_name, ' ', u.last_name) 
-                    FROM patient_access pa2 
-                    JOIN users u ON pa2.user_id = u.user_id 
-                    WHERE pa2.patient_id = p.patient_id 
-                    AND pa2.relationship = 'Assigned Caregiver' 
-                    LIMIT 1
-                ) as assigned_caregiver_name
-             FROM patients p
-             JOIN patient_access pa ON p.patient_id = pa.patient_id
-             WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
-             ORDER BY p.patient_id, p.created_at DESC`,
-            [req.user.id]
-        );
+        const { role, id: userId } = req.user;
+        let query;
+        let params;
+
+        // [Admin/Recovery View] Admins & Medical Staff can see ALL patients
+        if (role === 'admin' || role === 'medical_staff') {
+            query = `
+                SELECT DISTINCT ON (p.patient_id) 
+                    p.*, 
+                    'Admin' as access_level,
+                    (
+                        SELECT u.user_id
+                        FROM patient_access pa2 
+                        JOIN users u ON pa2.user_id = u.user_id 
+                        WHERE pa2.patient_id = p.patient_id 
+                        AND pa2.relationship = 'Assigned Caregiver' 
+                        LIMIT 1
+                    ) as assigned_caregiver_id,
+                    (
+                        SELECT CONCAT(u.first_name, ' ', u.last_name) 
+                        FROM patient_access pa2 
+                        JOIN users u ON pa2.user_id = u.user_id 
+                        WHERE pa2.patient_id = p.patient_id 
+                        AND pa2.relationship = 'Assigned Caregiver' 
+                        LIMIT 1
+                    ) as assigned_caregiver_name,
+                    (
+                        SELECT serial_number 
+                        FROM device_whitelist 
+                        WHERE assigned_patient_id = p.patient_id 
+                        AND device_name ILIKE '%Vital%'
+                        LIMIT 1
+                    ) as vital_device_sn,
+                    (
+                        SELECT serial_number 
+                        FROM device_whitelist 
+                        WHERE assigned_patient_id = p.patient_id 
+                        AND device_name ILIKE '%Diaper%'
+                        LIMIT 1
+                    ) as diaper_device_sn
+                FROM patients p
+                WHERE p.is_archived IS DISTINCT FROM TRUE
+                ORDER BY p.patient_id, p.created_at DESC
+            `;
+            params = [];
+        } else {
+            // [Caregiver View] Only assigned patients
+            query = `
+                SELECT DISTINCT ON (p.patient_id) 
+                    p.*, 
+                    pa.access_level,
+                    (
+                        SELECT u.user_id
+                        FROM patient_access pa2 
+                        JOIN users u ON pa2.user_id = u.user_id 
+                        WHERE pa2.patient_id = p.patient_id 
+                        AND pa2.relationship = 'Assigned Caregiver' 
+                        LIMIT 1
+                    ) as assigned_caregiver_id,
+                    (
+                        SELECT CONCAT(u.first_name, ' ', u.last_name) 
+                        FROM patient_access pa2 
+                        JOIN users u ON pa2.user_id = u.user_id 
+                        WHERE pa2.patient_id = p.patient_id 
+                        AND pa2.relationship = 'Assigned Caregiver' 
+                        LIMIT 1
+                    ) as assigned_caregiver_name,
+                    (
+                        SELECT serial_number 
+                        FROM device_whitelist 
+                        WHERE assigned_patient_id = p.patient_id 
+                        AND device_name ILIKE '%Vital%'
+                        LIMIT 1
+                    ) as vital_device_sn,
+                    (
+                        SELECT serial_number 
+                        FROM device_whitelist 
+                        WHERE assigned_patient_id = p.patient_id 
+                        AND device_name ILIKE '%Diaper%'
+                        LIMIT 1
+                    ) as diaper_device_sn
+                FROM patients p
+                JOIN patient_access pa ON p.patient_id = pa.patient_id
+                WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
+                ORDER BY p.patient_id, p.created_at DESC
+            `;
+            params = [userId];
+        }
+
+        const result = await pool.query(query, params);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Get Patients Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch patients' });
+    }
+});
+
+// ==========================================
+// 3.5. ASSIGN DEVICE TO PATIENT
+// ==========================================
+router.post('/patients/:id/assign-device', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const patientId = req.params.id;
+        const { serialNumber } = req.body;
+
+        if (!serialNumber) return res.status(400).json({ success: false, message: 'Serial number required' });
+
+        await client.query('BEGIN');
+
+        // 1. Assign in device_whitelist
+        await client.query(
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
+            [patientId, serialNumber]
+        );
+
+        // 2. If it's a Vital Monitor, update the main patient record for quick reference
+        const deviceCheck = await client.query("SELECT device_name FROM device_whitelist WHERE serial_number = $1", [serialNumber]);
+        if (deviceCheck.rows[0]?.device_name.includes('Vital')) {
+            await client.query("UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2", [serialNumber, patientId]);
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Device assigned successfully' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Assign Device Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to assign device' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 3.6. UNLINK DEVICE FROM PATIENT
+// ==========================================
+router.put('/patients/:id/unlink-device', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const patientId = req.params.id;
+        const { type } = req.body; // 'vital' or 'diaper'
+
+        await client.query('BEGIN');
+
+        let deviceTypePattern = '%';
+        if (type === 'vital') deviceTypePattern = '%Vital%';
+        else if (type === 'diaper') deviceTypePattern = '%Diaper%';
+
+        // 1. Find the device and Unlink
+        await client.query(
+            `UPDATE device_whitelist 
+             SET assigned_patient_id = NULL 
+             WHERE assigned_patient_id = $1 AND device_name ILIKE $2`,
+            [patientId, deviceTypePattern]
+        );
+
+        // 2. If vital, clear from patients table
+        if (type === 'vital') {
+            await client.query("UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1", [patientId]);
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Device unlinked successfully' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Unlink Device Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to unlink device' });
+    } finally {
+        client.release();
     }
 });
 
@@ -174,6 +366,131 @@ router.post('/devices', async (req, res) => {
 });
 
 // ==========================================
+// 4.5. UNPAIR DEVICE
+// ==========================================
+router.post('/devices/unpair', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { serialNumber } = req.body;
+
+        if (!serialNumber) {
+            return res.status(400).json({ success: false, message: 'Serial number is required' });
+        }
+
+        await client.query('BEGIN');
+
+        // 1. Remove assignment from device_whitelist
+        await client.query(
+            "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'ACTIVE' WHERE serial_number = $1",
+            [serialNumber]
+        );
+
+        // 2. Remove assignment from patients table (if linked)
+        await client.query(
+            "UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1",
+            [serialNumber]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Device unpaired successfully' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Unpair Device Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to unpair device' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 3.7. UNLINK CAREGIVER FROM PATIENT
+// ==========================================
+router.put('/patients/:id/unlink-caregiver', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const patientId = req.params.id;
+
+        await client.query('BEGIN');
+
+        // Delete the access record where relationship is 'Assigned Caregiver'
+        const result = await client.query(
+            "DELETE FROM patient_access WHERE patient_id = $1 AND relationship = 'Assigned Caregiver'",
+            [patientId]
+        );
+
+        if (result.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'No assigned caregiver found to remove.' });
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Caregiver unlinked successfully' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Unlink Caregiver Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to unlink caregiver' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 3.8. ASSIGN CAREGIVER TO PATIENT
+// ==========================================
+router.post('/patients/:id/assign-caregiver', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const patientId = req.params.id;
+        const { caregiverId, relationship } = req.body;
+
+        if (!caregiverId) {
+            return res.status(400).json({ success: false, message: 'Caregiver ID is required' });
+        }
+
+        await client.query('BEGIN');
+
+        // 1. Check if already assigned
+        const check = await client.query(
+            "SELECT * FROM patient_access WHERE patient_id = $1 AND user_id = $2",
+            [patientId, caregiverId]
+        );
+
+        if (check.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: 'User is already assigned to this patient' });
+        }
+
+        // 2. Check if another 'Assigned Caregiver' exists (limit to 1 for this role type if desired, or allow multiple)
+        // For this system, we seem to treat 'Assigned Caregiver' as a slot.
+        // If relationship is 'Assigned Caregiver', maybe we want to replace the existing one?
+        // User asked to "Assign", implies adding. But the UI shows "Assigned Caregiver" as a single field often.
+        // Let's allow multiple for now, or just insert. The UI displays "assigned_caregiver_name" from a subquery with LIMIT 1.
+        // So effectively one principal caregiver.
+        // Let's enforce single "Assigned Caregiver" role for simplicity to match the subquery logic, OR just insert.
+        // The previous UNLINK logic removes ALL 'Assigned Caregiver' roles.
+        // Let's just Insert.
+
+        await client.query(
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
+             VALUES ($1, $2, $3, 'View')`,
+            [caregiverId, patientId, relationship || 'Assigned Caregiver']
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Caregiver assigned successfully' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Assign Caregiver Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to assign caregiver' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
 // 5. GET AVAILABLE DEVICES
 // ==========================================
 router.get('/devices/available', async (req, res) => {
@@ -188,6 +505,78 @@ router.get('/devices/available', async (req, res) => {
     } catch (err) {
         console.error("Get Available Devices Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch devices' });
+    }
+});
+
+
+
+// ==========================================
+// 3.9. GET CARE TEAM FOR PATIENT
+// ==========================================
+router.get('/patients/:id/care-team', async (req, res) => {
+    console.log(`[DEBUG] GET /patients/${req.params.id}/care-team hit`);
+    try {
+        const patientId = req.params.id;
+        const result = await pool.query(
+            `SELECT u.user_id, u.first_name, u.last_name, u.email, u.role as system_role,
+                    pa.relationship, pa.access_level
+             FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             WHERE pa.patient_id = $1
+             ORDER BY u.first_name ASC`,
+            [patientId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Get Care Team Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch care team' });
+    }
+});
+
+// ==========================================
+// 3.10. REMOVE CAREGIVER FROM TEAM
+// ==========================================
+router.delete('/patients/:id/care-team/:userId', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id: patientId, userId } = req.params;
+
+        await client.query('BEGIN');
+
+        // [SAFETY] Check if this is the last caregiver
+        const countRes = await client.query(
+            "SELECT COUNT(*) FROM patient_access WHERE patient_id = $1",
+            [patientId]
+        );
+        const count = parseInt(countRes.rows[0].count);
+
+        if (count <= 1) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot remove the last caregiver. Assign another caregiver first to prevent losing access.'
+            });
+        }
+
+        const result = await client.query(
+            "DELETE FROM patient_access WHERE patient_id = $1 AND user_id = $2",
+            [patientId, userId]
+        );
+
+        if (result.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Caregiver not found in this team.' });
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Caregiver removed successfully' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Remove Caregiver Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to remove caregiver' });
+    } finally {
+        client.release();
     }
 });
 

@@ -274,3 +274,51 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
         await client.query(
             "UPDATE users SET account_status = 'Pending_Review' WHERE user_id = $1",
             [user_id]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Document uploaded.", file_url: fileUrl });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Upload Error:", err.message);
+        res.status(500).json({ success: false, message: "Upload failed." });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// ROUTE 4: LEGACY ADMIN MODULE (backward-compatible)
+// ==========================================
+// [Security] Mounts the legacy admin router. All routes protected by verifyToken + verifyAdmin
+// URL Prefix: http://localhost:3000/api/admin/
+app.use('/api/admin', adminRoutes);
+
+// ==========================================
+// ROUTE 5: FACILITY ADMIN MODULE
+// ==========================================
+// [OWASP A01] Protected by verifyToken + verifyFacilityAdmin + RLS (facility_id scoping)
+// URL Prefix: http://localhost:3000/api/facility-admin/
+const facilityAdminRoutes = require('./routes/facilityAdminRoutes');
+app.use('/api/facility-admin', facilityAdminRoutes);
+
+// ==========================================
+// ROUTE 6: SYSTEM ADMIN MODULE
+// ==========================================
+// [OWASP A01] Protected by verifyToken + verifySuperAdmin (system_admin or admin role)
+// URL Prefix: http://localhost:3000/api/sysadmin/
+const sysAdminRoutes = require('./routes/sysAdminRoutes');
+app.use('/api/sysadmin', sysAdminRoutes);
+
+// Caregiver & Patient Management Routes
+const caregiverRoutes = require('./routes/caregiverRoutes');
+app.use('/api/caregiver', caregiverRoutes);
+
+const assignmentRoutes = require('./routes/assignmentRoutes');
+app.use('/api/assignments', assignmentRoutes);
+
+// --- Start Server ---
+app.listen(port, () => {
+    console.log(`✅ ALAGA Server running on port ${port}`);
+});

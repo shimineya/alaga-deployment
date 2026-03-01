@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../lib/auth-context';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -18,7 +18,8 @@ import {
     Loader2,
     User,
     PlusCircle,
-    RefreshCw
+    RefreshCw,
+    CheckCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddNewDeviceModal } from './AddNewDevice'; // [UX] Integrated for workflow continuity
@@ -123,8 +124,10 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         return newErrors;
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async () => {
+        // [UX] This is called explicitly by the Finish button on Step 3 only.
+        // No <form> element is used, so there is no risk of implicit submission.
+
         const formErrors = validateForm();
         if (Object.keys(formErrors).length > 0) {
             setErrors(formErrors);
@@ -248,7 +251,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                 </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden" noValidate>
+            <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-6">
 
                     {/* STEP 1: PATIENT DETAILS */}
@@ -510,7 +513,8 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                         </Button>
                     ) : (
                         <Button
-                            type="submit"
+                            type="button"
+                            onClick={handleSubmit}
                             className="bg-teal-600 hover:bg-teal-700 text-white shadow-sm h-9 text-xs px-6"
                             disabled={isLoading}
                         >
@@ -522,7 +526,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                         </Button>
                     )}
                 </div>
-            </form>
+            </div>
 
             {/* [UX/Continuity] Add Device Modal Overlay */}
             <AddNewDeviceModal
@@ -543,21 +547,25 @@ interface AddNewPatientProps {
 
 export const AddNewPatient: React.FC<AddNewPatientProps> = ({ onSuccess, onCancel }) => {
     return (
-        <div className="w-full max-w-[1600px] mx-auto px-4 pb-4 pt-2 space-y-4">
-            {/* Compact Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-teal-500 rounded-lg shadow-sm">
-                        <UserPlus className="w-5 h-5 text-white" />
+        <div className="w-full max-w-lg mx-auto mt-8">
+            <Card className="border-slate-200 shadow-sm overflow-hidden">
+                <CardHeader className="bg-slate-50/50 pb-4 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-teal-100 rounded-lg">
+                            <UserPlus className="w-5 h-5 text-teal-600" />
+                        </div>
+                        <div>
+                            <CardTitle className="text-lg text-slate-800">Patient Enrollment</CardTitle>
+                            <CardDescription className="text-xs">
+                                Register a new patient to the ALAGA network.
+                            </CardDescription>
+                        </div>
                     </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-slate-800 leading-tight">Patient Enrollment</h2>
-                        <p className="text-xs text-slate-500">Add new patient to monitoring</p>
-                    </div>
-                </div>
-            </div>
-
-            <PatientRegistrationForm onSuccess={onSuccess} onCancel={onCancel} />
+                </CardHeader>
+                <CardContent className="p-0">
+                    <PatientRegistrationForm onSuccess={onSuccess} onCancel={onCancel} />
+                </CardContent>
+            </Card>
         </div>
     );
 };

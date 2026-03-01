@@ -162,15 +162,158 @@ export const CaregiverDashboardNew: React.FC = () => {
     return patients.reduce((acc, p) => ({ ...acc, [p.id]: p.name }), {} as Record<string, string>);
   }, [patients]);
 
+  // --- Filtered patients for dashboard ---
+  const filteredPatients = useMemo(() =>
+    patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    [patients, searchQuery]
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / itemsPerPage));
+
   // --- Render Dashboard ---
   const renderDashboard = () => (
     <div className="space-y-4">
-      {/* 1. Metrics Grid (Updated to include Unassigned) */}
+      {/* 1. Patient Cards Section (Top) with Pagination */}
+      <div>
+        {/* Section Header with Pagination Controls */}
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <Users className="w-4 h-4 text-teal-600" />
+            Patients
+            <span className="text-xs font-normal text-slate-400">
+              ({filteredPatients.length} total)
+            </span>
+          </h3>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 w-7 p-0 border-slate-200"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </Button>
+              <span className="text-xs text-slate-500 font-medium min-w-[60px] text-center">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 w-7 p-0 border-slate-200"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Patient Cards Grid (2 rows of 4 = 8 cards per page) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {filteredPatients
+            .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+            .map(patient => {
+              const latestVital = vitalSigns.find(v => v.patientId === patient.id);
+              const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
+              const isCritical = activeAlerts.some(a => a.severity === 'critical');
+              const isUnassigned = !patient.deviceConnected;
+
+              return (
+                <Card
+                  key={patient.id}
+                  className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCritical ? 'border-red-200 bg-red-50/50' : 'border-slate-100'}`}
+                  onClick={() => { setSelectedPatient(patient); setViewMode('profile'); }}
+                >
+                  <CardHeader className="p-3 pb-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="text-sm font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{patient.name}</CardTitle>
+                        <CardDescription className="text-[11px] text-slate-500">Room {patient.roomNumber}</CardDescription>
+                        {patient.assignedCaregiverName && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-600 font-medium">
+                            <Users className="w-3 h-3" />
+                            {patient.assignedCaregiverName}
+                          </div>
+                        )}
+                      </div>
+                      <Badge variant="outline" className={`text-[10px] h-5 ${isCritical ? 'text-red-600 border-red-200 bg-red-50' :
+                        isUnassigned ? 'text-slate-600 border-slate-200 bg-slate-50' :
+                          'text-emerald-600 border-emerald-200 bg-emerald-50'
+                        }`}>
+                        {isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="p-3 pt-0 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Pulse Rate */}
+                      <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                        <div className="flex justify-center items-center gap-1 mb-0.5">
+                          <Heart className="w-3 h-3 text-rose-500" />
+                          <span className="text-[9px] text-slate-400 font-medium">PULSE</span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-700">
+                          {latestVital ? Math.round(latestVital.heartRate) : '--'}
+                        </span>
+                      </div>
+
+                      {/* Temperature */}
+                      <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                        <div className="flex justify-center items-center gap-1 mb-0.5">
+                          <Thermometer className="w-3 h-3 text-amber-500" />
+                          <span className="text-[9px] text-slate-400 font-medium">TEMP</span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-700">
+                          {latestVital ? latestVital.temperature.toFixed(1) : '--'}
+                        </span>
+                      </div>
+
+                      {/* SpO2 */}
+                      <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                        <div className="flex justify-center items-center gap-1 mb-0.5">
+                          <Activity className="w-3 h-3 text-blue-500" />
+                          <span className="text-[9px] text-slate-400 font-medium">SPO2</span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-700">
+                          {latestVital ? Math.round(latestVital.spo2) : '--'}
+                        </span>
+                      </div>
+
+                      {/* Wetness (Diaper) */}
+                      <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                        <div className="flex justify-center items-center gap-1 mb-0.5">
+                          <Droplets className="w-3 h-3 text-teal-500" />
+                          <span className="text-[9px] text-slate-400 font-medium">WETNESS</span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-700">
+                          {latestVital ? `${Math.round(latestVital.moistureLevel)}%` : '--'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {activeAlerts.length > 0 && (
+                      <Button size="sm" variant="destructive" className="w-full h-6 text-[10px] bg-red-500 hover:bg-red-600 text-white"
+                        onClick={(e) => { e.stopPropagation(); handleAcknowledgeAlert(activeAlerts[0].id); }}
+                      >
+                        <Check className="w-3 h-3 mr-1" /> Acknowledge
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+        </div>
+      </div>
+
+      {/* 2. Metrics Grid (Below Patient Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Critical', value: metrics.critical, color: 'text-red-600', icon: AlertCircle, bg: 'bg-red-50' },
           { label: 'Stable', value: metrics.stable, color: 'text-emerald-600', icon: Activity, bg: 'bg-emerald-50' },
-          { label: 'Unassigned', value: metrics.unassigned, color: 'text-slate-600', icon: Link2Off, bg: 'bg-slate-100' }, // [NEW]
+          { label: 'Unassigned', value: metrics.unassigned, color: 'text-slate-600', icon: Link2Off, bg: 'bg-slate-100' },
           { label: 'Total', value: metrics.total, color: 'text-blue-600', icon: Users, bg: 'bg-blue-50' },
         ].map((stat, i) => (
           <Card key={i} className="shadow-sm border-slate-100">
@@ -187,7 +330,7 @@ export const CaregiverDashboardNew: React.FC = () => {
         ))}
       </div>
 
-      {/* 2. Charts Row */}
+      {/* 3. Charts Row (Below Metrics) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <Card className="lg:col-span-2 shadow-sm border-slate-100">
           <CardHeader className="py-2 px-4 border-b border-slate-50">
@@ -232,110 +375,6 @@ export const CaregiverDashboardNew: React.FC = () => {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-      </div>
-
-      {/* 3. Patient Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        {patients
-          .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-          .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-          .map(patient => {
-            // Get Vitals (Mock or Real)
-            const latestVital = vitalSigns.find(v => v.patientId === patient.id);
-            const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
-            const isCritical = activeAlerts.some(a => a.severity === 'critical');
-            const isUnassigned = !patient.deviceConnected;
-
-            return (
-              <Card
-                key={patient.id}
-                className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCritical ? 'border-red-200 bg-red-50/50' : 'border-slate-100'}`}
-                onClick={() => { setSelectedPatient(patient); setViewMode('profile'); }}
-              >
-                <CardHeader className="p-3 pb-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-sm font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{patient.name}</CardTitle>
-                      <CardDescription className="text-[11px] text-slate-500">Room {patient.roomNumber}</CardDescription>
-                      {/* [NEW] Show Assigned Caregiver */}
-                      {patient.assignedCaregiverName && (
-                        <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-600 font-medium">
-                          <Users className="w-3 h-3" />
-                          {patient.assignedCaregiverName}
-                        </div>
-                      )}
-                    </div>
-                    {/* Badge Status */}
-                    <Badge variant="outline" className={`text-[10px] h-5 ${isCritical ? 'text-red-600 border-red-200 bg-red-50' :
-                      isUnassigned ? 'text-slate-600 border-slate-200 bg-slate-50' :
-                        'text-emerald-600 border-emerald-200 bg-emerald-50'
-                      }`}>
-                      {isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
-                    </Badge>
-                  </div>
-                </CardHeader>
-
-                {/* [NEW] 4 Vital Signs Grid: Pulse, Temp, SpO2, Wetness */}
-                <CardContent className="p-3 pt-0 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-
-                    {/* 1. Pulse Rate (Heart Rate) */}
-                    <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                      <div className="flex justify-center items-center gap-1 mb-0.5">
-                        <Heart className="w-3 h-3 text-rose-500" />
-                        <span className="text-[9px] text-slate-400 font-medium">PULSE</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700">
-                        {latestVital ? Math.round(latestVital.heartRate) : '--'}
-                      </span>
-                    </div>
-
-                    {/* 2. Temperature */}
-                    <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                      <div className="flex justify-center items-center gap-1 mb-0.5">
-                        <Thermometer className="w-3 h-3 text-amber-500" />
-                        <span className="text-[9px] text-slate-400 font-medium">TEMP</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700">
-                        {latestVital ? latestVital.temperature.toFixed(1) : '--'}
-                      </span>
-                    </div>
-
-                    {/* 3. SpO2 */}
-                    <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                      <div className="flex justify-center items-center gap-1 mb-0.5">
-                        <Activity className="w-3 h-3 text-blue-500" />
-                        <span className="text-[9px] text-slate-400 font-medium">SPO2</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700">
-                        {latestVital ? Math.round(latestVital.spo2) : '--'}
-                      </span>
-                    </div>
-
-                    {/* 4. Wetness (Diaper) */}
-                    <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                      <div className="flex justify-center items-center gap-1 mb-0.5">
-                        <Droplets className="w-3 h-3 text-teal-500" />
-                        <span className="text-[9px] text-slate-400 font-medium">WETNESS</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700">
-                        {latestVital ? `${Math.round(latestVital.moistureLevel)}%` : '--'}
-                      </span>
-                    </div>
-
-                  </div>
-
-                  {activeAlerts.length > 0 && (
-                    <Button size="sm" variant="destructive" className="w-full h-6 text-[10px] bg-red-500 hover:bg-red-600 text-white"
-                      onClick={(e) => { e.stopPropagation(); handleAcknowledgeAlert(activeAlerts[0].id); }}
-                    >
-                      <Check className="w-3 h-3 mr-1" /> Acknowledge
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
       </div>
     </div>
   );

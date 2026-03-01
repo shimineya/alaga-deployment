@@ -18,9 +18,16 @@ const app = express();
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 
-// [OWASP A02] Security Configuration
+// [OWASP A02] Security Configuration: Dynamic CORS Whitelisting
+// Extracts the production Netlify URL from Render's Environment Variables
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL // Must be set in Render Dashboard (e.g., 'https://alaga-app.netlify.app')
+].filter(Boolean); // Removes undefined values when running locally to prevent mapping errors
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
@@ -88,9 +95,8 @@ const authLimiter = rateLimit({
 });
 
 // ==========================================
-// 🚀 ROUTE 1: REGISTER (Renamed to match Frontend)
+// ROUTE 1: REGISTER 
 // ==========================================
-// [FIX] Changed path from '/signup' to '/register' to match SignUp.tsx
 app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValidation, async (req, res) => {
     // [FIX] Extract the specific error message for the frontend
     const errors = validationResult(req);
@@ -169,7 +175,7 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
 });
 
 // ==========================================
-// 🚀 ROUTE 2: LOGIN (Debug Mode Enabled)
+// ROUTE 2: LOGIN 
 // ==========================================
 app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
     try {
@@ -242,7 +248,7 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 });
 
 // ==========================================
-// 🚀 ROUTE 3: DOCUMENT UPLOAD
+// ROUTE 3: DOCUMENT UPLOAD
 // ==========================================
 const ALLOWED_DOC_TYPES = ['government_id', 'medical_license', 'prc_id'];
 
@@ -268,52 +274,3 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
         await client.query(
             "UPDATE users SET account_status = 'Pending_Review' WHERE user_id = $1",
             [user_id]
-        );
-
-        await client.query('COMMIT');
-        res.json({ success: true, message: "Document uploaded.", file_url: fileUrl });
-
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error("Upload Error:", err.message);
-        res.status(500).json({ success: false, message: "Upload failed." });
-    } finally {
-        client.release();
-    }
-});
-
-// ==========================================
-// ROUTE 4: LEGACY ADMIN MODULE (backward-compatible)
-// ==========================================
-// [Security] Mounts the legacy admin router. All routes protected by verifyToken + verifyAdmin
-// URL Prefix: http://localhost:3000/api/admin/
-app.use('/api/admin', adminRoutes);
-
-// ==========================================
-// ROUTE 5: FACILITY ADMIN MODULE
-// ==========================================
-// [OWASP A01] Protected by verifyToken + verifyFacilityAdmin + RLS (facility_id scoping)
-// URL Prefix: http://localhost:3000/api/facility-admin/
-const facilityAdminRoutes = require('./routes/facilityAdminRoutes');
-app.use('/api/facility-admin', facilityAdminRoutes);
-
-// ==========================================
-// ROUTE 6: SYSTEM ADMIN MODULE
-// ==========================================
-// [OWASP A01] Protected by verifyToken + verifySuperAdmin (system_admin or admin role)
-// URL Prefix: http://localhost:3000/api/sysadmin/
-const sysAdminRoutes = require('./routes/sysAdminRoutes');
-app.use('/api/sysadmin', sysAdminRoutes);
-
-// Caregiver & Patient Management Routes
-const caregiverRoutes = require('./routes/caregiverRoutes');
-app.use('/api/caregiver', caregiverRoutes);
-
-const assignmentRoutes = require('./routes/assignmentRoutes');
-app.use('/api/assignments', assignmentRoutes);
-
-
-// --- Start Server ---
-app.listen(port, () => {
-    console.log(`✅ ALAGA Server running on port ${port}`);
-});

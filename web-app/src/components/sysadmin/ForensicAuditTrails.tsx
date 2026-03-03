@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { FileSearch, Download, Filter, RefreshCw } from 'lucide-react';
 
-const API = 'http://localhost:3000/api/sysadmin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}` });
 
 interface AuditLog {

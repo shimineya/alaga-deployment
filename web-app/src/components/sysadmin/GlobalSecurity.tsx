@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Shield, Ban, Trash2, Plus, RefreshCw, Key } from 'lucide-react';
 
-const API = 'http://localhost:3000/api/sysadmin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface IpEntry { id: number; ip_address: string; reason: string; banned_at: string; }

@@ -82,7 +82,7 @@ export const CaregiverDashboardNew: React.FC = () => {
   const fetchPatients = React.useCallback(async () => {
     if (!token) return;
     try {
-      const response = await fetch('http://localhost:3000/api/caregiver/patients', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();

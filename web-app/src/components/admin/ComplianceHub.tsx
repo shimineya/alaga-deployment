@@ -23,32 +23,32 @@ export default function ComplianceHub() {
 
   const handleExport = async () => {
     try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:3000/api/admin/audit-logs/export', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/audit-logs/export`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
 
-        if (!response.ok) throw new Error("Export failed");
+      if (!response.ok) throw new Error("Export failed");
 
-        // Convert response to Blob and trigger download
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Alaga_Audit_Log_${new Date().toISOString().split('T')[0]}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        toast.success("Audit Report Downloaded");
+      // Convert response to Blob and trigger download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Alaga_Audit_Log_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast.success("Audit Report Downloaded");
     } catch (err) {
-        toast.error("Failed to generate report");
+      toast.error("Failed to generate report");
     }
-};
+  };
   // [Secure Fetch]
   const fetchLogs = async () => {
     try {
       const token = localStorage.getItem('token'); // Or from AuthContext
-      const res = await fetch('http://localhost:3000/api/admin/audit-logs', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/audit-logs`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -80,14 +80,14 @@ export default function ComplianceHub() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-            <h2 className="text-3xl font-bold tracking-tight">Compliance & Forensics Hub</h2>
-            <p className="text-muted-foreground">
-                Audit trail mandated by HIPAA § 164.312(b) and DPA 2012.
-            </p>
+          <h2 className="text-3xl font-bold tracking-tight">Compliance & Forensics Hub</h2>
+          <p className="text-muted-foreground">
+            Audit trail mandated by HIPAA § 164.312(b) and DPA 2012.
+          </p>
         </div>
         <Button variant="outline" onClick={handleExport}>
-    <Download className="mr-2 h-4 w-4" /> Export Report (PDF)
-</Button>
+          <Download className="mr-2 h-4 w-4" /> Export Report (PDF)
+        </Button>
       </div>
 
       <Card>
@@ -95,41 +95,41 @@ export default function ComplianceHub() {
           <CardTitle>System Access Logs (Immutable)</CardTitle>
         </CardHeader>
         <CardContent>
-            {loading ? <p>Loading forensic data...</p> : (
+          {loading ? <p>Loading forensic data...</p> : (
             <Table>
-                <TableHeader>
+              <TableHeader>
                 <TableRow>
-                    <TableHead>Timestamp</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Actor</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Target Resource</TableHead>
-                    <TableHead>Source IP</TableHead>
+                  <TableHead>Timestamp</TableHead>
+                  <TableHead>Severity</TableHead>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Target Resource</TableHead>
+                  <TableHead>Source IP</TableHead>
                 </TableRow>
-                </TableHeader>
-                <TableBody>
+              </TableHeader>
+              <TableBody>
                 {logs.map((log) => (
-                    <TableRow key={log.log_id}>
+                  <TableRow key={log.log_id}>
                     <TableCell className="font-mono text-xs">
-                        {new Date(log.timestamp).toLocaleString()}
+                      {new Date(log.timestamp).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                        <Badge variant={getSeverityColor(log.severity)}>{log.severity}</Badge>
+                      <Badge variant={getSeverityColor(log.severity)}>{log.severity}</Badge>
                     </TableCell>
                     <TableCell>
-                        <div className="flex flex-col">
-                            <span className="font-medium">{log.username || 'System'}</span>
-                            <span className="text-xs text-muted-foreground">{log.email}</span>
-                        </div>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{log.username || 'System'}</span>
+                        <span className="text-xs text-muted-foreground">{log.email}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="font-bold">{log.action}</TableCell>
                     <TableCell className="font-mono text-xs">{log.resource_affected}</TableCell>
                     <TableCell className="text-xs">{log.ip_address}</TableCell>
-                    </TableRow>
+                  </TableRow>
                 ))}
-                </TableBody>
+              </TableBody>
             </Table>
-            )}
+          )}
         </CardContent>
       </Card>
     </div>

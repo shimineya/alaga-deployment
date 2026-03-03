@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Cpu, Upload, CheckCircle, AlertTriangle, FileCheck } from 'lucide-react';
 
-const API = 'http://localhost:3000/api/sysadmin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}` });
 
 interface FirmwareVersion { key: string; version: string; file: string; checksum: string; uploaded_at: string; }

@@ -70,7 +70,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         if (!token) return;
         setIsRefreshingDevices(true);
         try {
-            const response = await fetch('http://localhost:3000/api/caregiver/devices/available', {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/available`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -138,7 +138,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         setIsLoading(true);
         try {
             // [OWASP A01] Ensure the API validates that the token holder has permission to create patients
-            const response = await fetch('http://localhost:3000/api/caregiver/patients', {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

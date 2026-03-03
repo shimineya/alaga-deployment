@@ -81,7 +81,7 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
         setIsLoading(true);
         try {
             // 1. Fetch Patients
-            const resPatients = await fetch('http://localhost:3000/api/caregiver/patients', {
+            const resPatients = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const dataPatients = await resPatients.json();
@@ -91,7 +91,7 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
             }
 
             // 2. Fetch Inventory
-            const resDevices = await fetch('http://localhost:3000/api/caregiver/devices/available', {
+            const resDevices = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/available`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const dataDevices = await resDevices.json();

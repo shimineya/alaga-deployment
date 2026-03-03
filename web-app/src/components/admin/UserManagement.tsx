@@ -56,7 +56,7 @@ export default function UserManagement() {
     const fetchUsers = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch('http://localhost:3000/api/admin/users', {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/users`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();

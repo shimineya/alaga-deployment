@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Users, Cpu, AlertTriangle, Clock, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const API = 'http://localhost:3000/api/facility-admin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface FacilityStats {

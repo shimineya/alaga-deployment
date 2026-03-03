@@ -45,7 +45,7 @@ export const UpdateCaregiverModal: React.FC<UpdateCaregiverModalProps> = ({
 
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:3000/api/assignments/caregiver/permissions', {
+            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/assignments/caregiver/permissions`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',

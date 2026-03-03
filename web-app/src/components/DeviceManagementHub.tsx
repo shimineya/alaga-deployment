@@ -33,7 +33,7 @@ export const DeviceManagementHub: React.FC = () => {
     // [HIPAA Audit Trail] Fetching device logs for oversight
     const fetchInventory = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/caregiver/devices', {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();

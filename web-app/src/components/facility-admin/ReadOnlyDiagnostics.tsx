@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Activity, Wifi, WifiOff, Search } from 'lucide-react';
 
-const API = 'http://localhost:3000/api/facility-admin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface DevicePing { serial_number: string; device_name: string; status: string; last_heartbeat: string; is_online: boolean; patient: string; }

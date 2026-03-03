@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Users, UserPlus, Key, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
-const API = 'http://localhost:3000/api/facility-admin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface StaffMember {

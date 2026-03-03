@@ -52,7 +52,7 @@ export const MyDevices: React.FC = () => {
     const fetchInventory = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch('http://localhost:3000/api/caregiver/devices', {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
@@ -96,7 +96,7 @@ export const MyDevices: React.FC = () => {
         if (!confirm(`Are you sure you want to unpair ${device.device_name}? This will remove it from its assigned patient.`)) return;
 
         try {
-            const res = await fetch('http://localhost:3000/api/caregiver/devices/unpair', {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/unpair`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -33,7 +33,7 @@ export const SignUp: React.FC = () => {
     if (!formData.username) newErrors.username = "Required";
     if (!formData.password) newErrors.password = "Required";
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Mismatch";
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -47,7 +47,7 @@ export const SignUp: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3000/api/auth/register', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -55,7 +55,7 @@ export const SignUp: React.FC = () => {
           role: selectedRole
         })
       });
-      
+
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Registration failed");
 
@@ -91,7 +91,7 @@ export const SignUp: React.FC = () => {
 
         <CardContent className="p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
-            
+
             {/* Role Selection (Compact Toggle) */}
             <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg mb-4">
               <button
@@ -156,8 +156,8 @@ export const SignUp: React.FC = () => {
               </div>
             </div>
 
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full h-9 bg-teal-600 hover:bg-teal-700 text-white mt-4 text-xs font-medium"
               disabled={loading}
             >

@@ -37,7 +37,7 @@ interface LockedAccount {
     facility_id: number;
 }
 
-const SYSADMIN_API = 'http://localhost:3000/api/sysadmin';
+const SYSADMIN_API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
 
 const getAuthHeader = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -62,7 +62,7 @@ export default function CommandCenter() {
                 fetch(`${SYSADMIN_API}/stats`, { headers: getAuthHeader() }),
                 fetch(`${SYSADMIN_API}/security-events`, { headers: getAuthHeader() }),
                 fetch(`${SYSADMIN_API}/locked-accounts`, { headers: getAuthHeader() }),
-                fetch('http://localhost:3000/api/admin/system-config', { headers: getAuthHeader() })
+                fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/system-config`, { headers: getAuthHeader() })
             ]);
 
             const [statsData, eventsData, lockedData, configData] = await Promise.all([

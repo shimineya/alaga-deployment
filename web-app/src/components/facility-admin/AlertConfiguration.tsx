@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Bell, Save } from 'lucide-react';
 
-const API = 'http://localhost:3000/api/facility-admin';
+const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface Thresholds {

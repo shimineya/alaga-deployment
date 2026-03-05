@@ -248,6 +248,21 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 });
 
 // ==========================================
+// ROUTE 2B: LOGOUT (clears online status)
+// ==========================================
+const { verifyToken } = require('./middleware/authMiddleware');
+app.post('/api/auth/logout', verifyToken, async (req, res) => {
+    try {
+        // Clear activity timestamp so the user immediately appears Offline
+        await pool.query('UPDATE users SET last_activity_at = NULL WHERE user_id = $1', [req.user.id]);
+        res.json({ success: true, message: 'Logged out successfully.' });
+    } catch (err) {
+        // Even if this fails, the frontend still clears localStorage
+        res.json({ success: true, message: 'Logged out.' });
+    }
+});
+
+// ==========================================
 // ROUTE 3: DOCUMENT UPLOAD
 // ==========================================
 const ALLOWED_DOC_TYPES = ['government_id', 'medical_license', 'prc_id'];

@@ -5,7 +5,8 @@ interface User {
   user_id: number;
   username: string;
   email: string;
-  role: 'admin' | 'medical_staff' | 'caregiver';
+  // [OWASP A01] All five role tiers recognised by the backend
+  role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver';
   account_status: string;
 }
 
@@ -46,6 +47,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkLogin();
   }, []);
 
+  // [Kill Switch] Global 401 interceptor to enforce session revocation
+  // When any API call returns 401 with the revocation message, force-logout the user
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      if (response.status === 401) {
+        // Clone so the original consumer can still read the body
+        const cloned = response.clone();
+        try {
+          const body = await cloned.json();
+          if (body.message && body.message.toLowerCase().includes('session has been terminated')) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+          }
+        } catch { /* non-JSON response, ignore */ }
+      }
+      return response;
+    };
+    return () => { window.fetch = originalFetch; };
+  }, []);
+
   // 2. REAL Login Function (Connected to Backend)
   const login = async (usernameOrEmail: string, password: string) => {
     console.log("🔵 AuthContext: Initiating Login for:", usernameOrEmail);
@@ -84,11 +108,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Notify server to clear online status before wiping local credentials
+    try {
+      const t = localStorage.getItem('token');
+      if (t) {
+        await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/logout`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' }
+        });
+      }
+    } catch { /* Network error is acceptable — still proceed with local logout */ }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
-    setToken(null); // [Fix] Clear token state
+    setToken(null);
     window.location.href = '/login';
   };
 

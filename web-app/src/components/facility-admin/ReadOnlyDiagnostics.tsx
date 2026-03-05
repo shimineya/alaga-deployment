@@ -45,13 +45,13 @@ export default function ReadOnlyDiagnostics() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <div>
-                <h2 className="text-3xl font-bold text-slate-800">Diagnostics &amp; Logs</h2>
-                <p className="text-slate-500 text-sm mt-1">Read-only visibility into device connectivity and staff data access patterns. No configuration changes can be made here.</p>
+                <h2 className="text-lg font-bold text-teal-900 tracking-tight">Diagnostics &amp; Logs</h2>
+                <p className="text-[10px] font-medium text-slate-500">Read-only visibility into device connectivity and staff data access patterns. No configuration changes can be made here.</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {/* Device Ping */}
                 <Card className="bg-white border-slate-200 shadow-sm">
                     <CardHeader>

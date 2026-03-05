@@ -34,6 +34,7 @@ import WardStaffManagement from './components/facility-admin/WardStaffManagement
 import PatientOnboarding from './components/facility-admin/PatientOnboarding';
 import AlertConfiguration from './components/facility-admin/AlertConfiguration';
 import ReadOnlyDiagnostics from './components/facility-admin/ReadOnlyDiagnostics';
+import PatientCaregiverAssignment from './components/facility-admin/PatientCaregiverAssignment';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -122,6 +123,7 @@ function AppContent() {
       <Route path="/facility-admin" element={<FacilityAdminLayout />}>
         <Route index element={<FacilityDashboard />} />
         <Route path="staff" element={<WardStaffManagement />} />
+        <Route path="staff/assignments" element={<PatientCaregiverAssignment />} />
         <Route path="patients" element={<PatientOnboarding />} />
         <Route path="alerts" element={<AlertConfiguration />} />
         <Route path="diagnostics" element={<ReadOnlyDiagnostics />} />

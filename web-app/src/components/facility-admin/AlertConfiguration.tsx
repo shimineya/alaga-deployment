@@ -69,10 +69,10 @@ export default function AlertConfiguration() {
     ];
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <div>
-                <h2 className="text-3xl font-bold text-slate-800">Alert Configuration</h2>
-                <p className="text-slate-500 text-sm mt-1">Set clinical alarm thresholds for all patients in your facility. These override global system defaults.</p>
+                <h2 className="text-lg font-bold text-teal-900 tracking-tight">Alert Configuration</h2>
+                <p className="text-[10px] font-medium text-slate-500">Set clinical alarm thresholds for all patients in your facility. These override global system defaults.</p>
             </div>
 
             <Card className="bg-white border-slate-200 shadow-sm">
@@ -85,7 +85,7 @@ export default function AlertConfiguration() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {fields.map(f => (
                             <div key={f.key}>
                                 <label className="block text-sm font-medium text-slate-700 mb-0.5">{f.label}</label>
@@ -105,7 +105,7 @@ export default function AlertConfiguration() {
                         ))}
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
                         <Button onClick={handleSave} disabled={saving} className="bg-teal-600 hover:bg-teal-700 text-white">
                             <Save className="w-4 h-4 mr-2" />
                             {saving ? 'Saving...' : 'Save Thresholds'}

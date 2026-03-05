@@ -23,33 +23,33 @@ export default function FacilityAdminLayout() {
     if (isLoading || !user || user.role !== 'facility_admin') return null;
 
     return (
-        <div className="min-h-screen" style={{ backgroundColor: '#F8FAFC' }}>
+        <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#F8FAFC' }}>
             <FacilityAdminSidebar />
 
-            <div className="ml-60 transition-all duration-300">
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
                 {/* Header */}
                 <header
-                    className="sticky top-0 z-40 px-6 py-4 border-b border-slate-200 bg-white"
+                    className="bg-white border-b border-slate-200 flex-shrink-0 px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between"
                 >
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-xl font-bold text-slate-800">Facility Administration</h2>
-                            <p className="text-xs text-slate-500">Ward Operations — Authorized Personnel Only</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200">
-                                <Building2 className="w-4 h-4 text-teal-600" />
-                                <span className="text-sm font-medium text-slate-700">
-                                    {user.name || user.username || 'Facility Admin'}
-                                </span>
-                                <span className="text-xs text-teal-600 font-mono">FACILITY ADMIN</span>
-                            </div>
+                    <div>
+                        <h2 className="text-lg font-bold text-teal-900 tracking-tight">Facility Administration</h2>
+                        <p className="text-[10px] text-slate-500 font-medium">Ward Operations — Authorized Personnel Only</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200">
+                            <Building2 className="w-4 h-4 text-teal-600" />
+                            <span className="text-sm font-medium text-slate-700">
+                                {user.name || user.username || 'Facility Admin'}
+                            </span>
+                            <span className="text-xs text-teal-600 font-mono">FACILITY ADMIN</span>
                         </div>
                     </div>
                 </header>
 
-                <main className="p-6">
-                    <Outlet />
+                <main className="flex-1 overflow-y-auto p-4 scroll-smooth">
+                    <div className="w-full h-full pb-10">
+                        <Outlet />
+                    </div>
                 </main>
             </div>
 

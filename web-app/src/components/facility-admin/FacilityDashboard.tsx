@@ -35,30 +35,30 @@ export default function FacilityDashboard() {
         { label: 'Online Sensors', value: stats?.online_sensors, icon: Cpu, colorClass: 'border-l-emerald-500', iconColor: 'text-emerald-500' },
         { label: 'Offline Sensors', value: stats?.offline_sensors, icon: Cpu, colorClass: 'border-l-red-500', iconColor: 'text-red-500' },
         { label: 'Pending Staff Approvals', value: stats?.pending_staff, icon: Users, colorClass: 'border-l-amber-500', iconColor: 'text-amber-500' },
-        { label: 'Low Battery Alerts', value: stats?.battery_warnings?.length, icon: AlertTriangle, colorClass: 'border-l-orange-500', iconColor: 'text-orange-500' },
+        { label: 'Low Battery Alerts', value: stats?.battery_warnings?.length, icon: AlertTriangle, colorClass: 'border-l-orange-500', iconColor: 'text-orange-500', tooltip: 'Shows devices in your ward dropping below 20% battery requiring immediate charging.' },
     ];
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold text-slate-800">Ward Dashboard</h2>
-                    <p className="text-slate-500 text-sm mt-1">At-a-glance overview of your facility's sensor network and staffing status.</p>
+                    <h2 className="text-lg font-bold text-teal-900 tracking-tight">Ward Dashboard</h2>
+                    <p className="text-[10px] font-medium text-slate-500">At-a-glance overview of your facility's sensor network and staffing status.</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={fetchStats} className="border-slate-200 text-slate-600">
                     <RefreshCw className="w-4 h-4 mr-2" /> Refresh
                 </Button>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {widgets.map(w => (
                     <Card key={w.label} className={`bg-white border border-slate-200 border-l-4 ${w.colorClass} shadow-sm`}>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                            <CardTitle className="text-xs font-medium text-slate-500">{w.label}</CardTitle>
-                            <w.icon className={`w-4 h-4 ${w.iconColor}`} />
+                        <CardHeader className="flex flex-row items-center justify-between py-2 px-4 space-y-0">
+                            <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{w.label}</CardTitle>
+                            {'tooltip' in w ? <span title={w.tooltip as string}><w.icon className={`w-4 h-4 ${w.iconColor}`} /></span> : <w.icon className={`w-4 h-4 ${w.iconColor}`} />}
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-slate-800">{loading ? '...' : w.value ?? 0}</div>
+                        <CardContent className="px-4 pb-3 pt-0">
+                            <div className="text-xl font-bold text-slate-800">{loading ? '...' : w.value ?? 0}</div>
                         </CardContent>
                     </Card>
                 ))}
@@ -67,15 +67,15 @@ export default function FacilityDashboard() {
             {/* Battery Warnings */}
             {(stats?.battery_warnings?.length ?? 0) > 0 && (
                 <Card className="bg-white border border-orange-200 shadow-sm">
-                    <CardHeader>
-                        <CardTitle className="text-slate-700 text-base flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4 text-orange-500" /> Low Battery Devices
+                    <CardHeader className="py-2 px-4">
+                        <CardTitle className="text-sm flex items-center gap-2 text-slate-700">
+                            <span title="Shows devices in your ward dropping below 20% battery requiring immediate charging."><AlertTriangle className="w-3.5 h-3.5 text-orange-500" /></span> Low Battery Devices
                         </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <CardContent className="px-4 pb-3 pt-0">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {stats?.battery_warnings.map(d => (
-                                <div key={d.serial_number} className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                                <div key={d.serial_number} className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-2.5 py-1.5">
                                     <div>
                                         <p className="text-sm font-medium text-slate-700">{d.device_name || d.serial_number}</p>
                                         <p className="text-xs text-slate-500">{d.first_name} {d.last_name}</p>

@@ -29,11 +29,27 @@ export const LoginPage: React.FC = () => {
 
     setLoading(true);
     try {
-      await login(username, password);
-      toast.success("Welcome back!");
-      // Navigation is handled by auth-context or App.tsx based on user role
+      const result = await login(username, password);
+
+      if (result.success && result.user) {
+        toast.success("Welcome back!");
+
+        // [OWASP A01] Route to the correct dashboard based on role
+        const role = result.user.role;
+        if (role === 'system_admin' || role === 'admin') {
+          navigate('/sysadmin', { replace: true });
+        } else if (role === 'facility_admin') {
+          navigate('/facility-admin', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
+      } else {
+        // Login returned a failure — display the server message
+        setError(result.message || "Invalid credentials");
+        toast.error(result.message || "Login failed");
+      }
     } catch (err: any) {
-      setError(err.message || "Invalid credentials");
+      setError(err.message || "An unexpected error occurred");
       toast.error("Login failed");
     } finally {
       setLoading(false);
@@ -50,7 +66,7 @@ export const LoginPage: React.FC = () => {
           <CardTitle className="text-lg font-bold text-slate-800">Alaga Login</CardTitle>
           <CardDescription className="text-xs">Secure access for Caregivers & Staff</CardDescription>
         </CardHeader>
-        
+
         <CardContent className="px-6 pb-6">
           <form onSubmit={handleSubmit} className="space-y-3">
             {error && (
@@ -62,9 +78,9 @@ export const LoginPage: React.FC = () => {
 
             <div className="space-y-1">
               <Label htmlFor="username" className="text-xs font-semibold text-slate-500 uppercase">Username</Label>
-              <Input 
-                id="username" 
-                type="text" 
+              <Input
+                id="username"
+                type="text"
                 placeholder="Enter username"
                 className="h-9 text-sm"
                 value={username}
@@ -76,17 +92,17 @@ export const LoginPage: React.FC = () => {
               <div className="flex justify-between items-center">
                 <Label htmlFor="password" className="text-xs font-semibold text-slate-500 uppercase">Password</Label>
               </div>
-              <Input 
-                id="password" 
-                type="password" 
+              <Input
+                id="password"
+                type="password"
                 className="h-9 text-sm"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
 
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full h-9 bg-teal-600 hover:bg-teal-700 text-white font-medium mt-2 text-xs"
               disabled={loading}
             >

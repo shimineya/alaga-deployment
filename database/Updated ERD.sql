@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS public.device_whitelist
     CONSTRAINT device_whitelist_pkey PRIMARY KEY (serial_number)
 );
 
+CREATE TABLE IF NOT EXISTS public.facilities
+(
+    facility_id serial NOT NULL,
+    facility_name character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    address text COLLATE pg_catalog."default",
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT facilities_pkey PRIMARY KEY (facility_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.ip_blacklist
 (
     id serial NOT NULL,
@@ -111,6 +120,7 @@ CREATE TABLE IF NOT EXISTS public.patients
     baseline_data jsonb,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     is_archived boolean DEFAULT false,
+    facility_id integer,
     CONSTRAINT patients_pkey PRIMARY KEY (patient_id),
     CONSTRAINT patients_device_mac_address_key UNIQUE (device_serial_number)
 );
@@ -159,6 +169,18 @@ CREATE TABLE IF NOT EXISTS public.reports
     CONSTRAINT reports_pkey PRIMARY KEY (report_id)
 );
 
+CREATE TABLE IF NOT EXISTS public.role_permissions
+(
+    id serial NOT NULL,
+    role character varying(50) COLLATE pg_catalog."default" NOT NULL,
+    module_id character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    is_enabled boolean NOT NULL DEFAULT true,
+    updated_by integer,
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT role_permissions_pkey PRIMARY KEY (id),
+    CONSTRAINT role_permissions_role_module_id_key UNIQUE (role, module_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.sensor_readings
 (
     reading_id bigserial NOT NULL,
@@ -169,6 +191,15 @@ CREATE TABLE IF NOT EXISTS public.sensor_readings
     moisture_value integer,
     recorded_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT sensor_readings_pkey PRIMARY KEY (reading_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.session_revocations
+(
+    user_id integer NOT NULL,
+    revoked_before timestamp with time zone NOT NULL DEFAULT now(),
+    revoked_by integer,
+    reason text COLLATE pg_catalog."default",
+    CONSTRAINT session_revocations_pkey PRIMARY KEY (user_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.system_configs
@@ -194,6 +225,19 @@ CREATE TABLE IF NOT EXISTS public.user_documents
     CONSTRAINT user_documents_pkey PRIMARY KEY (document_id)
 );
 
+CREATE TABLE IF NOT EXISTS public.user_permission_overrides
+(
+    id serial NOT NULL,
+    user_id integer NOT NULL,
+    module_id character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    is_granted boolean NOT NULL,
+    override_reason text COLLATE pg_catalog."default",
+    overridden_by integer,
+    overridden_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT user_permission_overrides_pkey PRIMARY KEY (id),
+    CONSTRAINT user_permission_overrides_user_id_module_id_key UNIQUE (user_id, module_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.users
 (
     user_id serial NOT NULL,
@@ -215,6 +259,8 @@ CREATE TABLE IF NOT EXISTS public.users
     is_locked boolean DEFAULT false,
     failed_login_attempts integer DEFAULT 0,
     force_logout_at timestamp with time zone,
+    facility_id integer,
+    last_activity_at timestamp with time zone,
     CONSTRAINT users_pkey PRIMARY KEY (user_id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username)
@@ -313,6 +359,13 @@ ALTER TABLE IF EXISTS public.patient_access
     ON DELETE CASCADE;
 
 
+ALTER TABLE IF EXISTS public.patients
+    ADD CONSTRAINT patients_facility_id_fkey FOREIGN KEY (facility_id)
+    REFERENCES public.facilities (facility_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+
+
 ALTER TABLE IF EXISTS public.profiles_caregivers
     ADD CONSTRAINT profiles_caregivers_user_id_fkey FOREIGN KEY (user_id)
     REFERENCES public.users (user_id) MATCH SIMPLE
@@ -345,11 +398,34 @@ ALTER TABLE IF EXISTS public.reports
     ON DELETE NO ACTION;
 
 
+ALTER TABLE IF EXISTS public.role_permissions
+    ADD CONSTRAINT role_permissions_updated_by_fkey FOREIGN KEY (updated_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+
+
 ALTER TABLE IF EXISTS public.sensor_readings
     ADD CONSTRAINT sensor_readings_patient_id_fkey FOREIGN KEY (patient_id)
     REFERENCES public.patients (patient_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE CASCADE;
+
+
+ALTER TABLE IF EXISTS public.session_revocations
+    ADD CONSTRAINT session_revocations_revoked_by_fkey FOREIGN KEY (revoked_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+
+
+ALTER TABLE IF EXISTS public.session_revocations
+    ADD CONSTRAINT session_revocations_user_id_fkey FOREIGN KEY (user_id)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS session_revocations_pkey
+    ON public.session_revocations(user_id);
 
 
 ALTER TABLE IF EXISTS public.system_configs
@@ -371,5 +447,26 @@ ALTER TABLE IF EXISTS public.user_documents
     REFERENCES public.users (user_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE CASCADE;
+
+
+ALTER TABLE IF EXISTS public.user_permission_overrides
+    ADD CONSTRAINT user_permission_overrides_overridden_by_fkey FOREIGN KEY (overridden_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+
+
+ALTER TABLE IF EXISTS public.user_permission_overrides
+    ADD CONSTRAINT user_permission_overrides_user_id_fkey FOREIGN KEY (user_id)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+
+ALTER TABLE IF EXISTS public.users
+    ADD CONSTRAINT users_facility_id_fkey FOREIGN KEY (facility_id)
+    REFERENCES public.facilities (facility_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
 
 END;

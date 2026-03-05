@@ -70,18 +70,18 @@ export default function PatientOnboarding() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <div>
-                <h2 className="text-3xl font-bold text-slate-800">Patient Onboarding</h2>
-                <p className="text-slate-500 text-sm mt-1">Register new patients, pair devices, and manage SVM baselines within your facility.</p>
+                <h2 className="text-lg font-bold text-teal-900 tracking-tight">Patient Onboarding</h2>
+                <p className="text-[10px] font-medium text-slate-500">Register new patients, pair devices, and manage SVM baselines within your facility.</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {/* Patient Registration */}
                 <Card className="bg-white border-slate-200 shadow-sm">
                     <CardHeader>
                         <CardTitle className="text-slate-800 text-base flex items-center gap-2"><UserPlus className="w-4 h-4 text-teal-600" /> Register New Patient</CardTitle>
-                        <CardDescription className="text-xs text-slate-500">DPA § 13: Informed consent must be collected before health data processing begins.</CardDescription>
+                        <CardDescription className="text-xs text-slate-500"></CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div className="grid grid-cols-2 gap-2">
@@ -130,7 +130,7 @@ export default function PatientOnboarding() {
                     </CardContent>
                 </Card>
 
-                <div className="space-y-6">
+                <div className="space-y-3">
                     {/* Device Pairing */}
                     <Card className="bg-white border-slate-200 shadow-sm">
                         <CardHeader>

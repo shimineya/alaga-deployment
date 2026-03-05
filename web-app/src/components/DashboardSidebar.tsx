@@ -16,10 +16,12 @@ import {
   Battery,
   Layers,
   RefreshCw,
-  Terminal
+  Terminal,
+  TrendingUp
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { useAuth } from '../lib/auth-context';
+import { useCaregiverLanguage } from '../lib/caregiver-language-context';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,19 +36,28 @@ interface DashboardSidebarProps {
 }
 
 export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, onItemClick, userRole }) => {
-  const { signOut } = useAuth();
+  const { logout } = useAuth();
+  const { t } = useCaregiverLanguage();
   const [isDeviceMenuOpen, setIsDeviceMenuOpen] = useState(false);
+  const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false);
 
   const caregiverMenuItems = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { id: 'add-patient', icon: UserPlus, label: 'Add Patient' },
-    { id: 'patient-list', icon: List, label: 'Patient List' },
-    { id: 'assignment-tracker', icon: ClipboardList, label: 'Assignments' },
-    { id: 'user-management', icon: Users, label: 'Caregiver Management' },
-    // Device Management is now a specialized component below
-    { id: 'reports', icon: FileText, label: 'Reports' },
-    { id: 'settings', icon: Settings, label: 'Settings' },
-    { id: 'profile', icon: User, label: 'Profile' },
+    { id: 'dashboard', icon: LayoutDashboard, label: t('Dashboard', 'Dashboard') },
+    { id: 'add-patient', icon: UserPlus, label: t('Add Patient', 'Magdagdag ng Pasyente') },
+    { id: 'patient-list', icon: List, label: t('Patient List', 'Listahan ng Pasyente') },
+    { id: 'assignment-tracker', icon: ClipboardList, label: t('Assignments', 'Mga Assignment') },
+    { id: 'user-management', icon: Users, label: t('Caregiver Management', 'Pamamahala ng Caregiver') },
+    { id: 'reports', icon: FileText, label: t('Reports', 'Mga Report') },
+    { id: 'settings', icon: Settings, label: t('Settings', 'Mga Setting') },
+    { id: 'profile', icon: User, label: t('Profile', 'Profile') },
+  ];
+
+  const reportsSubItems = [
+    { id: 'reports-daily-summary', icon: Activity, label: 'Daily Health Summary' },
+    { id: 'reports-anomaly-log', icon: Battery, label: 'Anomaly Log (Silence Check)' },
+    { id: 'reports-moisture-hygiene', icon: Layers, label: 'Moisture & Hygiene Tracker' },
+    { id: 'reports-weekly-trends', icon: TrendingUp, label: 'Weekly Trend Analysis' },
+    { id: 'reports-export', icon: FileText, label: 'Exportable Health Report' },
   ];
 
   const deviceSubItems = [
@@ -108,6 +119,43 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, 
               );
             }
 
+            // Reports dropdown (caregiver)
+            if (item.id === 'reports' && userRole === 'caregiver') {
+              const isReportsActive = activeItem?.startsWith('reports-');
+              return (
+                <li key="reports-dropdown" className="relative group">
+                  <DropdownMenu onOpenChange={setIsReportsMenuOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className={`
+                          w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
+                          ${isReportsMenuOpen || isReportsActive ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}
+                        `}
+                      >
+                        <div className="flex items-center gap-3">
+                          <FileText className={`w-4 h-4 ${isReportsMenuOpen || isReportsActive ? 'text-teal-600' : 'text-slate-400'}`} />
+                          <span>Reports</span>
+                        </div>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isReportsMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="right" align="start" className="w-56 ml-2 bg-white border-slate-200 shadow-xl p-1 max-h-[280px] overflow-y-auto">
+                      {reportsSubItems.map((sub) => (
+                        <DropdownMenuItem
+                          key={sub.id}
+                          onClick={() => onItemClick?.(sub.id)}
+                          className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer rounded-md transition-colors ${activeItem === sub.id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-teal-50 hover:text-teal-700'}`}
+                        >
+                          <sub.icon className="w-3.5 h-3.5" />
+                          {sub.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </li>
+              );
+            }
+
             const Icon = item.icon;
             const isActive = activeItem === item.id;
             return (
@@ -133,7 +181,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, 
           variant="ghost"
           size="sm"
           className="w-full justify-start text-slate-500 hover:text-red-600 hover:bg-red-50 h-9"
-          onClick={() => signOut()}
+          onClick={() => logout()}
         >
           <LogOut className="w-4 h-4 mr-3" />
           <span>Sign Out</span>

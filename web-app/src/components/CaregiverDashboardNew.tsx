@@ -12,6 +12,14 @@ import { AssignmentTracker } from './AssignmentTracker';
 import { CaregiverUserManagement } from './CaregiverUserManagement';
 import { MyDevices } from './MyDevices';
 import { FirmwareOTA } from './FirmwareOTA';
+import { DailyHealthSummary } from './caregiver-reports/DailyHealthSummary';
+import { AnomalyLog } from './caregiver-reports/AnomalyLog';
+import { MoistureHygieneTracker } from './caregiver-reports/MoistureHygieneTracker';
+import { WeeklyTrendAnalysis } from './caregiver-reports/WeeklyTrendAnalysis';
+import { ExportableHealthReport } from './caregiver-reports/ExportableHealthReport';
+import { CaregiverSettings } from './CaregiverSettings';
+import { CaregiverProfile } from './CaregiverProfile';
+import { CaregiverLanguageProvider } from '../lib/caregiver-language-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -41,6 +49,7 @@ export const CaregiverDashboardNew: React.FC = () => {
   const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [reportPatientId, setReportPatientId] = useState('');
   const itemsPerPage = 8;
 
   // --- Derived Metrics ---
@@ -399,11 +408,62 @@ export const CaregiverDashboardNew: React.FC = () => {
       case 'firmware-update': return <FirmwareOTA />;
       case 'assignment-tracker': return <AssignmentTracker onRefresh={fetchPatients} />; // [NEW] onRefresh passed
       case 'user-management': return <CaregiverUserManagement patients={patients} user={user} />;
+      case 'reports-daily-summary':
+        return (
+          <DailyHealthSummary
+            patients={patients}
+            vitalSigns={vitalSigns}
+            selectedPatientId={reportPatientId}
+            onSelectPatient={setReportPatientId}
+          />
+        );
+      case 'reports-anomaly-log':
+        return (
+          <AnomalyLog
+            patients={patients}
+            alerts={alerts}
+            selectedPatientId={reportPatientId}
+            onSelectPatient={setReportPatientId}
+          />
+        );
+      case 'reports-moisture-hygiene':
+        return (
+          <MoistureHygieneTracker
+            patients={patients}
+            vitalSigns={vitalSigns}
+            selectedPatientId={reportPatientId}
+            onSelectPatient={setReportPatientId}
+          />
+        );
+      case 'reports-weekly-trends':
+        return (
+          <WeeklyTrendAnalysis
+            patients={patients}
+            vitalSigns={vitalSigns}
+            selectedPatientId={reportPatientId}
+            onSelectPatient={setReportPatientId}
+          />
+        );
+      case 'reports-export':
+        return (
+          <ExportableHealthReport
+            patients={patients}
+            vitalSigns={vitalSigns}
+            alerts={alerts}
+            selectedPatientId={reportPatientId}
+            onSelectPatient={setReportPatientId}
+          />
+        );
+      case 'settings':
+        return <CaregiverSettings />;
+      case 'profile':
+        return <CaregiverProfile patients={patients} />;
       default: return renderDashboard();
     }
   };
 
   return (
+    <CaregiverLanguageProvider>
     <div className="flex h-screen overflow-hidden bg-slate-50/50">
       <DashboardSidebar
         activeItem={activeNavItem}
@@ -435,5 +495,6 @@ export const CaregiverDashboardNew: React.FC = () => {
         </main>
       </div>
     </div>
+    </CaregiverLanguageProvider>
   );
 };

@@ -3,6 +3,9 @@ const pool = require('../db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 
+// [Performance] Throttle last_activity_at updates to once per 60s per user
+const activityCache = new Map();
+
 // [OWASP A01] Verify Token & Extract User
 // [Kill Switch] Also checks the session_revocations table to support instant access revocation
 const verifyToken = async (req, res, next) => {
@@ -34,6 +37,30 @@ const verifyToken = async (req, res, next) => {
         }
 
         req.user = verified;
+
+        // [OWASP A07] Check if account is locked (prevents use of stolen tokens)
+        const lockCheck = await pool.query(
+            'SELECT is_locked FROM users WHERE user_id = $1',
+            [verified.id]
+        );
+        if (lockCheck.rows[0]?.is_locked) {
+            return res.status(401).json({
+                success: false,
+                message: 'Your session has been terminated by an administrator. Please log in again.'
+            });
+        }
+
+        // [Activity Tracking] Update last_activity_at (throttled to once per 60s)
+        const now = Date.now();
+        const lastUpdate = activityCache.get(verified.id) || 0;
+        if (now - lastUpdate > 60000) {
+            activityCache.set(verified.id, now);
+            pool.query(
+                'UPDATE users SET last_activity_at = NOW() WHERE user_id = $1',
+                [verified.id]
+            ).catch(() => { }); // Fire-and-forget, non-blocking
+        }
+
         next();
     } catch (err) {
         // [OWASP A10] Generic error message prevents information leakage

@@ -65,14 +65,17 @@ router.get('/stats', async (req, res) => {
 // Mandate: HIPAA Workforce Security — scoped to facility
 // =================================================================
 
-// Get all staff in this facility
+// Get all staff in this facility (with online/offline status)
 router.get('/staff', async (req, res) => {
     const facilityId = req.user.facility_id;
     try {
         // [Privacy] No password_hash returned
+        // [Activity] Derive online status from last_activity_at (within 5 minutes = online)
         const result = await pool.query(
             `SELECT user_id, username, email, role, account_status, is_locked,
-                    to_char(created_at, 'YYYY-MM-DD') as joined_at
+                    to_char(created_at, 'YYYY-MM-DD') as joined_at,
+                    last_activity_at,
+                    CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
              FROM users
              WHERE facility_id = $1 AND role IN ('caregiver', 'medical_staff')
              ORDER BY created_at DESC`,
@@ -132,6 +135,9 @@ router.post('/staff/:id/revoke-session', async (req, res) => {
             [targetUserId, req.user.id]
         );
 
+        // Clear activity timestamp so status immediately shows Offline
+        await pool.query('UPDATE users SET last_activity_at = NULL WHERE user_id = $1', [targetUserId]);
+
         // [OWASP A09] Audit the action
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
@@ -141,11 +147,85 @@ router.post('/staff/:id/revoke-session', async (req, res) => {
 
         res.json({ success: true, message: 'User sessions have been revoked. They will be logged out on their next action.' });
     } catch (err) {
+        console.error('Revoke session error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to revoke sessions.' });
     }
 });
 
-// Assign caregiver to a patient (patient-user mapping)
+// Lock a staff account immediately (prevents login + revokes active sessions)
+// [OWASP A07] Emergency response for compromised accounts
+router.post('/staff/:id/lock-account', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const targetUserId = parseInt(req.params.id);
+
+    try {
+        const ownerCheck = await pool.query(
+            'SELECT user_id, is_locked FROM users WHERE user_id = $1 AND facility_id = $2',
+            [targetUserId, facilityId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'User does not belong to your facility.' });
+        }
+        if (ownerCheck.rows[0].is_locked) {
+            return res.json({ success: true, message: 'Account is already locked.' });
+        }
+
+        // Lock the account and clear activity so status shows Locked immediately
+        await pool.query('UPDATE users SET is_locked = true, last_activity_at = NULL WHERE user_id = $1', [targetUserId]);
+
+        // Also revoke all active sessions so the user is kicked out immediately
+        await pool.query(
+            `INSERT INTO session_revocations (user_id, revoked_before, revoked_by, reason)
+             VALUES ($1, NOW(), $2, 'Account locked by Facility Admin')
+             ON CONFLICT (user_id) DO UPDATE SET revoked_before = NOW(), revoked_by = $2`,
+            [targetUserId, req.user.id]
+        );
+
+        // [OWASP A09] Critical audit trail
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ACCOUNT_LOCK', $2, 'CRITICAL')`,
+            [req.user.id, `Locked account for User ID ${targetUserId}`]
+        );
+
+        res.json({ success: true, message: 'Account locked. User has been logged out and cannot log in until unlocked.' });
+    } catch (err) {
+        console.error('Lock account error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to lock account.' });
+    }
+});
+
+// Unlock a staff account
+router.post('/staff/:id/unlock-account', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const targetUserId = parseInt(req.params.id);
+
+    try {
+        const ownerCheck = await pool.query(
+            'SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2',
+            [targetUserId, facilityId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'User does not belong to your facility.' });
+        }
+
+        await pool.query('UPDATE users SET is_locked = false WHERE user_id = $1', [targetUserId]);
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ACCOUNT_UNLOCK', $2, 'WARNING')`,
+            [req.user.id, `Unlocked account for User ID ${targetUserId}`]
+        );
+
+        res.json({ success: true, message: 'Account unlocked. User can now log in again.' });
+    } catch (err) {
+        console.error('Unlock account error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to unlock account.' });
+    }
+});
+
+// Assign caregiver to a patient (via patient_access table)
+// [OWASP A01 / IDOR] Both patient and caregiver must belong to this facility
 router.put('/patients/:patientId/assign-staff', async (req, res) => {
     const facilityId = req.user.facility_id;
     const { patientId } = req.params;
@@ -165,12 +245,27 @@ router.put('/patients/:patientId/assign-staff', async (req, res) => {
             return res.status(403).json({ success: false, message: 'Caregiver not found in your facility.' });
         }
 
-        // [OWASP A05] Parameterized query
+        // Check if this exact assignment already exists
+        const existingCheck = await pool.query(
+            `SELECT access_id FROM patient_access
+             WHERE user_id = $1 AND patient_id = $2 AND relationship = 'Assigned Caregiver'`,
+            [caregiver_id, patientId]
+        );
+        if (existingCheck.rows.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'This patient is already assigned to that caregiver.'
+            });
+        }
+
+        // [OWASP A05] Insert the new assignment (multiple caregivers allowed for shift coverage)
         await pool.query(
-            'UPDATE patients SET caregiver_id = $1 WHERE patient_id = $2 AND facility_id = $3',
-            [caregiver_id, patientId, facilityId]
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
+             VALUES ($1, $2, 'Assigned Caregiver', 'Full')`,
+            [caregiver_id, patientId]
         );
 
+        // [OWASP A09] Audit trail
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected)
              VALUES ($1, 'PATIENT_STAFF_ASSIGN', $2)`,
@@ -179,7 +274,54 @@ router.put('/patients/:patientId/assign-staff', async (req, res) => {
 
         res.json({ success: true, message: 'Caregiver assigned to patient successfully.' });
     } catch (err) {
+        console.error('Assignment error:', err.message);
         res.status(500).json({ success: false, message: 'Assignment failed.' });
+    }
+});
+
+// Remove a specific caregiver from a patient
+// [OWASP A01 / IDOR] Patient must belong to this facility
+router.delete('/patients/:patientId/unassign-staff', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const { caregiver_id } = req.body;
+
+    if (!caregiver_id) {
+        return res.status(400).json({ success: false, message: 'Caregiver ID is required.' });
+    }
+
+    try {
+        // Verify patient belongs to this facility
+        const patientCheck = await pool.query(
+            'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+            [patientId, facilityId]
+        );
+        if (patientCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+        }
+
+        // Remove the specific caregiver assignment
+        const result = await pool.query(
+            `DELETE FROM patient_access
+             WHERE patient_id = $1 AND user_id = $2 AND relationship = 'Assigned Caregiver'`,
+            [patientId, caregiver_id]
+        );
+
+        if (result.rowCount === 0) {
+            return res.json({ success: true, message: 'That caregiver was not assigned to this patient.' });
+        }
+
+        // [OWASP A09] Audit trail
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'PATIENT_STAFF_UNASSIGN', $2, 'WARNING')`,
+            [req.user.id, `Removed Caregiver ${caregiver_id} from Patient ${patientId}`]
+        );
+
+        res.json({ success: true, message: 'Caregiver has been unassigned from this patient.' });
+    } catch (err) {
+        console.error('Unassign error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to unassign caregiver.' });
     }
 });
 
@@ -187,6 +329,36 @@ router.put('/patients/:patientId/assign-staff', async (req, res) => {
 // MODULE C: PATIENT ONBOARDING
 // Mandate: DPA § Informed Consent before data collection begins
 // =================================================================
+
+// Get all patients in this facility with their assigned caregivers (supports multiple)
+// [OWASP A05] Parameterized query | [RLS] Scoped to facility_id
+router.get('/patients', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    try {
+        // Aggregate multiple caregivers per patient into a JSON array
+        const result = await pool.query(
+            `SELECT p.patient_id, p.name AS patient_name,
+                    COALESCE(
+                        json_agg(
+                            json_build_object('user_id', pa.user_id, 'username', u.username)
+                        ) FILTER (WHERE pa.user_id IS NOT NULL),
+                        '[]'::json
+                    ) AS caregivers
+             FROM patients p
+             LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
+                 AND pa.relationship = 'Assigned Caregiver'
+             LEFT JOIN users u ON pa.user_id = u.user_id
+             WHERE p.facility_id = $1
+             GROUP BY p.patient_id, p.name
+             ORDER BY p.name ASC`,
+            [facilityId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        // [OWASP A10] Generic error message — no stack trace leaked
+        res.status(500).json({ success: false, message: 'Failed to fetch patient list.' });
+    }
+});
 
 // Create new patient with consent verification
 router.post('/patients', async (req, res) => {

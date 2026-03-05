@@ -130,27 +130,27 @@ export default function CommandCenter() {
     };
 
     const statWidgets = [
-        { label: 'Active Patients', value: stats?.total_patients, icon: Users, color: 'blue', border: 'border-l-blue-500' },
-        { label: 'Online Devices', value: stats?.online_devices, icon: Cpu, color: 'emerald', border: 'border-l-emerald-500' },
-        { label: 'Pending Approvals', value: stats?.pending_users, icon: Users, color: 'amber', border: 'border-l-amber-500' },
-        { label: 'Critical Alerts', value: stats?.critical_alerts, icon: AlertTriangle, color: 'red', border: 'border-l-red-500' }
+        { label: 'Active Patients', value: stats?.total_patients, icon: Users, colorClass: 'border-l-blue-500', iconColor: 'text-blue-500' },
+        { label: 'Online Devices', value: stats?.online_devices, icon: Cpu, colorClass: 'border-l-emerald-500', iconColor: 'text-emerald-500' },
+        { label: 'Pending Approvals', value: stats?.pending_users, icon: Users, colorClass: 'border-l-amber-500', iconColor: 'text-amber-500' },
+        { label: 'Critical Alerts', value: stats?.critical_alerts, icon: AlertTriangle, colorClass: 'border-l-red-500', iconColor: 'text-red-500' }
     ];
 
     const severityColor = (s: string) =>
         s === 'CRITICAL' ? 'destructive' : s === 'WARNING' ? 'outline' : 'secondary';
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold text-white">Command Center</h2>
-                    <p className="text-slate-400 text-sm mt-1">Global infrastructure overview and emergency controls.</p>
+                    <h2 className="text-lg font-bold text-teal-900 tracking-tight">Command Center</h2>
+                    <p className="text-[10px] font-medium text-slate-500">Global infrastructure overview and emergency controls.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={fetchAll} className="border-slate-700 text-slate-300 hover:bg-slate-800">
+                    <Button variant="outline" size="sm" onClick={fetchAll} className="border-slate-200 text-slate-600">
                         <RefreshCw className="w-4 h-4 mr-2" /> Refresh
                     </Button>
-                    <div className="flex items-center gap-2 text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700 text-slate-300">
+                    <div className="flex items-center gap-2 text-xs bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 text-slate-600">
                         <Server className="w-3 h-3" />
                         Uptime: {loading ? '...' : formatUptime(stats?.uptime || 0)}
                     </div>
@@ -158,46 +158,46 @@ export default function CommandCenter() {
             </div>
 
             {/* Zone A: Stat Widgets */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {statWidgets.map((w) => (
-                    <Card key={w.label} className={`bg-slate-900 border-slate-800 border-l-4 ${w.border} shadow-sm`}>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                            <CardTitle className="text-xs font-medium text-slate-400">{w.label}</CardTitle>
-                            <w.icon className={`w-4 h-4 text-${w.color}-500`} />
+                    <Card key={w.label} className={`bg-white border border-slate-200 border-l-4 ${w.colorClass} shadow-sm`}>
+                        <CardHeader className="flex flex-row items-center justify-between py-2 px-4 space-y-0">
+                            <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{w.label}</CardTitle>
+                            <w.icon className={`w-4 h-4 ${w.iconColor}`} />
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-white">{loading ? '...' : w.value ?? 0}</div>
+                        <CardContent className="px-4 pb-3 pt-0">
+                            <div className="text-xl font-bold text-slate-800">{loading ? '...' : w.value ?? 0}</div>
                         </CardContent>
                     </Card>
                 ))}
             </div>
 
             {/* Zone B: Threat Intel + Locked Accounts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Security Events Feed */}
-                <Card className="bg-slate-900 border-slate-800">
-                    <CardHeader>
-                        <CardTitle className="text-white text-base">Recent Security Events</CardTitle>
-                        <CardDescription className="text-slate-500">Last 10 critical and warning-level events.</CardDescription>
+                <Card className="bg-white border border-slate-200 shadow-sm">
+                    <CardHeader className="py-2 px-4">
+                        <CardTitle className="text-sm font-semibold text-slate-700">Recent Security Events</CardTitle>
+                        <CardDescription className="text-[10px] text-slate-400">Last 10 critical and warning-level events.</CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="px-4 pb-3 pt-0">
                         {securityEvents.length === 0 ? (
-                            <div className="flex items-center gap-2 text-emerald-400 text-sm py-4">
+                            <div className="flex items-center gap-2 text-emerald-600 text-xs py-3">
                                 <CheckCircle className="w-4 h-4" /> No recent security events.
                             </div>
                         ) : (
-                            <ul className="space-y-2">
+                            <ul className="space-y-1">
                                 {securityEvents.map((e, i) => (
-                                    <li key={i} className="flex items-start justify-between gap-2 py-1.5 border-b border-slate-800 last:border-0">
+                                    <li key={i} className="flex items-start justify-between gap-2 py-1.5 border-b border-slate-100 last:border-0">
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <Badge variant={severityColor(e.severity)} className="text-xs shrink-0">{e.severity}</Badge>
-                                                <span className="text-xs font-mono text-slate-200 truncate">{e.action}</span>
+                                                <span className="text-xs font-mono text-slate-700 truncate">{e.action}</span>
                                             </div>
                                             <p className="text-xs text-slate-500 mt-0.5 truncate">{e.resource_affected}</p>
-                                            <p className="text-xs text-slate-600">{e.username || 'System'} &bull; {e.ip_address || 'N/A'}</p>
+                                            <p className="text-xs text-slate-400">{e.username || 'System'} &bull; {e.ip_address || 'N/A'}</p>
                                         </div>
-                                        <span className="text-xs text-slate-600 shrink-0">{new Date(e.timestamp).toLocaleTimeString()}</span>
+                                        <span className="text-xs text-slate-400 shrink-0">{new Date(e.timestamp).toLocaleTimeString()}</span>
                                     </li>
                                 ))}
                             </ul>
@@ -206,28 +206,28 @@ export default function CommandCenter() {
                 </Card>
 
                 {/* Locked/Suspended Accounts */}
-                <Card className="bg-slate-900 border-slate-800">
-                    <CardHeader>
-                        <CardTitle className="text-white text-base">Locked &amp; Suspended Accounts</CardTitle>
-                        <CardDescription className="text-slate-500">Accounts requiring administrative review.</CardDescription>
+                <Card className="bg-white border border-slate-200 shadow-sm">
+                    <CardHeader className="py-2 px-4">
+                        <CardTitle className="text-sm font-semibold text-slate-700">Locked &amp; Suspended Accounts</CardTitle>
+                        <CardDescription className="text-[10px] text-slate-400">Accounts requiring administrative review.</CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="px-4 pb-3 pt-0">
                         {lockedAccounts.length === 0 ? (
-                            <div className="flex items-center gap-2 text-emerald-400 text-sm py-4">
+                            <div className="flex items-center gap-2 text-emerald-600 text-xs py-3">
                                 <CheckCircle className="w-4 h-4" /> All accounts are in good standing.
                             </div>
                         ) : (
-                            <ul className="space-y-2">
+                            <ul className="space-y-1">
                                 {lockedAccounts.map((acc) => (
-                                    <li key={acc.user_id} className="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
+                                    <li key={acc.user_id} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
                                         <div>
-                                            <p className="text-sm font-medium text-slate-200">{acc.username}</p>
+                                            <p className="text-sm font-medium text-slate-700">{acc.username}</p>
                                             <p className="text-xs text-slate-500">{acc.email} &bull; <span className="capitalize">{acc.role.replace('_', ' ')}</span></p>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <Badge variant="destructive" className="text-xs">{acc.account_status}</Badge>
                                             <Button variant="ghost" size="sm" onClick={() => handleUnlockUser(acc.user_id)}
-                                                className="text-xs text-emerald-400 hover:text-emerald-300 h-7">
+                                                className="text-xs text-emerald-600 hover:text-emerald-700 h-7">
                                                 Unlock
                                             </Button>
                                         </div>
@@ -240,23 +240,23 @@ export default function CommandCenter() {
             </div>
 
             {/* Zone C: Emergency Response */}
-            <Card className="bg-slate-900 border-red-900 border">
-                <CardHeader>
-                    <CardTitle className="text-white flex items-center gap-2">
-                        <ShieldOff className="w-5 h-5 text-red-500" />
+            <Card className="bg-white border border-red-200 shadow-sm">
+                <CardHeader className="py-2 px-4">
+                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <ShieldOff className="w-4 h-4 text-red-500" />
                         Emergency Response Controls
                     </CardTitle>
-                    <CardDescription className="text-slate-400">
+                    <CardDescription className="text-[10px] text-slate-400">
                         These actions take effect immediately across all facilities. All events are logged as CRITICAL severity.
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between p-4 rounded-lg bg-slate-800 border border-slate-700">
+                <CardContent className="px-4 pb-3 pt-0 space-y-2">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100">
                         <div>
-                            <p className="text-sm font-semibold text-white">
+                            <p className="text-sm font-semibold text-slate-700">
                                 {maintenanceMode ? 'Global Lockdown is ACTIVE' : 'Global Lockdown'}
                             </p>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-slate-500">
                                 {maintenanceMode
                                     ? 'All non-admin users are locked out. Disable to restore access.'
                                     : 'Immediately locks all caregiver and facility admin accounts and revokes all active sessions.'}
@@ -264,20 +264,21 @@ export default function CommandCenter() {
                         </div>
                         <Button
                             variant={maintenanceMode ? 'outline' : 'destructive'}
+                            size="sm"
                             onClick={() => setShowLockdownDialog(true)}
-                            className={maintenanceMode ? 'border-emerald-700 text-emerald-400 hover:bg-emerald-900/20' : ''}
+                            className={maintenanceMode ? 'border-emerald-400 text-emerald-700 hover:bg-emerald-50' : ''}
                         >
                             <Lock className="w-4 h-4 mr-2" />
                             {maintenanceMode ? 'Disable Lockdown' : 'Enable Global Lockdown'}
                         </Button>
                     </div>
 
-                    <div className="flex items-center justify-between p-4 rounded-lg bg-slate-800 border border-slate-700">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
                         <div>
-                            <p className="text-sm font-semibold text-white">System Backup</p>
-                            <p className="text-xs text-slate-400">Download a full JSON snapshot of all critical database tables.</p>
+                            <p className="text-sm font-semibold text-slate-700">System Backup</p>
+                            <p className="text-xs text-slate-500">Download a full JSON snapshot of all critical database tables.</p>
                         </div>
-                        <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700" asChild>
+                        <Button variant="outline" size="sm" className="border-slate-300 text-slate-600 hover:bg-slate-100" asChild>
                             <a href={`http://localhost:3000/api/sysadmin/backup`}
                                 onClick={() => toast.info('Backup download started.')}
                                 target="_blank" rel="noreferrer">
@@ -288,7 +289,7 @@ export default function CommandCenter() {
                 </CardContent>
             </Card>
 
-            {/* Lockdown Confirmation Dialog */}
+            {/* Lockdown Confirmation Dialog — kept dark for visual severity */}
             {showLockdownDialog && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
                     <div className="bg-slate-900 border border-red-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">

@@ -15,49 +15,43 @@ export default function SysAdminLayout() {
             if (!user) {
                 navigate('/login');
             } else if (user.role !== 'system_admin' && user.role !== 'admin') {
-                // Non-system-admins are redirected to their own dashboard
                 navigate('/dashboard');
             }
         }
     }, [user, isLoading, navigate]);
 
-    if (isLoading || !user || (user.role !== 'system_admin' && user.role !== 'admin')) return null;
+    // [OWASP A01] Only block rendering once we are certain the user is unauthorized.
+    // Do NOT return null during isLoading — this causes a blank flash on sub-route navigation.
+    if (!isLoading && (!user || (user.role !== 'system_admin' && user.role !== 'admin'))) return null;
+    if (!user) return null; // No user at all (pre-auth), prevent rendering with undefined user.name
 
     return (
-        <div className="min-h-screen bg-slate-950">
+        <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#F8FAFC' }}>
             <SysAdminSidebar />
 
-            <div className="ml-60 transition-all duration-300">
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
                 {/* Header */}
-                <header
-                    className="sticky top-0 z-40 px-6 py-4 border-b border-slate-800"
-                    style={{ backgroundColor: '#0F172A' }}
-                >
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-xl font-bold text-white">System Administration</h2>
-                            <p className="text-xs text-slate-400">CISO / IT Operations Console — Authorized Personnel Only</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            {/* System status pill */}
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-800">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                System Operational
-                            </div>
-                            {/* User badge */}
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700">
-                                <ShieldCheck className="w-4 h-4 text-teal-400" />
-                                <span className="text-sm font-medium text-slate-200">
-                                    {user.name || user.username || 'System Admin'}
-                                </span>
-                                <span className="text-xs text-teal-400 font-mono">SYSADMIN</span>
-                            </div>
+                <header className="bg-white border-b border-slate-200 flex-shrink-0 px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-lg font-bold text-teal-900 tracking-tight">System Administration</h2>
+                        <p className="text-[10px] text-slate-500 font-medium">CISO / IT Operations Console — Authorized Personnel Only</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {/* User badge */}
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200">
+                            <ShieldCheck className="w-4 h-4 text-teal-600" />
+                            <span className="text-sm font-medium text-slate-700">
+                                {user.name || user.username || 'System Admin'}
+                            </span>
+                            <span className="text-xs text-teal-600 font-mono">SYSADMIN</span>
                         </div>
                     </div>
                 </header>
 
-                <main className="p-6">
-                    <Outlet />
+                <main className="flex-1 overflow-y-auto p-4 scroll-smooth">
+                    <div className="w-full h-full pb-10">
+                        <Outlet />
+                    </div>
                 </main>
             </div>
 

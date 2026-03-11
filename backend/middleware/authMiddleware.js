@@ -222,5 +222,70 @@ const checkIpBan = async (req, res, next) => {
     }
 };
 
+// [OWASP A01] Flexible Role Middleware
+const requireRole = (allowedRoles) => {
+    return (req, res, next) => {
+        if (!req.user || !req.user.role) {
+            return res.status(401).json({ success: false, message: 'Access Denied: Identity Unknown' });
+        }
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({ success: false, message: 'Access Forbidden: Insufficient Role' });
+        }
+        next();
+    };
+};
+
+// [OWASP A01] Database-driven Permission Middleware (HIPAA Minimum Necessary)
+const requirePermission = (moduleId) => {
+    return async (req, res, next) => {
+        if (!req.user || !req.user.id || !req.user.role) {
+            return res.status(401).json({ success: false, message: 'Access Denied: Identity Unknown' });
+        }
+        
+        try {
+            // Check for user-specific override first
+            const overrideQuery = await pool.query(
+                'SELECT is_granted FROM user_permission_overrides WHERE user_id = $1 AND module_id = $2',
+                [req.user.id, moduleId]
+            );
+            
+            if (overrideQuery.rows.length > 0) {
+                if (overrideQuery.rows[0].is_granted) {
+                    return next();
+                } else {
+                    return res.status(403).json({ success: false, message: `Access Forbidden: Required permission '${moduleId}' denied by override.` });
+                }
+            }
+            
+            // System Admins inherently have all permissions or bypass
+            if (req.user.role === 'system_admin' || req.user.role === 'admin' || req.user.role === 'sysadmin') {
+                 return next();
+            }
+
+            // Check role-based permissions
+            const roleQuery = await pool.query(
+                'SELECT is_enabled FROM role_permissions WHERE role = $1 AND module_id = $2',
+                [req.user.role, moduleId]
+            );
+            
+            if (roleQuery.rows.length > 0 && roleQuery.rows[0].is_enabled) {
+                return next();
+            }
+            
+            // [OWASP A09] Log failed authorization attempt
+            await pool.query(
+                `INSERT INTO access_logs (user_id, action, status, severity, resource_affected, ip_address)
+                 VALUES ($1, 'UNAUTHORIZED_ACCESS', 'FAILURE', 'WARNING', $2, $3)`,
+                [req.user.id, `Module: ${moduleId}`, req.ip || req.connection.remoteAddress]
+            ).catch(err => console.error('Failed to log unauthorized access:', err));
+
+            return res.status(403).json({ success: false, message: `Access Forbidden: Required permission '${moduleId}' not granted.` });
+        } catch (err) {
+            console.error('RBAC Permission Check Error:', err);
+            return res.status(500).json({ success: false, message: 'Server Error during Authorization check' });
+        }
+    };
+};
+
 // [OWASP A01] Export all middleware
-module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan };
+module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan, requireRole, requirePermission };

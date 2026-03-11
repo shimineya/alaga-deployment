@@ -35,7 +35,15 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 
-export const CaregiverDashboardNew: React.FC = () => {
+interface CaregiverDashboardProps {
+  initialTab?: string;
+  hideNavigation?: boolean;
+}
+
+export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
+  initialTab = 'dashboard',
+  hideNavigation = false
+}) => {
   const { user, logout, token } = useAuth();
 
   // --- State ---
@@ -45,7 +53,11 @@ export const CaregiverDashboardNew: React.FC = () => {
   const [profileInitialTab, setProfileInitialTab] = useState<string>('overview');
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
-  const [activeNavItem, setActiveNavItem] = useState('dashboard');
+  const [activeNavItem, setActiveNavItem] = useState(initialTab);
+
+  useEffect(() => {
+    setActiveNavItem(initialTab);
+  }, [initialTab]);
   const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -464,37 +476,41 @@ export const CaregiverDashboardNew: React.FC = () => {
 
   return (
     <CaregiverLanguageProvider>
-    <div className="flex h-screen overflow-hidden bg-slate-50/50">
-      <DashboardSidebar
-        activeItem={activeNavItem}
-        onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
-        userRole="caregiver"
-      />
+      <div className="flex h-screen bg-slate-50/50">
+        {!hideNavigation && (
+          <DashboardSidebar
+            activeItem={activeNavItem}
+            onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
+            userRole="caregiver"
+          />
+        )}
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <header className="bg-white border-b border-slate-200 flex-shrink-0 px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-teal-900 tracking-tight">Dashboard</h2>
-            <p className="text-[10px] text-slate-500 font-medium">Welcome back, {user?.name || 'Caregiver'}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <NotificationPanel alerts={alerts} onAcknowledge={handleAcknowledgeAlert} onMarkAllRead={handleMarkAllRead} patientNames={patientNamesMap} />
-            <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-xs">
-              {user?.name?.[0] || 'C'}
+        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+          {!hideNavigation && (
+            <header className="bg-white border-b border-slate-200 flex-shrink-0 px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-teal-900 tracking-tight">Dashboard</h2>
+                <p className="text-[10px] text-slate-500 font-medium">Welcome back, {user?.name || 'Caregiver'}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <NotificationPanel alerts={alerts} onAcknowledge={handleAcknowledgeAlert} onMarkAllRead={handleMarkAllRead} patientNames={patientNamesMap} />
+                <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-xs">
+                  {user?.name?.[0] || 'C'}
+                </div>
+                <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8 text-slate-400 hover:text-red-500">
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </div>
+            </header>
+          )}
+
+          <main className={`flex-1 overflow-y-auto p-4 scroll-smooth ${hideNavigation ? 'h-full' : ''}`}>
+            <div className="w-full h-full pb-10">
+              {renderContent()}
             </div>
-            <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8 text-slate-400 hover:text-red-500">
-              <LogOut className="w-4 h-4" />
-            </Button>
-          </div>
-        </header>
-
-        <main className="flex-1 overflow-y-auto p-4 scroll-smooth">
-          <div className="w-full h-full pb-10">
-            {renderContent()}
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
-    </div>
     </CaregiverLanguageProvider>
   );
 };

@@ -18,7 +18,12 @@ import {
     Bell,
     Activity,
     Settings,
-    ClipboardList
+    ClipboardList,
+    PlusCircle,
+    Smartphone,
+    TrendingUp,
+    Droplets,
+    FileSpreadsheet
 } from 'lucide-react';
 
 const zoneANav = [
@@ -31,6 +36,7 @@ const zoneANav = [
     },
     { title: 'Forensic Audit Trails', url: '/sysadmin/command-center/audit', icon: FileSearch },
     { title: 'Firmware OTA Updates', url: '/sysadmin/command-center/firmware-ota', icon: Cpu },
+    { title: 'Diagnostics and Logs', url: '/sysadmin/facility/diagnostics', icon: Activity },
 ];
 
 const zoneBNav = [
@@ -59,11 +65,6 @@ const zoneBNav = [
         url: '/sysadmin/facility/security',
         icon: ShieldCheck,
     },
-    {
-        title: 'Diagnostics and Logs',
-        url: '/sysadmin/facility/diagnostics',
-        icon: Activity,
-    },
 ];
 
 export function SysAdminSidebar() {
@@ -75,9 +76,13 @@ export function SysAdminSidebar() {
     const [isZoneBOpen, setIsZoneBOpen] = useState(true);
     const [isStaffOpen, setIsStaffOpen] = useState(false);
     const [isPatientOpen, setIsPatientOpen] = useState(false);
+    const [isPatientMenuOpen, setIsPatientMenuOpen] = useState(false);
+    const [isDeviceMenuOpen, setIsDeviceMenuOpen] = useState(false);
+    const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false);
     const [showBreakGlass, setShowBreakGlass] = useState(false);
     const [breakGlassTarget, setBreakGlassTarget] = useState<string | null>(null);
     const [justificationCode, setJustificationCode] = useState('');
+    const [hasJustified, setHasJustified] = useState(false);
 
     const phiNavLinkClasses =
         'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ' +
@@ -94,12 +99,20 @@ export function SysAdminSidebar() {
         setShowBreakGlass(true);
     };
 
+    const handlePhiClick = (e: React.MouseEvent, url: string) => {
+        if (!hasJustified) {
+            e.preventDefault();
+            openBreakGlass(url);
+        }
+    };
+
     const handleAcknowledge = () => {
         if (!breakGlassTarget) return;
         if (!justificationCode.trim()) {
             return;
         }
         const target = breakGlassTarget;
+        setHasJustified(true);
         setShowBreakGlass(false);
         setJustificationCode('');
         setBreakGlassTarget(null);
@@ -147,11 +160,10 @@ export function SysAdminSidebar() {
                                     <li key={item.title}>
                                         <Link
                                             to={item.url}
-                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${
-                                                isActive
-                                                    ? 'text-white bg-slate-800/80'
-                                                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                            }`}
+                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${isActive
+                                                ? 'text-white bg-slate-800/80'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                                }`}
                                         >
                                             {isActive && (
                                                 <div
@@ -191,11 +203,10 @@ export function SysAdminSidebar() {
                                     <li key={item.title}>
                                         <Link
                                             to={item.url}
-                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${
-                                                isActive
-                                                    ? 'text-white bg-slate-800/80'
-                                                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                            }`}
+                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${isActive
+                                                ? 'text-white bg-slate-800/80'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                                }`}
                                         >
                                             {isActive && (
                                                 <div
@@ -220,11 +231,10 @@ export function SysAdminSidebar() {
                                     <li key={item.title}>
                                         <Link
                                             to={item.url}
-                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${
-                                                isActive
-                                                    ? 'text-white bg-slate-800/80'
-                                                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                            }`}
+                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${isActive
+                                                ? 'text-white bg-slate-800/80'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                                }`}
                                         >
                                             {isActive && (
                                                 <div
@@ -262,11 +272,10 @@ export function SysAdminSidebar() {
                                         <li>
                                             <Link
                                                 to="/sysadmin/facility/staff"
-                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all duration-200 relative ${
-                                                    location.pathname === '/sysadmin/facility/staff'
-                                                        ? 'text-white bg-slate-800/80'
-                                                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                                }`}
+                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all duration-200 relative ${location.pathname === '/sysadmin/facility/staff'
+                                                    ? 'text-white bg-slate-800/80'
+                                                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                                    }`}
                                             >
                                                 <Users className="w-3.5 h-3.5 flex-shrink-0" />
                                                 <span>Staff List &amp; Invitations</span>
@@ -275,11 +284,10 @@ export function SysAdminSidebar() {
                                         <li>
                                             <Link
                                                 to="/sysadmin/facility/staff/assignments"
-                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all duration-200 relative ${
-                                                    location.pathname === '/sysadmin/facility/staff/assignments'
-                                                        ? 'text-white bg-slate-800/80'
-                                                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                                }`}
+                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all duration-200 relative ${location.pathname === '/sysadmin/facility/staff/assignments'
+                                                    ? 'text-white bg-slate-800/80'
+                                                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                                    }`}
                                             >
                                                 <ClipboardList className="w-3.5 h-3.5 flex-shrink-0" />
                                                 <span>Patient Caregiver Assignment</span>
@@ -296,11 +304,10 @@ export function SysAdminSidebar() {
                                     <li key={item.title}>
                                         <Link
                                             to={item.url}
-                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${
-                                                isActive
-                                                    ? 'text-white bg-slate-800/80'
-                                                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                            }`}
+                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition-all duration-200 relative ${isActive
+                                                ? 'text-white bg-slate-800/80'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                                }`}
                                         >
                                             {isActive && (
                                                 <div
@@ -342,10 +349,7 @@ export function SysAdminSidebar() {
                             <li>
                                 <NavLink
                                     to="/sysadmin/caregiver/dashboard"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/dashboard');
-                                    }}
+                                    onClick={(e) => handlePhiClick(e, '/sysadmin/caregiver/dashboard')}
                                     className={({ isActive }) =>
                                         `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
                                     }
@@ -355,42 +359,118 @@ export function SysAdminSidebar() {
                                 </NavLink>
                             </li>
                             <li>
-                                <NavLink
-                                    to="/sysadmin/caregiver/patients"
+                                <button
+                                    type="button"
                                     onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/patients');
+                                        if (!hasJustified) {
+                                            e.preventDefault();
+                                            openBreakGlass('/sysadmin/caregiver/patients');
+                                            return;
+                                        }
+                                        setIsPatientMenuOpen((prev) => !prev);
                                     }}
-                                    className={({ isActive }) =>
-                                        `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
-                                    }
+                                    className={`${phiNavLinkClasses} justify-between ${isPatientMenuOpen ? 'ring-2 ring-amber-400/80' : ''}`}
                                 >
-                                    <HeartPulse className="w-4 h-4 flex-shrink-0 text-amber-300" />
-                                    <span>Patient Management / My Patients</span>
-                                </NavLink>
+                                    <div className="flex items-center gap-3">
+                                        <HeartPulse className="w-4 h-4 flex-shrink-0 text-amber-300" />
+                                        <span>Patient Management</span>
+                                    </div>
+                                    <span className="text-[10px] text-red-300 font-mono">
+                                        {isPatientMenuOpen ? 'HIDE' : 'SHOW'}
+                                    </span>
+                                </button>
+                                {isPatientMenuOpen && hasJustified && (
+                                    <ul className="mt-1 space-y-0.5 pl-4">
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/patients"
+                                                end
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <Users className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Patient List</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/patients/add"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <UserPlus className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Add Patient</span>
+                                            </NavLink>
+                                        </li>
+                                    </ul>
+                                )}
                             </li>
                             <li>
-                                <NavLink
-                                    to="/sysadmin/caregiver/devices"
+                                <button
+                                    type="button"
                                     onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/devices');
+                                        if (!hasJustified) {
+                                            e.preventDefault();
+                                            openBreakGlass('/sysadmin/caregiver/devices');
+                                            return;
+                                        }
+                                        setIsDeviceMenuOpen((prev) => !prev);
                                     }}
-                                    className={({ isActive }) =>
-                                        `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
-                                    }
+                                    className={`${phiNavLinkClasses} justify-between ${isDeviceMenuOpen ? 'ring-2 ring-amber-400/80' : ''}`}
                                 >
-                                    <Activity className="w-4 h-4 flex-shrink-0 text-amber-300" />
-                                    <span>Device Management / My Devices</span>
-                                </NavLink>
+                                    <div className="flex items-center gap-3">
+                                        <Activity className="w-4 h-4 flex-shrink-0 text-amber-300" />
+                                        <span>Device Management</span>
+                                    </div>
+                                    <span className="text-[10px] text-red-300 font-mono">
+                                        {isDeviceMenuOpen ? 'HIDE' : 'SHOW'}
+                                    </span>
+                                </button>
+                                {isDeviceMenuOpen && hasJustified && (
+                                    <ul className="mt-1 space-y-0.5 pl-4">
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/devices/add"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <PlusCircle className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Add New Device</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/devices"
+                                                end
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <Smartphone className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>My Devices</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/command-center/firmware-ota"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <Cpu className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Firmware OTA Updates</span>
+                                            </NavLink>
+                                        </li>
+                                    </ul>
+                                )}
                             </li>
                             <li>
                                 <NavLink
                                     to="/sysadmin/caregiver/alerts"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/alerts');
-                                    }}
+                                    onClick={(e) => handlePhiClick(e, '/sysadmin/caregiver/alerts')}
                                     className={({ isActive }) =>
                                         `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
                                     }
@@ -400,27 +480,90 @@ export function SysAdminSidebar() {
                                 </NavLink>
                             </li>
                             <li>
-                                <NavLink
-                                    to="/sysadmin/caregiver/reports"
+                                <button
+                                    type="button"
                                     onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/reports');
+                                        if (!hasJustified) {
+                                            e.preventDefault();
+                                            openBreakGlass('/sysadmin/caregiver/reports/daily');
+                                            return;
+                                        }
+                                        setIsReportsMenuOpen((prev) => !prev);
                                     }}
-                                    className={({ isActive }) =>
-                                        `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
-                                    }
+                                    className={`${phiNavLinkClasses} justify-between ${isReportsMenuOpen ? 'ring-2 ring-amber-400/80' : ''}`}
                                 >
-                                    <FileText className="w-4 h-4 flex-shrink-0 text-amber-300" />
-                                    <span>Patient Care Reports</span>
-                                </NavLink>
+                                    <div className="flex items-center gap-3">
+                                        <FileText className="w-4 h-4 flex-shrink-0 text-amber-300" />
+                                        <span>Patient Care Reports</span>
+                                    </div>
+                                    <span className="text-[10px] text-red-300 font-mono">
+                                        {isReportsMenuOpen ? 'HIDE' : 'SHOW'}
+                                    </span>
+                                </button>
+                                {isReportsMenuOpen && hasJustified && (
+                                    <ul className="mt-1 space-y-0.5 pl-4">
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/reports/daily"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <FileText className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Daily Health Summary</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/reports/anomaly"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <Activity className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Anomaly Log</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/reports/moisture"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <Droplets className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Moisture &amp; Hygiene Tracker</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/reports/trend"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <TrendingUp className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Weekly Trend Analysis</span>
+                                            </NavLink>
+                                        </li>
+                                        <li>
+                                            <NavLink
+                                                to="/sysadmin/caregiver/reports/exportable"
+                                                className={({ isActive }) =>
+                                                    `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
+                                                }
+                                            >
+                                                <FileSpreadsheet className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+                                                <span>Exportable Health Report</span>
+                                            </NavLink>
+                                        </li>
+                                    </ul>
+                                )}
                             </li>
                             <li>
                                 <NavLink
                                     to="/sysadmin/caregiver/calendar"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/calendar');
-                                    }}
+                                    onClick={(e) => handlePhiClick(e, '/sysadmin/caregiver/calendar')}
                                     className={({ isActive }) =>
                                         `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
                                     }
@@ -432,10 +575,7 @@ export function SysAdminSidebar() {
                             <li>
                                 <NavLink
                                     to="/sysadmin/caregiver/assignments"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/assignments');
-                                    }}
+                                    onClick={(e) => handlePhiClick(e, '/sysadmin/caregiver/assignments')}
                                     className={({ isActive }) =>
                                         `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
                                     }
@@ -447,10 +587,7 @@ export function SysAdminSidebar() {
                             <li>
                                 <NavLink
                                     to="/sysadmin/caregiver/settings"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        openBreakGlass('/sysadmin/caregiver/settings');
-                                    }}
+                                    onClick={(e) => handlePhiClick(e, '/sysadmin/caregiver/settings')}
                                     className={({ isActive }) =>
                                         `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
                                     }

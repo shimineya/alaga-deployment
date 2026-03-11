@@ -212,6 +212,15 @@ CREATE TABLE IF NOT EXISTS public.system_configs
     CONSTRAINT system_configs_pkey PRIMARY KEY (config_key)
 );
 
+CREATE TABLE IF NOT EXISTS public.system_modules
+(
+    module_id character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    display_name character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    description text COLLATE pg_catalog."default",
+    category character varying(50) COLLATE pg_catalog."default" NOT NULL,
+    CONSTRAINT system_modules_pkey PRIMARY KEY (module_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.user_documents
 (
     document_id serial NOT NULL,
@@ -396,6 +405,13 @@ ALTER TABLE IF EXISTS public.reports
     REFERENCES public.users (user_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE NO ACTION;
+
+
+ALTER TABLE IF EXISTS public.role_permissions
+    ADD CONSTRAINT fk_role_permissions_module FOREIGN KEY (module_id)
+    REFERENCES public.system_modules (module_id) MATCH SIMPLE
+    ON UPDATE CASCADE
+    ON DELETE CASCADE;
 
 
 ALTER TABLE IF EXISTS public.role_permissions

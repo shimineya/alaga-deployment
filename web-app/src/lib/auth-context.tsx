@@ -8,6 +8,7 @@ interface User {
   // [OWASP A01] All five role tiers recognised by the backend
   role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver';
   account_status: string;
+  facility_id?: number | null;
 }
 
 interface AuthContextType {

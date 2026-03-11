@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { verifyToken, verifySuperAdmin } = require('../middleware/authMiddleware');
+const { verifyToken, requireRole, requirePermission } = require('../middleware/authMiddleware');
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
@@ -11,7 +11,7 @@ const fs = require('fs');
 // Apply security middleware to ALL routes in this file
 // [OWASP A01] Requires system_admin or legacy admin role
 router.use(verifyToken);
-router.use(verifySuperAdmin);
+router.use(requireRole(['sysadmin', 'system_admin']));
 
 // --- Multer for firmware uploads (strict .bin validation) ---
 const firmwareStorage = multer.diskStorage({
@@ -41,7 +41,7 @@ const firmwareUpload = multer({
 // MODULE A: COMMAND CENTER — GLOBAL INFRASTRUCTURE
 // Mandate: ISO 25010 Reliability & Observability
 // =================================================================
-router.get('/stats', async (req, res) => {
+router.get('/stats', requirePermission('dashboard_overview'), async (req, res) => {
     try {
         const [patientCount, alertCount, deviceCount, userCount, facilityCount] = await Promise.all([
             pool.query("SELECT COUNT(*) FROM patients WHERE is_archived = FALSE"),
@@ -69,7 +69,7 @@ router.get('/stats', async (req, res) => {
 });
 
 // Recent security events for the Command Center threat feed
-router.get('/security-events', async (req, res) => {
+router.get('/security-events', requirePermission('audit_logs'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT a.timestamp, a.action, a.severity, a.resource_affected,
@@ -87,7 +87,7 @@ router.get('/security-events', async (req, res) => {
 });
 
 // Locked and suspended accounts summary
-router.get('/locked-accounts', async (req, res) => {
+router.get('/locked-accounts', requirePermission('user_management'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT user_id, username, email, role, account_status, is_locked,
@@ -108,7 +108,7 @@ router.get('/locked-accounts', async (req, res) => {
 // =================================================================
 
 // Revoke a specific user's sessions instantly
-router.post('/kill-switch/revoke-user', async (req, res) => {
+router.post('/kill-switch/revoke-user', requirePermission('security_controls'), async (req, res) => {
     const { user_id, reason } = req.body;
     if (!user_id) return res.status(400).json({ success: false, message: 'user_id is required.' });
 
@@ -136,7 +136,7 @@ router.post('/kill-switch/revoke-user', async (req, res) => {
 });
 
 // Global Lockdown: Enable maintenance mode + lock all non-admin accounts
-router.post('/kill-switch/global-lockdown', async (req, res) => {
+router.post('/kill-switch/global-lockdown', requirePermission('security_controls'), async (req, res) => {
     const { enabled } = req.body;
     const client = await pool.connect();
     try {
@@ -200,7 +200,7 @@ router.post('/kill-switch/global-lockdown', async (req, res) => {
 // =================================================================
 
 // Get all users (all facilities, full visibility)
-router.get('/users', async (req, res) => {
+router.get('/users', requirePermission('user_management'), async (req, res) => {
     try {
         // [Privacy] password_hash excluded
         const result = await pool.query(
@@ -220,7 +220,7 @@ router.get('/users', async (req, res) => {
 });
 
 // Lock or unlock a user
-router.post('/users/:id/lock', async (req, res) => {
+router.post('/users/:id/lock', requirePermission('user_management'), async (req, res) => {
     const { id } = req.params;
     const { lock } = req.body;
     try {
@@ -240,7 +240,7 @@ router.post('/users/:id/lock', async (req, res) => {
 });
 
 // Update user profile and role
-router.put('/users/:id', async (req, res) => {
+router.put('/users/:id', requirePermission('user_management'), async (req, res) => {
     const { id } = req.params;
     const { username, email, role } = req.body;
     try {
@@ -264,7 +264,7 @@ router.put('/users/:id', async (req, res) => {
 });
 
 // Reset MFA for a user
-router.post('/users/:id/reset-mfa', async (req, res) => {
+router.post('/users/:id/reset-mfa', requirePermission('user_management'), async (req, res) => {
     const { id } = req.params;
     try {
         await pool.query(
@@ -288,7 +288,7 @@ router.post('/users/:id/reset-mfa', async (req, res) => {
 // =================================================================
 
 // Get all module permissions for a role
-router.get('/rbac/roles/:role', async (req, res) => {
+router.get('/rbac/roles/:role', requirePermission('rbac_management'), async (req, res) => {
     const { role } = req.params;
     try {
         const result = await pool.query(
@@ -302,7 +302,7 @@ router.get('/rbac/roles/:role', async (req, res) => {
 });
 
 // Bulk update module permissions for a role (replaces localStorage pattern)
-router.put('/rbac/roles/:role', async (req, res) => {
+router.put('/rbac/roles/:role', requirePermission('rbac_management'), async (req, res) => {
     const { role } = req.params;
     const { permissions } = req.body; // Array of { module_id, is_enabled }
 
@@ -339,7 +339,7 @@ router.put('/rbac/roles/:role', async (req, res) => {
 });
 
 // Get per-user permission overrides
-router.get('/rbac/users/:userId/overrides', async (req, res) => {
+router.get('/rbac/users/:userId/overrides', requirePermission('rbac_management'), async (req, res) => {
     const { userId } = req.params;
     try {
         const result = await pool.query(
@@ -353,7 +353,7 @@ router.get('/rbac/users/:userId/overrides', async (req, res) => {
 });
 
 // Set a per-user module override
-router.post('/rbac/users/:userId/overrides', async (req, res) => {
+router.post('/rbac/users/:userId/overrides', requirePermission('rbac_management'), async (req, res) => {
     const { userId } = req.params;
     const { module_id, is_granted, override_reason } = req.body;
 
@@ -381,7 +381,7 @@ router.post('/rbac/users/:userId/overrides', async (req, res) => {
 });
 
 // Remove a specific override
-router.delete('/rbac/users/:userId/overrides/:moduleId', async (req, res) => {
+router.delete('/rbac/users/:userId/overrides/:moduleId', requirePermission('rbac_management'), async (req, res) => {
     const { userId, moduleId } = req.params;
     try {
         await pool.query(
@@ -399,7 +399,7 @@ router.delete('/rbac/users/:userId/overrides/:moduleId', async (req, res) => {
 // Mandate: HIPAA § 164.312(b) — Full technical detail for CISO
 // =================================================================
 
-router.get('/audit-logs', async (req, res) => {
+router.get('/audit-logs', requirePermission('audit_logs'), async (req, res) => {
     const { severity, action, limit = 100 } = req.query;
     try {
         let query = `SELECT a.*, u.username, u.email
@@ -428,7 +428,7 @@ router.get('/audit-logs', async (req, res) => {
 });
 
 // Role change audit log
-router.get('/audit-logs/role-changes', async (req, res) => {
+router.get('/audit-logs/role-changes', requirePermission('audit_logs'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT a.timestamp, a.action, a.resource_affected,
@@ -446,7 +446,7 @@ router.get('/audit-logs/role-changes', async (req, res) => {
 });
 
 // Authentication failure log (brute force monitoring)
-router.get('/audit-logs/auth-failures', async (req, res) => {
+router.get('/audit-logs/auth-failures', requirePermission('audit_logs'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT a.timestamp, a.action, a.resource_affected,
@@ -463,7 +463,7 @@ router.get('/audit-logs/auth-failures', async (req, res) => {
 });
 
 // PDF export of audit logs
-router.get('/audit-logs/export', async (req, res) => {
+router.get('/audit-logs/export', requirePermission('audit_logs'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT a.timestamp, a.action, a.severity, a.ip_address,
@@ -518,7 +518,7 @@ router.get('/audit-logs/export', async (req, res) => {
 // =================================================================
 
 // Upload firmware file with SHA-256 checksum validation
-router.post('/firmware/upload', firmwareUpload.single('firmware_file'), async (req, res) => {
+router.post('/firmware/upload', requirePermission('device_management'), firmwareUpload.single('firmware_file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message: 'No firmware file uploaded.' });
     }
@@ -574,7 +574,7 @@ router.post('/firmware/upload', firmwareUpload.single('firmware_file'), async (r
 });
 
 // Get all firmware versions
-router.get('/firmware/versions', async (req, res) => {
+router.get('/firmware/versions', requirePermission('device_management'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT config_key, config_value, updated_at
@@ -598,7 +598,7 @@ router.get('/firmware/versions', async (req, res) => {
 // MODULE G: GLOBAL SECURITY POLICIES
 // Mandate: OWASP A07 (Auth Failures) — Enforce MFA, password policy
 // =================================================================
-router.post('/security/policies', async (req, res) => {
+router.post('/security/policies', requirePermission('security_controls'), async (req, res) => {
     const { password_rotation_days, mfa_required_roles, session_timeout_minutes } = req.body;
     try {
         const policies = {
@@ -627,7 +627,7 @@ router.post('/security/policies', async (req, res) => {
     }
 });
 
-router.get('/security/policies', async (req, res) => {
+router.get('/security/policies', requirePermission('security_controls'), async (req, res) => {
     try {
         const result = await pool.query(
             "SELECT config_value FROM system_configs WHERE config_key = 'global_security_policies'"
@@ -639,7 +639,7 @@ router.get('/security/policies', async (req, res) => {
 });
 
 // IP whitelist management
-router.get('/security/ip-whitelist', async (req, res) => {
+router.get('/security/ip-whitelist', requirePermission('security_controls'), async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM ip_blacklist ORDER BY banned_at DESC");
         res.json({ success: true, data: result.rows });
@@ -648,7 +648,7 @@ router.get('/security/ip-whitelist', async (req, res) => {
     }
 });
 
-router.post('/security/ip-ban', async (req, res) => {
+router.post('/security/ip-ban', requirePermission('security_controls'), async (req, res) => {
     const { ip, reason } = req.body;
     try {
         await pool.query(
@@ -661,7 +661,7 @@ router.post('/security/ip-ban', async (req, res) => {
     }
 });
 
-router.delete('/security/ip-ban/:id', async (req, res) => {
+router.delete('/security/ip-ban/:id', requirePermission('security_controls'), async (req, res) => {
     try {
         await pool.query("DELETE FROM ip_blacklist WHERE id = $1", [req.params.id]);
         res.json({ success: true, message: 'IP unbanned.' });
@@ -674,7 +674,7 @@ router.delete('/security/ip-ban/:id', async (req, res) => {
 // MODULE H: SYSTEM BACKUP & MAINTENANCE
 // Mandate: ISO 25010 Recoverability
 // =================================================================
-router.get('/backup', async (req, res) => {
+router.get('/backup', requirePermission('system_maintenance'), async (req, res) => {
     try {
         const [users, patients, devices, logs, configs] = await Promise.all([
             pool.query('SELECT user_id, username, email, role, facility_id, account_status, created_at FROM users'),
@@ -699,7 +699,7 @@ router.get('/backup', async (req, res) => {
     }
 });
 
-router.post('/maintenance', async (req, res) => {
+router.post('/maintenance', requirePermission('system_maintenance'), async (req, res) => {
     const { enabled } = req.body;
     try {
         await pool.query(

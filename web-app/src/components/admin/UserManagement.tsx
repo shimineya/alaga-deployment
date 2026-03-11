@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RolePermissionModal from "./RolePermissionModal";
+import { useAuth } from "@/lib/auth-context";
 import {
     Table,
     TableBody,
@@ -42,9 +43,11 @@ interface User {
 }
 
 export default function UserManagement() {
+    const { user } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
+    const [selectedFacility, setSelectedFacility] = useState<string>("all");
 
     // Edit State
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -56,7 +59,16 @@ export default function UserManagement() {
     const fetchUsers = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/users`, {
+            let url = `${import.meta.env.VITE_API_URL || ''}/api/admin/users`;
+            
+            // [Security/DPA] Append facility_id to prevent cross-tenant data leakage (OWASP A01)
+            if (user?.role === 'facility_admin' && user?.facility_id) {
+                url += `?facility_id=${user.facility_id}`;
+            } else if ((user?.role === 'sysadmin' || user?.role === 'system_admin') && selectedFacility !== 'all') {
+                url += `?facility_id=${selectedFacility}`;
+            }
+
+            const res = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
@@ -70,8 +82,10 @@ export default function UserManagement() {
     };
 
     useEffect(() => {
-        fetchUsers();
-    }, []);
+        if (user) {
+            fetchUsers();
+        }
+    }, [user, selectedFacility]);
 
     // [Feature] Search Filtering
     useEffect(() => {
@@ -159,6 +173,28 @@ export default function UserManagement() {
                     <p className="text-muted-foreground">Manage roles and enforce security policies.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* [Feature] Facility Filter for System Admin */}
+                    {(user?.role === 'sysadmin' || user?.role === 'system_admin') && (
+                        <Select value={selectedFacility} onValueChange={setSelectedFacility}>
+                            <SelectTrigger className="w-48 bg-white border-slate-200" aria-label="Facility Filter">
+                                <SelectValue placeholder="Facility Filter" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Facilities</SelectItem>
+                                <SelectItem value="1">St. Luke's Medical Center</SelectItem>
+                                <SelectItem value="2">Makati Medical Center</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    )}
+
+                    {/* [Security] Visual lock for Facility Admin */}
+                    {user?.role === 'facility_admin' && (
+                        <div className="flex items-center text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-md border border-amber-200" title="You can only view and manage personnel within your assigned facility.">
+                            <Lock className="w-4 h-4 mr-2" />
+                            <span className="font-medium text-amber-800">Locked to Your Facility</span>
+                        </div>
+                    )}
+                    
                     <Button variant="outline" onClick={() => {
                         console.log("Clicked Manage Roles");
                         setIsPermModalOpen(true);

@@ -27,6 +27,13 @@ import GlobalSecurity from './components/sysadmin/GlobalSecurity';
 import FirmwareManagement from './components/sysadmin/FirmwareManagement';
 import ForensicAuditTrails from './components/sysadmin/ForensicAuditTrails';
 import SysAdminPatientCare from './components/sysadmin/SysAdminPatientCare';
+import CommandCenterDashboard from './components/sysadmin/CommandCenterDashboard';
+import GlobalTelemetry from './components/sysadmin/GlobalTelemetry';
+import GlobalSecuritySIEM from './components/sysadmin/GlobalSecuritySIEM';
+import FacilityTopologyBuilder from './components/sysadmin/FacilityTopologyBuilder';
+import FirmwareOTAUpdates from './components/sysadmin/FirmwareOTAUpdates';
+import UserLifecycleManagement from './components/sysadmin/UserLifecycleManagement';
+import FacilityComplianceControls from './components/sysadmin/FacilityComplianceControls';
 
 // [OWASP A01] Facility Admin (Ward Operations tier)
 import FacilityAdminLayout from './components/facility-admin/FacilityAdminLayout';
@@ -36,6 +43,9 @@ import PatientOnboarding from './components/facility-admin/PatientOnboarding';
 import AlertConfiguration from './components/facility-admin/AlertConfiguration';
 import ReadOnlyDiagnostics from './components/facility-admin/ReadOnlyDiagnostics';
 import PatientCaregiverAssignment from './components/facility-admin/PatientCaregiverAssignment';
+import { MyDevices } from './components/MyDevices';
+import { AssignmentTracker } from './components/AssignmentTracker';
+import { CaregiverSettings } from './components/CaregiverSettings';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -115,10 +125,51 @@ function AppContent() {
       {/* [OWASP A01] SYSTEM ADMIN ROUTE TREE — SysAdminLayout enforces system_admin or admin role */}
       <Route path="/sysadmin" element={<SysAdminLayout />}>
         <Route index element={<CommandCenter />} />
+        {/* Zone A — Command Center routes (SysAdminSidebar Zone A) */}
         <Route path="security" element={<GlobalSecurity />} />
         <Route path="firmware" element={<FirmwareManagement />} />
         <Route path="audit" element={<ForensicAuditTrails />} />
-        {/* PHI Zone routes (access gated by break-glass UX in SysAdminSidebar) */}
+        <Route path="command-center">
+          <Route index element={<CommandCenterDashboard />} />
+          <Route path="global-telemetry" element={<GlobalTelemetry />} />
+          <Route path="security" element={<GlobalSecuritySIEM />} />
+          <Route path="topology" element={<FacilityTopologyBuilder />} />
+          <Route path="audit" element={<ForensicAuditTrails />} />
+          <Route path="firmware-ota" element={<FirmwareOTAUpdates />} />
+        </Route>
+
+        {/* Zone B — Facility Administration routes (SysAdminSidebar Zone B) */}
+        <Route path="facility">
+          <Route path="dashboard" element={<FacilityDashboard />} />
+          <Route path="users" element={<UserLifecycleManagement />} />
+          <Route path="patient-onboarding" element={<PatientOnboarding />} />
+          <Route path="alerts" element={<AlertConfiguration />} />
+          <Route path="security" element={<FacilityComplianceControls />} />
+          <Route path="diagnostics" element={<ReadOnlyDiagnostics />} />
+          <Route path="staff" element={<WardStaffManagement />} />
+          <Route path="staff/assignments" element={<PatientCaregiverAssignment />} />
+        </Route>
+
+        {/* Zone C — Caregiver Patient Care routes (SysAdminSidebar Zone C, break-glass protected) */}
+        <Route path="caregiver">
+          <Route path="dashboard" element={<CaregiverDashboardNew initialTab="dashboard" hideNavigation={true} />} />
+          <Route path="patients" element={<CaregiverDashboardNew initialTab="patient-list" hideNavigation={true} />} />
+          <Route path="patients/add" element={<CaregiverDashboardNew initialTab="add-patient" hideNavigation={true} />} />
+          <Route path="devices" element={<MyDevices />} />
+          <Route path="devices/add" element={<CaregiverDashboardNew initialTab="add-device" hideNavigation={true} />} />
+          <Route path="alerts" element={<CaregiverDashboardNew initialTab="dashboard" hideNavigation={true} />} />
+          <Route path="reports" element={<CaregiverDashboardNew initialTab="reports-daily-summary" hideNavigation={true} />} />
+          <Route path="reports/daily" element={<CaregiverDashboardNew initialTab="reports-daily-summary" hideNavigation={true} />} />
+          <Route path="reports/anomaly" element={<CaregiverDashboardNew initialTab="reports-anomaly-log" hideNavigation={true} />} />
+          <Route path="reports/moisture" element={<CaregiverDashboardNew initialTab="reports-moisture-hygiene" hideNavigation={true} />} />
+          <Route path="reports/trend" element={<CaregiverDashboardNew initialTab="reports-weekly-trends" hideNavigation={true} />} />
+          <Route path="reports/exportable" element={<CaregiverDashboardNew initialTab="reports-export" hideNavigation={true} />} />
+          <Route path="calendar" element={<CaregiverDashboardNew hideNavigation={true} />} />
+          <Route path="assignments" element={<AssignmentTracker />} />
+          <Route path="settings" element={<CaregiverSettings />} />
+        </Route>
+
+        {/* Legacy PHI Zone routes (kept for backward-compatibility) */}
         <Route path="phi">
           <Route path="devices" element={<SysAdminPatientCare />} />
           <Route path="calendar" element={<SysAdminPatientCare />} />

@@ -26,6 +26,7 @@ import CommandCenter from './components/sysadmin/CommandCenter';
 import GlobalSecurity from './components/sysadmin/GlobalSecurity';
 import FirmwareManagement from './components/sysadmin/FirmwareManagement';
 import ForensicAuditTrails from './components/sysadmin/ForensicAuditTrails';
+import SysAdminPatientCare from './components/sysadmin/SysAdminPatientCare';
 
 // [OWASP A01] Facility Admin (Ward Operations tier)
 import FacilityAdminLayout from './components/facility-admin/FacilityAdminLayout';
@@ -117,6 +118,13 @@ function AppContent() {
         <Route path="security" element={<GlobalSecurity />} />
         <Route path="firmware" element={<FirmwareManagement />} />
         <Route path="audit" element={<ForensicAuditTrails />} />
+        {/* PHI Zone routes (access gated by break-glass UX in SysAdminSidebar) */}
+        <Route path="phi">
+          <Route path="devices" element={<SysAdminPatientCare />} />
+          <Route path="calendar" element={<SysAdminPatientCare />} />
+          <Route path="reports" element={<SysAdminPatientCare />} />
+          <Route path="bulletin" element={<SysAdminPatientCare />} />
+        </Route>
       </Route>
 
       {/* [OWASP A01] FACILITY ADMIN ROUTE TREE — FacilityAdminLayout enforces facility_admin role + RLS */}

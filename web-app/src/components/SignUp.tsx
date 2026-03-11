@@ -51,7 +51,14 @@ export const SignUp: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...formData,
+          // [Fix] Map camelCase form fields to the snake_case keys expected by the backend
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          middle_initial: formData.middleInitial || null,
+          mobile_number: formData.mobileNumber || null,
+          email: formData.email,
+          username: formData.username,
+          password: formData.password,
           role: selectedRole
         })
       });

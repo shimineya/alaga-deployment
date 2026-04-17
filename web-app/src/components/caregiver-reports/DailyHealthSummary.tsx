@@ -38,12 +38,16 @@ export const DailyHealthSummary: React.FC<DailyHealthSummaryProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h3 className="text-sm font-semibold text-slate-700">Daily Health Summary</h3>
-        <ReportPatientPicker
-          patients={patients}
-          value={selectedPatientId}
-          onValueChange={onSelectPatient}
-          placeholder="Select patient"
-        />
+        {/* [data-report-picker] lets the ClinicalReportsShell hide this via CSS
+            when the shell is managing patient selection from its left panel. */}
+        <div data-report-picker>
+          <ReportPatientPicker
+            patients={patients}
+            value={selectedPatientId}
+            onValueChange={onSelectPatient}
+            placeholder="Select patient"
+          />
+        </div>
       </div>
 
       <p className="text-[11px] text-slate-500">

@@ -27,8 +27,9 @@ import {
 } from 'lucide-react';
 
 const zoneANav = [
-    { title: 'Global Telemetry', url: '/sysadmin/command-center/global-telemetry', icon: Globe },
-    { title: 'Global Security & SIEM', url: '/sysadmin/command-center/security', icon: ShieldCheck },
+    { title: 'Command Center Dashboard', url: '/sysadmin/command-center', icon: Globe },
+    { title: 'Global Security Monitoring', url: '/sysadmin/command-center/security', icon: ShieldCheck },
+    { title: 'Role and Access Management', url: '/sysadmin/facility/users', icon: Users },
     {
         title: 'Facility Topology Builder',
         url: '/sysadmin/command-center/topology',
@@ -44,11 +45,6 @@ const zoneBNav = [
         title: 'Ward Dashboard',
         url: '/sysadmin/facility/dashboard',
         icon: Building2,
-    },
-    {
-        title: 'User Management',
-        url: '/sysadmin/facility/users',
-        icon: Users,
     },
     {
         title: 'Patient Onboarding',
@@ -252,7 +248,7 @@ export function SysAdminSidebar() {
                                 );
                             })}
 
-                            {/* Staff Management dropdown */}
+                            {/* User Management dropdown */}
                             <li>
                                 <button
                                     type="button"
@@ -261,7 +257,7 @@ export function SysAdminSidebar() {
                                 >
                                     <span className="flex items-center gap-2">
                                         <Users className="w-4 h-4 flex-shrink-0" />
-                                        <span>Staff Management</span>
+                                        <span>User Management</span>
                                     </span>
                                     <span className="text-[10px] text-slate-400 font-mono">
                                         {isStaffOpen ? 'HIDE' : 'SHOW'}
@@ -278,7 +274,7 @@ export function SysAdminSidebar() {
                                                     }`}
                                             >
                                                 <Users className="w-3.5 h-3.5 flex-shrink-0" />
-                                                <span>Staff List &amp; Invitations</span>
+                                                <span>User List &amp; Invitations</span>
                                             </Link>
                                         </li>
                                         <li>

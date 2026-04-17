@@ -17,7 +17,8 @@ import {
   Layers,
   RefreshCw,
   Terminal,
-  TrendingUp
+  TrendingUp,
+  Bell
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { useAuth } from '../lib/auth-context';
@@ -43,6 +44,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, 
 
   const caregiverMenuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: t('Dashboard', 'Dashboard') },
+    { id: 'alerts-hub', icon: Bell, label: t('Alerts Hub', 'Alerts Hub') },
     { id: 'add-patient', icon: UserPlus, label: t('Add Patient', 'Magdagdag ng Pasyente') },
     { id: 'patient-list', icon: List, label: t('Patient List', 'Listahan ng Pasyente') },
     { id: 'assignment-tracker', icon: ClipboardList, label: t('Assignments', 'Mga Assignment') },

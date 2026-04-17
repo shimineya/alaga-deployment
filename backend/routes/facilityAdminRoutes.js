@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, verifyFacilityAdmin } = require('../middleware/authMiddleware');
+const bcrypt = require('bcryptjs');
 
 // Apply security middleware to ALL routes in this file
 // [OWASP A01] Every route requires a valid JWT + facility_admin role
@@ -13,7 +14,26 @@ router.use(verifyFacilityAdmin);
 // =================================================================
 router.get('/stats', async (req, res) => {
     const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override;
     try {
+        if (isSysAdmin) {
+            // [Omniscient View] System Admin: aggregate stats across ALL facilities
+            const [sensorStats, batteryWarnings, pendingStaff] = await Promise.all([
+                pool.query(`SELECT COUNT(*) FILTER (WHERE status = 'ACTIVE') AS online_count, COUNT(*) FILTER (WHERE status != 'ACTIVE') AS offline_count FROM device_whitelist`),
+                pool.query(`SELECT dw.serial_number, dw.device_name, dw.battery_level, p.first_name, p.last_name FROM device_whitelist dw JOIN patients p ON dw.assigned_patient_id = p.patient_id WHERE dw.battery_level IS NOT NULL AND dw.battery_level < 20 ORDER BY dw.battery_level ASC LIMIT 20`),
+                pool.query(`SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review'`)
+            ]);
+            return res.json({
+                success: true,
+                data: {
+                    online_sensors: parseInt(sensorStats.rows[0].online_count),
+                    offline_sensors: parseInt(sensorStats.rows[0].offline_count),
+                    battery_warnings: batteryWarnings.rows,
+                    pending_staff: parseInt(pendingStaff.rows[0].count)
+                }
+            });
+        }
+
         const [sensorStats, batteryWarnings, pendingStaff] = await Promise.all([
             // [RLS] Count sensors only for this facility's patients
             pool.query(
@@ -68,19 +88,33 @@ router.get('/stats', async (req, res) => {
 // Get all staff in this facility (with online/offline status)
 router.get('/staff', async (req, res) => {
     const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override;
     try {
-        // [Privacy] No password_hash returned
-        // [Activity] Derive online status from last_activity_at (within 5 minutes = online)
-        const result = await pool.query(
-            `SELECT user_id, username, email, role, account_status, is_locked,
-                    to_char(created_at, 'YYYY-MM-DD') as joined_at,
-                    last_activity_at,
-                    CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
-             FROM users
-             WHERE facility_id = $1 AND role IN ('caregiver', 'medical_staff')
-             ORDER BY created_at DESC`,
-            [facilityId]
-        );
+        let result;
+        if (isSysAdmin) {
+            // [Omniscient View] System Admin sees ALL staff across all facilities
+            result = await pool.query(
+                `SELECT user_id, username, email, role, account_status, is_locked,
+                        to_char(created_at, 'YYYY-MM-DD') as joined_at,
+                        last_activity_at,
+                        CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
+                 FROM users
+                 WHERE role IN ('caregiver', 'medical_staff', 'facility_admin')
+                 ORDER BY created_at DESC`
+            );
+        } else {
+            // [Privacy] No password_hash returned
+            result = await pool.query(
+                `SELECT user_id, username, email, role, account_status, is_locked,
+                        to_char(created_at, 'YYYY-MM-DD') as joined_at,
+                        last_activity_at,
+                        CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
+                 FROM users
+                 WHERE facility_id = $1 AND role IN ('caregiver', 'medical_staff')
+                 ORDER BY created_at DESC`,
+                [facilityId]
+            );
+        }
         res.json({ success: true, data: result.rows });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to fetch staff list.' });
@@ -109,6 +143,176 @@ router.post('/staff/invite', async (req, res) => {
         res.json({ success: true, message: `Invitation logged for ${email}. Email delivery requires SMTP configuration by System Admin.` });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to process invitation.' });
+    }
+});
+
+// Securely provision new staff (replaces mock creation)
+// [OWASP A04] Uses bcryptjs with salt rounds >= 12
+router.post('/staff', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { username, email, role, password } = req.body;
+
+    const allowedRoles = ['caregiver', 'medical_staff'];
+    if (!allowedRoles.includes(role)) {
+        return res.status(400).json({ success: false, message: 'Invalid role. Facilities can only create Caregivers or Medical Staff.' });
+    }
+
+    if (!username || !email || !password) {
+        return res.status(400).json({ success: false, message: 'Username, email, and password are required.' });
+    }
+
+    try {
+        const salt = await bcrypt.genSalt(12);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const result = await pool.query(
+            `INSERT INTO users (username, email, password_hash, role, facility_id, account_status)
+             VALUES ($1, $2, $3, $4, $5, 'Active')
+             RETURNING user_id`,
+            [username, email, hashedPassword, role, facilityId]
+        );
+        const newUserId = result.rows[0].user_id;
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_PROVISIONED', $2, 'INFO')`,
+            [req.user.id, `Created ${role} (ID ${newUserId}) in Facility ${facilityId}`]
+        );
+
+        res.status(201).json({ success: true, message: 'Staff member provisioned successfully.', user_id: newUserId });
+    } catch (err) {
+        if (err.code === '23505') {
+            return res.status(400).json({ success: false, message: 'Username or email already exists.' });
+        }
+        res.status(500).json({ success: false, message: 'Failed to provision staff.' });
+    }
+});
+
+// Remove staff member from facility
+router.delete('/staff/:id', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const targetUserId = parseInt(req.params.id);
+
+    try {
+        const ownerCheck = await pool.query(
+            'SELECT user_id, username FROM users WHERE user_id = $1 AND facility_id = $2',
+            [targetUserId, facilityId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'User does not belong to your facility.' });
+        }
+
+        await pool.query('DELETE FROM users WHERE user_id = $1', [targetUserId]);
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_DELETED', $2, 'CRITICAL')`,
+            [req.user.id, `Deleted staff member: ${ownerCheck.rows[0].username} (ID ${targetUserId})`]
+        );
+
+        res.json({ success: true, message: 'Staff member removed successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to remove staff member.' });
+    }
+});
+
+// Get per-user permission overrides for facility staff
+router.get('/staff/:userId/overrides', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override;
+    const targetUserId = parseInt(req.params.userId);
+
+    try {
+        // [OWASP A01 / HIPAA Minimum Necessary] Facility admins may only view overrides
+        // for users within their own facility. SysAdmins have global read access.
+        if (!isSysAdmin) {
+            const ownerCheck = await pool.query(
+                'SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2',
+                [targetUserId, facilityId]
+            );
+            if (ownerCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Unauthorized: User does not belong to your facility.' });
+            }
+        }
+
+        const result = await pool.query(
+            'SELECT module_id, is_granted, override_reason, overridden_at FROM user_permission_overrides WHERE user_id = $1',
+            [targetUserId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch overrides.' });
+    }
+});
+
+// Set a per-user module override for facility staff
+router.post('/staff/:userId/overrides', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override;
+    const targetUserId = parseInt(req.params.userId);
+    const { module_id, is_granted, override_reason } = req.body;
+
+    if (!override_reason || override_reason.trim() === '') {
+        return res.status(400).json({ success: false, message: 'A reason is required for all permission overrides.' });
+    }
+
+    try {
+        // [OWASP A01] Facility admins are scoped to their own facility.
+        // SysAdmins bypass the facility ownership check — they manage overrides globally.
+        if (!isSysAdmin) {
+            const ownerCheck = await pool.query(
+                'SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2',
+                [targetUserId, facilityId]
+            );
+            if (ownerCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Unauthorized: User does not belong to your facility.' });
+            }
+        }
+
+        await pool.query(
+            `INSERT INTO user_permission_overrides (user_id, module_id, is_granted, override_reason, overridden_by)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id, module_id) DO UPDATE
+             SET is_granted = $3, override_reason = $4, overridden_by = $5, overridden_at = NOW()`,
+            [targetUserId, module_id, is_granted, override_reason, req.user.id]
+        );
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'FACILITY_RBAC_OVERRIDE_SET', $2, 'WARNING')`,
+            [req.user.id, `Override for User ${targetUserId}, module ${module_id}: ${is_granted ? 'GRANTED' : 'DENIED'}. Reason: ${override_reason}`]
+        );
+        res.json({ success: true, message: 'Permission override saved.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to save override.' });
+    }
+});
+
+// Remove a specific override
+router.delete('/staff/:userId/overrides/:moduleId', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override;
+    const targetUserId = parseInt(req.params.userId);
+    const { moduleId } = req.params;
+
+    try {
+        // [OWASP A01] SysAdmins bypass facility ownership check — they reset overrides globally.
+        if (!isSysAdmin) {
+            const ownerCheck = await pool.query(
+                'SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2',
+                [targetUserId, facilityId]
+            );
+            if (ownerCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Unauthorized: User does not belong to your facility.' });
+            }
+        }
+
+        await pool.query(
+            'DELETE FROM user_permission_overrides WHERE user_id = $1 AND module_id = $2',
+            [targetUserId, moduleId]
+        );
+        res.json({ success: true, message: 'Override removed. User will now follow role defaults.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to remove override.' });
     }
 });
 

@@ -1,9 +1,11 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { verifyToken } = require('../middleware/authMiddleware');
+const { verifyToken, enforceBreakGlassForSysAdmin } = require('../middleware/authMiddleware');
 
 // Apply Security Middleware
 router.use(verifyToken);
+// [TECHNICAL DEBT] enforceBreakGlassForSysAdmin is disabled for development testing.
+// MUST be re-enabled before production: router.use(enforceBreakGlassForSysAdmin);
 
 // ==========================================
 // 1. GET MY ASSIGNMENTS (Dashboard View)

@@ -134,7 +134,9 @@ const verifySuperAdmin = async (req, res, next) => {
 };
 
 // [OWASP A01] Facility Admin RBAC — ward-scoped privilege tier
-// Also enforces that the user has a facility_id assigned (Row-Level Security)
+// [System Admin Omniscient View] Also allows system_admin/admin to pass through.
+//   When a SysAdmin is the caller, req.user.facility_id is set to NULL so that
+//   downstream route handlers can branch to a global (unfiltered) query if needed.
 const verifyFacilityAdmin = async (req, res, next) => {
     if (!req.user || !req.user.id) {
         return res.status(403).json({ success: false, message: 'Access Forbidden: Identity Unknown' });
@@ -147,7 +149,20 @@ const verifyFacilityAdmin = async (req, res, next) => {
         );
 
         const row = result.rows[0];
-        if (!row || row.role !== 'facility_admin') {
+        if (!row) {
+            return res.status(403).json({ success: false, message: 'Access Forbidden: User not found' });
+        }
+
+        const isSysAdmin = row.role === 'system_admin' || row.role === 'admin' || row.role === 'sysadmin';
+
+        // [OWASP A01 / Omniscient View] System Admin is permitted in but scoped differently
+        if (isSysAdmin) {
+            req.user.facility_id = null; // null signals "all facilities" to route handlers
+            req.user.is_sys_admin_override = true;
+            return next();
+        }
+
+        if (row.role !== 'facility_admin') {
             await pool.query(
                 `INSERT INTO access_logs (user_id, action, status, severity, resource_affected, ip_address)
                  VALUES ($1, 'UNAUTHORIZED_ACCESS', 'FAILURE', 'WARNING', 'Facility Admin Panel', $2)`,
@@ -287,5 +302,24 @@ const requirePermission = (moduleId) => {
     };
 };
 
+// [OWASP A01 / HIPAA] Break-Glass Enforcement for System Admins
+const enforceBreakGlassForSysAdmin = (req, res, next) => {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Access Denied: Identity Unknown' });
+    
+    const { role, break_glass_active } = req.user;
+    
+    // If user is a System Admin, they MUST have an active Break-Glass session to proceed in this route
+    if (role === 'system_admin' || role === 'admin' || role === 'sysadmin') {
+        if (!break_glass_active) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Break-Glass verification required. System Administrators must provide a justification code to access Protected Health Information (PHI).' 
+            });
+        }
+    }
+    // All other medical/facility roles bypass this naturally
+    next();
+};
+
 // [OWASP A01] Export all middleware
-module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan, requireRole, requirePermission };
+module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan, requireRole, requirePermission, enforceBreakGlassForSysAdmin };

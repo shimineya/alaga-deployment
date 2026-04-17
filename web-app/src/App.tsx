@@ -6,50 +6,32 @@ import { LoginEmailVerification } from './components/LoginEmailVerification';
 import { SignUp } from './components/SignUp';
 import { UserTypeSelection } from './components/UserTypeSelection';
 import { EmailVerification } from './components/EmailVerification';
-import { CaregiverDashboardNew } from './components/CaregiverDashboardNew';
-import { MedicalStaffDashboard } from './components/MedicalStaffDashboard';
 import { Toaster } from './components/ui/sonner';
 
-// [Admin Module] Imports — Legacy admin module (backward compatible)
-import AdminLayout from './components/admin/AdminLayout';
-import ComplianceHub from './components/admin/ComplianceHub';
-import DeviceGovernance from './components/admin/DeviceGovernance';
-import SystemOverview from './components/admin/SystemOverview';
-import UserManagement from './components/admin/UserManagement';
-import SystemSettings from './components/admin/SystemSettings';
-import InventoryManagement from './components/admin/InventoryManagement';
-import SecurityControls from './components/admin/SecurityControls';
+// [OWASP A01] Unified Layout — single source of truth for authenticated navigation
+import MainLayout from './components/layout/MainLayout';
 
-// [OWASP A01] System Admin (CISO / IT Operations tier)
-import SysAdminLayout from './components/sysadmin/SysAdminLayout';
-import CommandCenter from './components/sysadmin/CommandCenter';
-import GlobalSecurity from './components/sysadmin/GlobalSecurity';
-import FirmwareManagement from './components/sysadmin/FirmwareManagement';
-import ForensicAuditTrails from './components/sysadmin/ForensicAuditTrails';
-import SysAdminPatientCare from './components/sysadmin/SysAdminPatientCare';
-import CommandCenterDashboard from './components/sysadmin/CommandCenterDashboard';
-import GlobalTelemetry from './components/sysadmin/GlobalTelemetry';
-import GlobalSecuritySIEM from './components/sysadmin/GlobalSecuritySIEM';
-import FacilityTopologyBuilder from './components/sysadmin/FacilityTopologyBuilder';
-import FirmwareOTAUpdates from './components/sysadmin/FirmwareOTAUpdates';
-import UserLifecycleManagement from './components/sysadmin/UserLifecycleManagement';
-import FacilityComplianceControls from './components/sysadmin/FacilityComplianceControls';
+// [Hub Architecture] Centralized feature Hubs — each Hub owns its own RBAC tab logic
+import OverviewHub from './components/hubs/OverviewHub';
+import PatientRecordsHub from './components/hubs/PatientRecordsHub';
+import DeviceManagementHub from './components/hubs/DeviceManagementHub';
+import StaffManagementHub from './components/hubs/StaffManagementHub';
+import SecurityAccessHub from './components/hubs/SecurityAccessHub';
+import AlertsHub from './components/hubs/AlertsHub';
+import ReportsHub from './components/hubs/ReportsHub';
+import SettingsHub from './components/hubs/SettingsHub';
 
-// [OWASP A01] Facility Admin (Ward Operations tier)
-import FacilityAdminLayout from './components/facility-admin/FacilityAdminLayout';
-import FacilityDashboard from './components/facility-admin/FacilityDashboard';
-import WardStaffManagement from './components/facility-admin/WardStaffManagement';
-import PatientOnboarding from './components/facility-admin/PatientOnboarding';
-import AlertConfiguration from './components/facility-admin/AlertConfiguration';
-import ReadOnlyDiagnostics from './components/facility-admin/ReadOnlyDiagnostics';
-import PatientCaregiverAssignment from './components/facility-admin/PatientCaregiverAssignment';
-import { MyDevices } from './components/MyDevices';
-import { AssignmentTracker } from './components/AssignmentTracker';
-import { CaregiverSettings } from './components/CaregiverSettings';
-
-
+// [OWASP A01] Role-Based Route Guard
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
+        <div className="text-slate-500 text-sm animate-pulse">Loading session...</div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -61,27 +43,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { user, isAuthenticated } = useAuth();
 
-  // Helper to normalize role checking
-  const role = user?.role || '';
-  const isMedical = role === 'Medical Staff' || role === 'medical_staff';
-  const isCaregiver = role === 'Caregiver' || role === 'caregiver';
-  // [OWASP A01] Distinguish between the two admin tiers
-  const isSysAdmin = role === 'system_admin' || role === 'admin';
+  // [OWASP A01] Normalize role string for consistent comparison
+  const role = user?.role?.toLowerCase() || '';
+  const isSysAdmin = role === 'system_admin' || role === 'admin' || role === 'sysadmin';
   const isFacilityAdmin = role === 'facility_admin';
-  const isAdmin = isSysAdmin || isFacilityAdmin;
+  const isClinical = role === 'caregiver' || role === 'medical_staff';
+
+  // Determine the correct post-login redirect target
+  const defaultAuthRedirect = '/dashboard';
 
   return (
     <Routes>
-      {/* Public Routes */}
+      {/* ============================================================ */}
+      {/* PUBLIC ROUTES                                                 */}
+      {/* ============================================================ */}
       <Route
         path="/login"
         element={
           isAuthenticated
-            ? (isSysAdmin
-              ? <Navigate to="/sysadmin" replace />
-              : isFacilityAdmin
-                ? <Navigate to="/facility-admin" replace />
-                : <Navigate to="/dashboard" replace />)
+            ? <Navigate to={defaultAuthRedirect} replace />
             : <LoginPage />
         }
       />
@@ -90,108 +70,48 @@ function AppContent() {
       <Route path="/verify-email" element={<EmailVerification />} />
       <Route path="/login-verify" element={<LoginEmailVerification />} />
 
-      {/* Protected Routes */}
-      {/* Logic: Redirects to the correct dashboard based on Role */}
+      {/* ============================================================ */}
+      {/* PROTECTED HUB ROUTES — Wrapped in MainLayout + ProtectedRoute */}
+      {/* [OWASP A01] All child routes inherit the AuthGuard. RBAC is   */}
+      {/* enforced at the Hub component level via tab visibility logic.  */}
+      {/* ============================================================ */}
       <Route
-        path="/dashboard"
         element={
           <ProtectedRoute>
-            {isCaregiver ? (
-              <CaregiverDashboardNew />
-            ) : isMedical ? (
-              <MedicalStaffDashboard />
-            ) : isSysAdmin ? (
-              <Navigate to="/sysadmin" replace />
-            ) : isFacilityAdmin ? (
-              <Navigate to="/facility-admin" replace />
-            ) : (
-              <Navigate to="/login" replace />
-            )}
+            <MainLayout />
           </ProtectedRoute>
         }
-      />
+      >
+        {/* Overview Hub: /dashboard — All authenticated roles */}
+        <Route path="/dashboard" element={<OverviewHub />} />
 
-      {/* LEGACY ADMIN ROUTE TREE — backward compatible */}
-      <Route path="/admin" element={<AdminLayout />}>
-        <Route index element={<SystemOverview />} />
-        <Route path="compliance" element={<ComplianceHub />} />
-        <Route path="devices" element={<DeviceGovernance />} />
-        <Route path="users" element={<UserManagement />} />
-        <Route path="settings" element={<SystemSettings />} />
-        <Route path="inventory" element={<InventoryManagement />} />
-        <Route path="security" element={<SecurityControls />} />
+        {/* Patient Records Hub: /patients — Clinical + SysAdmin */}
+        <Route path="/patients" element={<PatientRecordsHub />} />
+
+        {/* Device Management Hub: /devices — All admin tiers + Clinical */}
+        <Route path="/devices" element={<DeviceManagementHub />} />
+
+        {/* Staff Management Hub: /staff — Facility Admin + SysAdmin */}
+        <Route path="/staff" element={<StaffManagementHub />} />
+
+        {/* Security & Access Hub: /security — SysAdmin + Facility Admin (if overridden) */}
+        <Route path="/security" element={<SecurityAccessHub />} />
+
+        {/* Alerts Hub: /alerts — Clinical + Facility Admin + SysAdmin */}
+        <Route path="/alerts" element={<AlertsHub />} />
+
+        {/* Reports Hub: /reports — Clinical + SysAdmin */}
+        <Route path="/reports" element={<ReportsHub />} />
+
+        {/* Settings Hub: /settings — All authenticated roles */}
+        <Route path="/settings" element={<SettingsHub />} />
       </Route>
 
-      {/* [OWASP A01] SYSTEM ADMIN ROUTE TREE — SysAdminLayout enforces system_admin or admin role */}
-      <Route path="/sysadmin" element={<SysAdminLayout />}>
-        <Route index element={<CommandCenter />} />
-        {/* Zone A — Command Center routes (SysAdminSidebar Zone A) */}
-        <Route path="security" element={<GlobalSecurity />} />
-        <Route path="firmware" element={<FirmwareManagement />} />
-        <Route path="audit" element={<ForensicAuditTrails />} />
-        <Route path="command-center">
-          <Route index element={<CommandCenterDashboard />} />
-          <Route path="global-telemetry" element={<GlobalTelemetry />} />
-          <Route path="security" element={<GlobalSecuritySIEM />} />
-          <Route path="topology" element={<FacilityTopologyBuilder />} />
-          <Route path="audit" element={<ForensicAuditTrails />} />
-          <Route path="firmware-ota" element={<FirmwareOTAUpdates />} />
-        </Route>
-
-        {/* Zone B — Facility Administration routes (SysAdminSidebar Zone B) */}
-        <Route path="facility">
-          <Route path="dashboard" element={<FacilityDashboard />} />
-          <Route path="users" element={<UserLifecycleManagement />} />
-          <Route path="patient-onboarding" element={<PatientOnboarding />} />
-          <Route path="alerts" element={<AlertConfiguration />} />
-          <Route path="security" element={<FacilityComplianceControls />} />
-          <Route path="diagnostics" element={<ReadOnlyDiagnostics />} />
-          <Route path="staff" element={<WardStaffManagement />} />
-          <Route path="staff/assignments" element={<PatientCaregiverAssignment />} />
-        </Route>
-
-        {/* Zone C — Caregiver Patient Care routes (SysAdminSidebar Zone C, break-glass protected) */}
-        <Route path="caregiver">
-          <Route path="dashboard" element={<CaregiverDashboardNew initialTab="dashboard" hideNavigation={true} />} />
-          <Route path="patients" element={<CaregiverDashboardNew initialTab="patient-list" hideNavigation={true} />} />
-          <Route path="patients/add" element={<CaregiverDashboardNew initialTab="add-patient" hideNavigation={true} />} />
-          <Route path="devices" element={<MyDevices />} />
-          <Route path="devices/add" element={<CaregiverDashboardNew initialTab="add-device" hideNavigation={true} />} />
-          <Route path="alerts" element={<CaregiverDashboardNew initialTab="dashboard" hideNavigation={true} />} />
-          <Route path="reports" element={<CaregiverDashboardNew initialTab="reports-daily-summary" hideNavigation={true} />} />
-          <Route path="reports/daily" element={<CaregiverDashboardNew initialTab="reports-daily-summary" hideNavigation={true} />} />
-          <Route path="reports/anomaly" element={<CaregiverDashboardNew initialTab="reports-anomaly-log" hideNavigation={true} />} />
-          <Route path="reports/moisture" element={<CaregiverDashboardNew initialTab="reports-moisture-hygiene" hideNavigation={true} />} />
-          <Route path="reports/trend" element={<CaregiverDashboardNew initialTab="reports-weekly-trends" hideNavigation={true} />} />
-          <Route path="reports/exportable" element={<CaregiverDashboardNew initialTab="reports-export" hideNavigation={true} />} />
-          <Route path="calendar" element={<CaregiverDashboardNew hideNavigation={true} />} />
-          <Route path="assignments" element={<AssignmentTracker />} />
-          <Route path="settings" element={<CaregiverSettings />} />
-        </Route>
-
-        {/* Legacy PHI Zone routes (kept for backward-compatibility) */}
-        <Route path="phi">
-          <Route path="devices" element={<SysAdminPatientCare />} />
-          <Route path="calendar" element={<SysAdminPatientCare />} />
-          <Route path="reports" element={<SysAdminPatientCare />} />
-          <Route path="bulletin" element={<SysAdminPatientCare />} />
-        </Route>
-      </Route>
-
-      {/* [OWASP A01] FACILITY ADMIN ROUTE TREE — FacilityAdminLayout enforces facility_admin role + RLS */}
-      <Route path="/facility-admin" element={<FacilityAdminLayout />}>
-        <Route index element={<FacilityDashboard />} />
-        <Route path="staff" element={<WardStaffManagement />} />
-        <Route path="staff/assignments" element={<PatientCaregiverAssignment />} />
-        <Route path="patients" element={<PatientOnboarding />} />
-        <Route path="alerts" element={<AlertConfiguration />} />
-        <Route path="diagnostics" element={<ReadOnlyDiagnostics />} />
-      </Route>
-
-      {/* Root path redirecting to dashboard */}
+      {/* ============================================================ */}
+      {/* REDIRECTS                                                     */}
+      {/* Root and catch-all route to /dashboard                       */}
+      {/* ============================================================ */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-      {/* Catch all - redirect to dashboard */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

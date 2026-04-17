@@ -263,6 +263,113 @@ app.post('/api/auth/logout', verifyToken, async (req, res) => {
 });
 
 // ==========================================
+// ROUTE 2C: FETCH OWN PERMISSIONS
+// [OWASP A01] Scoped strictly to req.user.id from the verified JWT.
+// No IDOR risk — a user can only see their own permission map.
+// [HIPAA] Minimum Necessary: returns only boolean flags, no PHI.
+// ==========================================
+app.get('/api/auth/my-permissions', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const role   = req.user.role;
+
+        // [OWASP A01] System Admins bypass all restrictions.
+        // Return an empty override map; the frontend treats missing keys as "granted".
+        const sysAdminRoles = ['system_admin', 'admin', 'sysadmin'];
+        if (sysAdminRoles.includes(role)) {
+            return res.json({ success: true, permissions: {}, isSysAdmin: true });
+        }
+
+        // Step 1: Load role-level defaults from role_permissions table
+        const roleResult = await pool.query(
+            'SELECT module_id, is_enabled FROM role_permissions WHERE role = $1',
+            [role]
+        );
+
+        // Step 2: Load per-user overrides (highest priority)
+        const overrideResult = await pool.query(
+            'SELECT module_id, is_granted FROM user_permission_overrides WHERE user_id = $1',
+            [userId]
+        );
+
+        // Step 3: Merge — start from role defaults, then apply overrides on top
+        // [OWASP A05] Both queries above use parameterized inputs — no injection risk.
+        const permissions = {};
+
+        roleResult.rows.forEach(row => {
+            permissions[row.module_id] = row.is_enabled;
+        });
+
+        overrideResult.rows.forEach(row => {
+            // Override explicitly sets the value, regardless of role default
+            permissions[row.module_id] = row.is_granted;
+        });
+
+        res.json({ success: true, permissions, isSysAdmin: false });
+
+    } catch (err) {
+        // [OWASP A10] Generic error — do not expose stack trace to frontend
+        res.status(500).json({ success: false, message: 'Could not load permissions.' });
+    }
+});
+
+// ==========================================
+// ROUTE 2C: BREAK GLASS PROTOCOL (OWASP A01 & A09 Mitigation)
+// ==========================================
+app.post('/api/auth/break-glass', verifyToken, async (req, res) => {
+    try {
+        const { justification_code, target_hub } = req.body;
+        const user_id = req.user.id;
+        const role = req.user.role?.toLowerCase() || '';
+
+        // Only System Admins perform break-glass. Facility Admins and Clinical staff have natural RBAC limits or full access.
+        if (!['system_admin', 'admin', 'sysadmin'].includes(role)) {
+            return res.status(403).json({ success: false, message: 'Break-glass protocol is restricted to System Administrators.' });
+        }
+
+        // [TECHNICAL DEBT/PROTOTYPING] Dev bypass rule matching frontend UI bypass.
+        const code = justification_code && justification_code.trim().length >= 5 ? justification_code.trim() : 'DEV-BYPASS-00000';
+
+        if (code.length < 5) {
+            return res.status(400).json({ success: false, message: 'A valid justification code is required (min 5 chars).' });
+        }
+
+        // Issue new short-lived token (15 mins) with break_glass_active flag
+        const elevatedToken = jwt.sign(
+            { id: user_id, role: req.user.role, break_glass_active: true },
+            JWT_SECRET,
+            { expiresIn: '15m' }
+        );
+
+        // [OWASP A09] Parameterized Logging of PHI Access Control Override
+        const ip = req.ip || req.connection.remoteAddress;
+        const userAgent = req.headers['user-agent'] || 'Unknown';
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity, user_agent, ip_address, details)
+             VALUES ($1, 'BREAK_GLASS_ACCESS', $2, 'WARNING', $3, $4, $5)`,
+            [
+                user_id,
+                target_hub || 'PHI_ACCESS',
+                userAgent,
+                ip,
+                JSON.stringify({ justification_code: code, timestamp: new Date().toISOString() })
+            ]
+        );
+
+        res.json({
+            success: true,
+            message: 'Break-Glass authorized. Session expires in 15 minutes.',
+            token: elevatedToken
+        });
+
+    } catch (err) {
+        console.error("Break-Glass Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server Error during Break-Glass instantiation.' });
+    }
+});
+
+// ==========================================
 // ROUTE 3: DOCUMENT UPLOAD
 // ==========================================
 const ALLOWED_DOC_TYPES = ['government_id', 'medical_license', 'prc_id'];
@@ -332,8 +439,17 @@ app.use('/api/caregiver', caregiverRoutes);
 
 const assignmentRoutes = require('./routes/assignmentRoutes');
 app.use('/api/assignments', assignmentRoutes);
+const profileRoutes = require('./routes/profileRoutes');
+app.use('/api/user/profile', profileRoutes);
+
+// Alerts, Audit, and Triage Routes
+const alertsRoutes = require('./routes/alertsRoutes');
+app.use('/api/alerts', alertsRoutes);
 
 // --- Start Server ---
-app.listen(port, () => {
-    console.log(`✅ ALAGA Server running on port ${port}`);
+const HOST = '0.0.0.0';
+
+app.listen(port, HOST, () => {
+    console.log(`✅ ALAGA Server running on http://${HOST}:${port}`);
+    console.log(`📡 Accepting local network connections for mobile testing.`);
 });

@@ -68,12 +68,14 @@ export const MoistureHygieneTracker: React.FC<MoistureHygieneTrackerProps> = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h3 className="text-sm font-semibold text-slate-700">Moisture & Hygiene Tracker</h3>
-        <ReportPatientPicker
-          patients={patients}
-          value={selectedPatientId}
-          onValueChange={onSelectPatient}
-        />
+        <h3 className="text-sm font-semibold text-slate-700">Moisture &amp; Hygiene Tracker</h3>
+        <div data-report-picker>
+          <ReportPatientPicker
+            patients={patients}
+            value={selectedPatientId}
+            onValueChange={onSelectPatient}
+          />
+        </div>
       </div>
 
       <p className="text-[11px] text-slate-500">

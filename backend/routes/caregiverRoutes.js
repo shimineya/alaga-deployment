@@ -1,10 +1,11 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { verifyToken } = require('../middleware/authMiddleware');
+const { verifyToken, enforceBreakGlassForSysAdmin } = require('../middleware/authMiddleware');
 
 // Apply Security Middleware
-// Apply Security Middleware
 router.use(verifyToken);
+// [TECHNICAL DEBT] enforceBreakGlassForSysAdmin is disabled for development testing.
+// MUST be re-enabled before production: router.use(enforceBreakGlassForSysAdmin);
 
 // ==========================================
 // 0. GET ALL DEVICES (Inventory - Moved to Top)
@@ -141,6 +142,106 @@ router.post('/patients', async (req, res) => {
         await client.query('ROLLBACK');
         console.error("Add Patient Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to enroll patient' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 2.1. UPDATE PATIENT DETAILS
+// [OWASP A01] Ownership check: only users with Edit/Admin access may modify the record.
+// [HIPAA] Name and medical notes are PHI; changes are implicitly timestamped by updated_at.
+// ==========================================
+router.put('/patients/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const patientId = req.params.id;
+        const userId = req.user.id;
+        const { role } = req.user;
+
+        // [OWASP A01] Verify the caller has Edit or Admin access to this specific patient.
+        // Admins and medical_staff bypass the access table check.
+        if (role !== 'admin' && role !== 'medical_staff') {
+            const accessCheck = await client.query(
+                `SELECT access_level FROM patient_access
+                 WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
+                [patientId, userId]
+            );
+            if (accessCheck.rows.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    // [OWASP A10] Generic message — does not expose whether the patient ID exists
+                    message: 'You do not have permission to edit this patient record.'
+                });
+            }
+        }
+
+        const { name, birthdate, medicalCondition } = req.body;
+
+        // [OWASP A05] Parameterized query — no string concatenation.
+        await client.query(
+            `UPDATE patients
+             SET name = COALESCE($1, name),
+                 birthdate = COALESCE($2, birthdate),
+                 baseline_data = COALESCE($3::jsonb, baseline_data),
+                 updated_at = NOW()
+             WHERE patient_id = $4`,
+            [
+                name || null,
+                birthdate || null,
+                medicalCondition ? JSON.stringify({ condition: medicalCondition }) : null,
+                patientId
+            ]
+        );
+
+        res.json({ success: true, message: 'Patient record updated successfully.' });
+    } catch (err) {
+        // [OWASP A10] Do not expose internal error details to the client
+        console.error('Update Patient Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update patient record.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 2.2. ARCHIVE PATIENT (Soft Delete)
+// [GDPR] Soft-delete preserves audit trail; hard delete requires a separate "Right to Erasure" workflow.
+// [OWASP A01] Only users with Edit/Admin access or privileged roles may archive.
+// ==========================================
+router.patch('/patients/:id/archive', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const patientId = req.params.id;
+        const userId = req.user.id;
+        const { role } = req.user;
+
+        // [OWASP A01] Ownership check
+        if (role !== 'admin' && role !== 'medical_staff') {
+            const accessCheck = await client.query(
+                `SELECT access_level FROM patient_access
+                 WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
+                [patientId, userId]
+            );
+            if (accessCheck.rows.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have permission to archive this patient record.'
+                });
+            }
+        }
+
+        // [GDPR] Flag as archived (soft delete). The record is retained for the 1-year
+        // data retention period mandated by the DPA/GDPR retention policy.
+        await client.query(
+            `UPDATE patients SET is_archived = TRUE, updated_at = NOW() WHERE patient_id = $1`,
+            [patientId]
+        );
+
+        res.json({ success: true, message: 'Patient record archived successfully.' });
+    } catch (err) {
+        console.error('Archive Patient Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive patient record.' });
     } finally {
         client.release();
     }

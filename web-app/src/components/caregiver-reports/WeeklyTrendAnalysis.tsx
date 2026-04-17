@@ -56,11 +56,13 @@ export const WeeklyTrendAnalysis: React.FC<WeeklyTrendAnalysisProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h3 className="text-sm font-semibold text-slate-700">Weekly Trend Analysis</h3>
-        <ReportPatientPicker
-          patients={patients}
-          value={selectedPatientId}
-          onValueChange={onSelectPatient}
-        />
+        <div data-report-picker>
+          <ReportPatientPicker
+            patients={patients}
+            value={selectedPatientId}
+            onValueChange={onSelectPatient}
+          />
+        </div>
       </div>
 
       <p className="text-[11px] text-slate-500">

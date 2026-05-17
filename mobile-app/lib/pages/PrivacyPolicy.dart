@@ -1,85 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dashboard.dart';
 
-import 'login.dart';
-import '../models/registration_data.dart';
-
-class PrivacyPolicyScreen extends StatefulWidget {
-  final RegistrationData registrationData;
-
-  const PrivacyPolicyScreen({super.key, required this.registrationData});
-
-  @override
-  State<PrivacyPolicyScreen> createState() => _PrivacyPolicyScreenState();
-}
-
-class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
-  bool _isLoading = false;
-
-  Future<void> _submitRegistration() async {
-    setState(() => _isLoading = true);
-
-    try {
-      final String baseUrl = dotenv.env['API_BASE_URL'] ?? '';
-      final Uri registerUri = Uri.parse('$baseUrl/auth/register');
-
-      final response = await http.post(
-        registerUri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode(widget.registrationData.toJson()),
-      ).timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      final responseData = jsonDecode(response.body);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        // Force relogin per operational requirements
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Registration Successful. Please log in.')),
-        );
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginPage()),
-          (route) => false,
-        );
-      } else {
-        // [OWASP A10] Mishandling of Exceptional Conditions Mitigation
-        debugPrint('Validation/Rejection from Backend: \${response.statusCode} - \${response.body}');
-        _showErrorDialog(responseData['message'] ?? 'Registration failed.');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      debugPrint('Registration Network Exception: \$e');
-      _showErrorDialog('Network error. Cannot reach the server to complete registration.');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Registration Failed'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK'),
-          )
-        ],
-      ),
-    );
-  }
+class PrivacyPolicyScreen extends StatelessWidget {
+  const PrivacyPolicyScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -160,12 +84,10 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                   // Decline Button
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                              debugPrint("❌ Privacy Policy declined");
-                              Navigator.pop(context);
-                            },
+                      onPressed: () {
+                        debugPrint("❌ Privacy Policy declined");
+                        Navigator.pop(context);
+                      },
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
@@ -188,7 +110,15 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                   // Accept Button - Teal Background restored
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _submitRegistration,
+                      onPressed: () {
+                        debugPrint("✅ Privacy Policy accepted");
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const DashboardScreen(),
+                          ),
+                        );
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF5FA9A9),
                         padding: const EdgeInsets.symmetric(vertical: 14),
@@ -197,23 +127,14 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                         ),
                         elevation: 0,
                       ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              "Accept",
-                              style: GoogleFonts.poppins(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
+                      child: Text(
+                        "Accept",
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ),
                 ],

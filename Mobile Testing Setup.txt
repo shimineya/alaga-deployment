@@ -1,0 +1,40 @@
+Best way to test on your phone (Wi‑Fi first)
+Since you already ran SQL and backend listens on 0.0.0.0, Wi‑Fi testing should work.
+
+1) Put your laptop and phone on same Wi‑Fi
+No VPN/hotspot isolation.
+Make sure Windows firewall allows Node on port 3000.
+2) Find your laptop LAN IP
+In PowerShell:
+
+ipconfig
+Use IPv4 like 192.168.1.25.
+
+3) Update mobile API base URL
+Edit mobile-app/.env:
+
+API_BASE_URL=http://192.168.1.25:3000/api
+(Replace with your real IP.)
+
+4) Restart backend + rerun mobile app
+Backend: run as usual in backend.
+Rebuild/restart Flutter app so .env is reloaded.
+5) Verify real read/write/delete
+From phone app:
+
+Write: create patient / register device.
+Read: open patient list & device management (should show DB rows).
+Delete/Unlink: remove assignment/unpair; confirm in web app too.
+If mobile + web show same changed records, backend<->DB comms are good.
+
+If Wi‑Fi fails, USB fallback (last resort)
+For Android (recommended fallback):
+
+Enable USB debugging.
+Connect phone via USB.
+Run:
+adb reverse tcp:3000 tcp:3000
+Set .env back to:
+API_BASE_URL=http://localhost:3000/api
+Restart app.
+This tunnels phone traffic to your laptop backend.

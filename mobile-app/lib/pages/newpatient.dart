@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/api_service.dart';
 
 class NewPatientScreen extends StatefulWidget {
   const NewPatientScreen({super.key});
@@ -13,12 +14,110 @@ class NewPatientScreen extends StatefulWidget {
 class _NewPatientScreenState extends State<NewPatientScreen> {
   int currentStep = 1;
   bool isSearching = true;
+  bool _isSubmitting = false;
+  bool _isLoadingDevices = false;
 
   final TextEditingController _firstNameCtrl = TextEditingController();
   final TextEditingController _lastNameCtrl = TextEditingController();
   final TextEditingController _birthdateCtrl = TextEditingController();
   final TextEditingController _medicalNotesCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
+  int? _assignedCaregiverId;
+  String? _assignedCaregiverName;
+  List<Map<String, dynamic>> _availableVitalDevices = [];
+  List<Map<String, dynamic>> _availableDiaperDevices = [];
+  String? _selectedVitalDevice;
+  String? _selectedDiaperDevice;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAvailableDevices();
+  }
+
+  Future<void> _refreshAvailableDevices() async {
+    setState(() => _isLoadingDevices = true);
+    final result = await ApiService.get('/caregiver/devices/available');
+    if (!mounted) return;
+    if (result['success'] == true && result['data'] is List) {
+      final devices = (result['data'] as List).cast<Map<String, dynamic>>();
+      _availableVitalDevices = devices
+          .where((d) => (d['device_name']?.toString().toLowerCase() ?? '').contains('vital'))
+          .toList();
+      _availableDiaperDevices = devices
+          .where((d) => (d['device_name']?.toString().toLowerCase() ?? '').contains('diaper'))
+          .toList();
+      if (_availableVitalDevices.isNotEmpty && _selectedVitalDevice == null) {
+        _selectedVitalDevice = _availableVitalDevices.first['serial_number']?.toString();
+      }
+      if (_availableDiaperDevices.isNotEmpty && _selectedDiaperDevice == null) {
+        _selectedDiaperDevice = _availableDiaperDevices.first['serial_number']?.toString();
+      }
+    }
+    setState(() => _isLoadingDevices = false);
+  }
+
+  Future<void> _searchCaregiver() async {
+    final query = _searchCtrl.text.trim();
+    if (query.isEmpty) return;
+    final result = await ApiService.get('/caregiver/search', queryParams: {'query': query});
+    if (!mounted) return;
+    if (result['success'] == true && result['data'] is List && (result['data'] as List).isNotEmpty) {
+      final user = (result['data'] as List).first as Map<String, dynamic>;
+      setState(() {
+        _assignedCaregiverId = user['user_id'] as int?;
+        _assignedCaregiverName = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Assigned caregiver found: $_assignedCaregiverName')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result['message']?.toString() ?? 'No caregiver found')),
+    );
+  }
+
+  Future<void> _finishEnrollment() async {
+    if (_firstNameCtrl.text.trim().isEmpty || _lastNameCtrl.text.trim().isEmpty || _birthdateCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please complete required patient details first')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    final birthParts = _birthdateCtrl.text.split('/');
+    String normalizedBirthdate = _birthdateCtrl.text;
+    if (birthParts.length == 3) {
+      final mm = birthParts[0].padLeft(2, '0');
+      final dd = birthParts[1].padLeft(2, '0');
+      final yyyy = birthParts[2];
+      normalizedBirthdate = '$yyyy-$mm-$dd';
+    }
+
+    final result = await ApiService.post(
+      '/caregiver/patients',
+      body: {
+        'name': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+        'birthdate': normalizedBirthdate,
+        'medicalCondition': _medicalNotesCtrl.text.trim(),
+        'assignedCaregiverId': _assignedCaregiverId,
+        'vitalDeviceNo': _selectedVitalDevice,
+        'diaperDeviceNo': _selectedDiaperDevice,
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    if (result['success'] == true) {
+      _showSuccessPopup();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message']?.toString() ?? 'Failed to enroll patient')),
+      );
+    }
+  }
 
   // --- SUCCESS POPUP ---
   void _showSuccessPopup() {
@@ -138,13 +237,13 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                             }),
                         const SizedBox(width: 40),
                         _buildActionButton(
-                          currentStep == 3 ? "Finish" : "Next Step",
+                          currentStep == 3 ? (_isSubmitting ? "Saving..." : "Finish") : "Next Step",
                           isPrimary: true,
-                          onTap: () {
+                          onTap: () async {
                             if (currentStep < 3) {
                               setState(() => currentStep++);
                             } else {
-                              _showSuccessPopup();
+                              await _finishEnrollment();
                             }
                           },
                         ),
@@ -224,12 +323,17 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
-            onPressed: () {},
+            onPressed: _refreshAvailableDevices,
             icon: const Icon(Icons.refresh, size: 18, color: Colors.black),
             label: Text("Refresh", style: GoogleFonts.poppins(color: Colors.black, fontSize: 12)),
           ),
         ),
-        Container(
+        _isLoadingDevices
+            ? const Center(child: Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              ))
+            : Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
           decoration: BoxDecoration(
@@ -237,7 +341,8 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
             borderRadius: BorderRadius.circular(15),
             border: Border.all(color: const Color(0xFFFFD54F), width: 1.5),
           ),
-          child: Column(
+          child: (_availableVitalDevices.isEmpty && _availableDiaperDevices.isEmpty)
+              ? Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Image.asset(
@@ -265,7 +370,39 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                 child: Text("Register New", style: GoogleFonts.poppins()), 
               ),
             ],
-          ),
+          )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Vital Monitor', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedVitalDevice,
+                      items: _availableVitalDevices
+                          .map((d) => DropdownMenuItem<String>(
+                                value: d['serial_number']?.toString(),
+                                child: Text(d['serial_number']?.toString() ?? ''),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedVitalDevice = v),
+                      decoration: const InputDecoration(border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Smart Diaper', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedDiaperDevice,
+                      items: _availableDiaperDevices
+                          .map((d) => DropdownMenuItem<String>(
+                                value: d['serial_number']?.toString(),
+                                child: Text(d['serial_number']?.toString() ?? ''),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedDiaperDevice = v),
+                      decoration: const InputDecoration(border: OutlineInputBorder()),
+                    ),
+                  ],
+                ),
         ),
       ],
     );
@@ -346,6 +483,19 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         Text("Email / Username", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 10),
         _buildTextField(_searchCtrl, hint: "nurse@hospital.com", prefixIcon: const Icon(Icons.search, color: Colors.black26), radius: 15),
+        const SizedBox(height: 12),
+        ElevatedButton(
+          onPressed: _searchCaregiver,
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5FA9A9)),
+          child: Text("Search", style: GoogleFonts.poppins(color: Colors.black)),
+        ),
+        if (_assignedCaregiverName != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            "Selected: $_assignedCaregiverName",
+            style: GoogleFonts.poppins(fontSize: 13, color: const Color(0xFF0046AD), fontWeight: FontWeight.w600),
+          ),
+        ],
       ],
     );
   }
@@ -431,6 +581,27 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
   bool isManual = true;
   final TextEditingController _vitalSignsCtrl = TextEditingController();
   final TextEditingController _smartDiaperCtrl = TextEditingController();
+  bool _isSaving = false;
+
+  Future<void> _registerDevices() async {
+    setState(() => _isSaving = true);
+    final result = await ApiService.post(
+      '/caregiver/devices',
+      body: {
+        'vitalDeviceNo': _vitalSignsCtrl.text.trim(),
+        'diaperDeviceNo': _smartDiaperCtrl.text.trim(),
+      },
+    );
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (result['success'] == true) {
+      Navigator.pop(context);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result['message']?.toString() ?? 'Failed to register device')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -469,7 +640,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
               children: [
                 _modalActionBtn("Cancel", false, () => Navigator.pop(context)),
                 const SizedBox(width: 20),
-                _modalActionBtn("Register", true, () => Navigator.pop(context)),
+                _modalActionBtn(_isSaving ? "Saving..." : "Register", true, _isSaving ? () {} : _registerDevices),
               ],
             )
           ],

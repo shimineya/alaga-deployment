@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'PrivacyPolicy.dart';
-import '../models/registration_data.dart';
 
 class ToSScreen extends StatefulWidget {
-  final RegistrationData registrationData;
+  final String selectedRole;
 
-  const ToSScreen({super.key, required this.registrationData});
+  const ToSScreen({super.key, required this.selectedRole});
 
   @override
   State<ToSScreen> createState() => _ToSScreenState();
@@ -119,7 +118,7 @@ class _ToSScreenState extends State<ToSScreen> {
                         Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => PrivacyPolicyScreen(registrationData: widget.registrationData),
+                            builder: (_) => const PrivacyPolicyScreen(),
                           ),
                         );
                       },

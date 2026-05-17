@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/api_service.dart';
 
 class DeviceManagementScreen extends StatefulWidget {
   const DeviceManagementScreen({super.key});
@@ -9,65 +10,122 @@ class DeviceManagementScreen extends StatefulWidget {
 }
 
 class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
-  // --- Logic: Show Logs Bottom Sheet ---
-  void _showLogs(BuildContext context, String deviceName) {
-    showModalBottomSheet(
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
+
+  final List<String> availableVitalsSensors = [];
+  final List<String> availableMoistureSensors = [];
+
+  final List<Map<String, dynamic>> patientDevices = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    final inventoryRes = await ApiService.get('/caregiver/devices');
+    final patientsRes = await ApiService.get('/caregiver/patients');
+
+    if (!mounted) return;
+    if (inventoryRes['success'] == true && inventoryRes['data'] is List) {
+      availableVitalsSensors.clear();
+      availableMoistureSensors.clear();
+      for (final row in (inventoryRes['data'] as List)) {
+        final device = row as Map<String, dynamic>;
+        final serial = device['serial_number']?.toString() ?? '';
+        final name = (device['device_name']?.toString() ?? '').toLowerCase();
+        final assigned = device['assigned_patient_id'];
+        if (assigned == null) {
+          if (name.contains('vital')) {
+            availableVitalsSensors.add(serial);
+          } else {
+            availableMoistureSensors.add(serial);
+          }
+        }
+      }
+    }
+
+    if (patientsRes['success'] == true && patientsRes['data'] is List) {
+      patientDevices.clear();
+      for (final row in (patientsRes['data'] as List)) {
+        final patient = row as Map<String, dynamic>;
+        patientDevices.add({
+          "name": patient['name'] ?? 'Unknown',
+          "vsId": patient['vital_device_sn'] ?? 'N/A',
+          "msId": patient['diaper_device_sn'] ?? 'N/A',
+          "isWet": false,
+          "vsBat": 0,
+          "msBat": 0,
+          "status": (patient['vital_device_sn'] == null && patient['diaper_device_sn'] == null) ? "Offline" : "Active",
+        });
+      }
+    }
+    setState(() {});
+  }
+
+  // --- Logic for Stats ---
+  int get _totalDevices => (patientDevices.length * 2) + availableVitalsSensors.length + availableMoistureSensors.length;
+  int get _activeDevices => patientDevices.where((p) => p['status'] == "Active").length * 2;
+  int get _maintenanceDevices => patientDevices.where((p) => p['vsBat'] < 20 || p['msBat'] < 20).length;
+
+  // --- NEW: POP-UP FORM LOGIC ---
+  void _showNewDeviceDialog(BuildContext context) {
+    String selectedType = "Vital Signs";
+    final TextEditingController _idController = TextEditingController();
+
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          maxChildSize: 0.9,
-          minChildSize: 0.4,
-          expand: false,
-          builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-              ),
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              title: Text("Register New Device", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                  DropdownButtonFormField<String>(
+                    value: selectedType,
+                    decoration: const InputDecoration(labelText: "Device Type", border: OutlineInputBorder()),
+                    items: ["Vital Signs", "Smart Diaper"].map((type) {
+                      return DropdownMenuItem(value: type, child: Text(type));
+                    }).toList(),
+                    onChanged: (val) => setDialogState(() => selectedType = val!),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text("System Logs: $deviceName",
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.bold, fontSize: 18)),
-                      IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close)),
-                    ],
-                  ),
-                  const Divider(height: 30),
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      children: [
-                        _logItem("20:10:05", "Moisture threshold exceeded", "ALARM", Colors.red),
-                        _logItem("19:40:02", "Heartbeat sent to gateway", "SUCCESS", Colors.green),
-                        _logItem("19:35:15", "Vital signs transmitted", "DATA", Colors.blue),
-                        _logItem("19:30:00", "One-Class SVM Anomaly check", "NORMAL", Colors.teal),
-                        _logItem("19:00:10", "ESP32 Deep Sleep exited", "SYSTEM", Colors.grey),
-                      ],
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _idController,
+                    decoration: InputDecoration(
+                      labelText: "Device Number",
+                      hintText: selectedType == "Vital Signs" ? "VS-YYYY-NNN" : "SD-YYYY-NNN",
+                      border: const OutlineInputBorder(),
+                      helperText: "Format: ${selectedType == "Vital Signs" ? 'VS-2026-001' : 'SD-2026-001'}",
                     ),
                   ),
                 ],
               ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                  onPressed: () {
+                    if (_idController.text.isNotEmpty) {
+                      setState(() {
+                        if (selectedType == "Vital Signs") {
+                          availableVitalsSensors.add(_idController.text.toUpperCase());
+                        } else {
+                          availableMoistureSensors.add(_idController.text.toUpperCase());
+                        }
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Device added to inventory.")));
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4DB6AC), foregroundColor: Colors.white),
+                  child: const Text("Register"),
+                ),
+              ],
             );
           },
         );
@@ -75,29 +133,94 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     );
   }
 
-  Widget _logItem(String time, String message, String tag, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(time, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500)),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                  child: Text(tag, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(height: 6),
-                Text(message, style: const TextStyle(fontSize: 14, color: Color(0xFF2D3436))),
-              ],
-            ),
+  void _removeDeviceFromInventory(String id, bool isVital) {
+    setState(() {
+      if (isVital) {
+        availableVitalsSensors.remove(id);
+      } else {
+        availableMoistureSensors.remove(id);
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Device $id removed from inventory.")));
+  }
+
+  void _calibrateDevice(String id) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Calibrating device $id... Sensor recalibration in progress.")),
+    );
+  }
+
+  void _showSwapDeviceDialog(BuildContext context, String currentId, String sensorType) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text("Swap $sensorType", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Current Unit: $currentId", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(height: 16),
+              const Text("Select replacement unit:", style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 8),
+              ... (sensorType == "Vital Signs" ? availableVitalsSensors : availableMoistureSensors).map((newId) {
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.swap_horiz, color: Color(0xFF4DB6AC)),
+                  title: Text(newId, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.add_circle_outline, color: Color(0xFF4DB6AC), size: 20),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Hardware updated: $newId is now active.")),
+                    );
+                  },
+                );
+              }).toList(),
+            ],
           ),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCategorizedLogs(BuildContext context, String patientName, String sensorType) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 30, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)))),
+              const SizedBox(height: 15),
+              Text("Logs: $sensorType", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+              Text("Patient: $patientName", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              const Divider(height: 30),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  children: sensorType == "Vital Signs" 
+                    ? [_logItem("18:30:04", "Heart Rate: 78 BPM", "VITAL SIGNS", Colors.blue), _logItem("18:25:12", "SpO2: 99%", "VITAL SIGNS", Colors.blue)]
+                    : [_logItem("18:45:00", "Moisture Level: 10% (Normal)", "MOISTURE SENSOR", Colors.orange)],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -105,266 +228,219 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   @override
   Widget build(BuildContext context) {
     final titleStyle = GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 26, color: const Color(0xFF2D3436));
-    double screenWidth = MediaQuery.of(context).size.width;
-    bool isTablet = screenWidth > 900;
+    final filteredPatients = patientDevices.where((p) => p['name'].toLowerCase().contains(_searchQuery.toLowerCase())).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFB),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: const BackButton(color: Colors.black),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: ElevatedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-              label: const Text("OTA Update", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4DB6AC),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
+      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, leading: const BackButton(color: Colors.black)),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text("Device Management", style: titleStyle),
-                  const Text("Monitor and manage all IoT hardware devices", style: TextStyle(color: Colors.grey, fontSize: 14)),
-                  const SizedBox(height: 24),
-                  LayoutBuilder(builder: (context, constraints) {
-                    return GridView.count(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: isTablet ? 4 : 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.8,
-                      children: [
-                        _buildStatCard("Total Devices", "6", Icons.developer_board, Colors.blue),
-                        _buildStatCard("Active Now", "4", Icons.check_circle_outline, Colors.green),
-                        _buildStatCard("Maintenance", "1", Icons.warning_amber_rounded, Colors.orange),
-                        _buildStatCard("Offline", "1", Icons.error_outline, Colors.red),
-                      ],
-                    );
-                  }),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            sliver: SliverGrid(
-              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 450,
-                mainAxisSpacing: 20,
-                crossAxisSpacing: 20,
-                mainAxisExtent: 440, // Height adjusted for the new Figma layout
-              ),
-              delegate: SliverChildListDelegate([
-                _buildDeviceCard(context, "ESP32-ABC123", "Combo Device", "D001", "Maria Santos (P001)", 85, 92, "ACTIVE", isWet: false),
-                _buildDeviceCard(context, "ESP32-GHI789", "Smart Diaper", "D003", "Rosa Reyes (P003)", 15, 78, "ACTIVE", isWet: true),
-                _buildDeviceCard(context, "ESP32-JKL012", "Combo Device", "D004", "Carlos Tan (P004)", 95, 85, "ACTIVE", isWet: false),
-              ]),
-            ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 50)),
-        ],
-      ),
-    );
-  }
+                  const Text("Assign, monitor, and swap patient sensors", style: TextStyle(color: Colors.grey, fontSize: 14)),
+                  const SizedBox(height: 20),
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white, 
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10)],
-      ),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 4),
-        Text(value, style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-      ]),
-    );
-  }
-
-  Widget _buildDeviceCard(BuildContext context, String name, String type, String id, String assignedTo, int battery, int signal, String status, {bool isWet = false}) {
-    Color statusColor = status == "ACTIVE" ? const Color(0xFF2ECC71) : Colors.orange;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 24, offset: const Offset(0, 8)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4DB6AC).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.memory, color: Color(0xFF4DB6AC), size: 28),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      Text(name, style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF2D3436))),
-                      Text("$type • ID: $id", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                      _buildStatCard("Total", "$_totalDevices", Colors.teal),
+                      const SizedBox(width: 10),
+                      _buildStatCard("Active", "$_activeDevices", Colors.green),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _buildStatCard("Maint.", "$_maintenanceDevices", Colors.orange),
+                      const SizedBox(width: 10),
+                      _buildStatCard("Offline", "2", Colors.red),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // 2. NEW DEVICE BUTTON (UPDATED TO POP-UP)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _showNewDeviceDialog(context), 
+                      icon: const Icon(Icons.add_to_queue),
+                      label: const Text("Register New Device"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4DB6AC),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  TextField(
+                    controller: _searchController,
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                    decoration: InputDecoration(
+                      hintText: "Search patient name...",
+                      prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      initiallyExpanded: true,
+                      title: Text("Patients & Their Devices", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+                      children: filteredPatients.map((p) => _buildUnifiedPatientCard(p)).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ExpansionTile(
+                    title: Text("Device List (Inventory)", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+                    children: [
+                      ...availableVitalsSensors.map((id) => _buildInventoryCard(id, "Vital Signs", Colors.blue)),
+                      ...availableMoistureSensors.map((id) => _buildInventoryCard(id, "Moisture Sensor", Colors.orange)),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
                 ],
               ),
-              _statusTag(status, statusColor),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _infoBanner("Assigned To", assignedTo),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(child: _miniInfoCard("Firmware", "v2.3.1")),
-              const SizedBox(width: 10),
-              Expanded(child: _miniInfoCard("Last Update", "2 min ago")),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _buildProgressRow(Icons.battery_std, "Battery Level", battery, battery < 20 ? Colors.red : const Color(0xFF2ECC71)),
-          const SizedBox(height: 12),
-          _buildProgressRow(Icons.wifi, "Signal Strength", signal, const Color(0xFF2ECC71)),
-          
-          const Spacer(),
-
-          if (isWet) _moistureAlert(),
-
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.sync, size: 14),
-                  label: const Text("Calibrate", style: TextStyle(fontSize: 12)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.black87,
-                    side: BorderSide(color: Colors.grey.shade200),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _showLogs(context, name),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.black87,
-                    side: BorderSide(color: Colors.grey.shade200),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text("View Logs", style: TextStyle(fontSize: 12)),
-                ),
-              ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _infoBanner(String label, String value) {
+  // --- Utility Builder Widgets ---
+  Widget _buildStatCard(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withOpacity(0.1))),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(value, style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInventoryCard(String id, String type, Color color) {
     return Container(
-      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(color: const Color(0xFFF1F8FD), borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.blueGrey)),
-          Text(value, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF2D3436))),
-        ],
-      ),
-    );
-  }
-
-  Widget _miniInfoCard(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: const Color(0xFFF8FAFB), borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
-  Widget _moistureAlert() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade100),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Icon(Icons.water_drop, color: Colors.blue, size: 16),
-          const SizedBox(width: 8),
-          Text("WET CONDITION DETECTED", 
-            style: GoogleFonts.poppins(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 10)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(id, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(type, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined, color: Colors.redAccent, size: 20),
+            onPressed: () => _removeDeviceFromInventory(id, type == "Vital Signs"),
+          )
         ],
       ),
     );
   }
 
-  Widget _statusTag(String status, Color color) {
+  Widget _buildUnifiedPatientCard(Map<String, dynamic> patient) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)),
-      child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 15)]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.person_pin_outlined, color: Color(0xFF4DB6AC), size: 22),
+            const SizedBox(width: 8),
+            Text(patient['name'], style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+          ]),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _sensorColumn("Vital Signs", patient['vsId'], Colors.blue, patient['vsBat'], patient['name'])),
+              const SizedBox(width: 16),
+              Expanded(child: _sensorColumn("Moisture Sensor", patient['msId'], Colors.orange, patient['msBat'], patient['name'], isAlert: patient['isWet'])),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildProgressRow(IconData icon, String label, int value, Color color) {
-    return Column(children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Row(children: [Icon(icon, size: 14, color: Colors.black54), const SizedBox(width: 8), Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54))]),
-        Text("$value%", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
-      ]),
-      const SizedBox(height: 8),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: LinearProgressIndicator(value: value / 100, backgroundColor: Colors.grey.shade100, color: color, minHeight: 6),
+  Widget _sensorColumn(String title, String id, Color color, int battery, String patientName, {bool isAlert = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title.toUpperCase(), style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.bold, color: color)),
+        const SizedBox(height: 4),
+        Text(id, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        const Text("Status: Active", style: TextStyle(fontSize: 9, color: Colors.grey)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Icon(Icons.battery_4_bar, size: 12, color: battery < 20 ? Colors.red : Colors.green),
+          const SizedBox(width: 4),
+          Text("$battery%", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: battery < 20 ? Colors.red : Colors.green)),
+        ]),
+        const Padding(padding: EdgeInsets.symmetric(vertical: 10), child: Divider()),
+        _actionButton("View Logs", color, () => _showCategorizedLogs(context, patientName, title), outlined: true),
+        const SizedBox(height: 6),
+        _actionButton("Swap Device", Colors.redAccent, () => _showSwapDeviceDialog(context, id, title)),
+        const SizedBox(height: 6),
+        _actionButton("Calibrate", color, () => _calibrateDevice(id)),
+      ],
+    );
+  }
+
+  Widget _actionButton(String label, Color color, VoidCallback onTap, {bool outlined = false}) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: outlined ? Colors.transparent : color.withOpacity(0.05),
+          side: BorderSide(color: color.withOpacity(0.2)),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          foregroundColor: color,
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
       ),
-    ]);
+    );
+  }
+
+  Widget _logItem(String time, String message, String tag, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(time, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(tag, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold)),
+            Text(message, style: const TextStyle(fontSize: 12)),
+          ])),
+        ],
+      ),
+    );
   }
 }

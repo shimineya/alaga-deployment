@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS public.access_logs
     resource_affected character varying(100) COLLATE pg_catalog."default",
     severity character varying(20) COLLATE pg_catalog."default" DEFAULT 'INFO'::character varying,
     status character varying(20) COLLATE pg_catalog."default" DEFAULT 'SUCCESS'::character varying,
-    details jsonb,
     CONSTRAINT access_logs_pkey PRIMARY KEY (log_id)
 );
 
@@ -28,11 +27,6 @@ CREATE TABLE IF NOT EXISTS public.alert_notifications
     message text COLLATE pg_catalog."default",
     sent_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     severity character varying(20) COLLATE pg_catalog."default" DEFAULT 'INFO'::character varying,
-    alert_category character varying(50) COLLATE pg_catalog."default",
-    acknowledged_by integer,
-    acknowledged_at timestamp with time zone,
-    action_taken text COLLATE pg_catalog."default",
-    resolution_notes text COLLATE pg_catalog."default",
     CONSTRAINT alert_notifications_pkey PRIMARY KEY (alert_id)
 );
 
@@ -143,7 +137,6 @@ CREATE TABLE IF NOT EXISTS public.patients
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     is_archived boolean DEFAULT false,
     facility_id integer,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT patients_pkey PRIMARY KEY (patient_id),
     CONSTRAINT patients_device_mac_address_key UNIQUE (device_serial_number)
 );
@@ -257,21 +250,6 @@ CREATE TABLE IF NOT EXISTS public.user_documents
     CONSTRAINT user_documents_pkey PRIMARY KEY (document_id)
 );
 
-CREATE TABLE IF NOT EXISTS public.user_email_otps
-(
-    otp_id bigserial NOT NULL,
-    user_id integer NOT NULL,
-    email character varying(100) COLLATE pg_catalog."default" NOT NULL,
-    otp_hash character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    purpose character varying(50) COLLATE pg_catalog."default" NOT NULL DEFAULT 'REGISTER_VERIFY'::character varying,
-    attempts_count integer NOT NULL DEFAULT 0,
-    expires_at timestamp with time zone NOT NULL,
-    consumed_at timestamp with time zone,
-    created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_sent_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT user_email_otps_pkey PRIMARY KEY (otp_id)
-);
-
 CREATE TABLE IF NOT EXISTS public.user_permission_overrides
 (
     id serial NOT NULL,
@@ -326,13 +304,6 @@ ALTER TABLE IF EXISTS public.access_logs
     REFERENCES public.users (user_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE NO ACTION;
-
-
-ALTER TABLE IF EXISTS public.alert_notifications
-    ADD CONSTRAINT alert_notifications_acknowledged_by_fkey FOREIGN KEY (acknowledged_by)
-    REFERENCES public.users (user_id) MATCH SIMPLE
-    ON UPDATE NO ACTION
-    ON DELETE SET NULL;
 
 
 ALTER TABLE IF EXISTS public.alert_notifications
@@ -520,13 +491,6 @@ ALTER TABLE IF EXISTS public.user_documents
 
 ALTER TABLE IF EXISTS public.user_documents
     ADD CONSTRAINT user_documents_user_id_fkey FOREIGN KEY (user_id)
-    REFERENCES public.users (user_id) MATCH SIMPLE
-    ON UPDATE NO ACTION
-    ON DELETE CASCADE;
-
-
-ALTER TABLE IF EXISTS public.user_email_otps
-    ADD CONSTRAINT user_email_otps_user_id_fkey FOREIGN KEY (user_id)
     REFERENCES public.users (user_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE CASCADE;

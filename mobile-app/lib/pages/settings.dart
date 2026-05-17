@@ -17,23 +17,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool smsNotifications = false;
 
   // Dropdown Values
-  String selectedLanguage = "English";
   String selectedTimezone = "Asia/Manila (PHT)";
-  String selectedTheme = "Light";
   String selectedSensitivity = "Medium (Balanced)";
-  String selectedRetention = "1 Year (Default)";
+
+  // --- Logic for Update Check ---
+  void _checkVersionUpdate(BuildContext context) {
+    const String currentVersion = "v1.0.8";
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        // Simulate network delay for checking the update
+        Future.delayed(const Duration(seconds: 2), () {
+          Navigator.pop(context); // Close the checking dialog
+          _showUpToDateDialog(context, currentVersion);
+        });
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              const CircularProgressIndicator(color: Color(0xFF4DB6AC)),
+              const SizedBox(height: 20),
+              Text("Checking for updates...", style: GoogleFonts.poppins(fontSize: 14)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showUpToDateDialog(BuildContext context, String version) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green),
+            const SizedBox(width: 10),
+            Text("Up to Date", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Text(
+          "ALAGA $version is currently the latest version. No updates are required at this time.",
+          style: GoogleFonts.poppins(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK", style: TextStyle(color: Color(0xFF4DB6AC), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final headerStyle = GoogleFonts.poppins(
       fontWeight: FontWeight.bold,
       fontSize: 24,
-      color: const Color(0xFF2D3436),
-    );
-
-    final sectionTitleStyle = GoogleFonts.poppins(
-      fontWeight: FontWeight.bold,
-      fontSize: 16,
       color: const Color(0xFF2D3436),
     );
 
@@ -58,19 +105,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header
             Text("Settings", style: headerStyle),
             Text("Manage your application preferences", 
               style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
             const SizedBox(height: 25),
 
-            // 1. General Settings Section
+            // 1. General Settings
             _buildSectionCard(
               title: "General Settings",
               icon: Icons.settings_outlined,
               children: [
-                _buildDropdown("Language", selectedLanguage, ["English", "Tagalog"], (val) => setState(() => selectedLanguage = val!)),
                 _buildDropdown("Timezone", selectedTimezone, ["Asia/Manila (PHT)", "UTC+0"], (val) => setState(() => selectedTimezone = val!)),
-                _buildDropdown("Theme", selectedTheme, ["Light", "Dark"], (val) => setState(() => selectedTheme = val!)),
               ],
             ),
 
@@ -89,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 3. Alert Configuration (Anomaly Detection)
+            // 3. Alert Configuration (OC-SVM Info)
             _buildSectionCard(
               title: "Alert Configuration",
               icon: Icons.shield_outlined,
@@ -115,14 +161,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 4. Data Management
+            // 4. Software Update
             _buildSectionCard(
-              title: "Data Management",
-              icon: Icons.storage_outlined,
+              title: "Software Update",
+              icon: Icons.system_update_outlined,
               children: [
-                _buildDropdown("Data Retention Period", selectedRetention, ["6 Months", "1 Year (Default)", "Indefinite"], (val) => setState(() => selectedRetention = val!)),
-                const SizedBox(height: 12),
-                _buildInfoAlert("Important", "All patient data is protected under HIPAA compliance standards and encrypted at rest and in transit."),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Current Version: v1.0.8", style: labelStyle),
+                        const Text("Last checked: Today", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      ],
+                    ),
+                    ElevatedButton(
+                      onPressed: () => _checkVersionUpdate(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4DB6AC),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text("Update Now", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
               ],
             ),
 
@@ -133,16 +198,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(
               children: [
                 Expanded(child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Settings saved successfully")));
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4DB6AC),
                     padding: const EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  child: const Text("Save Changes", style: TextStyle(color: Colors.white)),
+                  child: const Text("Save Changes", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 )),
                 const SizedBox(width: 15),
-                TextButton(onPressed: () {}, child: const Text("Reset to Defaults", style: TextStyle(color: Colors.black54))),
+                TextButton(
+                  onPressed: () {}, 
+                  child: const Text("Reset to Defaults", style: TextStyle(color: Colors.black54))
+                ),
               ],
             ),
             const SizedBox(height: 40),
@@ -152,7 +222,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // UI Component: Section Card
+  // --- UI Components ---
+
   Widget _buildSectionCard({required String title, required IconData icon, required List<Widget> children}) {
     return Container(
       width: double.infinity,
@@ -180,7 +251,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // UI Component: Dropdown
   Widget _buildDropdown(String label, String value, List<String> items, Function(String?) onChanged) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
@@ -205,7 +275,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // UI Component: Switch Tile
   Widget _buildSwitchTile(String title, String? subtitle, bool value, Function(bool) onChanged) {
     return SwitchListTile.adaptive(
       contentPadding: EdgeInsets.zero,
@@ -214,21 +283,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       value: value,
       activeColor: const Color(0xFF4DB6AC),
       onChanged: onChanged,
-    );
-  }
-
-  Widget _buildInfoAlert(String title, String content) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: const Color(0xFFFFF9C4), borderRadius: BorderRadius.circular(8)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [const Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange), const SizedBox(width: 5), Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))]),
-          const SizedBox(height: 4),
-          Text(content, style: const TextStyle(fontSize: 11)),
-        ],
-      ),
     );
   }
 
@@ -249,7 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _infoItem("Last Backup", "March 24, 2026 - 3:00 AM"),
+            _infoItem("Last Backup", "April 10, 2026 - 3:00 AM"),
             _infoItem("Active Devices", "6 devices online"),
           ],
         ),

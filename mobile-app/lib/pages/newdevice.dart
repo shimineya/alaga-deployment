@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/api_service.dart';
 
 class NewDeviceScreen extends StatefulWidget {
   const NewDeviceScreen({super.key});
@@ -9,6 +10,7 @@ class NewDeviceScreen extends StatefulWidget {
 }
 
 class _NewDeviceScreenState extends State<NewDeviceScreen> {
+  bool _isSubmitting = false;
   bool isManual = true;
   final TextEditingController _vitalSignsCtrl = TextEditingController();
   final TextEditingController _smartDiaperCtrl = TextEditingController();
@@ -18,7 +20,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
   String? _sdError;
 
   // --- VALIDATION & SUCCESS POPUP ---
-  void _validateAndRegister() {
+  Future<void> _validateAndRegister() async {
     // Regex: Starts with VS- or SD-, then 4 digits (Year), dash, 3 digits
     final vsRegex = RegExp(r'^VS-\d{4}-\d{3}$');
     final sdRegex = RegExp(r'^SD-\d{4}-\d{3}$');
@@ -33,7 +35,23 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
     });
 
     if (_vsError == null && _sdError == null) {
-      _showSuccessDialog();
+      setState(() => _isSubmitting = true);
+      final result = await ApiService.post(
+        '/caregiver/devices',
+        body: {
+          'vitalDeviceNo': _vitalSignsCtrl.text.trim(),
+          'diaperDeviceNo': _smartDiaperCtrl.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      if (result['success'] == true) {
+        _showSuccessDialog();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message']?.toString() ?? 'Failed to register devices')),
+        );
+      }
     }
   }
 
@@ -132,7 +150,11 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                       children: [
                         _buildActionButton("Cancel", isPrimary: false, onTap: () => Navigator.pop(context)),
                         const SizedBox(width: 50),
-                        _buildActionButton("Register", isPrimary: true, onTap: _validateAndRegister),
+                        _buildActionButton(
+                          _isSubmitting ? "Registering..." : "Register",
+                          isPrimary: true,
+                          onTap: _isSubmitting ? () {} : _validateAndRegister,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 30),

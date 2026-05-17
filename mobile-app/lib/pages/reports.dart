@@ -1,21 +1,48 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class ReportsScreen extends StatelessWidget {
+class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Define the Typography Styles
-    final mainTextStyle = GoogleFonts.poppins(
-      fontWeight: FontWeight.bold,
-      color: const Color(0xFF2D3436),
-    );
+  State<ReportsScreen> createState() => _ReportsScreenState();
+}
 
-    final descriptionStyle = GoogleFonts.albertSans(
-      color: Colors.grey,
-      fontSize: 13,
-    );
+class _ReportsScreenState extends State<ReportsScreen> {
+  // --- State Variables ---
+  String _searchQuery = "";
+  String _reportScope = "In General"; 
+  String _reportType = "Vital Signs Data"; 
+  String _timeFrame = "7 Days";
+  DateTime _startDate = DateTime.now();
+  
+  // For Patient Search
+  String? _selectedPatient;
+  final List<String> _patients = [
+    "Juan Dela Cruz",
+    "Maria Santos",
+    "Ricardo Dalisay",
+    "Elena Adarna",
+    "Roberto Gomez"
+  ];
+
+  final List<String> _timeFrames = [
+    "1 Day", "7 Days", "1 Month", "3 Months", "6 Months", "1 Year"
+  ];
+
+  final List<String> _reportTypes = [
+    "Vital Signs Data", "Moisture Sensor Data", "Both"
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final mainTextStyle = GoogleFonts.poppins(fontWeight: FontWeight.bold, color: const Color(0xFF2D3436));
+    final descriptionStyle = GoogleFonts.albertSans(color: Colors.grey.shade700, fontSize: 13);
+    
+    // Vibrant Pastel Teal theme colors
+    const Color pastelTeal = Color(0xFFB2DFDB); // Background of boxes
+    const Color vibrantTeal = Color(0xFF00897B); // Borders and icons
+    const Color inputWhite = Color(0xFFFFFFFF); // High contrast text boxes
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFB),
@@ -23,98 +50,154 @@ class ReportsScreen extends StatelessWidget {
         title: Text("Reports", style: mainTextStyle.copyWith(fontSize: 20)),
         backgroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.file_upload_outlined, color: Color(0xFF4DB6AC)),
-            onPressed: () {},
-          )
-        ],
+        leading: const BackButton(color: Colors.black),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Generate and export medical reports", style: descriptionStyle),
-            const SizedBox(height: 20),
-            
+            _buildSearchBar(descriptionStyle, vibrantTeal),
+            const SizedBox(height: 24),
+
             _buildSectionTitle("Report Configuration", mainTextStyle),
-            _buildConfigurationCard(mainTextStyle, descriptionStyle),
             
-            const SizedBox(height: 24),
-            
-            Row(
-              children: [
-                Expanded(child: _buildStatCard("Avg Heart Rate", "76 BPM", Icons.favorite, Colors.blue, mainTextStyle, descriptionStyle)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildStatCard("Avg Temp", "37.2°C", Icons.thermostat, Colors.orange, mainTextStyle, descriptionStyle)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _buildStatCard("Hygiene Changes/Day", "8", Icons.calendar_today, Colors.green, mainTextStyle, descriptionStyle),
-
-            const SizedBox(height: 24),
-            _buildSectionTitle("Recent Reports", mainTextStyle),
-            _buildReportItem("Weekly Vital Signs Summary - Ward A", "March 24, 2026 • PDF • 245 KB", mainTextStyle, descriptionStyle),
-            _buildReportItem("Monthly Recovery Trends - All Patients", "March 1, 2026 • CSV • 89 KB", mainTextStyle, descriptionStyle),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, TextStyle style) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Text(title, style: style.copyWith(fontSize: 16)),
-    );
-  }
-
-  Widget _buildConfigurationCard(TextStyle main, TextStyle desc) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _buildDropdown("Report Type", "Vital Signs Trends", desc),
-            _buildDropdown("Timeframe", "Last 7 Days", desc),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {},
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4DB6AC),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: Text("Generate Report", style: main.copyWith(color: Colors.white, fontSize: 14)),
+            // Configuration Card
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16), 
+                side: BorderSide(color: Colors.grey.shade200),
               ),
-            )
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildCustomDropdown(
+                      "Report Scope", 
+                      _reportScope, 
+                      ["In General", "Specific Patient"], 
+                      (val) => setState(() => _reportScope = val!), 
+                      descriptionStyle,
+                      pastelTeal,
+                      inputWhite
+                    ),
+
+                    // Searchable Patient Feature
+                    if (_reportScope == "Specific Patient") 
+                      _buildPatientSearchDropdown(descriptionStyle, pastelTeal, inputWhite),
+
+                    const Divider(height: 32),
+
+                    _buildCustomDropdown(
+                      "Report Type", 
+                      _reportType, 
+                      _reportTypes, 
+                      (val) => setState(() => _reportType = val!), 
+                      descriptionStyle,
+                      pastelTeal,
+                      inputWhite
+                    ),
+
+                    _buildDatePicker(descriptionStyle, pastelTeal, inputWhite, vibrantTeal),
+
+                    _buildCustomDropdown(
+                      "Time Frame", 
+                      _timeFrame, 
+                      _timeFrames, 
+                      (val) => setState(() => _timeFrame = val!), 
+                      descriptionStyle,
+                      pastelTeal,
+                      inputWhite
+                    ),
+
+                    const SizedBox(height: 24),
+                    
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Preparing report for download...")),
+                          );
+                        },
+                        icon: const Icon(Icons.file_download_outlined, color: Colors.white),
+                        label: Text("Download Report", style: mainTextStyle.copyWith(color: Colors.white, fontSize: 15)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: vibrantTeal,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          elevation: 0,
+                        ),
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 32),
+            _buildSectionTitle("Recent Downloads", mainTextStyle),
+            _buildReportItem("Gen_Vitals_Summary.pdf", "April 10, 2026 • 1.2 MB", mainTextStyle, descriptionStyle, vibrantTeal),
+            _buildReportItem("Patient_Santos_Moisture.csv", "April 08, 2026 • 450 KB", mainTextStyle, descriptionStyle, vibrantTeal),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildDropdown(String label, String value, TextStyle desc) {
+  // --- UI Components ---
+
+  Widget _buildSearchBar(TextStyle desc, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white, 
+        borderRadius: BorderRadius.circular(12), 
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: TextField(
+        onChanged: (val) => setState(() => _searchQuery = val),
+        decoration: InputDecoration(
+          hintText: "Search archived reports...",
+          hintStyle: desc,
+          icon: Icon(Icons.search, color: accent),
+          border: InputBorder.none,
+        ),
+      ),
+    );
+  }
+
+  // Searchable Dropdown for Patients
+  Widget _buildPatientSearchDropdown(TextStyle desc, Color boxColor, Color inputColor) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      padding: const EdgeInsets.only(top: 12.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: desc.copyWith(fontSize: 11)),
-          const SizedBox(height: 4),
+          Text("Select Patient", style: desc.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
+          const SizedBox(height: 6),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(color: const Color(0xFFF1F3F4), borderRadius: BorderRadius.circular(8)),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(value, style: desc.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
-                const Icon(Icons.arrow_drop_down, color: Colors.grey),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: boxColor, 
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedPatient,
+                isExpanded: true,
+                hint: Text("Choose from list...", style: desc.copyWith(color: Colors.black54)),
+                dropdownColor: inputColor,
+                items: _patients.map((String patient) {
+                  return DropdownMenuItem<String>(
+                    value: patient,
+                    child: Text(patient, style: desc.copyWith(color: Colors.black87, fontWeight: FontWeight.w600)),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedPatient = val),
+              ),
             ),
           ),
         ],
@@ -122,41 +205,103 @@ class ReportsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color, TextStyle main, TextStyle desc) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade100)),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: desc.copyWith(fontSize: 10), overflow: TextOverflow.ellipsis),
-                  Text(value, style: main.copyWith(fontSize: 14), overflow: TextOverflow.ellipsis),
-                ],
+  Widget _buildCustomDropdown(String label, String value, List<String> items, Function(String?) onChanged, TextStyle desc, Color boxColor, Color inputColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: desc.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: boxColor, 
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: value,
+                isExpanded: true,
+                dropdownColor: inputColor,
+                icon: const Icon(Icons.expand_more, color: Colors.black54),
+                items: items.map((String item) {
+                  return DropdownMenuItem<String>(
+                    value: item, 
+                    child: Text(item, style: desc.copyWith(color: Colors.black87, fontWeight: FontWeight.w600)),
+                  );
+                }).toList(),
+                onChanged: onChanged,
               ),
-            )
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildReportItem(String title, String subtitle, TextStyle main, TextStyle desc) {
+  Widget _buildDatePicker(TextStyle desc, Color boxColor, Color inputColor, Color accent) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("Starting Date", style: desc.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: () async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: _startDate,
+                firstDate: DateTime(2021),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) setState(() => _startDate = picked);
+            },
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: boxColor, 
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "${_startDate.month}/${_startDate.day}/${_startDate.year}", 
+                    style: desc.copyWith(color: Colors.black87, fontWeight: FontWeight.w600),
+                  ),
+                  Icon(Icons.calendar_today_outlined, size: 16, color: accent),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, TextStyle style) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0), 
+      child: Text(title, style: style.copyWith(fontSize: 16)),
+    );
+  }
+
+  Widget _buildReportItem(String title, String subtitle, TextStyle main, TextStyle desc, Color accent) {
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade100)),
       child: ListTile(
-        leading: const Icon(Icons.description_outlined, color: Color(0xFF4DB6AC)),
-        title: Text(title, style: main.copyWith(fontSize: 13, fontWeight: FontWeight.w600)),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(color: accent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+          child: Icon(Icons.description_outlined, color: accent, size: 20),
+        ),
+        title: Text(title, style: main.copyWith(fontSize: 13)),
         subtitle: Text(subtitle, style: desc.copyWith(fontSize: 11)),
-        trailing: const Icon(Icons.download_outlined, color: Colors.grey, size: 20),
+        trailing: const Icon(Icons.file_download, color: Colors.grey, size: 18),
       ),
     );
   }

@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // ==================== STEP 1: Enter Email ====================
@@ -39,9 +40,9 @@ class _ForgotPasswordEmailPageState extends State<ForgotPasswordEmailPage> {
           _buildHeader(context, 'Forgot Your Password?'),
           const SizedBox(height: 12),
           Text(
-            'Enter your email address so we can send instructions',
+            'Enter your email address so we can send instructions.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54),
+            style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
           ),
           const SizedBox(height: 24),
           _buildTextField(_emailCtrl, 'Email Address'),
@@ -64,7 +65,23 @@ class ForgotPasswordOTPPage extends StatefulWidget {
 
 class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
   final List<TextEditingController> _controllers = List.generate(4, (_) => TextEditingController());
+  final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
   bool _isLoading = false;
+
+  @override
+  void dispose() {
+    for (var c in _controllers) c.dispose();
+    for (var f in _focusNodes) f.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(int index, String value) {
+    if (value.length == 1 && index < 3) {
+      _focusNodes[index + 1].requestFocus();
+    } else if (value.isEmpty && index > 0) {
+      _focusNodes[index - 1].requestFocus();
+    }
+  }
 
   Future<void> _verify() async {
     setState(() => _isLoading = true);
@@ -89,11 +106,14 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
         children: [
           Text('Forgot Your Password?', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          Text('Enter the code sent to your email address',
-              textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54)),
+          Text(
+            'Enter the code sent to your email address',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+          ),
           const SizedBox(height: 32),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(4, (i) => _buildOtpBox(i)),
           ),
           const SizedBox(height: 32),
@@ -104,21 +124,32 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
   }
 
   Widget _buildOtpBox(int i) {
-    return SizedBox(
-      width: 50, height: 50,
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      width: 56,
+      height: 56,
       child: TextField(
         controller: _controllers[i],
+        focusNode: _focusNodes[i],
         textAlign: TextAlign.center,
         keyboardType: TextInputType.number,
         maxLength: 1,
-        // Using Albert Sans for the numbers as well
-        style: GoogleFonts.albertSans(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black),
+        style: const TextStyle(fontSize: 24, color: Colors.black),
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
-          counterText: '', filled: true, fillColor: Colors.white,
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.black12)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 2)),
+          counterText: '',
+          filled: true,
+          fillColor: const Color(0xFFF5F5F0), // Dirty White
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.black54, width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 2),
+          ),
         ),
-        onChanged: (v) => (v.isNotEmpty && i < 3) ? FocusScope.of(context).nextFocus() : null,
+        onChanged: (v) => _onChanged(i, v),
       ),
     );
   }
@@ -134,6 +165,7 @@ class ForgotPasswordResetPage extends StatefulWidget {
 
 class _ForgotPasswordResetPageState extends State<ForgotPasswordResetPage> {
   bool _isObscure = true;
+  final TextEditingController _passCtrl = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -143,11 +175,11 @@ class _ForgotPasswordResetPageState extends State<ForgotPasswordResetPage> {
         children: [
           Text('Welcome Back!', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text('Change your password to continue', style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54)),
+          Text('Change your password to continue', style: GoogleFonts.poppins(fontSize: 13, color: Colors.black)),
           const SizedBox(height: 24),
           _buildTextField(
-            TextEditingController(), 
-            'Password', 
+            _passCtrl,
+            'New Password',
             isObscure: _isObscure,
             suffix: IconButton(
               icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility, size: 20, color: Colors.black38),
@@ -181,7 +213,7 @@ class _BlurredBackground extends StatelessWidget {
           Center(
             child: Dialog(
               insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-              backgroundColor: const Color(0xFFF5F5F0),
+              backgroundColor: const Color(0xFFF5F5F0), // Dialog Card Color
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               child: Padding(padding: const EdgeInsets.all(24), child: child),
             ),
@@ -207,33 +239,40 @@ Widget _buildTextField(TextEditingController ctrl, String hint, {bool isObscure 
   return TextField(
     controller: ctrl,
     obscureText: isObscure,
-    style: GoogleFonts.albertSans(fontSize: 14, color: Colors.black),
+    style: const TextStyle(fontSize: 14, color: Colors.black),
     decoration: InputDecoration(
-      hintText: hint, 
-      filled: true, 
-      fillColor: Colors.white,
+      hintText: hint,
+      filled: true,
+      fillColor: const Color(0xFFF5F5F0), // Dirty White
       hintStyle: GoogleFonts.albertSans(fontSize: 13, color: Colors.black38),
       suffixIcon: suffix,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.black12)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 2)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.black54),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 2),
+      ),
     ),
   );
 }
 
 Widget _buildButton(String text, VoidCallback? action, bool loading) {
   return SizedBox(
-    width: 200, height: 50,
+    width: 200,
+    height: 50,
     child: ElevatedButton(
       onPressed: action,
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF67A7A7), 
+        backgroundColor: const Color(0xFF67A7A7),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
       ),
-      child: loading 
-        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2)) 
-        : Text(text, style: GoogleFonts.poppins(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 16)),
+      child: loading
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+          : Text(text, style: GoogleFonts.poppins(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 16)),
     ),
   );
 }

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// [INTEGRATION] Live data from GET /api/caregiver/users
+import '../services/api_service.dart';
+
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
 
@@ -9,179 +12,125 @@ class UserManagementScreen extends StatefulWidget {
 }
 
 class _UserManagementScreenState extends State<UserManagementScreen> {
-  final Color primaryTeal = const Color(0xFF5FA9A9);
-  final Color staffBlue = const Color(0xFF4A8BF5);
-  final Color caregiverGreen = const Color(0xFF38C976);
-  final Color familyOrange = const Color(0xFFF58A4A);
-  final Color dangerRed = const Color(0xFFE57373);
-  final Color pageBackground = const Color(0xFFFFFDF5);
+  static const Color _teal = Color(0xFF5FA9A9);
+  static const Color _staffBlue = Color(0xFF4A8BF5);
+  static const Color _caregiverGreen = Color(0xFF38C976);
+  static const Color _adminOrange = Color(0xFFF58A4A);
+  static const Color _dangerRed = Color(0xFFE57373);
+  static const Color _pageBg = Color(0xFFFFFDF5);
 
   final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = "";
+  String _searchQuery = '';
 
-  List<Map<String, dynamic>> users = [
-    {
-      "name": "Nurse Maria Lopez",
-      "email": "maria.lopez@alaga.com",
-      "id": "1",
-      "role": "MEDICAL STAFF",
-      "roleColor": const Color(0xFF4A8BF5),
-      "status": "ACTIVE",
-      "lastActive": "10 min ago",
-    },
-    {
-      "name": "Nurse John Tan",
-      "email": "john.tan@alaga.com",
-      "id": "2",
-      "role": "MEDICAL STAFF",
-      "roleColor": const Color(0xFF4A8BF5),
-      "status": "ACTIVE",
-      "lastActive": "2 min ago",
-    },
-    {
-      "name": "Sarah Chen",
-      "email": "sarah.chen@alaga.com",
-      "id": "3",
-      "role": "CAREGIVER",
-      "roleColor": const Color(0xFF38C976),
-      "status": "ACTIVE",
-      "lastActive": "15 min ago",
-    },
-    {
-      "name": "Anna Santos (Family)",
-      "email": "anna.santos@email.com",
-      "id": "4",
-      "role": "FAMILY",
-      "roleColor": const Color(0xFFF58A4A),
-      "status": "ACTIVE",
-      "lastActive": "3 hours ago",
-    },
-  ];
+  List<Map<String, dynamic>> _users = [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  int get _getStaffCount => users.where((u) => u['role'] == "MEDICAL STAFF").length;
-  int get _getCaregiverCount => users.where((u) => u['role'] == "CAREGIVER").length;
-  int get _getFamilyCount => users.where((u) => u['role'] == "FAMILY").length;
-  int get _getTotalCount => users.length;
-
-  void _deleteUser(String id) {
-    setState(() {
-      users.removeWhere((user) => user['id'] == id);
-    });
-  }
-
-  void _showAddUserForm() {
-    final formKey = GlobalKey<FormState>();
-    String name = '';
-    String email = '';
-    String selectedRole = 'CAREGIVER';
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: pageBackground,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-          left: 24, right: 24, top: 24,
-        ),
-        child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Add Team Member", style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              TextFormField(
-                decoration: InputDecoration(
-                  labelText: "Full Name",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onSaved: (value) => name = value ?? '',
-                validator: (v) => v!.isEmpty ? "Required" : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                decoration: InputDecoration(
-                  labelText: "Email",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onSaved: (value) => email = value ?? '',
-                validator: (v) => v!.contains('@') ? null : "Invalid Email",
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: selectedRole,
-                decoration: InputDecoration(
-                  labelText: "Role",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                items: ["MEDICAL STAFF", "CAREGIVER", "FAMILY"]
-                    .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                    .toList(),
-                onChanged: (v) => selectedRole = v!,
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: primaryTeal, foregroundColor: Colors.white),
-                  onPressed: () {
-                    if (formKey.currentState!.validate()) {
-                      formKey.currentState!.save();
-                      setState(() {
-                        Color rColor = selectedRole == "MEDICAL STAFF" ? staffBlue : (selectedRole == "FAMILY" ? familyOrange : caregiverGreen);
-                        users.insert(0, {
-                          "name": name,
-                          "email": email,
-                          "id": DateTime.now().toString(),
-                          "role": selectedRole,
-                          "roleColor": rColor,
-                          "status": "ACTIVE",
-                          "lastActive": "Just now"
-                        });
-                      });
-                      Navigator.pop(context);
-                    }
-                  },
-                  child: const Text("Add User to Team"),
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _fetchUsers();
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // [INTEGRATION] Fetches all users visible to the logged-in user
+  // from GET /api/caregiver/users. Admins see all users;
+  // caregivers see only teammates on shared patients.
+  Future<void> _fetchUsers() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final result = await ApiService.get('/caregiver/users');
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      final data = (result['data'] as List<dynamic>? ?? [])
+          .map((u) => Map<String, dynamic>.from(u as Map))
+          .toList();
+      setState(() {
+        _users = data;
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _errorMessage = result['message'] ?? 'Failed to load users.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  // Maps the backend role string to a readable display label
+  String _formatRole(String role) {
+    switch (role) {
+      case 'medical_staff':
+        return 'Medical Staff';
+      case 'caregiver':
+        return 'Caregiver';
+      case 'admin':
+      case 'facility_admin':
+        return 'Facility Admin';
+      case 'system_admin':
+        return 'System Admin';
+      default:
+        return role;
+    }
+  }
+
+  Color _roleColor(String role) {
+    switch (role) {
+      case 'medical_staff':
+        return _staffBlue;
+      case 'admin':
+      case 'facility_admin':
+      case 'system_admin':
+        return _adminOrange;
+      default:
+        return _caregiverGreen;
+    }
+  }
+
+  // Counts by role from live data
+  int get _staffCount => _users.where((u) => u['role'] == 'medical_staff').length;
+  int get _caregiverCount => _users.where((u) => u['role'] == 'caregiver').length;
+  int get _adminCount =>
+      _users.where((u) => u['role'] == 'admin' || u['role'] == 'facility_admin').length;
+
+  @override
   Widget build(BuildContext context) {
-    final filteredUsers = users.where((user) {
-      final name = user['name'].toString().toLowerCase();
-      final email = user['email'].toString().toLowerCase();
-      final query = _searchQuery.toLowerCase();
-      return name.contains(query) || email.contains(query);
+    final filtered = _users.where((user) {
+      final name =
+          '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.toLowerCase();
+      final email = (user['email'] ?? '').toString().toLowerCase();
+      final username = (user['username'] ?? '').toString().toLowerCase();
+      final q = _searchQuery.toLowerCase();
+      return name.contains(q) || email.contains(q) || username.contains(q);
     }).toList();
 
     return Scaffold(
-      backgroundColor: pageBackground,
+      backgroundColor: _pageBg,
       appBar: AppBar(
-        backgroundColor: pageBackground,
+        backgroundColor: _pageBg,
         elevation: 0,
         leading: IconButton(
           onPressed: () => Navigator.of(context).pop(),
           icon: const Icon(Icons.arrow_back, color: Colors.black),
         ),
-        title: const Text(""),
+        title: const Text(''),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_outlined, color: Colors.black54),
+            tooltip: 'Refresh',
+            onPressed: _fetchUsers,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
@@ -189,139 +138,221 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Access Center",
+              'Access Center',
               style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w500,
-                fontSize: 14,
-                color: primaryTeal,
-              ),
+                  fontWeight: FontWeight.w500, fontSize: 14, color: _teal),
             ),
             Text(
-              "User Management",
+              'User Management',
               style: GoogleFonts.poppins(
-                fontWeight: FontWeight.bold,
-                fontSize: 28,
-                color: const Color(0xFF2D3436),
-              ),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 28,
+                  color: const Color(0xFF2D3436)),
             ),
             const SizedBox(height: 4),
-            Text("Manage staff and family access control.", style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 14)),
+            Text('Manage staff and caregiver access.',
+                style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 14)),
             const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showAddUserForm,
-                icon: const Icon(Icons.person_add_alt_1),
-                label: const Text("Add New User"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryTeal, foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
+
+            // --- Stat Cards ---
+            Row(
+              children: [
+                _statCard('Total', '${_users.length}',
+                    Icons.people_alt_outlined, Colors.black87),
+                const SizedBox(width: 10),
+                _statCard('Medical Staff', '$_staffCount',
+                    Icons.medical_services_outlined, _staffBlue),
+                const SizedBox(width: 10),
+                _statCard('Caregivers', '$_caregiverCount',
+                    Icons.badge_outlined, _caregiverGreen),
+                const SizedBox(width: 10),
+                _statCard('Admins', '$_adminCount',
+                    Icons.admin_panel_settings_outlined, _adminOrange),
+              ],
             ),
-            const SizedBox(height: 24),
-            _buildSmallStatCard("Total Users", "$_getTotalCount", Icons.people_alt_outlined, Colors.black87),
-            const SizedBox(height: 12),
-            _buildSmallStatCard("Medical Staff", "$_getStaffCount", Icons.medical_services_outlined, staffBlue),
-            const SizedBox(height: 12),
-            _buildSmallStatCard("Caregivers", "$_getCaregiverCount", Icons.badge_outlined, caregiverGreen),
-            const SizedBox(height: 12),
-            _buildSmallStatCard("Family", "$_getFamilyCount", Icons.family_restroom_outlined, familyOrange),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+
+            // --- Search Bar ---
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200)
+                border: Border.all(color: Colors.grey.shade200),
               ),
               child: TextField(
                 controller: _searchController,
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value;
-                  });
-                },
+                onChanged: (v) => setState(() => _searchQuery = v),
                 decoration: const InputDecoration(
-                  hintText: "Search staff or family...",
+                  hintText: 'Search by name, email, or username...',
                   prefixIcon: Icon(Icons.search),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 12)
+                  contentPadding:
+                      EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-            ...filteredUsers.map((user) => Column(children: [_buildUserCard(user), const SizedBox(height: 16)])),
+            const SizedBox(height: 20),
+
+            // --- Body ---
+            if (_isLoading)
+              const Center(
+                  child: Padding(
+                padding: EdgeInsets.only(top: 60),
+                child: CircularProgressIndicator(color: _teal),
+              ))
+            else if (_errorMessage != null)
+              Center(
+                  child: Padding(
+                padding: const EdgeInsets.only(top: 40),
+                child: Column(
+                  children: [
+                    const Icon(Icons.error_outline,
+                        color: Colors.redAccent, size: 48),
+                    const SizedBox(height: 12),
+                    Text(_errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.albertSans(color: Colors.grey)),
+                    const SizedBox(height: 16),
+                    TextButton(
+                        onPressed: _fetchUsers,
+                        child: const Text('Retry',
+                            style: TextStyle(color: _teal))),
+                  ],
+                ),
+              ))
+            else if (filtered.isEmpty)
+              Center(
+                  child: Padding(
+                padding: const EdgeInsets.only(top: 40),
+                child: Column(
+                  children: [
+                    const Icon(Icons.group_off_outlined,
+                        color: Colors.grey, size: 48),
+                    const SizedBox(height: 12),
+                    Text(
+                      _searchQuery.isEmpty
+                          ? 'No users in the system yet.'
+                          : 'No users match your search.',
+                      style: GoogleFonts.albertSans(color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ))
+            else
+              ...filtered.map(
+                (user) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _buildUserCard(user),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSmallStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100)
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(children: [Icon(icon, size: 20, color: color), const SizedBox(width: 12), Text(title)]),
-          Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 18)),
-        ],
+  Widget _statCard(String label, String value, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade100),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(height: 6),
+            Text(value,
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: color, fontSize: 16)),
+            Text(label,
+                style: const TextStyle(color: Colors.grey, fontSize: 9),
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildUserCard(Map<String, dynamic> user) {
+    final fullName =
+        '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
+    final displayName = fullName.isNotEmpty ? fullName : (user['username'] ?? 'Unknown');
+    final role = user['role'] ?? 'caregiver';
+    final status = user['account_status'] ?? 'Active';
+    final isActive = status.toLowerCase().contains('active') ||
+        status.toLowerCase() == 'verified';
+
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100)
+        border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              CircleAvatar(backgroundColor: primaryTeal.withOpacity(0.1), child: Text(user['name'][0], style: TextStyle(color: primaryTeal))),
+              CircleAvatar(
+                backgroundColor: _teal.withOpacity(0.1),
+                child: Text(
+                  displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+                  style: TextStyle(color: _teal, fontWeight: FontWeight.bold),
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(user['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  Text(user['email'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(displayName,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis),
+                    Text(user['email'] ?? '',
+                        style:
+                            const TextStyle(color: Colors.grey, fontSize: 12),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
               ),
             ],
           ),
-          const Divider(height: 24),
-          _infoRow("Role", _badge(user['role'], user['roleColor'])),
-          _infoRow("Status", _badge(user['status'], user['status'] == "ACTIVE" ? caregiverGreen : Colors.grey)),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => _deleteUser(user['id']),
-              icon: Icon(Icons.delete_outline, color: dangerRed, size: 18),
-              label: Text("Remove", style: TextStyle(color: dangerRed)),
-            ),
-          ),
+          const Divider(height: 20),
+          _infoRow('Role', _badge(_formatRole(role), _roleColor(role))),
+          _infoRow(
+              'Status',
+              _badge(
+                  isActive ? 'ACTIVE' : status.toUpperCase(),
+                  isActive ? _caregiverGreen : Colors.grey)),
         ],
       ),
     );
   }
 
   Widget _infoRow(String label, Widget value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2.0),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)), value]),
-  );
+        padding: const EdgeInsets.symmetric(vertical: 3.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label,
+                style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            value
+          ],
+        ),
+      );
 
   Widget _badge(String text, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
-    child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-  );
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration:
+            BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
+        child: Text(text,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold)),
+      );
 }

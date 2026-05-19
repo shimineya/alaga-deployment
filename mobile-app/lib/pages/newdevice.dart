@@ -15,10 +15,20 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
   bool isManual = true;
   bool isDoubleDevice = true;
 
-  final TextEditingController _vitalSignsCtrl = TextEditingController();
-  final TextEditingController _smartDiaperCtrl = TextEditingController();
+  // [FIX] Pre-fill the year prefix so users only enter the 4-digit suffix.
+  // Using the current year dynamically avoids hardcoded '2026'.
+  final int _currentYear = DateTime.now().year;
+  late final TextEditingController _vitalSignsCtrl;
+  late final TextEditingController _smartDiaperCtrl;
   String? _vsError;
   String? _sdError;
+
+  @override
+  void initState() {
+    super.initState();
+    _vitalSignsCtrl = TextEditingController(text: 'VS-$_currentYear-');
+    _smartDiaperCtrl = TextEditingController(text: 'SD-$_currentYear-');
+  }
 
   final List<Map<String, dynamic>> _singleDevices = [];
 
@@ -26,9 +36,10 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
 
   // [INTEGRATION] Validates device numbers, then calls POST /api/caregiver/devices
   // to register them in the backend whitelist.
+  // [FIX] Regex updated to require exactly 4 digits at the end (NNNN not NNN).
   Future<void> _validateAndRegister() async {
-    final vsRegex = RegExp(r'^VS-\d{4}-\d{3}$');
-    final sdRegex = RegExp(r'^SD-\d{4}-\d{3}$');
+    final vsRegex = RegExp(r'^VS-\d{4}-\d{4}$');
+    final sdRegex = RegExp(r'^SD-\d{4}-\d{4}$');
 
     String? vitalDeviceNo;
     String? diaperDeviceNo;
@@ -99,10 +110,12 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
   }
 
   void _addSingleDevice(String type) {
+    // [FIX] Pre-fill the prefix so the user only enters the 4-digit suffix
+    final prefix = type == 'VS' ? 'VS-$_currentYear-' : 'SD-$_currentYear-';
     setState(() {
       _singleDevices.add({
         'type': type,
-        'controller': TextEditingController(),
+        'controller': TextEditingController(text: prefix),
         'error': null,
       });
     });
@@ -131,19 +144,26 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                 style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 16),
+            // [FIX] vital.png and diaper.png do not exist -- use built-in icons.
             ListTile(
-              leading: Image.asset('assets/images/vital.png', width: 24),
-              title: Text("Vital Signs Device",
+              leading: const Icon(Icons.monitor_heart_outlined,
+                  color: Color(0xFF5FA9A9), size: 28),
+              title: Text("Vital Signs Monitor (VS)",
                   style: GoogleFonts.poppins(fontSize: 14)),
+              subtitle: Text('e.g. VS-$_currentYear-0001',
+                  style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey)),
               onTap: () {
                 Navigator.pop(context);
                 _addSingleDevice('VS');
               },
             ),
             ListTile(
-              leading: Image.asset('assets/images/diaper.png', width: 24),
-              title: Text("Smart Diaper Device",
+              leading: const Icon(Icons.child_care_outlined,
+                  color: Color(0xFF5FA9A9), size: 28),
+              title: Text("Smart Diaper Module (SD)",
                   style: GoogleFonts.poppins(fontSize: 14)),
+              subtitle: Text('e.g. SD-$_currentYear-0001',
+                  style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey)),
               onTap: () {
                 Navigator.pop(context);
                 _addSingleDevice('SD');
@@ -333,11 +353,11 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
               if (isDoubleDevice) ...[
                 _buildInputLabel("Vital Signs Device No."),
                 _buildTextField(_vitalSignsCtrl,
-                    errorText: _vsError, hint: "VS-2026-001"),
+                    errorText: _vsError, hint: 'VS-$_currentYear-0001'),
                 const SizedBox(height: 20),
                 _buildInputLabel("Smart Diaper Device No."),
                 _buildTextField(_smartDiaperCtrl,
-                    errorText: _sdError, hint: "SD-2026-001"),
+                    errorText: _sdError, hint: 'SD-$_currentYear-0001'),
               ] else ...[
                 ..._singleDevices.asMap().entries.map((entry) {
                   final i = entry.key;
@@ -364,7 +384,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                         ),
                         _buildTextField(ctrl,
                             errorText: device['error'],
-                            hint: type == 'VS' ? "VS-2026-001" : "SD-2026-001"),
+                            hint: type == 'VS' ? 'VS-$_currentYear-0001' : 'SD-$_currentYear-0001'),
                       ],
                     ),
                   );

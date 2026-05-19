@@ -216,8 +216,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(width: 10),
-        const CircleAvatar(
-            backgroundImage: AssetImage('assets/images/pfp.jpg'), radius: 22),
+        // [FIX] Dynamic avatar: shows the logged-in user's first initial.
+        // Falls back to a teal circle with the letter if no profile picture is set.
+        // Previously this was a hardcoded pfp.jpg that showed the same image for every user.
+        Builder(builder: (_) {
+          final session = UserSession.current;
+          final initial = (session?.name.isNotEmpty == true)
+              ? session!.name[0].toUpperCase()
+              : 'U';
+          return CircleAvatar(
+            radius: 22,
+            backgroundColor: const Color(0xFF5FA9A9),
+            child: Text(
+              initial,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+              ),
+            ),
+          );
+        }),
       ],
     );
   }

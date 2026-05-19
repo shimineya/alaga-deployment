@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// [INTEGRATION] Fetch patient list for the "Specific Patient" report scope
+import '../services/api_service.dart';
+
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
 
@@ -9,28 +12,50 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  String _searchQuery = "";
-  String _reportScope = "In General";
-  String _reportType = "Vital Signs Data";
-  String _timeFrame = "7 Days";
+  String _searchQuery = '';
+  String _reportScope = 'In General';
+  String _reportType = 'Vital Signs Data';
+  String _timeFrame = '7 Days';
   DateTime _startDate = DateTime.now();
- 
+
   String? _selectedPatient;
-  final List<String> _patients = [
-    "Juan Dela Cruz",
-    "Maria Santos",
-    "Ricardo Dalisay",
-    "Elena Adarna",
-    "Roberto Gomez"
-  ];
+
+  // [INTEGRATION] Patient list loaded from the backend -- replaces hardcoded names.
+  List<Map<String, dynamic>> _patients = [];
+  bool _isPatientsLoading = false;
 
   final List<String> _timeFrames = [
-    "1 Day", "7 Days", "1 Month", "3 Months", "6 Months", "1 Year"
+    '1 Day', '7 Days', '1 Month', '3 Months', '6 Months', '1 Year'
   ];
 
   final List<String> _reportTypes = [
-    "Vital Signs Data", "Moisture Sensor Data", "Both"
+    'Vital Signs Data', 'Moisture Sensor Data', 'Both'
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPatients();
+  }
+
+  // Loads the patient list from the backend so the "Specific Patient"
+  // dropdown is populated with real data rather than placeholder names.
+  Future<void> _fetchPatients() async {
+    setState(() => _isPatientsLoading = true);
+    final result = await ApiService.get('/caregiver/patients');
+    if (!mounted) return;
+    if (result['success'] == true) {
+      final data = (result['data'] as List<dynamic>? ?? [])
+          .map((p) => Map<String, dynamic>.from(p as Map))
+          .toList();
+      setState(() {
+        _patients = data;
+        _isPatientsLoading = false;
+      });
+    } else {
+      setState(() => _isPatientsLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -195,35 +220,51 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Select Patient", style: desc.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
+          Text('Select Patient', style: desc.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black)),
           const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: fillColor,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: borderColor),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedPatient,
-                isExpanded: true,
-                hint: Text("Choose from list...", style: desc.copyWith(color: Colors.black54)),
-                dropdownColor: dropdownBg,
-                items: _patients.map((String patient) {
-                  return DropdownMenuItem<String>(
-                    value: patient,
-                    child: Text(patient, style: desc.copyWith(color: Colors.black87, fontWeight: FontWeight.w600)),
-                  );
-                }).toList(),
-                onChanged: (val) => setState(() => _selectedPatient = val),
-              ),
-            ),
-          ),
+          _isPatientsLoading
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: CircularProgressIndicator(color: Color(0xFF5FA9A9), strokeWidth: 2),
+                  ))
+              : Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedPatient,
+                      isExpanded: true,
+                      hint: Text(
+                        _patients.isEmpty
+                            ? 'No patients found'
+                            : 'Choose from list...',
+                        style: desc.copyWith(color: Colors.black54),
+                      ),
+                      dropdownColor: dropdownBg,
+                      items: _patients.map((Map<String, dynamic> patient) {
+                        final name = patient['name'] ?? 'Unknown';
+                        final id = patient['patient_id']?.toString() ?? name;
+                        return DropdownMenuItem<String>(
+                          value: id,
+                          child: Text(name, style: desc.copyWith(color: Colors.black87, fontWeight: FontWeight.w600)),
+                        );
+                      }).toList(),
+                      onChanged: _patients.isEmpty
+                          ? null
+                          : (val) => setState(() => _selectedPatient = val),
+                    ),
+                  ),
+                ),
         ],
       ),
     );
   }
+
 
   Widget _buildCustomDropdown(String label, String value, List<String> items, Function(String?) onChanged, TextStyle desc, Color borderColor, Color fillColor, Color dropdownBg) {
     return Padding(

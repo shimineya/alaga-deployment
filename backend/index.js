@@ -189,13 +189,14 @@ const sendOtpEmail = async ({ to, otp, purpose }) => {
 };
 
 // ==========================================
-// ROUTE 1: REGISTER 
-// [FIX] Wrapped in a database transaction. If the OTP email fails to send
-// (e.g., SMTP not configured), the entire operation rolls back so the user
-// can retry without hitting "Username or Email already exists".
+// ROUTE 1: REGISTER
+// [FIX] DB transaction covers only DB writes. The OTP email is sent AFTER
+// the response is dispatched (non-blocking) to prevent Gmail SMTP latency
+// (10-20s) from causing the Flutter client (15s timeout) to time out.
+// The user + OTP rows are committed before any email attempt, so the user
+// can always recover via /api/auth/resend-otp if the first email is lost.
 // ==========================================
 app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValidation, async (req, res) => {
-    // [FIX] Extract the specific error message for the frontend
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         const firstError = errors.array()[0].msg;
@@ -208,14 +209,13 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
         let { username, password, email, role, mobile_number, first_name, last_name, middle_initial } = req.body;
         console.log(`Registering user: ${email}`);
 
-        // [Fix] Force Email to Lowercase immediately for consistency
         const safeEmail = email.toLowerCase().trim();
 
-        // Auto-generate Username if empty
         if (!username || username.trim() === '') {
             username = safeEmail.split('@')[0];
         }
 
+        // [OWASP A05] DNS MX validation to reject undeliverable email domains
         const domainHasMx = await validateEmailDomain(safeEmail);
         if (!domainHasMx) {
             return res.status(400).json({
@@ -224,7 +224,7 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             });
         }
 
-        // Check if user exists
+        // [OWASP A05] Parameterized duplicate check
         const userCheck = await client.query(
             'SELECT * FROM users WHERE username = $1 OR email = $2',
             [username, safeEmail]
@@ -234,13 +234,13 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             return res.status(409).json({ success: false, message: 'Username or Email already exists' });
         }
 
+        // [OWASP A04] bcrypt with 12 salt rounds
         const salt = await bcrypt.genSalt(12);
         const password_hash = await bcrypt.hash(password, salt);
 
-        // [FIX] BEGIN TRANSACTION -- if sendOtpEmail fails, the user row is rolled back
+        // --- DB TRANSACTION: covers only writes, not network I/O ---
         await client.query('BEGIN');
 
-        // Insert User
         const newUser = await client.query(
             `INSERT INTO users (
                 username, password_hash, email, role, 
@@ -252,7 +252,7 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             [
                 username,
                 password_hash,
-                safeEmail, // Storing as lowercase
+                safeEmail,
                 role || 'caregiver',
                 mobile_number,
                 first_name,
@@ -262,10 +262,10 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
         );
 
         const createdUser = newUser.rows[0];
-
         const otp = generateOtp();
         const otpHash = hashOtp(otp);
 
+        // Invalidate any prior unconsumed OTPs for this user
         await client.query(
             `UPDATE user_email_otps
              SET consumed_at = NOW()
@@ -279,36 +279,37 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             [createdUser.user_id, safeEmail, otpHash]
         );
 
-        // [CRITICAL] Send OTP email BEFORE committing.
-        // If this throws (SMTP down, bad credentials), the ROLLBACK in the catch
-        // block removes the user and OTP rows so the user can retry cleanly.
-        await sendOtpEmail({
-            to: safeEmail,
-            otp,
-            purpose: 'REGISTER_VERIFY',
-        });
-
+        // [FIX] COMMIT before the email send so the DB write is not gated on SMTP.
+        // The Flutter client receives its 201 immediately after this line.
         await client.query('COMMIT');
+        client.release(); // Return connection to pool before the slow SMTP call
 
+        console.log(`[REGISTER] User committed: ${safeEmail} (user_id: ${createdUser.user_id})`);
+
+        // Respond to the Flutter client immediately -- do NOT await the email.
         res.status(201).json({
             success: true,
-            message: "Account created. OTP sent to email.",
+            message: 'Account created. OTP sent to email.',
             requiresOtp: true,
             otpPurpose: 'REGISTER_VERIFY',
             user_id: createdUser.user_id,
             email: createdUser.email,
         });
 
+        // Fire-and-forget: send OTP email AFTER the response is dispatched.
+        // If Gmail is slow or fails, the user can tap "Resend Code" on the OTP screen.
+        // [OWASP A09] Log delivery failures server-side without exposing them to the client.
+        sendOtpEmail({ to: safeEmail, otp, purpose: 'REGISTER_VERIFY' }).catch((emailErr) => {
+            console.error(`[NON-FATAL] OTP email delivery failed for ${safeEmail}: ${emailErr.message}`);
+        });
+
     } catch (err) {
+        // Only DB errors reach here now -- email failures are caught above
         await client.query('ROLLBACK').catch(() => {});
-        console.error("Registration Error:", err.message);
-        // [OWASP A10] Provide a user-friendly message without leaking stack traces
-        const userMessage = err.message.includes('SMTP')
-            ? 'Email service is not available. Please contact the administrator or try again later.'
-            : 'Registration failed. Please try again.';
-        res.status(500).json({ success: false, message: userMessage });
-    } finally {
         client.release();
+        console.error('Registration DB Error:', err.message);
+        // [OWASP A10] Generic error -- no stack trace to client
+        res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
     }
 });
 

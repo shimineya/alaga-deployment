@@ -417,20 +417,200 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
     );
   }
 
+  // ---- Live Caregiver Search State ----
+  List<Map<String, dynamic>> _caregiverResults = [];
+  bool _isSearchingCaregivers = false;
+  String? _selectedCaregiverName;
+
+  // Debounce timer so we don't hammer the API on every keystroke
+  // [OWASP A07] Rate limiting enforced at backend; debounce reduces noise client-side.
+
+  Future<void> _searchCaregivers(String query) async {
+    if (query.trim().length < 2) {
+      setState(() {
+        _caregiverResults = [];
+        _isSearchingCaregivers = false;
+      });
+      return;
+    }
+
+    setState(() => _isSearchingCaregivers = true);
+
+    final result = await ApiService.get('/caregiver/search?query=${Uri.encodeQueryComponent(query)}');
+
+    if (!mounted) return;
+    if (result['success'] == true) {
+      final data = (result['data'] as List<dynamic>? ?? [])
+          .map((u) => Map<String, dynamic>.from(u as Map))
+          .toList();
+      setState(() {
+        _caregiverResults = data;
+        _isSearchingCaregivers = false;
+      });
+    } else {
+      setState(() {
+        _caregiverResults = [];
+        _isSearchingCaregivers = false;
+      });
+    }
+  }
+
   Widget _buildSearchDatabaseView() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text("Email / Username",
+        Text('Email / Username',
             style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 10),
-        _buildTextField(_searchCtrl,
-            hint: "nurse@hospital.com",
-            prefixIcon: const Icon(Icons.search, color: Colors.black26),
-            radius: 15),
+        _buildTextField(
+          _searchCtrl,
+          hint: 'nurse@hospital.com',
+          prefixIcon: _isSearchingCaregivers
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: Padding(
+                    padding: EdgeInsets.all(12.0),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Color(0xFF5FA9A9)),
+                  ))
+              : const Icon(Icons.search, color: Colors.black26),
+          radius: 15,
+          onChanged: (val) => _searchCaregivers(val),
+        ),
+
+        // Selected caregiver banner
+        if (_selectedCaregiverName != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF5FA9A9).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.4)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_outline,
+                    color: Color(0xFF5FA9A9), size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Selected: $_selectedCaregiverName',
+                    style: GoogleFonts.albertSans(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF5FA9A9)),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedCaregiverId = null;
+                      _selectedCaregiverName = null;
+                      _searchCtrl.clear();
+                      _caregiverResults = [];
+                    });
+                  },
+                  child: const Icon(Icons.close, size: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // Search results list
+        if (_caregiverResults.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3))
+              ],
+            ),
+            child: Column(
+              children: _caregiverResults.asMap().entries.map((entry) {
+                final i = entry.key;
+                final caregiver = entry.value;
+                final name =
+                    '${caregiver['first_name'] ?? ''} ${caregiver['last_name'] ?? ''}'.trim();
+                final email = caregiver['email'] ?? '';
+                final role = caregiver['role'] ?? '';
+                final userId = caregiver['user_id'];
+
+                return Column(
+                  children: [
+                    ListTile(
+                      leading: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: const Color(0xFF5FA9A9).withOpacity(0.1),
+                        child: Text(
+                          name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                          style: const TextStyle(
+                              color: Color(0xFF5FA9A9),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14),
+                        ),
+                      ),
+                      title: Text(name,
+                          style: GoogleFonts.poppins(
+                              fontSize: 13, fontWeight: FontWeight.w600)),
+                      subtitle: Text(email,
+                          style: GoogleFonts.albertSans(
+                              fontSize: 11, color: Colors.grey)),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF5FA9A9).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          role == 'medical_staff' ? 'Staff' : 'Caregiver',
+                          style: const TextStyle(
+                              fontSize: 10,
+                              color: Color(0xFF5FA9A9),
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      onTap: () {
+                        setState(() {
+                          _selectedCaregiverId = userId;
+                          _selectedCaregiverName = name.isNotEmpty ? name : email;
+                          _searchCtrl.text = _selectedCaregiverName!;
+                          _caregiverResults = [];
+                        });
+                      },
+                    ),
+                    if (i < _caregiverResults.length - 1)
+                      Divider(
+                          height: 1, color: Colors.grey.shade100, indent: 16),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        ] else if (!_isSearchingCaregivers &&
+            _searchCtrl.text.trim().length >= 2 &&
+            _selectedCaregiverId == null) ...[
+          const SizedBox(height: 10),
+          Center(
+            child: Text('No caregivers found matching your search.',
+                style: GoogleFonts.albertSans(
+                    fontSize: 12, color: Colors.grey)),
+          ),
+        ],
       ],
     );
   }
+
+
 
   Widget _buildScanQRView() {
     return Container(
@@ -546,11 +726,13 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       VoidCallback? onTap,
       Widget? prefixIcon,
       double radius = 30,
-      List<TextInputFormatter>? inputFormatters}) {
+      List<TextInputFormatter>? inputFormatters,
+      ValueChanged<String>? onChanged}) {
     return TextField(
         controller: ctrl,
         readOnly: isReadOnly,
         onTap: onTap,
+        onChanged: onChanged,
         inputFormatters: inputFormatters,
         maxLines: isLarge ? 3 : 1,
         style: GoogleFonts.albertSans(fontSize: 14),

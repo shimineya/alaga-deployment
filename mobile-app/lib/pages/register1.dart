@@ -309,10 +309,14 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
 
     // [OWASP A05] Send the complete registration payload via parameterized API service.
     // requiresAuth: false -- no JWT needed for registration.
+    // [FIX] 45-second timeout: the backend runs DNS MX validation + bcrypt 12
+    // rounds + DB writes before responding. 15s was too short and caused the
+    // app to show "Network error" even when the registration had succeeded.
     final result = await ApiService.post(
       '/auth/register',
       body: widget.registrationData.toJson(),
       requiresAuth: false,
+      timeoutSeconds: 45,
     );
 
     if (!mounted) return;

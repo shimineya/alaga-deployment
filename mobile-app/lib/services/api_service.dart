@@ -120,10 +120,15 @@ class ApiService {
   }
 
   /// Sends an authenticated POST request with a JSON body.
+  ///
+  /// [timeoutSeconds] — override the default 15s timeout for endpoints that
+  /// involve slow server-side operations (e.g., registration involves DNS MX
+  /// lookup + bcrypt hashing before any DB write).
   static Future<Map<String, dynamic>> post(
     String endpoint, {
     Map<String, dynamic>? body,
     bool requiresAuth = true,
+    int timeoutSeconds = 15,
   }) async {
     try {
       final uri = Uri.parse('$_baseUrl$endpoint');
@@ -134,7 +139,7 @@ class ApiService {
             headers: _buildHeaders(requiresAuth: requiresAuth),
             body: body != null ? jsonEncode(body) : null,
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(Duration(seconds: timeoutSeconds));
 
       return _parseResponse(response);
     } catch (e) {

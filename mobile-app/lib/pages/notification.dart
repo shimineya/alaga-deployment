@@ -43,7 +43,22 @@ class NotificationScreen extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Image.asset('assets/images/mailbox.png', height: 180),
+                      // [FIX] mailbox.png does not exist in assets. Use a
+                      // built-in icon to avoid the "Asset not found" crash.
+                      Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF5FA9A9).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.mail_outline_rounded,
+                          size: 60,
+                          color: Color(0xFF5FA9A9),
+                        ),
+                      ),
+
                       const SizedBox(height: 28),
                       Text(
                         'No notifications yet!',

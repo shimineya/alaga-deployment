@@ -8,27 +8,161 @@ router.use(verifyToken);
 // MUST be re-enabled before production: router.use(enforceBreakGlassForSysAdmin);
 
 // ==========================================
-// 0. GET ALL DEVICES (Inventory - Moved to Top)
+// 0. GET DEVICES (Role-scoped inventory)
+// [OWASP A01] Admins and medical_staff see the full inventory.
+// Caregivers only see devices assigned to their accessible patients.
+// Previously returned ALL devices to ALL users regardless of role.
 // ==========================================
 router.get('/devices', async (req, res) => {
-    console.log("GET /api/caregiver/devices hit"); // [DEBUG] Confirm route is hit
+    const { role, id: userId } = req.user;
     try {
-        const result = await pool.query(
-            `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
-                    d.assigned_patient_id, p.name as assigned_patient_name
-             FROM device_whitelist d
-             LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
-             ORDER BY d.created_at DESC`
-        );
+        let result;
+
+        if (role === 'admin' || role === 'medical_staff') {
+            // Full inventory for privileged roles
+            result = await pool.query(
+                `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
+                        d.assigned_patient_id, p.name as assigned_patient_name
+                 FROM device_whitelist d
+                 LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
+                 ORDER BY d.created_at DESC`
+            );
+        } else {
+            // [OWASP A01] Caregiver: only devices linked to their accessible patients
+            result = await pool.query(
+                `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
+                        d.assigned_patient_id, p.name as assigned_patient_name
+                 FROM device_whitelist d
+                 LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
+                 INNER JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
+                 WHERE pa.user_id = $1
+                 ORDER BY d.created_at DESC`,
+                [userId]
+            );
+        }
+
         res.json({ success: true, data: result.rows });
     } catch (err) {
-        console.error("Fetch Devices Error:", err.message);
+        console.error('Fetch Devices Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch device inventory' });
     }
 });
 
+
 // ==========================================
-// 1. SEARCH USERS (For Caregiver Assignment)
+// 0.1. REGISTER DEVICE(S) INTO WHITELIST
+// [OWASP A01] Any verified user can register a device into the inventory.
+// The device_whitelist entry marks the physical hardware as known to the system.
+// Serial numbers must follow the format: VS-YYYY-NNNN or SD-YYYY-NNNN.
+// ==========================================
+router.post('/devices', async (req, res) => {
+    const { vitalDeviceNo, diaperDeviceNo } = req.body;
+
+    if (!vitalDeviceNo && !diaperDeviceNo) {
+        return res.status(400).json({ success: false, message: 'At least one device serial number is required.' });
+    }
+
+    const serialRegex = /^(VS|SD)-\d{4}-\d{4}$/;
+
+    if (vitalDeviceNo && !serialRegex.test(vitalDeviceNo)) {
+        return res.status(400).json({ success: false, message: `Invalid serial format: ${vitalDeviceNo}. Expected VS-YYYY-NNNN.` });
+    }
+    if (diaperDeviceNo && !serialRegex.test(diaperDeviceNo)) {
+        return res.status(400).json({ success: false, message: `Invalid serial format: ${diaperDeviceNo}. Expected SD-YYYY-NNNN.` });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const inserted = [];
+
+        if (vitalDeviceNo) {
+            // [OWASP A05] Check for duplicate before insert
+            const exists = await client.query(
+                'SELECT serial_number FROM device_whitelist WHERE serial_number = $1',
+                [vitalDeviceNo]
+            );
+            if (exists.rows.length > 0) {
+                await client.query('ROLLBACK');
+                client.release();
+                return res.status(409).json({ success: false, message: `Device ${vitalDeviceNo} is already registered.` });
+            }
+            await client.query(
+                `INSERT INTO device_whitelist (serial_number, device_name, status, created_at)
+                 VALUES ($1, 'Vital Sign Monitor', 'AVAILABLE', NOW())`,
+                [vitalDeviceNo]
+            );
+            inserted.push(vitalDeviceNo);
+        }
+
+        if (diaperDeviceNo) {
+            const exists = await client.query(
+                'SELECT serial_number FROM device_whitelist WHERE serial_number = $1',
+                [diaperDeviceNo]
+            );
+            if (exists.rows.length > 0) {
+                await client.query('ROLLBACK');
+                client.release();
+                return res.status(409).json({ success: false, message: `Device ${diaperDeviceNo} is already registered.` });
+            }
+            await client.query(
+                `INSERT INTO device_whitelist (serial_number, device_name, status, created_at)
+                 VALUES ($1, 'Smart Diaper Module', 'AVAILABLE', NOW())`,
+                [diaperDeviceNo]
+            );
+            inserted.push(diaperDeviceNo);
+        }
+
+        await client.query('COMMIT');
+        res.status(201).json({ success: true, message: `Device(s) registered: ${inserted.join(', ')}`, registered: inserted });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Register Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to register device.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 0.2. GET USERS (for User Management screen)
+// [OWASP A01] Returns all users visible to the caller.
+// Admins and medical_staff see all users in the system.
+// Caregivers only see users who share a patient with them.
+// ==========================================
+router.get('/users', async (req, res) => {
+    const { role, id: userId } = req.user;
+    try {
+        let result;
+        if (role === 'admin' || role === 'medical_staff') {
+            result = await pool.query(
+                `SELECT user_id, username, first_name, last_name, email, role, account_status, created_at, mobile_number
+                 FROM users
+                 WHERE role NOT IN ('system_admin')
+                 ORDER BY created_at DESC`
+            );
+        } else {
+            // Caregiver: see users on the same care teams
+            result = await pool.query(
+                `SELECT DISTINCT u.user_id, u.username, u.first_name, u.last_name, u.email, u.role, u.account_status, u.created_at
+                 FROM users u
+                 JOIN patient_access pa ON pa.user_id = u.user_id
+                 WHERE pa.patient_id IN (
+                     SELECT patient_id FROM patient_access WHERE user_id = $1
+                 )
+                 ORDER BY u.created_at DESC`,
+                [userId]
+            );
+        }
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Get Users Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch users.' });
+    }
+});
+
 // ==========================================
 router.get('/search', async (req, res) => {
     try {

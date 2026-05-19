@@ -614,7 +614,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Icon(icon, size: 14, color: Colors.grey),
           const SizedBox(width: 6),
-          Text(label, style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey)),
+          // [FIX] Flexible prevents long email addresses from overflowing the card.
+          Flexible(
+            child: Text(
+              label,
+              style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
         ],
       ),
     );

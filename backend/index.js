@@ -300,7 +300,9 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
         // If Gmail is slow or fails, the user can tap "Resend Code" on the OTP screen.
         // [OWASP A09] Log delivery failures server-side without exposing them to the client.
         sendOtpEmail({ to: safeEmail, otp, purpose: 'REGISTER_VERIFY' }).catch((emailErr) => {
-            console.error(`[NON-FATAL] OTP email delivery failed for ${safeEmail}: ${emailErr.message}`);
+            // Log the full error code so it appears in Render's log stream for diagnosis.
+            // Common codes: ECONNREFUSED (port blocked), EAUTH (bad App Password), ETIMEDOUT (network).
+            console.error(`[SMTP-FAIL] OTP delivery failed for ${safeEmail} | code=${emailErr.code || 'none'} | response=${emailErr.responseCode || 'none'} | msg=${emailErr.message}`);
         });
 
     } catch (err) {
@@ -708,6 +710,122 @@ app.post('/api/auth/logout', verifyToken, async (req, res) => {
     } catch (err) {
         // Even if this fails, the frontend still clears localStorage
         res.json({ success: true, message: 'Logged out.' });
+    }
+});
+
+// ==========================================
+// SMTP HEALTH CHECK (Admin-only diagnostic)
+// [OWASP A09] Returns which SMTP fields are set WITHOUT exposing credential values.
+// Also attempts transporter.verify() to expose the real network/auth error.
+// ==========================================
+app.get('/api/admin/smtp-health', verifyToken, async (req, res) => {
+    const adminRoles = ['system_admin', 'admin', 'sysadmin'];
+    if (!adminRoles.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: 'Restricted to System Administrators.' });
+    }
+
+    const smtp = await loadSmtpConfig().catch(() => null);
+
+    let connectionError = null;
+    let connectionOk = false;
+
+    if (smtp && smtp.host && smtp.user && smtp.pass) {
+        const transporter = nodemailer.createTransport({
+            host: smtp.host,
+            port: smtp.port,
+            secure: smtp.secure,
+            auth: { user: smtp.user, pass: smtp.pass },
+        });
+        try {
+            // verify() opens a real TCP connection to the SMTP server.
+            // If Render blocks the port, this will throw ECONNREFUSED or ETIMEDOUT.
+            // If the App Password is wrong, this throws AuthError.
+            await transporter.verify();
+            connectionOk = true;
+        } catch (verifyErr) {
+            // [OWASP A09] Safe to expose to admins — no PHI or credential values in error code.
+            connectionError = {
+                code: verifyErr.code || null,
+                message: verifyErr.message || 'Unknown error',
+                responseCode: verifyErr.responseCode || null,
+            };
+        }
+    }
+
+    return res.json({
+        success: true,
+        smtp_configured: !!smtp,
+        connection_ok: connectionOk,
+        connection_error: connectionError,
+        fields: smtp ? {
+            host_preview: smtp.host || null,
+            port: smtp.port,
+            secure: smtp.secure,
+            user_preview: smtp.user ? smtp.user.replace(/(.{2}).*(@.*)/, '$1***$2') : null,
+            has_pass: !!smtp.pass,
+        } : null,
+        source_env_vars: {
+            SMTP_HOST: !!process.env.SMTP_HOST,
+            SMTP_PORT: !!process.env.SMTP_PORT,
+            SMTP_USER: !!process.env.SMTP_USER,
+            SMTP_PASS: !!process.env.SMTP_PASS,
+            SMTP_FROM: !!process.env.SMTP_FROM,
+        },
+    });
+});
+
+// ==========================================
+// SMTP TEST SEND (Admin-only — synchronous send so error is visible)
+// POST body: { to: 'target@email.com' }
+// Returns the exact nodemailer/network error to the caller.
+// [OWASP A09] Protected by JWT — not exposed to unauthenticated users.
+// ==========================================
+app.post('/api/admin/smtp-test-send', verifyToken, async (req, res) => {
+    const adminRoles = ['system_admin', 'admin', 'sysadmin'];
+    if (!adminRoles.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: 'Restricted to System Administrators.' });
+    }
+
+    const { to } = req.body;
+    if (!to) return res.status(400).json({ success: false, message: '"to" email address is required.' });
+
+    const smtp = await loadSmtpConfig().catch(() => null);
+    if (!smtp || !smtp.host || !smtp.user || !smtp.pass) {
+        return res.status(500).json({ success: false, message: 'SMTP is not configured.' });
+    }
+
+    const transporter = nodemailer.createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        auth: { user: smtp.user, pass: smtp.pass },
+    });
+
+    try {
+        const info = await transporter.sendMail({
+            from: smtp.from,
+            to,
+            subject: 'ALAGA SMTP Test',
+            text: 'This is a test email from the Alaga backend diagnostic endpoint.',
+        });
+        return res.json({
+            success: true,
+            message: 'Test email sent successfully.',
+            messageId: info.messageId,
+            response: info.response,
+        });
+    } catch (err) {
+        // Return the full error details so the admin can see exactly what failed.
+        return res.status(500).json({
+            success: false,
+            message: 'SMTP send failed.',
+            error: {
+                code: err.code || null,
+                message: err.message || 'Unknown error',
+                responseCode: err.responseCode || null,
+                command: err.command || null,
+            },
+        });
     }
 });
 

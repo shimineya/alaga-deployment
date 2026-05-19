@@ -91,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFB),
+      backgroundColor: const Color(0xFFFFFDF5), // Changed to yellowish-white
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -105,10 +105,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Added System Configuration label
+            Text(
+              "System Configuration",
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF80CBC4), // Medium pastel teal
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 4),
             // Header
-            Text("Settings", style: headerStyle),
-            Text("Manage your application preferences", 
-              style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
+            Text("SETTINGS", style: headerStyle),
+            Text("Manage your application preferences.",
+              style: GoogleFonts.albertSans(color: Colors.black, fontSize: 14)),
             const SizedBox(height: 25),
 
             // 1. General Settings
@@ -153,7 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text("Anomaly Detection (OC-SVM)", style: labelStyle.copyWith(color: Colors.blue.shade800)),
                       const SizedBox(height: 4),
-                      Text("One-Class SVM algorithm is active for high-precision alerts and reduced false positives.", 
+                      Text("One-Class SVM algorithm is active for high-precision alerts and reduced false positives.",
                         style: GoogleFonts.poppins(fontSize: 11, color: Colors.blue.shade700)),
                     ],
                   ),
@@ -210,7 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 )),
                 const SizedBox(width: 15),
                 TextButton(
-                  onPressed: () {}, 
+                  onPressed: () {},
                   child: const Text("Reset to Defaults", style: TextStyle(color: Colors.black54))
                 ),
               ],
@@ -317,8 +328,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         Text(value, style: GoogleFonts.poppins(
-          fontSize: 13, 
-          fontWeight: FontWeight.bold, 
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
           color: isStatus ? Colors.green : Colors.black
         )),
       ],

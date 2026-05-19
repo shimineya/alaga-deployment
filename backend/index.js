@@ -467,6 +467,151 @@ app.post('/api/auth/resend-otp', authLimiter, async (req, res) => {
 });
 
 // ==========================================
+// ROUTE 1C: FORGOT PASSWORD (Request OTP by Email Only)
+// [INTEGRATION] Used by the mobile app's "Forgot Password" flow.
+// Accepts only an email, looks up the user, generates an OTP with purpose
+// 'PASSWORD_RESET', and returns the user_id for subsequent verify/reset calls.
+// ==========================================
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email address is required.' });
+        }
+
+        const safeEmail = email.toLowerCase().trim();
+
+        // [OWASP A05] Parameterized query
+        const userResult = await pool.query(
+            'SELECT user_id, email FROM users WHERE email = $1',
+            [safeEmail]
+        );
+
+        if (userResult.rows.length === 0) {
+            // [OWASP A10] Generic message to prevent user enumeration.
+            return res.json({
+                success: true,
+                message: 'If an account with that email exists, a verification code has been sent.',
+            });
+        }
+
+        const user = userResult.rows[0];
+
+        // Rate-limit: check if an OTP was sent recently
+        const latestOtp = await pool.query(
+            `SELECT last_sent_at FROM user_email_otps
+             WHERE user_id = $1 AND purpose = 'PASSWORD_RESET'
+             ORDER BY created_at DESC LIMIT 1`,
+            [user.user_id]
+        );
+        if (latestOtp.rows.length > 0 && latestOtp.rows[0].last_sent_at) {
+            const lastSent = new Date(latestOtp.rows[0].last_sent_at).getTime();
+            if (Date.now() - lastSent < 60000) {
+                return res.status(429).json({
+                    success: false,
+                    message: 'Please wait at least 60 seconds before requesting another code.',
+                });
+            }
+        }
+
+        // Invalidate existing PASSWORD_RESET OTPs
+        await pool.query(
+            `UPDATE user_email_otps SET consumed_at = NOW()
+             WHERE user_id = $1 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`,
+            [user.user_id]
+        );
+
+        const otp = generateOtp();
+        const otpHash = hashOtp(otp);
+
+        await pool.query(
+            `INSERT INTO user_email_otps (user_id, email, otp_hash, purpose, expires_at, last_sent_at)
+             VALUES ($1, $2, $3, 'PASSWORD_RESET', NOW() + INTERVAL '10 minutes', NOW())`,
+            [user.user_id, safeEmail, otpHash]
+        );
+
+        await sendOtpEmail({ to: safeEmail, otp, purpose: 'PASSWORD_RESET' });
+
+        return res.json({
+            success: true,
+            message: 'If an account with that email exists, a verification code has been sent.',
+            user_id: user.user_id,
+            email: user.email,
+        });
+    } catch (err) {
+        console.error('Forgot Password Error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to process request.' });
+    }
+});
+
+// ==========================================
+// ROUTE 1D: RESET PASSWORD (Verify OTP + Update Password)
+// [OWASP A04] Password hashed with bcrypt, 12 salt rounds.
+// ==========================================
+app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
+    try {
+        const { user_id, otp, password } = req.body;
+
+        if (!user_id || !otp || !password) {
+            return res.status(400).json({ success: false, message: 'user_id, otp, and password are required.' });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
+        }
+
+        // 1. Verify the OTP
+        const otpRecord = await pool.query(
+            `SELECT otp_id, otp_hash, expires_at, attempts_count
+             FROM user_email_otps
+             WHERE user_id = $1 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [user_id]
+        );
+
+        if (otpRecord.rows.length === 0) {
+            return res.status(400).json({ success: false, message: 'No active reset code found. Please request a new one.' });
+        }
+
+        const rec = otpRecord.rows[0];
+        if (new Date(rec.expires_at).getTime() < Date.now()) {
+            return res.status(400).json({ success: false, message: 'Reset code has expired. Please request a new one.' });
+        }
+
+        if ((rec.attempts_count || 0) >= 5) {
+            return res.status(429).json({ success: false, message: 'Too many invalid attempts. Please request a new code.' });
+        }
+
+        const submittedHash = hashOtp(otp.toString().trim());
+        if (submittedHash !== rec.otp_hash) {
+            await pool.query(
+                `UPDATE user_email_otps SET attempts_count = attempts_count + 1 WHERE otp_id = $1`,
+                [rec.otp_id]
+            );
+            return res.status(400).json({ success: false, message: 'Invalid reset code.' });
+        }
+
+        // 2. OTP is valid -- hash the new password and update
+        const salt = await bcrypt.genSalt(12);
+        const password_hash = await bcrypt.hash(password, salt);
+
+        await pool.query('BEGIN');
+        try {
+            await pool.query(`UPDATE user_email_otps SET consumed_at = NOW() WHERE otp_id = $1`, [rec.otp_id]);
+            await pool.query(`UPDATE users SET password_hash = $1 WHERE user_id = $2`, [password_hash, user_id]);
+            await pool.query('COMMIT');
+            return res.json({ success: true, message: 'Password has been reset successfully. You can now log in.' });
+        } catch (txErr) {
+            await pool.query('ROLLBACK');
+            throw txErr;
+        }
+    } catch (err) {
+        console.error('Reset Password Error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to reset password.' });
+    }
+});
+
+// ==========================================
 // ROUTE 2: LOGIN 
 // ==========================================
 app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {

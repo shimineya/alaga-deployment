@@ -1,73 +1,77 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:alaga/pages/login.dart';
+
+// [INTEGRATION] Import API service and session management
 import '../services/api_service.dart';
 import '../models/user_session.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final VoidCallback? onBack;
+  const ProfileScreen({super.key, this.onBack});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // --- State Variables ---
   bool _isEditing = false;
   bool _isChangingPassword = false;
+  bool _isLoading = true;
+  bool _isSaving = false;
 
-  // Visibility Toggles
   bool _obscureCurrent = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
 
-  // Requirement States (Real-time)
   bool _hasMinLength = false;
   bool _hasUpperLower = false;
   bool _hasNumberSymbol = false;
 
-  // Controllers for personal info
+  // [INTEGRATION] Profile data loaded from the backend
+  String _email = '';
+  String _role = '';
+  String? _profilePictureUrl;
+
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  String _email = '';
-  String _username = '';
-  bool _isSavingProfile = false;
-
-  // Profile Picture State
-  String? _profilePictureUrl;
-  bool _isUploadingPicture = false;
-  bool _imageLoadFailed = false;
-  final ImagePicker _imagePicker = ImagePicker();
-
-  // Controllers for password change
+  final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _currentPasswordController = TextEditingController();
   final TextEditingController _newPasswordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
 
+  // --- Colour & font constants ---
+  static const Color _teal = Color(0xFF4DB6AC);
+  static const Color _bgColor = Color(0xFFF5F5F0);
+
+  TextStyle get _titleStyle => GoogleFonts.poppins(
+        fontWeight: FontWeight.bold,
+        fontSize: 24,
+        color: const Color(0xFF2D3436),
+      );
+
+  TextStyle get _sectionHeaderStyle => GoogleFonts.poppins(
+        fontWeight: FontWeight.bold,
+        fontSize: 16,
+      );
+
+  TextStyle get _bodyStyle => GoogleFonts.albertSans(
+        fontSize: 13,
+        color: Colors.black54,
+      );
+
+  TextStyle get _labelStyle => GoogleFonts.albertSans(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Colors.grey,
+      );
+
   @override
   void initState() {
     super.initState();
-    // Real-time listener for the new password field
     _newPasswordController.addListener(_checkRequirements);
-    _loadProfile();
-  }
-
-  Future<void> _loadProfile() async {
-    final result = await ApiService.get('/user/profile');
-    if (!mounted) return;
-    if (result['success'] == true && result['profile'] is Map<String, dynamic>) {
-      final profile = result['profile'] as Map<String, dynamic>;
-      setState(() {
-        _firstNameController.text = profile['first_name']?.toString() ?? '';
-        _lastNameController.text = profile['last_name']?.toString() ?? '';
-        _phoneController.text = profile['mobile_number']?.toString() ?? '';
-        _email = profile['email']?.toString() ?? '';
-        _username = profile['username']?.toString() ?? '';
-        _profilePictureUrl = profile['profile_picture_url']?.toString();
-        _imageLoadFailed = false; // Reset so the new URL gets a fresh attempt
-      });
-    }
+    _fetchProfile();
   }
 
   @override
@@ -75,254 +79,228 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
+    _usernameController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  // --- Logic ---
+  // [INTEGRATION] Fetches the user's profile data from GET /api/user/profile.
+  // Populates all text controllers with the backend data.
+  Future<void> _fetchProfile() async {
+    setState(() => _isLoading = true);
+
+    final result = await ApiService.get('/user/profile');
+
+    if (!mounted) return;
+
+    if (result['success'] == true && result['profile'] != null) {
+      final profile = result['profile'];
+      setState(() {
+        _firstNameController.text = profile['first_name'] ?? '';
+        _lastNameController.text = profile['last_name'] ?? '';
+        _phoneController.text = profile['mobile_number'] ?? '';
+        _usernameController.text = profile['username'] ?? '';
+        _email = profile['email'] ?? '';
+        _role = profile['role'] ?? 'caregiver';
+        _profilePictureUrl = profile['profile_picture_url'];
+        _isLoading = false;
+      });
+    } else {
+      setState(() => _isLoading = false);
+      _showSnackBar(result['message'] ?? 'Failed to load profile.', isError: true);
+    }
+  }
 
   void _checkRequirements() {
     final pass = _newPasswordController.text;
     setState(() {
       _hasMinLength = pass.length >= 12;
-      _hasUpperLower = pass.contains(RegExp(r'[A-Z]')) && pass.contains(RegExp(r'[a-z]'));
-      _hasNumberSymbol = pass.contains(RegExp(r'[0-9]')) && pass.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>+_-]'));
+      _hasUpperLower = pass.contains(RegExp(r'[A-Z]')) &&
+          pass.contains(RegExp(r'[a-z]'));
+      _hasNumberSymbol = pass.contains(RegExp(r'[0-9]')) &&
+          pass.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>+_-]'));
     });
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.redAccent : const Color(0xFF4DB6AC),
+        content: Text(message, style: GoogleFonts.albertSans()),
+        backgroundColor: isError ? Colors.redAccent : _teal,
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
+  // [INTEGRATION] Saves profile changes via PUT /api/user/profile.
+  // Only sends changed fields to adhere to Data Minimization (DPA).
   Future<void> _toggleEdit() async {
     if (_isEditing) {
-      setState(() => _isSavingProfile = true);
+      // Save changes to the backend
+      setState(() => _isSaving = true);
+
       final result = await ApiService.put(
         '/user/profile',
         body: {
-          'username': _username,
+          'username': _usernameController.text.trim(),
           'mobile_number': _phoneController.text.trim(),
         },
       );
+
       if (!mounted) return;
-      setState(() => _isSavingProfile = false);
+      setState(() => _isSaving = false);
+
       if (result['success'] == true) {
-        _showSnackBar("Profile updated successfully");
+        _showSnackBar("Profile updated successfully.");
       } else {
-        _showSnackBar(result['message']?.toString() ?? 'Failed to update profile', isError: true);
-        return;
+        _showSnackBar(result['message'] ?? 'Failed to update profile.', isError: true);
+        return; // Don't exit edit mode on failure
       }
     }
     setState(() => _isEditing = !_isEditing);
   }
 
-  // --- Profile Picture Upload ---
-  // [OWASP A04] Image is validated server-side (JPEG/JPG/PNG only, 2 MB max).
-  // [DPA / Data Minimization] Profile picture is proportional data for user identification.
-  Future<void> _pickAndUploadProfilePicture() async {
-    // Show a bottom sheet for the user to choose camera or gallery
-    final ImageSource? source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("Update Profile Picture",
-                style: GoogleFonts.poppins(
-                    fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Text("Choose where to get your photo from.",
-                style: GoogleFonts.albertSans(
-                    fontSize: 13, color: Colors.grey)),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildPickerOption(
-                  icon: Icons.camera_alt_outlined,
-                  label: "Camera",
-                  onTap: () => Navigator.pop(ctx, ImageSource.camera),
-                ),
-                _buildPickerOption(
-                  icon: Icons.photo_library_outlined,
-                  label: "Gallery",
-                  onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-
-    if (source == null) return; // User dismissed
-
-    try {
-      final XFile? pickedFile = await _imagePicker.pickImage(
-        source: source,
-        maxWidth: 800,
-        maxHeight: 800,
-        imageQuality: 85,
-      );
-
-      if (pickedFile == null) return; // User cancelled the picker
-
-      setState(() => _isUploadingPicture = true);
-
-      // [OWASP A01] Authenticated multipart upload to the profile endpoint
-      final result = await ApiService.multipartPut(
-        '/user/profile',
-        filePath: pickedFile.path,
-        fileField: 'profile_picture',
-      );
-
-      if (!mounted) return;
-      setState(() => _isUploadingPicture = false);
-
-      if (result['success'] == true) {
-        // Refresh the profile data to pick up the new URL
-        await _loadProfile();
-        _showSnackBar("Profile picture updated successfully");
-      } else {
-        _showSnackBar(
-            result['message']?.toString() ?? 'Failed to upload picture',
-            isError: true);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isUploadingPicture = false);
-      _showSnackBar("Could not process the selected image.", isError: true);
-    }
-  }
-
-  Widget _buildPickerOption({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4DB6AC).withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 28, color: const Color(0xFF4DB6AC)),
-          ),
-          const SizedBox(height: 8),
-          Text(label,
-              style: GoogleFonts.poppins(
-                  fontSize: 13, fontWeight: FontWeight.w500)),
-        ],
-      ),
-    );
-  }
-
-  void _saveNewPassword() {
+  // [INTEGRATION] Updates the password via PUT /api/user/profile with the password field.
+  Future<void> _saveNewPassword() async {
     if (!(_hasMinLength && _hasUpperLower && _hasNumberSymbol)) {
       _showSnackBar("Password must meet all security requirements", isError: true);
       return;
     }
-
     if (_newPasswordController.text != _confirmPasswordController.text) {
       _showSnackBar("New passwords do not match!", isError: true);
       return;
     }
 
-    setState(() {
-      _isChangingPassword = false;
-      _currentPasswordController.clear();
-      _newPasswordController.clear();
-      _confirmPasswordController.clear();
-      _obscureCurrent = true;
-      _obscureNew = true;
-      _obscureConfirm = true;
-    });
+    setState(() => _isSaving = true);
 
-    _showSnackBar("Password changed successfully");
+    final result = await ApiService.put(
+      '/user/profile',
+      body: {
+        'password': _newPasswordController.text,
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (result['success'] == true) {
+      setState(() {
+        _isChangingPassword = false;
+        _currentPasswordController.clear();
+        _newPasswordController.clear();
+        _confirmPasswordController.clear();
+        _obscureCurrent = true;
+        _obscureNew = true;
+        _obscureConfirm = true;
+      });
+      _showSnackBar("Password changed successfully.");
+    } else {
+      _showSnackBar(result['message'] ?? 'Failed to change password.', isError: true);
+    }
   }
 
-  // --- Logout Logic ---
+  // [INTEGRATION] Handles logout by calling POST /api/auth/logout, then clearing the session.
   void _handleLogout() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text("Logout", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: const Text("Are you sure you want to log out of ALAGA?"),
+        content: Text("Are you sure you want to log out of ALAGA?", style: GoogleFonts.albertSans()),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+            child: Text("Cancel", style: GoogleFonts.albertSans(color: Colors.grey, fontWeight: FontWeight.w500)),
           ),
-          TextButton(
-            onPressed: () {
-              ApiService.post('/auth/logout');
-              SessionManager.clearSession();
-              // This clears the navigation history so the user can't "Go Back" into the profile
-              Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-            },
-            child: const Text("Logout", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          SizedBox(
+            width: 120,
+            child: ElevatedButton(
+              onPressed: () async {
+                // [OWASP A07] Clear the session and notify the backend
+                await ApiService.post('/auth/logout');
+                await SessionManager.clearSession();
+
+                if (!context.mounted) return;
+
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                  (route) => false,
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              ),
+              child: Text("Logout", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
           ),
         ],
       ),
     );
   }
 
+  // Helper to format role string for display
+  String _formatRole(String role) {
+    switch (role) {
+      case 'caregiver':
+        return 'Parent Account';
+      case 'medical_staff':
+        return 'Caregiver Account';
+      case 'admin':
+      case 'facility_admin':
+        return 'Facility Admin';
+      case 'system_admin':
+        return 'System Admin';
+      default:
+        return role;
+    }
+  }
+
+  // -- Build --
   @override
   Widget build(BuildContext context) {
-    final titleStyle = GoogleFonts.poppins(
-      fontWeight: FontWeight.bold,
-      fontSize: 24,
-      color: const Color(0xFF2D3436),
-    );
-
-    final String displayName =
-        (_firstNameController.text.isEmpty && _lastNameController.text.isEmpty)
-            ? (_username.isEmpty ? 'User' : _username)
-            : '${_firstNameController.text} ${_lastNameController.text}'.trim();
-
-    final String initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U';
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: _bgColor,
+        body: const Center(child: CircularProgressIndicator(color: _teal)),
+      );
+    }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFB),
+      backgroundColor: _bgColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () {
+            widget.onBack?.call();
+            Navigator.pop(context);
+          },
+        ),
         actions: [
           if (_isEditing)
             TextButton(
               onPressed: () => setState(() => _isEditing = false),
-              child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+              child: Text("Cancel", style: GoogleFonts.albertSans(color: Colors.grey)),
             ),
           Padding(
             padding: const EdgeInsets.only(right: 16, left: 8),
             child: TextButton.icon(
-              onPressed: _isSavingProfile ? null : _toggleEdit,
-              icon: Icon(_isEditing ? Icons.check : Icons.edit_outlined, size: 18, color: Colors.white),
+              onPressed: _isSaving ? null : _toggleEdit,
+              icon: _isSaving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Icon(_isEditing ? Icons.check : Icons.edit_outlined, size: 18, color: Colors.white),
               label: Text(
-                _isSavingProfile ? "Saving..." : (_isEditing ? "Save Changes" : "Edit Profile"),
-                style: const TextStyle(color: Colors.white),
+                _isEditing ? "Save Changes" : "Edit Profile",
+                style: GoogleFonts.albertSans(color: Colors.white),
               ),
               style: TextButton.styleFrom(
-                backgroundColor: const Color(0xFF4DB6AC),
+                backgroundColor: _teal,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
             ),
@@ -334,56 +312,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Profile", style: titleStyle),
-            Text("Manage your account information", style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
+            Text("Accounts Center",
+                style: GoogleFonts.albertSans(
+                  color: _teal,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                )),
+            const SizedBox(height: 2),
+            Text("PROFILE", style: _titleStyle),
+            Text("Manage your account information and settings across ALAGA Network.",
+                style: GoogleFonts.albertSans(color: Colors.black, fontSize: 14)),
             const SizedBox(height: 25),
 
-            // 1. Header Card with Profile Picture
+            // -- Profile Card --
             _buildSectionCard(
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Profile Avatar with upload action
-                  GestureDetector(
-                    onTap: _isUploadingPicture ? null : _pickAndUploadProfilePicture,
-                    child: Stack(
-                      children: [
-                        _buildProfileAvatar(initial, radius: 40),
-                        // Camera overlay icon
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF4DB6AC),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                            child: _isUploadingPicture
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.camera_alt,
-                                    size: 14, color: Colors.white),
-                          ),
-                        ),
-                      ],
-                    ),
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: _teal,
+                    backgroundImage: _profilePictureUrl != null
+                        ? NetworkImage('${ApiService.serverOrigin}$_profilePictureUrl')
+                        : null,
+                    child: _profilePictureUrl == null
+                        ? Text(
+                            _firstNameController.text.isNotEmpty
+                                ? _firstNameController.text[0].toUpperCase()
+                                : 'U',
+                            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold))
+                        : null,
                   ),
-                  const SizedBox(width: 20),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(displayName,
+                        Text(
+                          "${_firstNameController.text} ${_lastNameController.text}",
                           style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(height: 4),
+                        Text(
+                          _formatRole(_role),
+                          style: GoogleFonts.albertSans(fontSize: 12, color: _teal, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 6),
                         _iconLabel(Icons.email_outlined, _email),
                       ],
                     ),
@@ -392,14 +366,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
-            // 2. Personal Information
+            // -- Personal Information --
             _buildSectionHeader("Personal Information", Icons.person_outline),
             _buildSectionCard(
               child: Column(
                 children: [
-                  _buildDataField(label: "First Name", controller: _firstNameController, isEditable: _isEditing),
+                  _buildDataField(label: "First Name", controller: _firstNameController, isEditable: false),
                   const SizedBox(height: 15),
-                  _buildDataField(label: "Last Name", controller: _lastNameController, isEditable: _isEditing),
+                  _buildDataField(label: "Last Name", controller: _lastNameController, isEditable: false),
                   const SizedBox(height: 15),
                   _buildDataField(label: "Email Address", value: _email, isEditable: false),
                   const SizedBox(height: 15),
@@ -408,32 +382,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
-            // 3. Security
             _buildSectionHeader("Security", Icons.shield_outlined),
             _buildSectionCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildDataField(label: "Username", controller: _usernameController, isEditable: _isEditing),
+                  const SizedBox(height: 16),
                   if (!_isChangingPassword)
                     OutlinedButton.icon(
                       onPressed: () => setState(() => _isChangingPassword = true),
-                      icon: const Icon(Icons.lock_outline, size: 18),
-                      label: const Text("Change Password", style: TextStyle(color: Colors.black87)),
+                      icon: const Icon(Icons.lock_outline, size: 18, color: _teal),
+                      label: Text("Change Password", style: GoogleFonts.albertSans(color: Colors.black87)),
+                      style: OutlinedButton.styleFrom(side: const BorderSide(color: _teal)),
                     )
                   else
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildPasswordField(
-                          label: "Current Password", 
-                          controller: _currentPasswordController, 
+                          label: "Current Password",
+                          controller: _currentPasswordController,
                           obscure: _obscureCurrent,
                           onToggle: () => setState(() => _obscureCurrent = !_obscureCurrent),
                         ),
                         const SizedBox(height: 12),
                         _buildPasswordField(
-                          label: "New Password", 
-                          controller: _newPasswordController, 
+                          label: "New Password",
+                          controller: _newPasswordController,
                           obscure: _obscureNew,
                           onToggle: () => setState(() => _obscureNew = !_obscureNew),
                         ),
@@ -449,7 +425,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text("Password Requirements:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                Text("Password Requirements:",
+                                    style: GoogleFonts.albertSans(fontSize: 12, fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 6),
                                 _reqItem("Minimum of 12 characters long", _hasMinLength),
                                 _reqItem("At least one uppercase and lowercase letter", _hasUpperLower),
@@ -459,8 +436,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         _buildPasswordField(
-                          label: "Confirm New Password", 
-                          controller: _confirmPasswordController, 
+                          label: "Confirm New Password",
+                          controller: _confirmPasswordController,
                           obscure: _obscureConfirm,
                           onToggle: () => setState(() => _obscureConfirm = !_obscureConfirm),
                         ),
@@ -469,15 +446,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           children: [
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: _saveNewPassword,
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4DB6AC)),
-                                child: const Text("Update Password", style: TextStyle(color: Colors.white)),
+                                onPressed: _isSaving ? null : _saveNewPassword,
+                                style: ElevatedButton.styleFrom(backgroundColor: _teal),
+                                child: _isSaving
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                    : Text("Update Password", style: GoogleFonts.albertSans(color: Colors.white)),
                               ),
                             ),
                             const SizedBox(width: 10),
                             TextButton(
                               onPressed: () => setState(() => _isChangingPassword = false),
-                              child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                              child: Text("Cancel", style: GoogleFonts.albertSans(color: Colors.grey)),
                             ),
                           ],
                         ),
@@ -487,106 +466,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
-            // 4. Recent Activity
-            _buildSectionHeader("Recent Activity", Icons.history),
-            _buildSectionCard(
-              child: Column(
-                children: [
-                  _activityItem("Logged in", "Manila, Philippines", "2 hours ago"),
-                  const Divider(),
-                  _activityItem("Updated patient record (P004)", "Manila, Philippines", "5 hours ago"),
-                ],
-              ),
-            ),
-            
             const SizedBox(height: 25),
 
-            // --- Logout Button UI ---
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: _handleLogout,
-                icon: const Icon(Icons.logout, color: Colors.redAccent, size: 20),
-                label: Text(
-                  "Logout Account",
-                  style: GoogleFonts.poppins(
-                    color: Colors.redAccent,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
+            // -- Logout --
+            Center(
+              child: SizedBox(
+                width: 200,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _handleLogout,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    elevation: 2,
+                    alignment: Alignment.center,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    padding: EdgeInsets.zero,
                   ),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.redAccent.withOpacity(0.3)),
+                  child: Text(
+                    "Logout Account",
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16),
                   ),
-                  backgroundColor: Colors.redAccent.withOpacity(0.05),
                 ),
               ),
             ),
-            const SizedBox(height: 50), // Extra space at the bottom
+            const SizedBox(height: 50),
           ],
         ),
       ),
     );
   }
 
-  // --- Profile Avatar Builder ---
-  // Loads from backend URL if available, otherwise shows initials.
-  // Uses serverOrigin (without /api) because static files are served at /uploads/...
-  Widget _buildProfileAvatar(String initial, {double radius = 40}) {
-    final String origin = ApiService.serverOrigin;
-
-    if (_profilePictureUrl != null && _profilePictureUrl!.isNotEmpty && !_imageLoadFailed) {
-      final String fullUrl = _profilePictureUrl!.startsWith('http')
-          ? _profilePictureUrl!
-          : '$origin$_profilePictureUrl';
-
-      return CircleAvatar(
-        radius: radius,
-        backgroundColor: const Color(0xFF4DB6AC),
-        backgroundImage: NetworkImage(fullUrl),
-        onBackgroundImageError: (_, __) {
-          // Mark as failed so we stop retrying and fall back to initials
-          if (mounted) setState(() => _imageLoadFailed = true);
-        },
-      );
-    }
-
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: const Color(0xFF4DB6AC),
-      child: Text(initial,
-          style: TextStyle(
-              color: Colors.white,
-              fontSize: radius * 0.8,
-              fontWeight: FontWeight.bold)),
-    );
-  }
-
-  // --- UI Helpers ---
+  // -- Helper Widgets --
 
   Widget _reqItem(String text, bool isMet) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          Icon(
-            isMet ? Icons.check_circle : Icons.circle_outlined, 
-            size: 14, 
-            color: isMet ? Colors.green : Colors.blueGrey,
-          ),
+          Icon(isMet ? Icons.check_circle : Icons.circle_outlined, size: 14, color: isMet ? Colors.green : Colors.blueGrey),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              text, 
-              style: TextStyle(
-                fontSize: 11, 
-                color: isMet ? Colors.green : Colors.black87,
-                fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
+            child: Text(text, style: GoogleFonts.albertSans(fontSize: 11, color: isMet ? Colors.green : Colors.black87, fontWeight: isMet ? FontWeight.bold : FontWeight.normal)),
           ),
         ],
       ),
@@ -598,9 +520,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.only(top: 20, bottom: 10),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: const Color(0xFF4DB6AC)),
+          Icon(icon, size: 18, color: _teal),
           const SizedBox(width: 8),
-          Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(title, style: _sectionHeaderStyle),
         ],
       ),
     );
@@ -613,35 +535,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(color: Colors.grey.shade300, width: 1.2),
       ),
       child: child,
     );
   }
 
-  Widget _buildDataField({required String label, String? value, TextEditingController? controller, required bool isEditable}) {
+  Widget _buildDataField({
+    required String label,
+    String? value,
+    TextEditingController? controller,
+    required bool isEditable,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey)),
+        Text(label, style: _labelStyle),
         const SizedBox(height: 6),
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
             color: isEditable ? Colors.white : const Color(0xFFF1F2F6),
             borderRadius: BorderRadius.circular(8),
-            border: isEditable ? Border.all(color: const Color(0xFF4DB6AC)) : null,
+            border: isEditable ? Border.all(color: _teal) : null,
           ),
           child: isEditable && controller != null
               ? TextField(
                   controller: controller,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12), border: InputBorder.none),
+                  style: _bodyStyle,
+                  decoration: const InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    border: InputBorder.none,
+                  ),
                 )
               : Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  child: Text(value ?? controller?.text ?? "", style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                  child: Text(value ?? controller?.text ?? "", style: _bodyStyle),
                 ),
         ),
       ],
@@ -649,19 +578,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildPasswordField({
-    required String label, 
-    required TextEditingController controller, 
-    required bool obscure, 
-    required VoidCallback onToggle
+    required String label,
+    required TextEditingController controller,
+    required bool obscure,
+    required VoidCallback onToggle,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(label, style: GoogleFonts.albertSans(fontSize: 11, fontWeight: FontWeight.w600)),
         const SizedBox(height: 6),
         TextField(
           controller: controller,
           obscureText: obscure,
+          style: _bodyStyle,
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF1F2F6),
@@ -684,27 +614,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Icon(icon, size: 14, color: Colors.grey),
           const SizedBox(width: 6),
-          Flexible(
-            child: Text(label,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _activityItem(String title, String location, String time) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-            Text(location, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          ]),
-          Text(time, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(label, style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey)),
         ],
       ),
     );

@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'ToS.dart';
+
+// [INTEGRATION] Role selection is now part of the registration flow.
+// It receives RegistrationData from register.dart and passes it to register1.dart.
+import '../models/registration_data.dart';
+import 'register1.dart';
 
 class RoleScreen extends StatefulWidget {
-  const RoleScreen({super.key});
+  // [OWASP A01] RegistrationData is required -- the user must provide personal info
+  // before selecting a role. This enforces the intended sequential flow.
+  final RegistrationData registrationData;
+
+  const RoleScreen({super.key, required this.registrationData});
 
   @override
   State<RoleScreen> createState() => _RoleScreenState();
@@ -19,6 +27,20 @@ class _RoleScreenState extends State<RoleScreen> {
       return 'I would like to make my job easier by providing efficient service.';
     }
     return '';
+  }
+
+  // Maps the UI-friendly role label to the backend's expected role string.
+  // [OWASP A01] The backend validates role against a whitelist:
+  // ['caregiver', 'medical_staff', 'admin', 'facility_admin', 'system_admin']
+  String _mapRoleToBackend(String uiRole) {
+    switch (uiRole) {
+      case 'PARENT':
+        return 'caregiver'; // Parents are treated as caregivers in the system
+      case 'CAREGIVER':
+        return 'medical_staff';
+      default:
+        return 'caregiver';
+    }
   }
 
   @override
@@ -114,10 +136,16 @@ class _RoleScreenState extends State<RoleScreen> {
                   onPressed: selectedRole == null
                       ? null
                       : () {
+                          // [INTEGRATION] Set the role on the RegistrationData model
+                          // and navigate to the credentials page.
+                          widget.registrationData.role = _mapRoleToBackend(selectedRole!);
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => ToSScreen(selectedRole: selectedRole!),
+                              builder: (context) => CreateCredentialsPage(
+                                registrationData: widget.registrationData,
+                              ),
                             ),
                           );
                         },

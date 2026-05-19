@@ -20,7 +20,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
               SizedBox(
                 height: 70,
                 child: Image.asset(
-                  'assets/images/WELCOME.png',
+                  'assets/images/alagahead.png',
                   fit: BoxFit.contain,
                 ),
               ),

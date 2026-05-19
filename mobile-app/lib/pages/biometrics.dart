@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
-import 'role.dart';
+import 'login.dart';
 
 class BiometricService {
   final LocalAuthentication _localAuth = LocalAuthentication();
@@ -118,8 +118,9 @@ class RegistrationSuccessPage extends StatelessWidget {
                           }
 
                           if (context.mounted) {
-                            Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(builder: (_) => const RoleScreen()),
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(builder: (_) => const LoginPage()),
+                              (route) => false,
                             );
                           }
                         },
@@ -148,8 +149,9 @@ class RegistrationSuccessPage extends StatelessWidget {
                       width: 200,
                       child: OutlinedButton(
                         onPressed: () {
-                          Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(builder: (_) => const RoleScreen()),
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (_) => const LoginPage()),
+                            (route) => false,
                           );
                         },
                         style: OutlinedButton.styleFrom(

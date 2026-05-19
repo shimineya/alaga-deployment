@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../services/api_service.dart';
 
 class AssignmentScreen extends StatefulWidget {
   const AssignmentScreen({super.key});
@@ -11,127 +10,143 @@ class AssignmentScreen extends StatefulWidget {
 
 class _AssignmentScreenState extends State<AssignmentScreen> {
   final Color primaryTeal = const Color(0xFF5FA9A9);
+  final Color pastelTealBg = const Color(0xFFF0F7F7); // New pastel teal for pop-up backgrounds
   final Color pendingOrange = const Color(0xFFFF9F69);
   final Color acceptedBlue = const Color(0xFF6B99EF);
   final Color inProgressGreen = const Color(0xFF66CB9F);
   final Color dangerRed = const Color(0xFFE57373);
+  final Color bgColor = const Color(0xFFFDFCF5);
 
-  // Search Logic
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
 
-  List<Map<String, dynamic>> assignments = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAssignments();
-  }
-
-  Future<void> _loadAssignments() async {
-    final result = await ApiService.get('/assignments/my-assignments');
-    if (!mounted) return;
-    if (result['success'] == true && result['data'] is List) {
-      assignments = (result['data'] as List).map((row) {
-        final item = row as Map<String, dynamic>;
-        return {
-          "patient_id": item["patient_id"],
-          "name": item["name"] ?? "Unknown",
-          "location": "Patient ID: ${item["patient_id"]}",
-          "status": "Accepted",
-          "primary": "Care Team Member",
-          "backup": "N/A",
-          "shift": "N/A",
-          "instructions": "Access level: ${item["access_level"] ?? "View"}",
-        };
-      }).toList();
-      setState(() {});
-    }
-  }
-
-  Future<void> _unlinkCaregiverByPatientId(dynamic patientId) async {
-    final result = await ApiService.put('/caregiver/patients/$patientId/unlink-caregiver');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result['message']?.toString() ?? 'Caregiver unlink request processed')),
-    );
-    await _loadAssignments();
-  }
+  List<Map<String, dynamic>> assignments = [
+    {
+      "name": "Maria Santos",
+      "location": "Ward A - Bed 1",
+      "status": "In Progress",
+      "primary": "Nurse Maria Lopez",
+      "backup": "Caregiver Sarah Chen",
+      "shift": "Day Shift (7:00 AM - 7:00 PM)",
+      "instructions": "Monitor vital signs every 2 hours and assist with morning therapy.",
+    },
+    {
+      "name": "Juan Dela Cruz",
+      "location": "Ward B - Bed 4",
+      "status": "Accepted",
+      "primary": "Caregiver Robert Fox",
+      "backup": "Nurse Elena Guinto",
+      "shift": "Night Shift (7:00 PM - 7:00 AM)",
+      "instructions": "Patient requires assistance with mobility for bathroom use.",
+    },
+    {
+      "name": "Elena Garcia",
+      "location": "ICU - Bed 2",
+      "status": "In Progress",
+      "primary": "Nurse Michael Tan",
+      "backup": "Caregiver Jenny Lim",
+      "shift": "Mid Shift (2:00 PM - 10:00 PM)",
+      "instructions": "Strict fluid intake monitoring. Check IV drip every hour.",
+    },
+    {
+      "name": "Ricardo Reyes",
+      "location": "Ward A - Bed 12",
+      "status": "Pending",
+      "primary": "Caregiver Anna Bell",
+      "backup": "Nurse Maria Lopez",
+      "shift": "Day Shift (7:00 AM - 7:00 PM)",
+      "instructions": "Prepare patient for X-ray scheduled at 10:30 AM.",
+    },
+  ];
 
   void _deleteAssignment(int index) {
     setState(() => assignments.removeAt(index));
   }
 
-  // POPUP: VIEW DETAILS (Added Back-up)
   void _showViewDetails(Map<String, dynamic> data) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: pastelTealBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text("Assignment Details", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _detailRow("Patient", data['name']),
-              _detailRow("Location", data['location']),
-              _detailRow("Status", data['status']),
-              _detailRow("Primary", data['primary']),
-              _detailRow("Back-up", data['backup']), // Added back-up
-              _detailRow("Instructions", data['instructions']),
-            ],
+        title: Text("Assignment Details", 
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: primaryTeal)),
+        content: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _detailRow("Patient", data['name']),
+                _detailRow("Location", data['location']),
+                _detailRow("Status", data['status']),
+                _detailRow("Primary", data['primary']),
+                _detailRow("Back-up", data['backup']),
+                _detailRow("Instructions", data['instructions']),
+              ],
+            ),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+          TextButton(
+            onPressed: () => Navigator.pop(context), 
+            child: Text("Close", style: TextStyle(color: primaryTeal, fontWeight: FontWeight.bold))
+          ),
         ],
       ),
     );
   }
 
-  // POPUP: NEW/EDIT ASSIGNMENT FORM (Added Back-up)
   void _showAssignmentForm({int? index}) {
     bool isEdit = index != null;
     final nameCtrl = TextEditingController(text: isEdit ? assignments[index]['name'] : "");
     final locCtrl = TextEditingController(text: isEdit ? assignments[index]['location'] : "");
     final primaryCtrl = TextEditingController(text: isEdit ? assignments[index]['primary'] : "");
-    final backupCtrl = TextEditingController(text: isEdit ? assignments[index]['backup'] : ""); // Added back-up
+    final backupCtrl = TextEditingController(text: isEdit ? assignments[index]['backup'] : "");
     final instrCtrl = TextEditingController(text: isEdit ? assignments[index]['instructions'] : "");
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: pastelTealBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(isEdit ? "Update Assignment" : "New Assignment", 
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(isEdit ? "Update Assignment" : "New Assignment",
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: primaryTeal)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildField("Patient Name", nameCtrl),
               _buildField("Location", locCtrl),
               _buildField("Primary Caregiver", primaryCtrl),
-              _buildField("Back-up Caregiver", backupCtrl), // Added back-up field
+              _buildField("Back-up Caregiver", backupCtrl),
               _buildField("Special Instructions", instrCtrl, maxLines: 3),
             ],
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context), 
-            child: Text("Cancel", style: TextStyle(color: dangerRed))
+            onPressed: () => Navigator.pop(context),
+            child: Text("Cancel", style: TextStyle(color: dangerRed, fontWeight: FontWeight.w600))
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: primaryTeal),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryTeal,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () {
               setState(() {
                 final newData = {
-                  "patient_id": isEdit ? assignments[index]['patient_id'] : null,
                   "name": nameCtrl.text,
                   "location": locCtrl.text,
                   "status": isEdit ? assignments[index]['status'] : "Pending",
                   "primary": primaryCtrl.text,
-                  "backup": backupCtrl.text, // Capture back-up input
+                  "backup": backupCtrl.text,
                   "shift": isEdit ? assignments[index]['shift'] : "Day Shift",
                   "instructions": instrCtrl.text,
                 };
@@ -143,8 +158,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
               });
               Navigator.pop(context);
             },
-            child: Text(isEdit ? "Update Assignment" : "Send Assignment", 
-                style: const TextStyle(color: Colors.white)),
+            child: Text(isEdit ? "Update" : "Dispatch",
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -154,65 +169,92 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   Widget _buildField(String label, TextEditingController ctrl, {int maxLines = 1}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12.0),
-      child: TextField(
-        controller: ctrl,
-        maxLines: maxLines,
-        decoration: InputDecoration(
-          labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: primaryTeal)),
+          const SizedBox(height: 4),
+          TextField(
+            controller: ctrl,
+            maxLines: maxLines,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: Colors.white,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: primaryTeal.withOpacity(0.3)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: primaryTeal),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _detailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: RichText(
-        text: TextSpan(
-          style: GoogleFonts.poppins(color: Colors.black, fontSize: 13),
-          children: [
-            TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
-            TextSpan(text: value),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(), 
+              style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.bold, color: primaryTeal)),
+          const SizedBox(height: 2),
+          Text(value, style: GoogleFonts.poppins(color: Colors.black87, fontSize: 13)),
+          Divider(color: primaryTeal.withOpacity(0.1), thickness: 1),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Search Filtering
     final List<Map<String, dynamic>> filteredAssignments = assignments.where((a) {
-      return a['name'].toLowerCase().contains(_searchQuery.toLowerCase()) || 
+      return a['name'].toLowerCase().contains(_searchQuery.toLowerCase()) ||
              a['location'].toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFB),
+      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: bgColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          "Assignment Tracker",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
-        ),
+        title: const Text(""),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Manage and dispatch caregiver assignments", style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
+            Text(
+              "Monitor Dispatch",
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: primaryTeal.withOpacity(0.8),
+              ),
+            ),
+            Text(
+              "Assignment Tracker",
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold,
+                fontSize: 28,
+                color: const Color(0xFF2D3436),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text("Manage and dispatch caregiver assignments.", style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
             const SizedBox(height: 16),
-            
-            // Restoration of Search Bar
+           
             TextField(
               controller: _searchController,
               onChanged: (val) => setState(() => _searchQuery = val),
@@ -221,31 +263,51 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300, width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: primaryTeal, width: 1.5),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 16),
 
             SizedBox(
-              width: 180,
+              width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () => _showAssignmentForm(),
                 icon: const Icon(Icons.add, size: 18, color: Colors.white),
                 label: const Text("New Assignment", style: TextStyle(color: Colors.white)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: primaryTeal,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
             ),
             const SizedBox(height: 24),
-            _buildStatCard("Total Assignments", "${assignments.length}", Icons.people_outline, Colors.blue),
-            const SizedBox(height: 10),
-            _buildStatCard("Pending", "${assignments.where((a) => a['status'] == 'Pending').length}", Icons.send_outlined, pendingOrange),
-            const SizedBox(height: 10),
-            _buildStatCard("Accepted", "${assignments.where((a) => a['status'] == 'Accepted').length}", Icons.check_circle_outline, acceptedBlue),
-            const SizedBox(height: 10),
-            _buildStatCard("In Progress", "${assignments.where((a) => a['status'] == 'In Progress').length}", Icons.sync, inProgressGreen),
+           
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 2.5,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              children: [
+                _buildStatCard("Total", "${assignments.length}", Icons.people_outline, Colors.blue),
+                _buildStatCard("Pending", "${assignments.where((a) => a['status'] == 'Pending').length}", Icons.send_outlined, pendingOrange),
+                _buildStatCard("Accepted", "${assignments.where((a) => a['status'] == 'Accepted').length}", Icons.check_circle_outline, acceptedBlue),
+                _buildStatCard("Active", "${assignments.where((a) => a['status'] == 'In Progress').length}", Icons.sync, inProgressGreen),
+              ],
+            ),
+           
             const SizedBox(height: 24),
             Text("Recent Assignments", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 16),
@@ -274,8 +336,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
 
   Widget _buildStatCard(String title, String count, IconData icon, Color color) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -283,18 +344,17 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              Text(count, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            ],
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 10, color: Colors.grey), overflow: TextOverflow.ellipsis),
+                Text(count, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
           )
         ],
       ),
@@ -404,17 +464,10 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
             children: [
               _buildActionButton("View Details", Colors.grey.shade700, () => _showViewDetails(assignments[index])),
               _buildActionButton("Edit", Colors.grey.shade700, () => _showAssignmentForm(index: index)),
-              if (isPending) 
+              if (isPending)
                 _buildActionButton("Cancel", dangerRed, () => _deleteAssignment(index)),
-              if (isInProgress || isAccepted) 
-                _buildActionButton("Remove", dangerRed, () async {
-                  final patientId = assignments[index]['patient_id'];
-                  if (patientId != null) {
-                    await _unlinkCaregiverByPatientId(patientId);
-                  } else {
-                    _deleteAssignment(index);
-                  }
-                }),
+              if (isInProgress || isAccepted)
+                _buildActionButton("Remove", dangerRed, () => _deleteAssignment(index)),
             ],
           )
         ],
@@ -436,7 +489,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   Widget _buildProgressStep(String label, bool completed) {
     return Column(
       children: [
-        Icon(completed ? Icons.check_circle : Icons.radio_button_unchecked, 
+        Icon(completed ? Icons.check_circle : Icons.radio_button_unchecked,
           size: 16, color: completed ? inProgressGreen : Colors.grey.shade300),
         const SizedBox(height: 4),
         Text(label, style: TextStyle(fontSize: 9, color: completed ? Colors.black : Colors.grey)),

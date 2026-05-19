@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
-import { Activity, ShieldAlert, Lock, Loader2 } from 'lucide-react';
+import { Activity, ShieldAlert, Lock, Loader2, MailWarning } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const LoginPage: React.FC = () => {
@@ -18,12 +18,20 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // [OWASP A07] Tracks whether the login failure is due to an unverified email.
+  // When true, the UI shows a prominent link to resume the OTP verification flow.
+  const [unverifiedContext, setUnverifiedContext] = useState<{
+    user_id: number;
+    email: string;
+  } | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setUnverifiedContext(null);
 
     if (!username || !password) {
-      setError("Please fill in all fields");
+      setError('Please fill in all fields');
       return;
     }
 
@@ -32,7 +40,7 @@ export const LoginPage: React.FC = () => {
       const result = await login(username, password);
 
       if (result.success && result.user) {
-        toast.success("Welcome back!");
+        toast.success('Welcome back!');
 
         // [OWASP A01] Route to the correct dashboard based on role
         const role = result.user.role;
@@ -43,17 +51,30 @@ export const LoginPage: React.FC = () => {
         } else {
           navigate('/dashboard', { replace: true });
         }
+      } else if (result.requiresOtp && result.user_id && result.email) {
+        // [OWASP A07] Account exists but the email has not been verified yet.
+        // Store the context so the user can proceed directly to /verify-email.
+        sessionStorage.setItem('pendingOtpVerification', JSON.stringify({
+          user_id: result.user_id,
+          email: result.email,
+        }));
+        setUnverifiedContext({ user_id: result.user_id, email: result.email });
+        setError(result.message || 'Email not verified.');
       } else {
-        // Login returned a failure — display the server message
-        setError(result.message || "Invalid credentials");
-        toast.error(result.message || "Login failed");
+        setError(result.message || 'Invalid credentials');
+        toast.error(result.message || 'Login failed');
       }
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred");
-      toast.error("Login failed");
+      setError(err.message || 'An unexpected error occurred');
+      toast.error('Login failed');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoToVerification = () => {
+    // pendingOtpVerification is already set in sessionStorage above
+    navigate('/verify-email');
   };
 
   return (
@@ -64,17 +85,36 @@ export const LoginPage: React.FC = () => {
             <Activity className="w-6 h-6 text-teal-600" />
           </div>
           <CardTitle className="text-lg font-bold text-slate-800">Alaga Login</CardTitle>
-          <CardDescription className="text-xs">Secure access for Caregivers & Staff</CardDescription>
+          <CardDescription className="text-xs">Secure access for Caregivers &amp; Staff</CardDescription>
         </CardHeader>
 
         <CardContent className="px-6 pb-6">
           <form onSubmit={handleSubmit} className="space-y-3">
-            {error && (
+
+            {/* Unverified account banner — shown only when the backend returns requiresOtp */}
+            {unverifiedContext ? (
+              <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <MailWarning className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-yellow-800">
+                    {error} Please verify your email to continue.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full h-7 text-xs bg-yellow-500 hover:bg-yellow-600 text-white"
+                  onClick={handleGoToVerification}
+                >
+                  Go to Email Verification
+                </Button>
+              </div>
+            ) : error ? (
               <Alert variant="destructive" className="py-2 px-3 text-xs bg-red-50 text-red-700 border-red-200">
                 <ShieldAlert className="h-3 w-3 mr-2" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
-            )}
+            ) : null}
 
             <div className="space-y-1">
               <Label htmlFor="username" className="text-xs font-semibold text-slate-500 uppercase">Username</Label>
@@ -84,7 +124,7 @@ export const LoginPage: React.FC = () => {
                 placeholder="Enter username"
                 className="h-9 text-sm"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={e => setUsername(e.target.value)}
               />
             </div>
 
@@ -97,7 +137,7 @@ export const LoginPage: React.FC = () => {
                 type="password"
                 className="h-9 text-sm"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
               />
             </div>
 

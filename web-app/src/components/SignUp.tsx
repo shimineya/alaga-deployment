@@ -66,8 +66,17 @@ export const SignUp: React.FC = () => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Registration failed");
 
-      toast.success("Account created! Please login.");
-      navigate('/login');
+      // [OWASP A07] Registration succeeded — backend has sent an OTP to the email.
+      // Store the pending verification context in sessionStorage so EmailVerification.tsx
+      // can call /api/auth/verify-otp with the correct user_id and email.
+      // This mirrors the mobile app's RegisterScreen behaviour exactly.
+      sessionStorage.setItem('pendingOtpVerification', JSON.stringify({
+        user_id: data.user_id,
+        email: data.email,
+      }));
+
+      toast.success("Account created! Please check your email for the verification code.");
+      navigate('/verify-email');
     } catch (err: any) {
       toast.error(err.message);
     } finally {

@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "fs": "^0.0.1-security",

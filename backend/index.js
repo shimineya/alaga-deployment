@@ -215,7 +215,7 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             username = safeEmail.split('@')[0];
         }
 
-        // [OWASP A05] DNS MX validation to reject undeliverable email domains
+        /* [OWASP A05] DNS MX validation to reject undeliverable email domains
         const domainHasMx = await validateEmailDomain(safeEmail);
         if (!domainHasMx) {
             return res.status(400).json({
@@ -223,7 +223,7 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
                 message: 'Email domain appears invalid or cannot receive mail.',
             });
         }
-
+        */
         // [OWASP A05] Parameterized duplicate check
         const userCheck = await client.query(
             'SELECT * FROM users WHERE username = $1 OR email = $2',

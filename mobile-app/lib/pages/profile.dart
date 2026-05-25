@@ -175,9 +175,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() => _isSaving = true);
 
+    // [OWASP A07] Include current_password so the backend can verify identity
+    // before accepting the credential change. Without this, a stolen JWT could
+    // be used to permanently lock out the real account owner.
     final result = await ApiService.put(
       '/user/profile',
       body: {
+        'current_password': _currentPasswordController.text,
         'password': _newPasswordController.text,
       },
     );

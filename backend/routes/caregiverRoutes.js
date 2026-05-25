@@ -560,45 +560,11 @@ router.put('/patients/:id/unlink-device', async (req, res) => {
     }
 });
 
-// ==========================================
-// 4. ADD NEW DEVICE
-// ==========================================
-// ==========================================
-// 4. ADD NEW DEVICE
-// ==========================================
-router.post('/devices', async (req, res) => {
-    try {
-        const { vitalDeviceNo, diaperDeviceNo } = req.body;
-
-        // Note: For this prototype, we are just adding them to the whitelist.
-
-        // Insert Vital Sign Device
-        if (vitalDeviceNo) {
-            await pool.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, added_by, status)
-                 VALUES ($1, 'Vital Sign Monitor', $2, 'ACTIVE')
-                 ON CONFLICT (serial_number) DO NOTHING`,
-                [vitalDeviceNo, req.user.id]
-            );
-        }
-
-        // Insert Smart Diaper Device
-        if (diaperDeviceNo) {
-            await pool.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, added_by, status)
-                 VALUES ($1, 'Smart Diaper Module', $2, 'ACTIVE')
-                 ON CONFLICT (serial_number) DO NOTHING`,
-                [diaperDeviceNo, req.user.id]
-            );
-        }
-
-        res.status(201).json({ success: true, message: 'Devices registered successfully' });
-
-    } catch (err) {
-        console.error("Add Device Error:", err.message);
-        res.status(500).json({ success: false, message: 'Failed to register devices' });
-    }
-});
+// [REMOVED] A duplicate POST /devices route previously existed here. It has been
+// deleted because it bypassed the duplicate-serial check and incorrectly set
+// device status to 'ACTIVE' on initial registration (a device is AVAILABLE
+// until assigned to a patient). The canonical implementation is at the top of
+// this file (router.post('/devices', ...) around line 58).
 
 // ==========================================
 // 4.5. UNPAIR DEVICE

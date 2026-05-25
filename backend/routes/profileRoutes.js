@@ -44,7 +44,10 @@ router.get('/', verifyToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const result = await pool.query(
-            `SELECT username, email, mobile_number, profile_picture_url, first_name, last_name, role 
+            // [INTEGRATION] notification_preferences is included so the Settings screen
+            // can restore saved toggle states on load without a separate API call.
+            `SELECT username, email, mobile_number, profile_picture_url,
+                    first_name, last_name, role, notification_preferences
              FROM users WHERE user_id = $1`,
             [userId]
         );
@@ -101,12 +104,57 @@ router.put('/', verifyToken, upload.single('profile_picture'), async (req, res) 
                 values.push(mobile_number);
             }
 
-            // [OWASP A04] Secure Password Hashing with strong salts
+            // [INTEGRATION] notification_preferences is a PostgreSQL TEXT[] column.
+            // The frontend sends an array of enabled preference key strings.
+            // [DPA] Storing only enabled keys minimizes data surface on disk.
+            if (req.body.notification_preferences !== undefined) {
+                const prefs = req.body.notification_preferences;
+                if (!Array.isArray(prefs)) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: 'notification_preferences must be an array.' });
+                }
+                updates.push(`notification_preferences = $${paramIndex++}::text[]`);
+                values.push(prefs);
+            }
+
+            // [OWASP A07] Verify current password before allowing a password change.
+            // Without this check, a stolen JWT could be used to silently change the password
+            // and permanently lock out the legitimate account owner.
+            // [HIPAA] This constitutes a PHI access-control boundary — a failed check is
+            // treated as an unauthorized modification attempt.
             if (password && password.trim() !== '') {
                 if (password.length < 8) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
                 }
+
+                const { current_password } = req.body;
+                if (!current_password) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ success: false, message: 'Current password is required to set a new password.' });
+                }
+
+                // Fetch the stored hash for comparison
+                const hashResult = await client.query(
+                    'SELECT password_hash FROM users WHERE user_id = $1',
+                    [userId]
+                );
+                if (hashResult.rows.length === 0) {
+                    await client.query('ROLLBACK');
+                    return res.status(404).json({ success: false, message: 'User not found.' });
+                }
+
+                // [OWASP A04] bcrypt.compare() is timing-safe — prevents timing attacks.
+                const isCurrentPasswordCorrect = await bcrypt.compare(
+                    current_password,
+                    hashResult.rows[0].password_hash
+                );
+                if (!isCurrentPasswordCorrect) {
+                    await client.query('ROLLBACK');
+                    // [OWASP A10] Generic message — does not reveal whether the account exists.
+                    return res.status(403).json({ success: false, message: 'Current password is incorrect.' });
+                }
+
                 const salt = await bcrypt.genSalt(12);
                 const password_hash = await bcrypt.hash(password, salt);
                 updates.push(`password_hash = $${paramIndex++}`);

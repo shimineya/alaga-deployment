@@ -1,3 +1,4 @@
+require('dotenv').config(); // [OWASP A02] Load env vars before any other module reads them
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet'); // [OWASP A02] Security Headers
@@ -1012,6 +1013,16 @@ app.use('/api/user/profile', profileRoutes);
 // Alerts, Audit, and Triage Routes
 const alertsRoutes = require('./routes/alertsRoutes');
 app.use('/api/alerts', alertsRoutes);
+
+// ==========================================
+// ROUTE 7: SENSOR DATA + AI INTEGRATION
+// ==========================================
+// [OWASP A07] Device authentication via per-device token hashes (device_whitelist table)
+// [OWASP A01] IDOR protection on all JWT-authenticated endpoints
+// [HIPAA]     Every reading is logged to access_logs and sensor_readings
+// URL Prefix: http://localhost:3000/api/sensor/
+const sensorRoutes = require('./routes/sensorRoutes');
+app.use('/api/sensor', sensorRoutes);
 
 // ==========================================
 // ERROR HANDLERS (must be AFTER all route registrations)

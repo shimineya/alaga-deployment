@@ -824,9 +824,11 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
     super.dispose();
   }
 
+  // [OWASP A05] Regex enforces VS-YYYY-NNNN / SD-YYYY-NNNN format (4-digit suffix).
+  // Must match the format validated by the backend serial_regex in caregiverRoutes.js.
   void _validateAndRegister() {
-    final vsRegex = RegExp(r'^VS-\d{4}-\d{3}$');
-    final sdRegex = RegExp(r'^SD-\d{4}-\d{3}$');
+    final vsRegex = RegExp(r'^VS-\d{4}-\d{4}$');
+    final sdRegex = RegExp(r'^SD-\d{4}-\d{4}$');
 
     if (isDoubleDevice) {
       setState(() {
@@ -1125,11 +1127,11 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
 
               if (isDoubleDevice) ...[
                 _modalLabel("Vital Signs Device No."),
-                _modalTextField(_vitalSignsCtrl, "VS-2026-001",
+                _modalTextField(_vitalSignsCtrl, "VS-2026-0001",
                     errorText: _vsError),
                 const SizedBox(height: 15),
                 _modalLabel("Smart Diaper Device No."),
-                _modalTextField(_smartDiaperCtrl, "SD-2026-001",
+                _modalTextField(_smartDiaperCtrl, "SD-2026-0001",
                     errorText: _sdError),
               ] else ...[
                 ..._singleDevices.asMap().entries.map((entry) {
@@ -1160,8 +1162,8 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                         _modalTextField(
                             ctrl,
                             type == 'VS'
-                                ? "VS-2026-001"
-                                : "SD-2026-001",
+                                ? "VS-2026-0001"
+                                : "SD-2026-0001",
                             errorText: device['error']),
                       ],
                     ),

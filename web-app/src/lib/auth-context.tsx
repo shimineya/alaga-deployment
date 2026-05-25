@@ -56,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // This merges role_permissions (defaults) + user_permission_overrides (per-user).
   const fetchPermissions = useCallback(async (activeToken: string) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/my-permissions`, {
+      const res = await fetch('http://localhost:3000/api/auth/my-permissions', {
         headers: { 'Authorization': `Bearer ${activeToken}` },
       });
       const data = await res.json();
@@ -124,7 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 2. Login Function
   const login = async (usernameOrEmail: string, password: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/login`, {
+      const response = await fetch('http://localhost:3000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: usernameOrEmail, password }),
@@ -160,7 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const t = localStorage.getItem('token');
       if (t) {
-        await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/logout`, {
+        await fetch('http://localhost:3000/api/auth/logout', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
         });

@@ -28,7 +28,10 @@ export default function PatientRecordsHub() {
 
     // Visibility — module IDs match UserRBACManager MODULE_REGISTRY exactly
     const canSeeRoster      = hasPermission('my-patients',  isClinical || isAdminTier);
-    const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isClinical || isAdminTier);
+    // [OWASP A01] Onboarding calls /api/facility-admin/patients (verifyFacilityAdmin protected).
+    // Clinical roles (caregiver, medical_staff) MUST NOT see this tab — they would receive
+    // a 403 "Access Forbidden: Facility Admin Role Required" response on every form submit.
+    const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isAdminTier);
 
     const tabCount = [canSeeRoster, canSeeOnboarding].filter(Boolean).length;
     

@@ -37,6 +37,10 @@ interface AuthContextType {
   updateToken: (newToken: string) => void;
   // [RBAC] Re-fetch permissions (call after a sysadmin updates their own account, if needed)
   refreshPermissions: () => Promise<void>;
+  // [UX] Re-read the user object from localStorage and update React state.
+  // Call this after a successful profile/username update so the header and
+  // sidebar reflect the change immediately without a full logout.
+  refreshUser: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -180,6 +184,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(newToken);
   };
 
+  // [UX] Re-read the stored user from localStorage and push it into React
+  // state so that any component reading user?.username (sidebar, header)
+  // reflects the latest value after a profile save — without a full re-login.
+  const refreshUser = () => {
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) setUser(JSON.parse(storedUser));
+    } catch {
+      // If the stored value is corrupt, leave state as-is
+    }
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -192,6 +208,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       token,
       updateToken,
       refreshPermissions,
+      refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

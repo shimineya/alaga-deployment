@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
 
 export default function UserProfile() {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [profile, setProfile] = useState({
         username: user?.username || '',
         email: user?.email || '',
@@ -128,6 +128,21 @@ export default function UserProfile() {
                         mobile_number: data.profile.mobile_number || prev.mobile_number,
                         profile_picture_url: data.profile.profile_picture_url || prev.profile_picture_url
                     }));
+
+                    // [UX] Write the updated username back to the stored user object
+                    // so that the sidebar and header reflect the change on next render
+                    // without requiring a full logout and re-login cycle.
+                    try {
+                        const storedUser = localStorage.getItem('user');
+                        if (storedUser) {
+                            const parsed = JSON.parse(storedUser);
+                            parsed.username = data.profile.username || parsed.username;
+                            localStorage.setItem('user', JSON.stringify(parsed));
+                            refreshUser(); // Sync React auth state from updated localStorage
+                        }
+                    } catch {
+                        // Ignore parse errors; user will see update on next login
+                    }
                 }
             } else {
                 toast.error(data.message || 'Failed to update profile');

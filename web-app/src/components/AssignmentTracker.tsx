@@ -226,14 +226,6 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
                         <RefreshCw className={`w-3.5 h-3.5 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                         Refresh
                     </Button>
-                    <Button
-                        className="bg-teal-600 hover:bg-teal-700 text-white h-8 text-xs shadow-sm"
-                        size="sm"
-                        onClick={() => setRegisterDeviceOpen(true)}
-                    >
-                        <PlusCircle className="w-3.5 h-3.5 mr-2" />
-                        Register Device
-                    </Button>
                 </div>
             </div>
 
@@ -342,7 +334,7 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
                                                             <Users className="w-3.5 h-3.5 mr-2" /> Manage Assigned Caregivers
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem onClick={() => openAssignDevice(row.patient_id, row.name)}>
-                                                            <ArrowRightLeft className="w-3.5 h-3.5 mr-2" /> Assign/Swap Device
+                                                            <ArrowRightLeft className="w-3.5 h-3.5 mr-2" /> Assign Device
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator />
                                                         {row.vital_device_sn && (
@@ -447,14 +439,6 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
                                     <p className="text-xs text-slate-500 mb-4 max-w-[200px]">
                                         All devices are currently in use or none have been registered.
                                     </p>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setRegisterDeviceOpen(true)}
-                                        className="text-teal-600 border-teal-200 hover:bg-teal-50"
-                                    >
-                                        Register New Device
-                                    </Button>
                                 </div>
                             )}
                         </CardContent>

@@ -8,9 +8,7 @@ import {
   Settings,
   User,
   Activity,
-  UserPlus,
   ClipboardList,
-  Cpu,
   LogOut,
   ChevronDown,
   Battery,
@@ -45,7 +43,6 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, 
   const caregiverMenuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: t('Dashboard', 'Dashboard') },
     { id: 'alerts-hub', icon: Bell, label: t('Alerts Hub', 'Alerts Hub') },
-    { id: 'add-patient', icon: UserPlus, label: t('Add Patient', 'Magdagdag ng Pasyente') },
     { id: 'patient-list', icon: List, label: t('Patient List', 'Listahan ng Pasyente') },
     { id: 'assignment-tracker', icon: ClipboardList, label: t('Assignments', 'Mga Assignment') },
     { id: 'user-management', icon: Users, label: t('Caregiver Management', 'Pamamahala ng Caregiver') },
@@ -63,7 +60,6 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, 
   ];
 
   const deviceSubItems = [
-    { id: 'add-device', icon: Cpu, label: 'Add New Device' },
     { id: 'my-devices', icon: Wifi, label: 'My Devices' },
     // Status & Battery removed (Integrated into My Devices)
     // Groups removed (Integrated into My Devices)

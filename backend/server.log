@@ -5443,3 +5443,14 @@
 [2026-05-22T12:42:24.997Z] GET /api/auth/my-permissions
 [2026-05-22T12:42:25.087Z] GET /api/auth/my-permissions
 [2026-05-22T12:42:25.142Z] GET /api/caregiver/patients
+[2026-05-26T06:51:16.722Z] GET /api/auth/login
+[2026-05-26T06:57:08.445Z] POST /api/auth/register
+[2026-05-26T06:57:35.254Z] POST /api/auth/verify-otp
+[2026-05-26T06:57:50.370Z] POST /api/auth/login
+[2026-05-26T06:58:07.452Z] GET /api/caregiver/patients
+[2026-05-26T06:58:10.213Z] GET /api/caregiver/users
+[2026-05-26T06:58:12.441Z] GET /api/caregiver/patients
+[2026-05-26T06:58:16.127Z] GET /api/user/profile
+[2026-05-26T06:58:23.620Z] GET /api/user/profile
+[2026-05-26T06:58:23.761Z] GET /api/caregiver/devices
+[2026-05-26T06:58:30.565Z] GET /api/user/profile

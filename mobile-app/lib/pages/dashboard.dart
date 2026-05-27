@@ -33,7 +33,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex; // ← added
+    _currentIndex = widget.initialIndex;
+  }
+
+  // [INTEGRATION] Pull-to-refresh handler.
+  // Reloads the session from encrypted storage so any profile changes
+  // (picture, username) made on another screen are immediately visible
+  // in the dashboard avatar and greeting without requiring a re-login.
+  Future<void> _refreshDashboard() async {
+    await SessionManager.loadSession();
+    if (mounted) setState(() {});
   }
 
   @override
@@ -61,7 +70,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _drawerItem('userM', 'User Management', const UserManagementScreen(), false),
                   _drawerItem('deviceM', 'Device Management', const DeviceManagementScreen(), false),
                   _drawerItem('report', 'Reports', const ReportsScreen(), false),
-                  _drawerItem('profile', 'Profile', const ProfileScreen(), false),
+                  _drawerItem('profile', 'Profile', const ProfileScreen(), false,
+                      // [INTEGRATION] Rebuild the dashboard when the user returns
+                      // from the profile screen so the avatar reflects any changes
+                      // written to UserSession (profile picture, username).
+                      onReturn: () => setState(() {})),
                   _drawerItem('setting', 'Settings', SettingsScreen(), false),
                 ],
               ),
@@ -82,89 +95,108 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        IconButton(
-                          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                          icon: const Icon(Icons.menu, size: 32, color: Colors.black87),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: _buildGreeting(today),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 35),
-                    Text("Patient Management",
-                        style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: const Color(0xFF5FA9A9),
-                            fontWeight: FontWeight.w500)),
-                    Text("DASHBOARD",
-                        style: GoogleFonts.poppins(
-                            fontSize: 22, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
-                    Expanded(
-                      child: Stack(
-                        children: [
-                          Container(
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                  color: const Color(0xFF5FA9A9).withOpacity(0.5),
-                                  width: 1.5),
-                            ),
-                            child: Center(
-                              child: Text.rich(
-                                TextSpan(
-                                  text: "No devices registered yet.\n",
-                                  style: GoogleFonts.albertSans(
-                                      fontSize: 15, color: Colors.black87),
-                                  children: [
-                                    TextSpan(
-                                      text: "Register",
-                                      style: const TextStyle(
-                                          color: Color(0xFF5FA9A9),
-                                          fontWeight: FontWeight.bold),
-                                      recognizer: TapGestureRecognizer()
-                                        ..onTap = () {
-                                          setState(() {
-                                            _currentIndex = 3;
-                                          });
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                                builder: (context) =>
-                                                    const NewDeviceScreen()),
-                                          );
-                                        },
-                                    ),
-                                    const TextSpan(text: " a device to continue."),
-                                  ],
-                                ),
-                                textAlign: TextAlign.center,
+              // [INTEGRATION] RefreshIndicator provides the pull-to-refresh gesture.
+              // CustomScrollView + AlwaysScrollableScrollPhysics ensures the drag
+              // fires even when content does not overflow (the normal dashboard state).
+              child: RefreshIndicator(
+                onRefresh: _refreshDashboard,
+                color: const Color(0xFF4DB6AC),
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    // -- Header: menu button, greeting, section labels --
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              IconButton(
+                                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                                icon: const Icon(Icons.menu, size: 32, color: Colors.black87),
                               ),
-                            ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: _buildGreeting(today),
+                              ),
+                            ],
                           ),
-                          Positioned(
-                            bottom: 2,
-                            left: 0,
-                            child: Image.asset('assets/images/nakasilip.png',
-                                width: 200),
-                          ),
-                        ],
+                          const SizedBox(height: 35),
+                          Text("Patient Management",
+                              style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: const Color(0xFF5FA9A9),
+                                  fontWeight: FontWeight.w500)),
+                          Text("DASHBOARD",
+                              style: GoogleFonts.poppins(
+                                  fontSize: 22, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 20),
+                        ]),
                       ),
                     ),
-                    const SizedBox(height: 30),
+
+                    // -- Patient content area --
+                    // SliverFillRemaining is the scrollable equivalent of Expanded:
+                    // it stretches to fill the remaining viewport height.
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 30),
+                        child: Stack(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                    color: const Color(0xFF5FA9A9).withValues(alpha: 0.5),
+                                    width: 1.5),
+                              ),
+                              child: Center(
+                                child: Text.rich(
+                                  TextSpan(
+                                    text: "No devices registered yet.\n",
+                                    style: GoogleFonts.albertSans(
+                                        fontSize: 15, color: Colors.black87),
+                                    children: [
+                                      TextSpan(
+                                        text: "Register",
+                                        style: const TextStyle(
+                                            color: Color(0xFF5FA9A9),
+                                            fontWeight: FontWeight.bold),
+                                        recognizer: TapGestureRecognizer()
+                                          ..onTap = () {
+                                            setState(() {
+                                              _currentIndex = 3;
+                                            });
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                  builder: (context) =>
+                                                      const NewDeviceScreen()),
+                                            );
+                                          },
+                                      ),
+                                      const TextSpan(text: " a device to continue."),
+                                    ],
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 2,
+                              left: 0,
+                              child: Image.asset('assets/images/nakasilip.png',
+                                  width: 200),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -179,9 +211,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildGreeting(String date) {
     // [INTEGRATION] Display the user's name from the active session
     final userName = UserSession.current?.name ?? 'User';
-    final profilePicUrl = UserSession.current != null
-        ? null // Profile picture URL will be fetched separately if needed
-        : null;
 
     return Row(
       children: [
@@ -216,25 +245,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(width: 10),
-        // [FIX] Dynamic avatar: shows the logged-in user's first initial.
-        // Falls back to a teal circle with the letter if no profile picture is set.
-        // Previously this was a hardcoded pfp.jpg that showed the same image for every user.
+        // [INTEGRATION] Avatar: shows the user's profile picture when available.
+        // Falls back to a teal circle with the first-name initial when no picture
+        // has been uploaded. Rebuilt by the .then(setState) on profile navigation
+        // so the change appears immediately after returning from the profile screen.
         Builder(builder: (_) {
           final session = UserSession.current;
+          final picUrl = session?.profilePictureUrl;
           final initial = (session?.name.isNotEmpty == true)
               ? session!.name[0].toUpperCase()
               : 'U';
           return CircleAvatar(
             radius: 22,
             backgroundColor: const Color(0xFF5FA9A9),
-            child: Text(
-              initial,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 17,
-              ),
-            ),
+            backgroundImage: picUrl != null
+                ? NetworkImage('${ApiService.serverOrigin}$picUrl')
+                : null,
+            child: picUrl == null
+                ? Text(
+                    initial,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                    ),
+                  )
+                : null,
           );
         }),
       ],
@@ -267,11 +303,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _drawerItem(
-      String icon, String title, Widget destination, bool isSelected) {
+      String icon, String title, Widget destination, bool isSelected,
+      {VoidCallback? onReturn}) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.white.withOpacity(0.1) : Colors.transparent,
+        color: isSelected ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
       child: ListTile(
@@ -283,7 +320,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Navigator.pop(context);
           if (!isSelected) {
             Navigator.push(
-                context, MaterialPageRoute(builder: (context) => destination));
+                context,
+                MaterialPageRoute(
+                    builder: (context) => destination))
+              .then((_) => onReturn?.call());
           }
         },
       ),
@@ -345,12 +385,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             );
             break;
           case 4:
+  // [INTEGRATION] .then() triggers a setState when the user pops back from
+  // ProfileScreen, causing the dashboard to re-read UserSession.current
+  // and immediately display the updated avatar / greeting.
   Navigator.push(
     context,
     MaterialPageRoute(builder: (context) => ProfileScreen(
       onBack: () => setState(() => _currentIndex = 2),
     )),
-  );
+  ).then((_) => setState(() {}));
   break;
         }
       },

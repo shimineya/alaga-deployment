@@ -33,7 +33,7 @@ const allowedOrigins = [
 
 app.use(cors({
     origin: allowedOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], // [OWASP A02] Added PATCH — used by ApiService.patch()
     credentials: true
 }));
 

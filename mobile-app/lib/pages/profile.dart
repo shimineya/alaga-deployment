@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:alaga/pages/login.dart';
 
 // [INTEGRATION] Import API service and session management
 import '../services/api_service.dart';
 import '../models/user_session.dart';
+
+// [OWASP A07] Session guard: rehydrates encrypted session from device storage
+// before any protected API call is made. Prevents 401 errors on cold app starts.
 
 class ProfileScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -32,6 +37,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _email = '';
   String _role = '';
   String? _profilePictureUrl;
+
+  // [INTEGRATION] Profile picture local state
+  // _selectedImageFile holds the local file for immediate preview after picking.
+  // _isUploadingPicture blocks the camera button during the multipart upload.
+  File? _selectedImageFile;
+  bool _isUploadingPicture = false;
 
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
@@ -88,8 +99,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // [INTEGRATION] Fetches the user's profile data from GET /api/user/profile.
   // Populates all text controllers with the backend data.
+  //
+  // [OWASP A07] Session Guard: if UserSession.current is null (e.g., cold app
+  // start or hot-reload), we rehydrate the session from encrypted on-device
+  // storage before making the API call. Without this, the Authorization header
+  // is absent and the backend responds with 401 — the most common QA failure.
   Future<void> _fetchProfile() async {
     setState(() => _isLoading = true);
+
+    // Rehydrate session from secure storage if not already in memory.
+    if (UserSession.current == null) {
+      await SessionManager.loadSession();
+    }
+
+    // If session is still null after rehydration, the user is not authenticated.
+    if (UserSession.current == null) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      // [OWASP A07] Redirect to login — do not expose a blank profile screen.
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+        (route) => false,
+      );
+      return;
+    }
 
     final result = await ApiService.get('/user/profile');
 
@@ -97,16 +131,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (result['success'] == true && result['profile'] != null) {
       final profile = result['profile'];
+
+      // [FIX] Use .value setter instead of .text setter to ensure the cursor
+      // is placed at the END of the text (offset = length). Using .text = 'value'
+      // internally sets selection to offset: -1, which on some Android builds
+      // causes the TextField to render the text as invisible when first mounted.
+      final firstName = profile['first_name'] ?? '';
+      final lastName  = profile['last_name'] ?? '';
+      final phone     = profile['mobile_number'] ?? '';
+      final username  = profile['username'] ?? '';
+
       setState(() {
-        _firstNameController.text = profile['first_name'] ?? '';
-        _lastNameController.text = profile['last_name'] ?? '';
-        _phoneController.text = profile['mobile_number'] ?? '';
-        _usernameController.text = profile['username'] ?? '';
+        _firstNameController.value = TextEditingValue(
+          text: firstName,
+          selection: TextSelection.collapsed(offset: firstName.length),
+        );
+        _lastNameController.value = TextEditingValue(
+          text: lastName,
+          selection: TextSelection.collapsed(offset: lastName.length),
+        );
+        _phoneController.value = TextEditingValue(
+          text: phone,
+          selection: TextSelection.collapsed(offset: phone.length),
+        );
+        _usernameController.value = TextEditingValue(
+          text: username,
+          selection: TextSelection.collapsed(offset: username.length),
+        );
         _email = profile['email'] ?? '';
         _role = profile['role'] ?? 'caregiver';
         _profilePictureUrl = profile['profile_picture_url'];
         _isLoading = false;
       });
+
+      // [INTEGRATION] Sync the latest profile picture URL into the in-memory
+      // session so the dashboard avatar reflects it without requiring re-login.
+      // [DPA] No new data is stored — this is a mirror of what the server returned.
+      final current = UserSession.current;
+      if (current != null) {
+        final serverPicUrl = profile['profile_picture_url'] as String?;
+        await SessionManager.saveSession(
+          current.copyWith(profilePictureUrl: serverPicUrl),
+        );
+      }
     } else {
       setState(() => _isLoading = false);
       _showSnackBar(result['message'] ?? 'Failed to load profile.', isError: true);
@@ -153,6 +220,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() => _isSaving = false);
 
       if (result['success'] == true) {
+        // [INTEGRATION] Sync the updated username into the in-memory session
+        // so the dashboard reflects the change the moment the user navigates back.
+        // SessionManager.saveSession() also flushes to encrypted on-device storage
+        // so the new username survives app restarts.
+        final current = UserSession.current;
+        if (current != null) {
+          await SessionManager.saveSession(
+            current.copyWith(username: _usernameController.text.trim()),
+          );
+        }
         _showSnackBar("Profile updated successfully.");
       } else {
         _showSnackBar(result['message'] ?? 'Failed to update profile.', isError: true);
@@ -202,6 +279,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _showSnackBar("Password changed successfully.");
     } else {
       _showSnackBar(result['message'] ?? 'Failed to change password.', isError: true);
+    }
+  }
+
+  // [INTEGRATION] Opens the device image gallery, lets the user pick a photo,
+  // previews it locally, then uploads it to PUT /api/user/profile via multipart.
+  //
+  // [OWASP A04] File size (2 MB) and MIME type (JPEG/PNG) are enforced server-side
+  // by multer. maxWidth/maxHeight reduce payload size before it ever leaves the device.
+  Future<void> _pickProfilePicture() async {
+    if (_isUploadingPicture) return;
+
+    final picker = ImagePicker();
+    final XFile? picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
+    );
+
+    if (picked == null || !mounted) return;
+
+    // Show the chosen image immediately for a responsive feel.
+    setState(() {
+      _selectedImageFile = File(picked.path);
+      _isUploadingPicture = true;
+    });
+
+    final result = await ApiService.multipartPut(
+      '/user/profile',
+      filePath: picked.path,
+      fileField: 'profile_picture',
+    );
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      final newUrl = result['profile']?['profile_picture_url'] as String?;
+      setState(() {
+        _profilePictureUrl = newUrl ?? _profilePictureUrl;
+        _isUploadingPicture = false;
+        // Keep _selectedImageFile so the local preview stays until next load.
+      });
+
+      // [INTEGRATION] Sync the new picture URL into the in-memory session so
+      // the dashboard avatar updates immediately when the user navigates back.
+      // Persisted to encrypted storage so it survives cold app restarts.
+      final current = UserSession.current;
+      if (current != null && newUrl != null) {
+        await SessionManager.saveSession(
+          current.copyWith(profilePictureUrl: newUrl),
+        );
+      }
+      _showSnackBar('Profile picture updated successfully.');
+    } else {
+      // Revert local preview on failure — do not show a broken state.
+      setState(() {
+        _selectedImageFile = null;
+        _isUploadingPicture = false;
+      });
+      _showSnackBar(
+        result['message'] ?? 'Failed to upload picture. Please try again.',
+        isError: true,
+      );
     }
   }
 
@@ -334,19 +474,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  CircleAvatar(
-                    radius: 40,
-                    backgroundColor: _teal,
-                    backgroundImage: _profilePictureUrl != null
-                        ? NetworkImage('${ApiService.serverOrigin}$_profilePictureUrl')
-                        : null,
-                    child: _profilePictureUrl == null
-                        ? Text(
-                            _firstNameController.text.isNotEmpty
-                                ? _firstNameController.text[0].toUpperCase()
-                                : 'U',
-                            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold))
-                        : null,
+                  // [INTEGRATION] Profile picture with change overlay.
+                  // Tapping the camera badge opens the gallery picker.
+                  // Priority: local picked file > server URL > initial letter.
+                  GestureDetector(
+                    onTap: _isUploadingPicture ? null : _pickProfilePicture,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        CircleAvatar(
+                          radius: 40,
+                          backgroundColor: _teal,
+                          backgroundImage: _selectedImageFile != null
+                              ? FileImage(_selectedImageFile!) as ImageProvider
+                              : _profilePictureUrl != null
+                                  ? NetworkImage('${ApiService.serverOrigin}$_profilePictureUrl')
+                                  : null,
+                          child: (_selectedImageFile == null && _profilePictureUrl == null)
+                              ? Text(
+                                  _firstNameController.text.isNotEmpty
+                                      ? _firstNameController.text[0].toUpperCase()
+                                      : 'U',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.bold))
+                              : null,
+                        ),
+                        // Upload progress ring over the avatar
+                        if (_isUploadingPicture)
+                          const Positioned.fill(
+                            child: CircleAvatar(
+                              radius: 40,
+                              backgroundColor: Color(0x88000000),
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2.5, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        // Camera badge — hidden while uploading
+                        if (!_isUploadingPicture)
+                          Positioned(
+                            bottom: 0,
+                            right: -2,
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: BoxDecoration(
+                                color: _teal,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: const Icon(Icons.camera_alt,
+                                  size: 13, color: Colors.white),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -566,10 +752,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: isEditable && controller != null
               ? TextField(
                   controller: controller,
-                  style: _bodyStyle,
-                  decoration: const InputDecoration(
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  // [FIX] Explicitly darker text color in edit mode so pre-filled
+                  // values are unmistakably visible against the white background.
+                  style: GoogleFonts.albertSans(fontSize: 13, color: Colors.black87),
+                  decoration: InputDecoration(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     border: InputBorder.none,
+                    // hintText shows the current value label so users know what
+                    // the field contains even before tapping into it.
+                    hintText: controller.text.isEmpty ? 'Enter $label' : controller.text,
+                    hintStyle: GoogleFonts.albertSans(
+                      fontSize: 13,
+                      color: controller.text.isEmpty ? Colors.black38 : Colors.black45,
+                    ),
+                    // Suffix clear button for quick re-entry without backspacing
+                    suffixIcon: controller.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16, color: Colors.grey),
+                            onPressed: () => setState(() => controller.clear()),
+                            tooltip: 'Clear field',
+                          )
+                        : null,
                   ),
                 )
               : Padding(

@@ -8,6 +8,9 @@ class UserSession {
   final String role;
   final String name;
   final String token;
+  // [INTEGRATION] Persisted so the dashboard avatar survives app restarts
+  // without a round-trip to the server. Nullable — not all users have a picture.
+  final String? profilePictureUrl;
 
   UserSession({
     required this.id,
@@ -16,6 +19,7 @@ class UserSession {
     required this.role,
     required this.name,
     required this.token,
+    this.profilePictureUrl,
   });
 
   // Global static referencing instance for Prototype session tracking constraints
@@ -29,6 +33,7 @@ class UserSession {
       role: json['role'] ?? 'caregiver',
       name: json['name'] ?? '',
       token: token,
+      profilePictureUrl: json['profilePictureUrl'],
     );
   }
 
@@ -40,19 +45,39 @@ class UserSession {
       'role': role,
       'name': name,
       'token': token,
+      'profilePictureUrl': profilePictureUrl,
     };
+  }
+
+  // [INTEGRATION] Returns a new UserSession with the given fields overridden.
+  // Used by the profile screen to update the in-memory session after a save
+  // without mutating the immutable fields directly.
+  UserSession copyWith({
+    String? username,
+    String? profilePictureUrl,
+    // Pass the sentinel value _clearPicture to explicitly null-out the picture.
+    bool clearProfilePicture = false,
+  }) {
+    return UserSession(
+      id: id,
+      username: username ?? this.username,
+      email: email,
+      role: role,
+      name: name,
+      token: token,
+      profilePictureUrl: clearProfilePicture
+          ? null
+          : (profilePictureUrl ?? this.profilePictureUrl),
+    );
   }
 }
 
 class SessionManager {
   // [OWASP A04 / HIPAA] Use AES-encrypted SharedPreferences on Android.
-  // The legacy RSA Keystore path (default) causes a deadlock on many physical
-  // devices when write() is called from an async login handler, exhausting the
-  // Android SurfaceView buffer. encryptedSharedPreferences uses AES-256 GCM
-  // and is supported from Android API 23+ (which we already require in build.gradle.kts).
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // encryptedSharedPreferences was removed in flutter_secure_storage v11 —
+  // the library now handles encryption automatically via custom ciphers.
+  // Data is migrated transparently on first access.
+  static const _storage = FlutterSecureStorage();
   static const _sessionKey = 'ALAGA_USER_SESSION';
 
   // [OWASP A07] Mitigation: securely flush tokens directly to encrypted on-device storage.
@@ -73,6 +98,7 @@ class SessionManager {
           role: json['role'],
           name: json['name'],
           token: json['token'],
+          profilePictureUrl: json['profilePictureUrl'],
         );
         return UserSession.current;
       } catch (e) {

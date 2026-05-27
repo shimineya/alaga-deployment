@@ -43,23 +43,39 @@ const upload = multer({
 router.get('/', verifyToken, async (req, res) => {
     try {
         const userId = req.user.id;
+
+        // [BUG FIX] notification_preferences does NOT exist on the users table.
+        // It lives in profiles_caregivers (for caregiver/parent roles) and
+        // profiles_medical_staff does not have it at all.
+        // We LEFT JOIN to profiles_caregivers so the column resolves correctly
+        // for all roles: caregivers get their saved prefs, all others get NULL.
+        // [OWASP A05] Parameterized query prevents SQL Injection.
         const result = await pool.query(
-            // [INTEGRATION] notification_preferences is included so the Settings screen
-            // can restore saved toggle states on load without a separate API call.
-            `SELECT username, email, mobile_number, profile_picture_url,
-                    first_name, last_name, role, notification_preferences
-             FROM users WHERE user_id = $1`,
+            `SELECT
+                u.username,
+                u.email,
+                u.mobile_number,
+                u.profile_picture_url,
+                u.first_name,
+                u.last_name,
+                u.role,
+                pc.notification_preferences
+             FROM users u
+             LEFT JOIN profiles_caregivers pc ON pc.user_id = u.user_id
+             WHERE u.user_id = $1`,
             [userId]
         );
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found.' });
         }
 
         res.json({ success: true, profile: result.rows[0] });
     } catch (err) {
+        // [OWASP A09] Log the full error server-side for diagnosis.
+        // [OWASP A10] Generic message to the client — no stack trace exposed.
         console.error("Fetch Profile Error:", err.message);
-        res.status(500).json({ success: false, message: 'Failed to fetch profile' });
+        res.status(500).json({ success: false, message: 'Failed to fetch profile.' });
     }
 });
 

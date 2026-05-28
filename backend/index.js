@@ -85,8 +85,8 @@ const registerValidation = [
     body('email').isEmail().withMessage('Please enter a valid email').normalizeEmail({ gmail_remove_dots: false }),
     body('username').optional({ checkFalsy: true }).trim().escape(),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
-    // [OWASP A01] Added facility_admin and system_admin to the allowed role list
-    body('role').isIn(['caregiver', 'medical_staff', 'admin', 'facility_admin', 'system_admin']).withMessage('Invalid role selected')
+    // [OWASP A01] Added facility_admin, system_admin, and parent to the allowed role list
+    body('role').isIn(['caregiver', 'medical_staff', 'admin', 'facility_admin', 'system_admin', 'parent']).withMessage('Invalid role selected')
 ];
 
 // --- RATE LIMITERS ---

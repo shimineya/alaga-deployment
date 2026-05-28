@@ -9,9 +9,10 @@ router.use(verifyToken);
 
 // ==========================================
 // 0. GET DEVICES (Role-scoped inventory)
-// [OWASP A01] Admins and medical_staff see the full inventory.
-// Caregivers only see devices assigned to their accessible patients.
-// Previously returned ALL devices to ALL users regardless of role.
+// [OWASP A01] Admin sees the full inventory.
+// Caregiver sees ONLY:
+//   - Devices they personally registered (added_by = their user_id)
+//   - Devices assigned to patients they can access (via patient_access)
 // ==========================================
 router.get('/devices', async (req, res) => {
     const { role, id: userId } = req.user;
@@ -19,23 +20,30 @@ router.get('/devices', async (req, res) => {
         let result;
 
         if (role === 'admin' || role === 'medical_staff') {
-            // Full inventory for privileged roles
+            // Full inventory for admin / medical staff
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
-                        d.assigned_patient_id, p.name as assigned_patient_name
+                        d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  ORDER BY d.created_at DESC`
             );
         } else {
-            // [OWASP A01] Caregiver: only devices linked to their accessible patients
+            // [OWASP A01] Caregiver scope:
+            // Show devices this caregiver registered (added_by = userId)
+            // OR devices assigned to a patient the caregiver has access to.
+            // DISTINCT prevents duplicate rows when multiple patient_access rows exist.
             result = await pool.query(
-                `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
-                        d.assigned_patient_id, p.name as assigned_patient_name
+                `SELECT DISTINCT d.serial_number, d.device_name, d.status, d.last_heartbeat,
+                        d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
+                        p.name as assigned_patient_name
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
-                 INNER JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
-                 WHERE pa.user_id = $1
+                 LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
+                 WHERE (
+                     d.added_by = $1
+                     OR pa.user_id = $1
+                 )
                  ORDER BY d.created_at DESC`,
                 [userId]
             );
@@ -51,12 +59,23 @@ router.get('/devices', async (req, res) => {
 
 // ==========================================
 // 0.1. REGISTER DEVICE(S) INTO WHITELIST
-// [OWASP A01] Any verified user can register a device into the inventory.
-// The device_whitelist entry marks the physical hardware as known to the system.
+// [OWASP A01] Only admin (parent) accounts may register new hardware.
+// Caregivers receive 403 Forbidden — they cannot add to the inventory.
 // Serial numbers must follow the format: VS-YYYY-NNNN or SD-YYYY-NNNN.
 // ==========================================
 router.post('/devices', async (req, res) => {
+    // [OWASP A01] Role guard: only the parent / admin accounts can register devices.
+    // A caregiver hitting this endpoint directly (e.g. via Postman) is rejected here
+    // even if the mobile UI has already hidden the button from them.
+    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent') {
+        return res.status(403).json({
+            success: false,
+            message: 'Only parent or administrator accounts can register new devices.'
+        });
+    }
+
     const { vitalDeviceNo, diaperDeviceNo } = req.body;
+    const registeredBy = req.user.id;
 
     if (!vitalDeviceNo && !diaperDeviceNo) {
         return res.status(400).json({ success: false, message: 'At least one device serial number is required.' });
@@ -78,7 +97,7 @@ router.post('/devices', async (req, res) => {
         const inserted = [];
 
         if (vitalDeviceNo) {
-            // [OWASP A05] Check for duplicate before insert
+            // [OWASP A05] Parameterized duplicate check before insert
             const exists = await client.query(
                 'SELECT serial_number FROM device_whitelist WHERE serial_number = $1',
                 [vitalDeviceNo]
@@ -88,10 +107,11 @@ router.post('/devices', async (req, res) => {
                 client.release();
                 return res.status(409).json({ success: false, message: `Device ${vitalDeviceNo} is already registered.` });
             }
+            // [FIX] added_by now populated so ownership scoping works for GET /devices.
             await client.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, status, created_at)
-                 VALUES ($1, 'Vital Sign Monitor', 'AVAILABLE', NOW())`,
-                [vitalDeviceNo]
+                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at)
+                 VALUES ($1, 'Vital Sign Monitor', 'AVAILABLE', $2, NOW())`,
+                [vitalDeviceNo, registeredBy]
             );
             inserted.push(vitalDeviceNo);
         }
@@ -107,9 +127,9 @@ router.post('/devices', async (req, res) => {
                 return res.status(409).json({ success: false, message: `Device ${diaperDeviceNo} is already registered.` });
             }
             await client.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, status, created_at)
-                 VALUES ($1, 'Smart Diaper Module', 'AVAILABLE', NOW())`,
-                [diaperDeviceNo]
+                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at)
+                 VALUES ($1, 'Smart Diaper Module', 'AVAILABLE', $2, NOW())`,
+                [diaperDeviceNo, registeredBy]
             );
             inserted.push(diaperDeviceNo);
         }
@@ -214,8 +234,17 @@ router.get('/all', async (req, res) => {
 
 // ==========================================
 // 2. ADD NEW PATIENT
+// [OWASP A01] Only admin / parent / medical_staff can enroll new patients.
 // ==========================================
 router.post('/patients', async (req, res) => {
+    // [OWASP A01] Role guard
+    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent') {
+        return res.status(403).json({
+            success: false,
+            message: 'Only parent or administrator accounts can enroll new patients.'
+        });
+    }
+
     const client = await pool.connect();
     try {
         const { name, birthdate, medicalCondition, assignedCaregiverId } = req.body;
@@ -294,8 +323,8 @@ router.put('/patients/:id', async (req, res) => {
         const { role } = req.user;
 
         // [OWASP A01] Verify the caller has Edit or Admin access to this specific patient.
-        // Admins and medical_staff bypass the access table check.
-        if (role !== 'admin' && role !== 'medical_staff') {
+        // Admins, parents, and medical_staff bypass the access table check.
+        if (role !== 'admin' && role !== 'medical_staff' && role !== 'parent') {
             const accessCheck = await client.query(
                 `SELECT access_level FROM patient_access
                  WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
@@ -351,7 +380,7 @@ router.patch('/patients/:id/archive', async (req, res) => {
         const { role } = req.user;
 
         // [OWASP A01] Ownership check
-        if (role !== 'admin' && role !== 'medical_staff') {
+        if (role !== 'admin' && role !== 'medical_staff' && role !== 'parent') {
             const accessCheck = await client.query(
                 `SELECT access_level FROM patient_access
                  WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
@@ -694,14 +723,29 @@ router.post('/patients/:id/assign-caregiver', async (req, res) => {
 // ==========================================
 // 5. GET AVAILABLE DEVICES
 // ==========================================
+// ==========================================
 router.get('/devices/available', async (req, res) => {
     try {
-        const result = await pool.query(
-            `SELECT serial_number, device_name, status 
+        const { role, id: userId } = req.user;
+        let queryStr;
+        let queryParams = [];
+
+        // [OWASP A01] Admin/Medical Staff see all available devices
+        if (role === 'admin' || role === 'medical_staff') {
+            queryStr = `SELECT serial_number, device_name, status 
              FROM device_whitelist 
-             WHERE status = 'ACTIVE' AND assigned_patient_id IS NULL
-             ORDER BY created_at DESC`
-        );
+             WHERE status = 'AVAILABLE' AND assigned_patient_id IS NULL
+             ORDER BY created_at DESC`;
+        } else {
+            // [OWASP A01] Parents/Caregivers only see available devices they registered
+            queryStr = `SELECT serial_number, device_name, status 
+             FROM device_whitelist 
+             WHERE status = 'AVAILABLE' AND assigned_patient_id IS NULL AND added_by = $1
+             ORDER BY created_at DESC`;
+            queryParams = [userId];
+        }
+
+        const result = await pool.query(queryStr, queryParams);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Get Available Devices Error:", err.message);

@@ -205,13 +205,18 @@ class ApiService {
   /// Sends an authenticated DELETE request.
   static Future<Map<String, dynamic>> delete(
     String endpoint, {
+    Map<String, dynamic>? body,
     bool requiresAuth = true,
   }) async {
     try {
       final uri = Uri.parse('$_baseUrl$endpoint');
 
       final response = await http
-          .delete(uri, headers: _buildHeaders(requiresAuth: requiresAuth))
+          .delete(
+            uri, 
+            headers: _buildHeaders(requiresAuth: requiresAuth),
+            body: body != null ? jsonEncode(body) : null,
+          )
           .timeout(const Duration(seconds: 15));
 
       return _parseResponse(response);

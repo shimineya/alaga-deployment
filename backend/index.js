@@ -978,6 +978,37 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
     }
 });
 
+// Endpoint to receive data from ESP32s
+app.post('/api/device/data', async (req, res) => {
+    const { device_id, heart_rate, temperature, spo2, moisture } = req.body;
+
+    try {
+        // 1. Verify the device identity in your database
+        const deviceCheck = await pool.query(
+            'SELECT assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND status = $2', 
+            [device_id, 'ACTIVE']
+        );
+
+        if (deviceCheck.rows.length === 0) {
+            return res.status(403).send("Unauthorized device.");
+        }
+
+        const patientId = deviceCheck.rows[0].assigned_patient_id;
+
+        // 2. Insert the readings into the database
+        await pool.query(
+            `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            [patientId, heart_rate || 0, temperature || 0, spo2 || 0, moisture || 0]
+        );
+
+        res.status(200).send("Data recorded successfully.");
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Server error.");
+    }
+});
+
 // ==========================================
 // ROUTE 4: LEGACY ADMIN MODULE (backward-compatible)
 // ==========================================

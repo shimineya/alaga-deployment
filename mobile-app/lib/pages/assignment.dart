@@ -67,6 +67,150 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
     }
   }
 
+  // [INTEGRATION] Revoke access for a caregiver
+  Future<void> _revokeAccess(int patientId, int targetUserId) async {
+    final result = await ApiService.delete(
+      '/assignments/caregiver/revoke',
+      body: {
+        'patient_id': patientId,
+        'target_user_id': targetUserId,
+      },
+    );
+    if (!mounted) return;
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Caregiver access revoked.')),
+      );
+      _fetchAssignments();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message'] ?? 'Failed to revoke access.')),
+      );
+    }
+  }
+
+  // [INTEGRATION] Update permissions for a caregiver
+  Future<void> _updatePermissions(int patientId, int targetUserId, String relationship, String accessLevel) async {
+    final result = await ApiService.put(
+      '/assignments/caregiver/permissions',
+      body: {
+        'patient_id': patientId,
+        'target_user_id': targetUserId,
+        'relationship': relationship,
+        'access_level': accessLevel,
+      },
+    );
+    if (!mounted) return;
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Permissions updated successfully.')),
+      );
+      _fetchAssignments();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message'] ?? 'Failed to update permissions.')),
+      );
+    }
+  }
+
+  void _showEditDialog(int patientId, Map<String, dynamic> member) {
+    String selectedRole = member['relationship'] ?? 'Secondary Caregiver';
+    String selectedAccess = member['access_level'] ?? 'View';
+    final targetUserId = member['user_id'];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            final roles = {'Primary Caregiver', 'Secondary Caregiver', 'Parent', 'Doctor', 'Nurse', selectedRole};
+            final accesses = {'Admin', 'Edit', 'View', selectedAccess};
+            return AlertDialog(
+              title: const Text('Edit Permissions'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Caregiver: ${member['first_name'] ?? ''} ${member['last_name'] ?? ''}'),
+                  const SizedBox(height: 16),
+                  Tooltip(
+                    message: 'Select the relationship of the caregiver to the patient.',
+                    child: const Text('Role:'),
+                  ),
+                  DropdownButton<String>(
+                    isExpanded: true,
+                    value: selectedRole,
+                    items: roles
+                        .map((role) => DropdownMenuItem(value: role, child: Text(role)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) setStateDialog(() => selectedRole = val);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Tooltip(
+                    message: 'Admin allows editing everything. Edit allows data changes. View is read-only.',
+                    child: const Text('Access Level:'),
+                  ),
+                  DropdownButton<String>(
+                    isExpanded: true,
+                    value: selectedAccess,
+                    items: accesses
+                        .map((level) => DropdownMenuItem(value: level, child: Text(level)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) setStateDialog(() => selectedAccess = val);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _updatePermissions(patientId, targetUserId, selectedRole, selectedAccess);
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: _teal, foregroundColor: Colors.white),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showRevokeDialog(int patientId, Map<String, dynamic> member) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Remove Caregiver'),
+          content: Text('Are you sure you want to remove ${member['first_name'] ?? ''} ${member['last_name'] ?? ''} from the care team?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _revokeAccess(patientId, member['user_id']);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _assignments.where((a) {
@@ -215,6 +359,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   }
 
   Widget _buildAssignmentCard(Map<String, dynamic> data) {
+    final patientId = data['patient_id'];
     final name = data['name'] ?? 'Unknown Patient';
     final accessLevel = data['access_level'] ?? 'View';
     final relationship = data['relationship'] ?? 'Caregiver';
@@ -338,6 +483,23 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                           ],
                         ),
                       ),
+                      if (isPrimary && patientId != null) ...[
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blue),
+                          tooltip: 'Edit Permissions', // [User Experience] Tooltip for non-technical users
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _showEditDialog(patientId, member),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                          tooltip: 'Remove Caregiver', // [User Experience] Tooltip for clear actions
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _showRevokeDialog(patientId, member),
+                        ),
+                      ],
                     ],
                   ),
                 ),

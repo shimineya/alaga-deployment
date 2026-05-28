@@ -108,10 +108,15 @@ router.post('/devices', async (req, res) => {
                 return res.status(409).json({ success: false, message: `Device ${vitalDeviceNo} is already registered.` });
             }
             // [FIX] added_by now populated so ownership scoping works for GET /devices.
+            // [OWASP A07] In production, this token would be randomly generated and handed to the admin.
+            // For prototyping/testing, we inject the hash of 'alaga-test-token'.
+            const crypto = require('crypto');
+            const testTokenHash = crypto.createHash('sha256').update('alaga-test-token').digest('hex');
+
             await client.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at)
-                 VALUES ($1, 'Vital Sign Monitor', 'AVAILABLE', $2, NOW())`,
-                [vitalDeviceNo, registeredBy]
+                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at, device_token_hash)
+                 VALUES ($1, 'Vital Sign Monitor', 'AVAILABLE', $2, NOW(), $3)`,
+                [vitalDeviceNo, registeredBy, testTokenHash]
             );
             inserted.push(vitalDeviceNo);
         }
@@ -126,10 +131,13 @@ router.post('/devices', async (req, res) => {
                 client.release();
                 return res.status(409).json({ success: false, message: `Device ${diaperDeviceNo} is already registered.` });
             }
+            const crypto = require('crypto');
+            const testTokenHash = crypto.createHash('sha256').update('alaga-test-token').digest('hex');
+
             await client.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at)
-                 VALUES ($1, 'Smart Diaper Module', 'AVAILABLE', $2, NOW())`,
-                [diaperDeviceNo, registeredBy]
+                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at, device_token_hash)
+                 VALUES ($1, 'Smart Diaper Module', 'AVAILABLE', $2, NOW(), $3)`,
+                [diaperDeviceNo, registeredBy, testTokenHash]
             );
             inserted.push(diaperDeviceNo);
         }
@@ -454,7 +462,19 @@ router.get('/patients', async (req, res) => {
                         WHERE assigned_patient_id = p.patient_id 
                         AND device_name ILIKE '%Diaper%'
                         LIMIT 1
-                    ) as diaper_device_sn
+                    ) as diaper_device_sn,
+                    (
+                        SELECT json_build_object(
+                            'heart_rate', sr.heart_rate,
+                            'temperature', sr.temperature,
+                            'spo2', sr.spo2,
+                            'moisture', sr.moisture_value
+                        )
+                        FROM sensor_readings sr
+                        WHERE sr.patient_id = p.patient_id
+                        ORDER BY sr.recorded_at DESC
+                        LIMIT 1
+                    ) as latest_telemetry
                 FROM patients p
                 WHERE p.is_archived IS DISTINCT FROM TRUE
                 ORDER BY p.patient_id, p.created_at DESC
@@ -495,7 +515,19 @@ router.get('/patients', async (req, res) => {
                         WHERE assigned_patient_id = p.patient_id 
                         AND device_name ILIKE '%Diaper%'
                         LIMIT 1
-                    ) as diaper_device_sn
+                    ) as diaper_device_sn,
+                    (
+                        SELECT json_build_object(
+                            'heart_rate', sr.heart_rate,
+                            'temperature', sr.temperature,
+                            'spo2', sr.spo2,
+                            'moisture', sr.moisture_value
+                        )
+                        FROM sensor_readings sr
+                        WHERE sr.patient_id = p.patient_id
+                        ORDER BY sr.recorded_at DESC
+                        LIMIT 1
+                    ) as latest_telemetry
                 FROM patients p
                 JOIN patient_access pa ON p.patient_id = pa.patient_id
                 WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE

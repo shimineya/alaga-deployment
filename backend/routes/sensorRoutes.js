@@ -515,5 +515,75 @@ router.get('/ai-health', verifyToken, async (req, res) => {
     }
 });
 
+// ===========================================================================
+// ENDPOINT 5: Fetch Telemetry History for Graphing
+// GET /api/sensor/history/:patient_id
+//
+// [OWASP A01] JWT required. IDOR check via patient_access table.
+// [HIPAA / OWASP A09] Logs PHI access.
+// ===========================================================================
+router.get(
+    '/history/:patient_id',
+    verifyToken,
+    param('patient_id').isInt({ min: 1 }).withMessage('Invalid patient ID'),
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, message: errors.array()[0].msg });
+        }
+
+        const userId    = req.user.id;
+        const patientId = parseInt(req.params.patient_id, 10);
+        const clientIp  = req.ip || req.connection.remoteAddress;
+
+        // [OWASP A01] IDOR Prevention
+        const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
+        let hasAccess = accessRoles.includes(req.user.role);
+
+        if (!hasAccess) {
+            const accessCheck = await pool.query(
+                'SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2',
+                [userId, patientId]
+            ).catch(() => ({ rows: [] }));
+            hasAccess = accessCheck.rows.length > 0;
+        }
+
+        if (!hasAccess) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not assigned to this patient.'
+            });
+        }
+
+        try {
+            // [OWASP A05] Parameterized query to fetch last 20 readings for the graph
+            const result = await pool.query(
+                `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
+                 FROM sensor_readings
+                 WHERE patient_id = $1
+                 ORDER BY recorded_at DESC
+                 LIMIT 20`,
+                [patientId]
+            );
+
+            // [HIPAA / OWASP A09] Record PHI Access
+            await logPhiAccess('SENSOR_HISTORY_ACCESSED', patientId, clientIp, { limit: 20 });
+
+            // Reverse the array so it is chronological (oldest to newest) for graphing
+            const chronologicalData = result.rows.reverse();
+
+            return res.json({
+                success: true,
+                patient_id: patientId,
+                history: chronologicalData
+            });
+
+        } catch (err) {
+            console.error('[SENSOR] History fetch error:', err.message);
+            // [OWASP A10] Generic message
+            return res.status(500).json({ success: false, message: 'Failed to retrieve patient history.' });
+        }
+    }
+);
 
 module.exports = router;

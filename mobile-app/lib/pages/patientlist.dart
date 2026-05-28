@@ -45,15 +45,16 @@ class _PatientListScreenState extends State<PatientListScreen> {
       final List<dynamic> rawPatients = result['data'];
       setState(() {
         allPatients = rawPatients.map((p) {
+          final telemetry = p['latest_telemetry'] ?? {};
           return <String, dynamic>{
             'patient_id': p['patient_id'],
             'name': p['name'] ?? 'Unknown',
             'room': 'Room Home', // Default for prototype; can be extended
             'status': p['vital_device_sn'] != null ? 'Stable' : 'Offline',
-            'hr': '---', // Live telemetry not yet implemented
-            'temp': '---',
-            'spo2': '---',
-            'wetness': 'Unknown',
+            'hr': telemetry['heart_rate']?.toString() ?? '---',
+            'temp': telemetry['temperature']?.toString() ?? '---',
+            'spo2': telemetry['spo2']?.toString() ?? '---',
+            'wetness': (telemetry['moisture'] == 1) ? 'Wet' : (telemetry['moisture'] == 0 ? 'Dry' : 'Unknown'),
             'vs_id': p['vital_device_sn'] ?? 'None',
             'sd_id': p['diaper_device_sn'] ?? 'None',
             'birthdate': p['birthdate'],
@@ -211,118 +212,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
   }
 
   Widget _buildPatientCard(Map<String, dynamic> patient, TextStyle main, TextStyle desc) {
-    bool isOffline = patient["status"] == "Offline";
-    bool isWet = patient["wetness"] == "Wet";
-
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 12),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: isWet ? Colors.orange : Colors.grey.shade200, width: isWet ? 1.5 : 1),
-      ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.all(16.0),
-        collapsedBackgroundColor: Colors.white,
-        backgroundColor: Colors.white,
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(color: const Color(0xFFF0F2F5), borderRadius: BorderRadius.circular(20)),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("View", style: main.copyWith(fontSize: 12, color: const Color(0xFF4DB6AC))),
-              const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF4DB6AC)),
-            ],
-          ),
-        ),
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(patient["name"], style: main.copyWith(fontSize: 15)),
-                Text(patient["room"], style: desc.copyWith(fontSize: 11)),
-              ],
-            ),
-            _buildStatusBadge(isWet, isOffline, patient["status"], desc),
-          ],
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildVital(Icons.favorite, "HR", patient["hr"], Colors.redAccent, desc, main),
-              _buildVital(Icons.thermostat, "TEMP", patient["temp"] == "---" ? "---" : "${patient["temp"]}°C", Colors.orange, desc, main),
-              _buildVital(Icons.water_drop, "SPO2", patient["spo2"] == "---" ? "---" : "${patient["spo2"]}%", Colors.blue, desc, main),
-              _buildVital(Icons.opacity, "SDM", patient["wetness"], const Color(0xFF4DB6AC), desc, main),
-              const SizedBox(width: 4),
-            ],
-          ),
-        ),
-        children: [
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("Hardware Configuration", style: desc.copyWith(fontSize: 11, fontWeight: FontWeight.bold)),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        _buildDeviceBadge(patient["vs_id"], Colors.blue, main),
-                        _buildDeviceBadge(patient["sd_id"], Colors.orange, main),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildDetailRow("Assigned Caregiver", patient["assigned_caregiver"] ?? "Unassigned", desc, main),
-                const SizedBox(height: 24),
-                Text("Vital Statistics History", style: main.copyWith(fontSize: 13)),
-                const SizedBox(height: 16),
-                _buildFullWidthGraph("Heart Rate Trend (BPM)", [68, 72, 75, 71, 74, 78, 75], Colors.redAccent),
-                const SizedBox(height: 20),
-                _buildFullWidthGraph("Body Temperature Trend (°C)", [36.5, 36.8, 37.2, 37.0, 36.9, 36.8, 37.1], Colors.orange),
-                const SizedBox(height: 20),
-                _buildFullWidthGraph("Blood Oxygen SpO2 (%)", [98, 97, 98, 99, 98, 98, 97], Colors.blue),
-                const SizedBox(height: 20),
-                _buildFullWidthGraph("Diaper Moisture Sensor Status", [2, 5, 2, 85, 10, 5, 2], Colors.teal),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
-                _buildDetailRow("System Integrity", isOffline ? "Offline" : "Secure - Live Connection", desc, main),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFullWidthGraph(String label, List<double> points, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: GoogleFonts.albertSans(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600)),
-            Text("Latest: ${points.last}", style: GoogleFonts.poppins(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-            height: 50,
-            width: double.infinity,
-            child: CustomPaint(painter: MiniGraphPainter(points.map((e) => e.toDouble()).toList(), color))),
-      ],
-    );
+    return PatientCardWidget(patient: patient, mainStyle: main, descStyle: desc);
   }
 
   Widget _buildStatusBadge(bool isWet, bool isOffline, String status, TextStyle desc) {
@@ -431,4 +321,231 @@ class MiniGraphPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class PatientCardWidget extends StatefulWidget {
+  final Map<String, dynamic> patient;
+  final TextStyle mainStyle;
+  final TextStyle descStyle;
+
+  const PatientCardWidget({Key? key, required this.patient, required this.mainStyle, required this.descStyle}) : super(key: key);
+
+  @override
+  State<PatientCardWidget> createState() => _PatientCardWidgetState();
+}
+
+class _PatientCardWidgetState extends State<PatientCardWidget> {
+  bool _isLoadingHistory = false;
+  List<double> hrHistory = [];
+  List<double> tempHistory = [];
+  List<double> spo2History = [];
+  List<double> moistureHistory = [];
+
+  void _fetchHistory() async {
+    if (hrHistory.isNotEmpty) return; // Already fetched
+    setState(() { _isLoadingHistory = true; });
+
+    final result = await ApiService.get('/sensor/history/${widget.patient['patient_id']}');
+    
+    if (mounted && result['success'] == true && result['history'] != null) {
+      final List<dynamic> historyData = result['history'];
+      setState(() {
+        hrHistory = historyData.map((d) => (d['heart_rate'] as num?)?.toDouble() ?? 0.0).toList();
+        tempHistory = historyData.map((d) => (d['temperature'] as num?)?.toDouble() ?? 0.0).toList();
+        spo2History = historyData.map((d) => (d['spo2'] as num?)?.toDouble() ?? 0.0).toList();
+        moistureHistory = historyData.map((d) => (d['moisture_value'] == 1 ? 100.0 : 0.0)).toList();
+        
+        // Add a fallback if empty to prevent graph errors
+        if (hrHistory.isEmpty) hrHistory = [0];
+        if (tempHistory.isEmpty) tempHistory = [0];
+        if (spo2History.isEmpty) spo2History = [0];
+        if (moistureHistory.isEmpty) moistureHistory = [0];
+
+        _isLoadingHistory = false;
+      });
+    } else {
+      if (mounted) setState(() { _isLoadingHistory = false; });
+    }
+  }
+
+  Widget _buildVital(IconData icon, String label, String value, Color color, TextStyle desc, TextStyle main) {
+    return Column(
+      children: [
+        Row(children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: desc.copyWith(fontSize: 10, fontWeight: FontWeight.bold))
+        ]),
+        const SizedBox(height: 4),
+        Text(value, style: main.copyWith(fontSize: 13)),
+      ],
+    );
+  }
+
+  Widget _buildStatusBadge(bool isWet, bool isOffline, String status, TextStyle desc) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: isWet ? Colors.orange.shade100 : (isOffline ? Colors.grey.shade100 : const Color(0xFFE8F5E9)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isWet) ...[const Icon(Icons.opacity, size: 12, color: Colors.orange), const SizedBox(width: 4)],
+          Text(isWet ? "WET" : status,
+              style: desc.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isWet ? Colors.orange.shade900 : (isOffline ? Colors.grey : Colors.green.shade700))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeviceBadge(String id, Color color, TextStyle main) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withOpacity(0.3))),
+      child: Text(id, style: main.copyWith(fontSize: 10, color: color.withOpacity(0.9))),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, TextStyle desc, TextStyle main) {
+    return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [Text(label, style: desc.copyWith(fontSize: 11)), Text(value, style: main.copyWith(fontSize: 11))]);
+  }
+
+  Widget _buildFullWidthGraph(String label, List<double> points, Color color) {
+    if (points.isEmpty) points = [0];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: GoogleFonts.albertSans(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600)),
+            Text("Latest: ${points.last}", style: GoogleFonts.poppins(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+            height: 50,
+            width: double.infinity,
+            child: CustomPaint(painter: MiniGraphPainter(points, color))),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool isOffline = widget.patient["status"] == "Offline";
+    bool isWet = widget.patient["wetness"] == "Wet";
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: isWet ? Colors.orange : Colors.grey.shade200, width: isWet ? 1.5 : 1),
+      ),
+      child: ExpansionTile(
+        onExpansionChanged: (expanded) {
+          if (expanded) _fetchHistory();
+        },
+        tilePadding: const EdgeInsets.all(16.0),
+        collapsedBackgroundColor: Colors.white,
+        backgroundColor: Colors.white,
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(color: const Color(0xFFF0F2F5), borderRadius: BorderRadius.circular(20)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("View", style: widget.mainStyle.copyWith(fontSize: 12, color: const Color(0xFF4DB6AC))),
+              const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF4DB6AC)),
+            ],
+          ),
+        ),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.patient["name"], style: widget.mainStyle.copyWith(fontSize: 15)),
+                Text(widget.patient["room"], style: widget.descStyle.copyWith(fontSize: 11)),
+              ],
+            ),
+            _buildStatusBadge(isWet, isOffline, widget.patient["status"], widget.descStyle),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildVital(Icons.favorite, "HR", widget.patient["hr"], Colors.redAccent, widget.descStyle, widget.mainStyle),
+              _buildVital(Icons.thermostat, "TEMP", widget.patient["temp"] == "---" ? "---" : "${widget.patient["temp"]}°C", Colors.orange, widget.descStyle, widget.mainStyle),
+              _buildVital(Icons.water_drop, "SPO2", widget.patient["spo2"] == "---" ? "---" : "${widget.patient["spo2"]}%", Colors.blue, widget.descStyle, widget.mainStyle),
+              _buildVital(Icons.opacity, "SDM", widget.patient["wetness"], const Color(0xFF4DB6AC), widget.descStyle, widget.mainStyle),
+              const SizedBox(width: 4),
+            ],
+          ),
+        ),
+        children: [
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Hardware Configuration", style: widget.descStyle.copyWith(fontSize: 11, fontWeight: FontWeight.bold)),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        _buildDeviceBadge(widget.patient["vs_id"], Colors.blue, widget.mainStyle),
+                        _buildDeviceBadge(widget.patient["sd_id"], Colors.orange, widget.mainStyle),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _buildDetailRow("Assigned Caregiver", widget.patient["assigned_caregiver"] ?? "Unassigned", widget.descStyle, widget.mainStyle),
+                const SizedBox(height: 24),
+                Text("Vital Statistics History", style: widget.mainStyle.copyWith(fontSize: 13)),
+                const SizedBox(height: 16),
+                
+                if (_isLoadingHistory)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9))),
+                  )
+                else ...[
+                  _buildFullWidthGraph("Heart Rate Trend (BPM)", hrHistory, Colors.redAccent),
+                  const SizedBox(height: 20),
+                  _buildFullWidthGraph("Body Temperature Trend (°C)", tempHistory, Colors.orange),
+                  const SizedBox(height: 20),
+                  _buildFullWidthGraph("Blood Oxygen SpO2 (%)", spo2History, Colors.blue),
+                  const SizedBox(height: 20),
+                  _buildFullWidthGraph("Diaper Moisture Sensor Status", moistureHistory, Colors.teal),
+                ],
+
+                const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
+                _buildDetailRow("System Integrity", isOffline ? "Offline" : "Secure - Live Connection", widget.descStyle, widget.mainStyle),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

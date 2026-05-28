@@ -22,6 +22,13 @@ class UserSession {
     this.profilePictureUrl,
   });
 
+  // [OWASP A01] Single source of truth for role-based UI visibility.
+  // The parent (admin/parent) account can register devices and enroll patients.
+  // Caregivers can only monitor patients and devices assigned to them.
+  // Reading this getter is preferred over comparing role strings directly
+  // in widget code — it prevents the 'admin' or 'parent' magic strings from scattering.
+  bool get isParent => role == 'admin' || role == 'parent';
+
   // Global static referencing instance for Prototype session tracking constraints
   static UserSession? current;
 

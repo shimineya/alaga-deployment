@@ -30,10 +30,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
   late int _currentIndex; // ← changed
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  List<dynamic> _devices = [];
+  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _fetchDevices();
+  }
+
+  Future<void> _fetchDevices() async {
+    final result = await ApiService.get('/caregiver/devices');
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (result['success'] == true) {
+        _devices = result['data'] ?? [];
+      } else {
+        _devices = [];
+      }
+    });
   }
 
   // [INTEGRATION] Pull-to-refresh handler.
@@ -42,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // in the dashboard avatar and greeting without requiring a re-login.
   Future<void> _refreshDashboard() async {
     await SessionManager.loadSession();
+    await _fetchDevices();
     if (mounted) setState(() {});
   }
 
@@ -63,8 +81,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 children: [
                   _drawerItem('home', 'Dashboard', const DashboardScreen(), true),
-                  _drawerItem('device', 'Add New Device', const NewDeviceScreen(), false),
-                  _drawerItem('add', 'Add New Patient', const NewPatientScreen(), false),
+                  // [OWASP A01] Only the parent (admin) account can register
+                  // devices and enroll new patients. Caregivers see a drawer
+                  // without these options — they are also blocked at the backend.
+                  if (UserSession.current?.isParent == true) ..._parentOnlyDrawerItems(),
                   _drawerItem('list', 'Patient List', PatientListScreen(), false),
                   _drawerItem('assignment', 'Assignment Tracker', const AssignmentScreen(), false),
                   _drawerItem('userM', 'User Management', const UserManagementScreen(), false),
@@ -139,64 +159,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
 
                     // -- Patient content area --
-                    // SliverFillRemaining is the scrollable equivalent of Expanded:
-                    // it stretches to fill the remaining viewport height.
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 30),
-                        child: Stack(
-                          children: [
-                            Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                    color: const Color(0xFF5FA9A9).withValues(alpha: 0.5),
-                                    width: 1.5),
-                              ),
-                              child: Center(
-                                child: Text.rich(
-                                  TextSpan(
-                                    text: "No devices registered yet.\n",
-                                    style: GoogleFonts.albertSans(
-                                        fontSize: 15, color: Colors.black87),
-                                    children: [
-                                      TextSpan(
-                                        text: "Register",
-                                        style: const TextStyle(
-                                            color: Color(0xFF5FA9A9),
-                                            fontWeight: FontWeight.bold),
-                                        recognizer: TapGestureRecognizer()
-                                          ..onTap = () {
-                                            setState(() {
-                                              _currentIndex = 3;
-                                            });
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                  builder: (context) =>
-                                                      const NewDeviceScreen()),
-                                            );
-                                          },
-                                      ),
-                                      const TextSpan(text: " a device to continue."),
-                                    ],
-                                  ),
-                                  textAlign: TextAlign.center,
+                    if (_isLoading)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.all(40),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      )
+                    else if (_devices.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 30),
+                          child: Stack(
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                      color: const Color(0xFF5FA9A9).withValues(alpha: 0.5),
+                                      width: 1.5),
+                                ),
+                                child: Center(
+                                  child: Builder(builder: (_) {
+                                    final isParent = UserSession.current?.isParent == true;
+                                    // [OWASP A01] Parent accounts see a tappable 'Register' link.
+                                    // Caregivers see a plain message — they cannot register hardware.
+                                    if (isParent) {
+                                      return Text.rich(
+                                        TextSpan(
+                                          text: "No devices registered yet.\n",
+                                          style: GoogleFonts.albertSans(
+                                              fontSize: 15, color: Colors.black87),
+                                          children: [
+                                            TextSpan(
+                                              text: "Register",
+                                              style: const TextStyle(
+                                                  color: Color(0xFF5FA9A9),
+                                                  fontWeight: FontWeight.bold),
+                                              recognizer: TapGestureRecognizer()
+                                                ..onTap = () {
+                                                  setState(() => _currentIndex = 3);
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                        builder: (context) =>
+                                                            const NewDeviceScreen()),
+                                                  );
+                                                },
+                                            ),
+                                            const TextSpan(text: " a device to continue."),
+                                          ],
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      );
+                                    } else {
+                                      return Text(
+                                        "No devices assigned yet.\nContact your administrator to assign a device.",
+                                        textAlign: TextAlign.center,
+                                        style: GoogleFonts.albertSans(
+                                            fontSize: 15, color: Colors.black87),
+                                      );
+                                    }
+                                  }),
                                 ),
                               ),
-                            ),
-                            Positioned(
-                              bottom: 2,
-                              left: 0,
-                              child: Image.asset('assets/images/nakasilip.png',
-                                  width: 200),
-                            ),
-                          ],
+                              Positioned(
+                                bottom: 2,
+                                left: 0,
+                                child: Image.asset('assets/images/nakasilip.png',
+                                    width: 200),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                              final device = _devices[index];
+                              return _buildDeviceCard(device);
+                            },
+                            childCount: _devices.length,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -302,6 +353,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // [OWASP A01] Returns the drawer entries that only the parent (admin) account
+  // should see. Keeping them in a separate method avoids nesting spread operators
+  // inside a deeply indented widget tree.
+  List<Widget> _parentOnlyDrawerItems() => [
+    _drawerItem('device', 'Add New Device', const NewDeviceScreen(), false),
+    _drawerItem('add', 'Add New Patient', const NewPatientScreen(), false),
+  ];
+
   Widget _drawerItem(
       String icon, String title, Widget destination, bool isSelected,
       {VoidCallback? onReturn}) {
@@ -405,6 +464,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Image.asset('assets/images/$icon.png',
             width: 24,
             color: selected ? const Color(0xFF5FA9A9) : Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildDeviceCard(Map<String, dynamic> device) {
+    final serialNumber = device['serial_number'] ?? 'Unknown';
+    final deviceName = device['device_name'] ?? 'Unknown';
+    final status = device['status'] ?? 'INACTIVE';
+    final patientName = device['assigned_patient_name'];
+    final isAssigned = device['assigned_patient_id'] != null;
+    final isVital = deviceName.toString().toLowerCase().contains('vital');
+    final color = isVital ? Colors.blue : Colors.orange;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Text(serialNumber, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isAssigned ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      status,
+                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isAssigned ? Colors.green : Colors.grey),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 2),
+                Text(deviceName, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
+                Text(
+                  isAssigned ? "Patient: $patientName" : "Unassigned",
+                  style: TextStyle(fontSize: 11, color: isAssigned ? const Color(0xFF00796B) : Colors.grey),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            isVital ? Icons.monitor_heart_outlined : Icons.baby_changing_station,
+            color: color.withValues(alpha: 0.5),
+            size: 28,
+          ),
+        ],
       ),
     );
   }

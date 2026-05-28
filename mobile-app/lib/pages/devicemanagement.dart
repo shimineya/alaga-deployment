@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service for fetching device data
 import '../services/api_service.dart';
+import '../models/user_session.dart';
 
 class DeviceManagementScreen extends StatefulWidget {
   const DeviceManagementScreen({super.key});
@@ -91,15 +92,18 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   }
 
   // [INTEGRATION] Adds a new device to the backend whitelist via POST /api/caregiver/devices.
-  void _showNewDeviceDialog(BuildContext context) {
+  // [FIX] Captured the page-level scaffold context before opening the dialog so that
+  // SnackBar messages and _fetchDevices() are dispatched from a live context even
+  // after the dialog is dismissed.
+  void _showNewDeviceDialog(BuildContext pageContext) {
     String selectedType = "Vital Signs";
     final TextEditingController idController = TextEditingController();
 
     showDialog(
-      context: context,
-      builder: (context) {
+      context: pageContext,
+      builder: (dialogContext) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (dialogContext, setDialogState) {
             return AlertDialog(
               backgroundColor: const Color(0xFFB2DFDB),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -109,50 +113,54 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                 children: [
                   _popupFieldWrapper("Device Type", DropdownButtonFormField<String>(
                     decoration: _popupInputDecoration(),
+                    value: selectedType,
                     items: ["Vital Signs", "Smart Diaper Device"].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
                     onChanged: (val) => setDialogState(() => selectedType = val!),
                   )),
                   const SizedBox(height: 20),
                   _popupFieldWrapper("Device Number", TextField(
                     controller: idController,
-                    decoration: _popupInputDecoration(hint: selectedType == "Vital Signs" ? "VS-YYYY-NNN" : "SD-YYYY-NNN"),
+                    decoration: _popupInputDecoration(hint: selectedType == "Vital Signs" ? "VS-YYYY-NNNN" : "SD-YYYY-NNNN"),
                   )),
                 ],
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Color(0xFF004D40)))),
+                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("Cancel", style: TextStyle(color: Color(0xFF004D40)))),
                 ElevatedButton(
                   onPressed: () async {
                     String input = idController.text.toUpperCase().trim();
-                    RegExp vsRegex = RegExp(r'^VS-\d{4}-\d{3}$');
-                    RegExp sdRegex = RegExp(r'^SD-\d{4}-\d{3}$');
+                    RegExp vsRegex = RegExp(r'^VS-\d{4}-\d{4}$');
+                    RegExp sdRegex = RegExp(r'^SD-\d{4}-\d{4}$');
 
                     bool isValid = (selectedType == "Vital Signs" && vsRegex.hasMatch(input)) ||
                                    (selectedType == "Smart Diaper Device" && sdRegex.hasMatch(input));
 
-                    if (isValid) {
-                      Navigator.pop(context);
+                    if (!isValid) {
+                      ScaffoldMessenger.of(pageContext).showSnackBar(
+                        SnackBar(content: Text("Invalid format. Use ${selectedType == "Vital Signs" ? "VS-YYYY-NNNN" : "SD-YYYY-NNNN"}")),
+                      );
+                      return;
+                    }
 
-                      final result = await ApiService.post('/caregiver/devices', body: {
-                        if (selectedType == "Vital Signs") 'vitalDeviceNo': input,
-                        if (selectedType == "Smart Diaper Device") 'diaperDeviceNo': input,
-                      });
+                    // [FIX] Only dismiss the dialog AFTER the API response is received
+                    // so the dialogContext is still valid through the await.
+                    final result = await ApiService.post('/caregiver/devices', body: {
+                      if (selectedType == "Vital Signs") 'vitalDeviceNo': input,
+                      if (selectedType == "Smart Diaper Device") 'diaperDeviceNo': input,
+                    });
 
-                      if (!mounted) return;
+                    if (!mounted) return;
 
-                      if (result['success'] == true) {
-                        _fetchDevices(); // Refresh the list
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text("Device $input added successfully.", style: GoogleFonts.albertSans()), backgroundColor: const Color(0xFF4DB6AC), behavior: SnackBarBehavior.floating),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(result['message'] ?? 'Failed to add device.', style: GoogleFonts.albertSans()), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
-                        );
-                      }
+                    if (result['success'] == true) {
+                      Navigator.pop(dialogContext);
+                      _fetchDevices();
+                      ScaffoldMessenger.of(pageContext).showSnackBar(
+                        SnackBar(content: Text("Device $input added successfully.", style: GoogleFonts.albertSans()), backgroundColor: const Color(0xFF4DB6AC), behavior: SnackBarBehavior.floating),
+                      );
                     } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("Invalid format. Use ${selectedType == "Vital Signs" ? "VS-YYYY-NNN" : "SD-YYYY-NNN"}")),
+                      // [FIX] Leave the dialog open on failure so the user can correct the input.
+                      ScaffoldMessenger.of(pageContext).showSnackBar(
+                        SnackBar(content: Text(result['message'] ?? 'Failed to add device.', style: GoogleFonts.albertSans()), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
                       );
                     }
                   },
@@ -227,20 +235,23 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () => _showNewDeviceDialog(context),
-                              icon: const Icon(Icons.add, size: 18),
-                              label: const Text("Add Device to Inventory", style: TextStyle(fontSize: 14)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4DB6AC),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                          // [OWASP A01] Only parent (admin) accounts can register new hardware.
+                          if (UserSession.current?.isParent == true) ...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showNewDeviceDialog(context),
+                                icon: const Icon(Icons.add, size: 18),
+                                label: const Text("Add Device to Inventory", style: TextStyle(fontSize: 14)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4DB6AC),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 20),
+                            const SizedBox(height: 20),
+                          ],
                           TextField(
                             controller: _searchController,
                             onChanged: (val) => setState(() => _searchQuery = val),

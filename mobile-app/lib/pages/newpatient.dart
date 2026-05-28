@@ -27,6 +27,38 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   final TextEditingController _medicalNotesCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
 
+  List<dynamic> _availableDevices = [];
+  String? _selectedVitalDevice;
+  String? _selectedDiaperDevice;
+  bool _isLoadingDevices = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAvailableDevices();
+  }
+
+  Future<void> _fetchAvailableDevices() async {
+    setState(() => _isLoadingDevices = true);
+    final result = await ApiService.get('/caregiver/devices/available');
+    if (!mounted) return;
+    setState(() {
+      _isLoadingDevices = false;
+      if (result['success'] == true) {
+        _availableDevices = result['data'] ?? [];
+      } else {
+        _availableDevices = [];
+      }
+      // Reset selections if they are no longer in the list
+      if (!_availableDevices.any((d) => d['serial_number'] == _selectedVitalDevice)) {
+        _selectedVitalDevice = null;
+      }
+      if (!_availableDevices.any((d) => d['serial_number'] == _selectedDiaperDevice)) {
+        _selectedDiaperDevice = null;
+      }
+    });
+  }
+
   // [INTEGRATION] Sends patient enrollment data to POST /api/caregiver/patients.
   // Includes patient info, optional caregiver assignment, and device serial numbers.
   Future<void> _enrollPatient() async {
@@ -43,6 +75,12 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
 
     if (_selectedCaregiverId != null) {
       body['assignedCaregiverId'] = _selectedCaregiverId;
+    }
+    if (_selectedVitalDevice != null) {
+      body['vitalDeviceNo'] = _selectedVitalDevice;
+    }
+    if (_selectedDiaperDevice != null) {
+      body['diaperDeviceNo'] = _selectedDiaperDevice;
     }
 
     // [OWASP A05] Parameterized JSON body sent via ApiService
@@ -96,8 +134,8 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
     }
   }
 
-  void _showRegisterNewDevicePopup() {
-    showGeneralDialog(
+  Future<void> _showRegisterNewDevicePopup() async {
+    await showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: "RegisterDevice",
@@ -112,6 +150,8 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         );
       },
     );
+    // [FIX] After modal closes, refresh available devices in case new ones were registered.
+    _fetchAvailableDevices();
   }
 
   @override
@@ -315,7 +355,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
-            onPressed: () {},
+            onPressed: _fetchAvailableDevices,
             icon: const Icon(Icons.refresh, size: 18, color: Colors.black),
             label: Text("Refresh",
                 style: GoogleFonts.poppins(color: Colors.black, fontSize: 12)),
@@ -323,47 +363,113 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         ),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
           decoration: BoxDecoration(
             color: const Color(0xFFFFF9E6),
             borderRadius: BorderRadius.circular(15),
             border: Border.all(color: const Color(0xFFFFD54F), width: 1.5),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset(
-                'assets/images/phone.png',
-                height: 40,
-                width: 40,
-                errorBuilder: (c, e, s) =>
-                    const Icon(Icons.phone_android, size: 40, color: Color(0xFFFFB300)),
-              ),
-              const SizedBox(height: 16),
-              Text("No Available Devices",
-                  style: GoogleFonts.poppins(
-                      color: const Color(0xFFFBC02D),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-              const SizedBox(height: 8),
-              Text("All devices are currently assigned or none are registered.",
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.albertSans(fontSize: 13, color: Colors.black87)),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _showRegisterNewDevicePopup,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFFFBC02D),
-                  side: const BorderSide(color: Color(0xFFFBC02D)),
-                  elevation: 0,
-                  shape:
-                      RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          child: _isLoadingDevices 
+            ? const Center(child: CircularProgressIndicator())
+            : _availableDevices.isEmpty
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/images/phone.png',
+                      height: 40,
+                      width: 40,
+                      errorBuilder: (c, e, s) =>
+                          const Icon(Icons.phone_android, size: 40, color: Color(0xFFFFB300)),
+                    ),
+                    const SizedBox(height: 16),
+                    Text("No Available Devices",
+                        style: GoogleFonts.poppins(
+                            color: const Color(0xFFFBC02D),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16)),
+                    const SizedBox(height: 8),
+                    Text("All your registered devices are currently assigned or none are registered.",
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.albertSans(fontSize: 13, color: Colors.black87)),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: _showRegisterNewDevicePopup,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFFFBC02D),
+                        side: const BorderSide(color: Color(0xFFFBC02D)),
+                        elevation: 0,
+                        shape:
+                            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: Text("Register New", style: GoogleFonts.poppins()),
+                    ),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Select Vital Sign Monitor", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedVitalDevice,
+                      hint: const Text("None"),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(value: null, child: Text("None")),
+                        ..._availableDevices
+                            .where((d) => d['device_name'].toString().contains('Vital'))
+                            .map((d) => DropdownMenuItem<String>(
+                                  value: d['serial_number'],
+                                  child: Text(d['serial_number']),
+                                )),
+                      ],
+                      onChanged: (val) => setState(() => _selectedVitalDevice = val),
+                    ),
+                    const SizedBox(height: 16),
+                    Text("Select Smart Diaper", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedDiaperDevice,
+                      hint: const Text("None"),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(value: null, child: Text("None")),
+                        ..._availableDevices
+                            .where((d) => d['device_name'].toString().contains('Diaper'))
+                            .map((d) => DropdownMenuItem<String>(
+                                  value: d['serial_number'],
+                                  child: Text(d['serial_number']),
+                                )),
+                      ],
+                      onChanged: (val) => setState(() => _selectedDiaperDevice = val),
+                    ),
+                    const SizedBox(height: 24),
+                    Center(
+                      child: ElevatedButton(
+                        onPressed: _showRegisterNewDevicePopup,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFFFBC02D),
+                          side: const BorderSide(color: Color(0xFFFBC02D)),
+                          elevation: 0,
+                          shape:
+                              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text("Register Another Device", style: GoogleFonts.poppins()),
+                      ),
+                    ),
+                  ],
                 ),
-                child: Text("Register New", style: GoogleFonts.poppins()),
-              ),
-            ],
-          ),
         ),
       ],
     );
@@ -806,13 +912,23 @@ class _RegisterDeviceModal extends StatefulWidget {
 class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
   bool isManual = true;
   bool isDoubleDevice = true;
+  bool _isSubmitting = false;
 
-  final TextEditingController _vitalSignsCtrl = TextEditingController();
-  final TextEditingController _smartDiaperCtrl = TextEditingController();
+  // [FIX] Pre-fill year prefix — mirrors the logic in NewDeviceScreen.
+  final int _currentYear = DateTime.now().year;
+  late final TextEditingController _vitalSignsCtrl;
+  late final TextEditingController _smartDiaperCtrl;
   String? _vsError;
   String? _sdError;
 
   final List<Map<String, dynamic>> _singleDevices = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _vitalSignsCtrl = TextEditingController(text: 'VS-$_currentYear-');
+    _smartDiaperCtrl = TextEditingController(text: 'SD-$_currentYear-');
+  }
 
   @override
   void dispose() {
@@ -824,11 +940,19 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
     super.dispose();
   }
 
-  // [OWASP A05] Regex enforces VS-YYYY-NNNN / SD-YYYY-NNNN format (4-digit suffix).
-  // Must match the format validated by the backend serial_regex in caregiverRoutes.js.
-  void _validateAndRegister() {
+  // [INTEGRATION] Validates device numbers then calls POST /api/caregiver/devices
+  // to register them into the backend whitelist.
+  // [FIX] Previously this method NEVER called the API — it only called
+  // _showSuccessDialog() on valid input, giving a false impression of success
+  // while writing nothing to the database.
+  Future<void> _validateAndRegister() async {
+    if (_isSubmitting) return;
+
     final vsRegex = RegExp(r'^VS-\d{4}-\d{4}$');
     final sdRegex = RegExp(r'^SD-\d{4}-\d{4}$');
+
+    String? vitalDeviceNo;
+    String? diaperDeviceNo;
 
     if (isDoubleDevice) {
       setState(() {
@@ -839,7 +963,9 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
             ? null
             : "Please input a valid device number.";
       });
-      if (_vsError == null && _sdError == null) _showSuccessDialog();
+      if (_vsError != null || _sdError != null) return;
+      vitalDeviceNo = _vitalSignsCtrl.text.trim();
+      diaperDeviceNo = _smartDiaperCtrl.text.trim();
     } else {
       bool allValid = true;
       setState(() {
@@ -853,15 +979,53 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
           if (device['error'] != null) allValid = false;
         }
       });
-      if (allValid && _singleDevices.isNotEmpty) _showSuccessDialog();
+      if (!allValid || _singleDevices.isEmpty) return;
+
+      for (var device in _singleDevices) {
+        final ctrl = device['controller'] as TextEditingController;
+        final type = device['type'] as String;
+        if (type == 'VS') vitalDeviceNo = ctrl.text.trim();
+        if (type == 'SD') diaperDeviceNo = ctrl.text.trim();
+      }
+    }
+
+    setState(() => _isSubmitting = true);
+
+    // [OWASP A05] JSON body — parameterized on the backend via prepared statements.
+    final result = await ApiService.post(
+      '/caregiver/devices',
+      body: {
+        if (vitalDeviceNo != null) 'vitalDeviceNo': vitalDeviceNo,
+        if (diaperDeviceNo != null) 'diaperDeviceNo': diaperDeviceNo,
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+
+    if (result['success'] == true) {
+      _showSuccessDialog();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['message'] ?? 'Failed to register devices.',
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
   void _addSingleDevice(String type) {
+    // [FIX] Pre-fill the prefix so the user only enters the 4-digit suffix.
+    final prefix = type == 'VS' ? 'VS-$_currentYear-' : 'SD-$_currentYear-';
     setState(() {
       _singleDevices.add({
         'type': type,
-        'controller': TextEditingController(),
+        'controller': TextEditingController(text: prefix),
         'error': null,
       });
     });
@@ -1016,7 +1180,8 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                   _modalActionBtn(
                       "Cancel", false, () => Navigator.pop(context)),
                   const SizedBox(width: 20),
-                  _modalActionBtn("Register", true, _validateAndRegister),
+                  _modalActionBtn("Register", true,
+                      _isSubmitting ? () {} : _validateAndRegister),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1127,11 +1292,11 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
 
               if (isDoubleDevice) ...[
                 _modalLabel("Vital Signs Device No."),
-                _modalTextField(_vitalSignsCtrl, "VS-2026-0001",
+                _modalTextField(_vitalSignsCtrl, 'VS-$_currentYear-0001',
                     errorText: _vsError),
                 const SizedBox(height: 15),
                 _modalLabel("Smart Diaper Device No."),
-                _modalTextField(_smartDiaperCtrl, "SD-2026-0001",
+                _modalTextField(_smartDiaperCtrl, 'SD-$_currentYear-0001',
                     errorText: _sdError),
               ] else ...[
                 ..._singleDevices.asMap().entries.map((entry) {
@@ -1162,8 +1327,8 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                         _modalTextField(
                             ctrl,
                             type == 'VS'
-                                ? "VS-2026-0001"
-                                : "SD-2026-0001",
+                                ? 'VS-$_currentYear-0001'
+                                : 'SD-$_currentYear-0001',
                             errorText: device['error']),
                       ],
                     ),

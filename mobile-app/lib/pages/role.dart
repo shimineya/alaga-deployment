@@ -30,14 +30,16 @@ class _RoleScreenState extends State<RoleScreen> {
   }
 
   // Maps the UI-friendly role label to the backend's expected role string.
-  // [OWASP A01] Caregivers and Parents both receive the 'caregiver' role so
-  // they ONLY see patients explicitly assigned to them in the patient_access
-  // table. The 'medical_staff' role is an elevated privilege granted by an
+  // [OWASP A01] Caregivers receive the 'caregiver' role so they ONLY see patients
+  // explicitly assigned to them in the patient_access table.
+  // Parents receive the 'parent' role which gives them admin-level privileges
+  // to register devices and enroll patients.
+  // The 'medical_staff' role is an elevated privilege granted by an
   // admin AFTER account creation -- it must NOT be self-assignable at signup.
   String _mapRoleToBackend(String uiRole) {
     switch (uiRole) {
       case 'PARENT':
-        return 'caregiver';
+        return 'parent';
       case 'CAREGIVER':
         // [FIX] Was incorrectly 'medical_staff' which has admin-level patient
         // visibility (bypasses patient_access filter). New users must start as

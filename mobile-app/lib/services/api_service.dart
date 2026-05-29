@@ -24,7 +24,15 @@ import '../models/user_session.dart';
 
 class ApiService {
   // [OWASP A02] Base URL sourced from environment file — never hard-coded.
-  static String get _baseUrl => dotenv.env['API_BASE_URL'] ?? '';
+  // Change your _baseUrl getter to this:
+  static String get _baseUrl {
+    final url = dotenv.env['API_BASE_URL'];
+    if (url != null && url.isNotEmpty) {
+      return url;
+    }
+    // Fallback to PC IP if .env is missing/empty
+    return 'http://192.168.254.113:3000'; 
+  }
 
   /// Public accessor for constructing full API URLs.
   /// Avoids hard-coding the server address in UI code (OWASP A02).
@@ -205,18 +213,13 @@ class ApiService {
   /// Sends an authenticated DELETE request.
   static Future<Map<String, dynamic>> delete(
     String endpoint, {
-    Map<String, dynamic>? body,
-    bool requiresAuth = true,
+    bool requiresAuth = true, required Map<String, int> body,
   }) async {
     try {
       final uri = Uri.parse('$_baseUrl$endpoint');
 
       final response = await http
-          .delete(
-            uri, 
-            headers: _buildHeaders(requiresAuth: requiresAuth),
-            body: body != null ? jsonEncode(body) : null,
-          )
+          .delete(uri, headers: _buildHeaders(requiresAuth: requiresAuth))
           .timeout(const Duration(seconds: 15));
 
       return _parseResponse(response);

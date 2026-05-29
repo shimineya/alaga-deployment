@@ -12,13 +12,13 @@
 
 // WIFI Settings
 //Change according to what wifi ur connected to
-const char* ssid = "kaleidoscope";
-const char* password = "LightHouse4th";
+const char* ssid = "HG8145V5_CC22B";
+const char* password = "2NcNx2tu";
 
 // ==========================
 // BACKEND SETTINGS
 // ==========================
-const char* serverURL = "http://192.168.100.185:3000/api/sensor/reading"; // Updated backend endpoint
+const char* serverURL = "http://192.168.254.113:3000/api/device/data"; // REPLACE WITH YOUR PC IP
 const char* deviceID  = "VS-2026-0001"; // Registered identity
 
 // ==========================
@@ -56,14 +56,10 @@ void sendToBackend() {
     HTTPClient http;
     http.begin(serverURL);
     http.addHeader("Content-Type", "application/json");
-    // [OWASP A07] Authentication headers required by backend
-    http.addHeader("X-Device-Serial", deviceID);
-    http.addHeader("X-Device-Token", "alaga-test-token");
 
-    // Note: Ensuring temp is within 25-50 backend validation bounds (set in Node)
     String payload = "{\"device_id\":\"" + String(deviceID) + 
                      "\",\"heart_rate\":" + String(beatAvg, 1) + 
-                     ",\"temperature\":" + String(temperatureC < 25 ? 25.0 : (temperatureC > 50 ? 50.0 : temperatureC), 1) + 
+                     ",\"temperature\":" + String(temperatureC, 1) + 
                      ",\"spo2\":97,\"moisture\":0}";
 
     int code = http.POST(payload);

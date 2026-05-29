@@ -5,13 +5,13 @@
 // ==========================
 // WIFI SETTINGS
 // ==========================
-const char* ssid = "kaleidoscope";
-const char* password = "LightHouse4th";
+const char* ssid = "HG8145V5_CC22B";
+const char* password = "2NcNx2tu";
 
 // ==========================
 // BACKEND SETTINGS
 // ==========================
-const char* serverURL = "http://192.168.100.185:3000/api/sensor/reading"; // Updated backend endpoint
+const char* serverURL = "http://192.168.254.113:3000/api/device/data"; // REPLACE WITH YOUR PC IP
 const char* deviceID  = "SD-2026-0001"; // Registered identity
 
 // ==========================
@@ -87,9 +87,6 @@ void sendToBackend()
     HTTPClient http;
     http.begin(serverURL);
     http.addHeader("Content-Type", "application/json");
-    // [OWASP A07] Authentication headers required by backend
-    http.addHeader("X-Device-Serial", deviceID);
-    http.addHeader("X-Device-Token", "alaga-test-token");
 
     String payload = "{\"device_id\":\"" + String(deviceID) + 
                      "\",\"heart_rate\":0,\"temperature\":0,\"spo2\":0,\"moisture\":" + 
@@ -155,10 +152,9 @@ void loop()
   // ==========================
   // SIMPLE WETNESS %
   // ==========================
-  // [VALIDATION FIX] Backend strictly requires 1 (Wet) or 0 (Dry)
   if (waterState == HIGH)
   {
-    wetnessPercent = 1;
+    wetnessPercent = 100;
   }
   else
   {

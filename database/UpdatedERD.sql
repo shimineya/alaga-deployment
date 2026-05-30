@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.access_logs
     resource_affected character varying(100) COLLATE pg_catalog."default",
     severity character varying(20) COLLATE pg_catalog."default" DEFAULT 'INFO'::character varying,
     status character varying(20) COLLATE pg_catalog."default" DEFAULT 'SUCCESS'::character varying,
+    details jsonb,
     CONSTRAINT access_logs_pkey PRIMARY KEY (log_id)
 );
 
@@ -27,6 +28,11 @@ CREATE TABLE IF NOT EXISTS public.alert_notifications
     message text COLLATE pg_catalog."default",
     sent_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     severity character varying(20) COLLATE pg_catalog."default" DEFAULT 'INFO'::character varying,
+    alert_category character varying(50) COLLATE pg_catalog."default",
+    acknowledged_by integer,
+    acknowledged_at timestamp with time zone,
+    action_taken text COLLATE pg_catalog."default",
+    resolution_notes text COLLATE pg_catalog."default",
     CONSTRAINT alert_notifications_pkey PRIMARY KEY (alert_id)
 );
 
@@ -63,8 +69,12 @@ CREATE TABLE IF NOT EXISTS public.device_whitelist
     last_heartbeat timestamp with time zone,
     assigned_patient_id integer,
     last_serviced_at timestamp with time zone DEFAULT now(),
+    device_token_hash character varying(64) COLLATE pg_catalog."default",
     CONSTRAINT device_whitelist_pkey PRIMARY KEY (serial_number)
 );
+
+COMMENT ON COLUMN public.device_whitelist.device_token_hash
+    IS '[OWASP A07] SHA-256 hash of the device-specific API token. The plaintext token is provisioned to the ESP32 firmware and NEVER stored.';
 
 CREATE TABLE IF NOT EXISTS public.facilities
 (
@@ -73,6 +83,22 @@ CREATE TABLE IF NOT EXISTS public.facilities
     address text COLLATE pg_catalog."default",
     created_at timestamp with time zone DEFAULT now(),
     CONSTRAINT facilities_pkey PRIMARY KEY (facility_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.hardware_system_alerts
+(
+    sys_alert_id serial NOT NULL,
+    patient_id integer,
+    device_mac_address character varying(50) COLLATE pg_catalog."default",
+    alert_type character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    severity character varying(20) COLLATE pg_catalog."default" DEFAULT 'Warning'::character varying,
+    description text COLLATE pg_catalog."default",
+    triggered_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    status character varying(20) COLLATE pg_catalog."default" DEFAULT 'Active'::character varying,
+    resolved_by integer,
+    resolved_at timestamp with time zone,
+    resolution_notes text COLLATE pg_catalog."default",
+    CONSTRAINT hardware_system_alerts_pkey PRIMARY KEY (sys_alert_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.ip_blacklist
@@ -107,8 +133,31 @@ CREATE TABLE IF NOT EXISTS public.patient_access
     relationship character varying(50) COLLATE pg_catalog."default",
     access_level character varying(20) COLLATE pg_catalog."default" DEFAULT 'View'::character varying,
     assigned_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    invite_status character varying(20) COLLATE pg_catalog."default" NOT NULL DEFAULT 'Active'::character varying,
+    invited_by integer,
     CONSTRAINT patient_access_pkey PRIMARY KEY (access_id)
 );
+
+CREATE TABLE IF NOT EXISTS public.patient_baselines
+(
+    baseline_id serial NOT NULL,
+    patient_id integer NOT NULL,
+    vital_name character varying(30) COLLATE pg_catalog."default" NOT NULL,
+    flag_count integer DEFAULT 0,
+    flagged_values jsonb DEFAULT '[]'::jsonb,
+    mean_value numeric(6, 2),
+    upper_bound numeric(6, 2),
+    lower_bound numeric(6, 2),
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT patient_baselines_pkey PRIMARY KEY (baseline_id),
+    CONSTRAINT patient_baselines_patient_id_vital_name_key UNIQUE (patient_id, vital_name)
+);
+
+COMMENT ON TABLE public.patient_baselines
+    IS 'Stores the personalized adaptive baseline for the OC-SVM anomaly suppression layer. Each row tracks one vital sign (heart_rate, temperature, spo2) per patient.';
+
+COMMENT ON COLUMN public.patient_baselines.flagged_values
+    IS 'JSONB array of numeric readings the caregiver has flagged as normal. Used to compute mean/bounds after FLAG_THRESHOLD is reached.';
 
 CREATE TABLE IF NOT EXISTS public.patients
 (
@@ -121,6 +170,7 @@ CREATE TABLE IF NOT EXISTS public.patients
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     is_archived boolean DEFAULT false,
     facility_id integer,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT patients_pkey PRIMARY KEY (patient_id),
     CONSTRAINT patients_device_mac_address_key UNIQUE (device_serial_number)
 );
@@ -234,6 +284,21 @@ CREATE TABLE IF NOT EXISTS public.user_documents
     CONSTRAINT user_documents_pkey PRIMARY KEY (document_id)
 );
 
+CREATE TABLE IF NOT EXISTS public.user_email_otps
+(
+    otp_id bigserial NOT NULL,
+    user_id integer NOT NULL,
+    email character varying(100) COLLATE pg_catalog."default" NOT NULL,
+    otp_hash character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    purpose character varying(50) COLLATE pg_catalog."default" NOT NULL DEFAULT 'REGISTER_VERIFY'::character varying,
+    attempts_count integer NOT NULL DEFAULT 0,
+    expires_at timestamp with time zone NOT NULL,
+    consumed_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_sent_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_email_otps_pkey PRIMARY KEY (otp_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.user_permission_overrides
 (
     id serial NOT NULL,
@@ -270,9 +335,24 @@ CREATE TABLE IF NOT EXISTS public.users
     force_logout_at timestamp with time zone,
     facility_id integer,
     last_activity_at timestamp with time zone,
+    profile_picture_url character varying(255) COLLATE pg_catalog."default",
     CONSTRAINT users_pkey PRIMARY KEY (user_id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username)
+);
+
+CREATE TABLE IF NOT EXISTS public.vital_signs_readings
+(
+    reading_id serial NOT NULL,
+    patient_id integer NOT NULL,
+    heart_rate numeric(5, 1),
+    temperature numeric(4, 1),
+    spo2 numeric(4, 1),
+    moisture smallint DEFAULT 0,
+    ocsvm_result character varying(10) COLLATE pg_catalog."default",
+    ai_status character varying(10) COLLATE pg_catalog."default",
+    recorded_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT vital_signs_readings_pkey PRIMARY KEY (reading_id)
 );
 
 ALTER TABLE IF EXISTS public.access_logs
@@ -287,6 +367,13 @@ ALTER TABLE IF EXISTS public.access_logs
     REFERENCES public.users (user_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE NO ACTION;
+
+
+ALTER TABLE IF EXISTS public.alert_notifications
+    ADD CONSTRAINT alert_notifications_acknowledged_by_fkey FOREIGN KEY (acknowledged_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
 
 
 ALTER TABLE IF EXISTS public.alert_notifications
@@ -340,6 +427,20 @@ CREATE INDEX IF NOT EXISTS idx_device_patient
     ON public.device_whitelist(assigned_patient_id);
 
 
+ALTER TABLE IF EXISTS public.hardware_system_alerts
+    ADD CONSTRAINT hardware_system_alerts_patient_id_fkey FOREIGN KEY (patient_id)
+    REFERENCES public.patients (patient_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+
+ALTER TABLE IF EXISTS public.hardware_system_alerts
+    ADD CONSTRAINT hardware_system_alerts_resolved_by_fkey FOREIGN KEY (resolved_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+
+
 ALTER TABLE IF EXISTS public.ip_blacklist
     ADD CONSTRAINT ip_blacklist_banned_by_fkey FOREIGN KEY (banned_by)
     REFERENCES public.users (user_id) MATCH SIMPLE
@@ -355,6 +456,13 @@ ALTER TABLE IF EXISTS public.legal_documents
 
 
 ALTER TABLE IF EXISTS public.patient_access
+    ADD CONSTRAINT patient_access_invited_by_fkey FOREIGN KEY (invited_by)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+
+ALTER TABLE IF EXISTS public.patient_access
     ADD CONSTRAINT patient_access_patient_id_fkey FOREIGN KEY (patient_id)
     REFERENCES public.patients (patient_id) MATCH SIMPLE
     ON UPDATE NO ACTION
@@ -366,6 +474,15 @@ ALTER TABLE IF EXISTS public.patient_access
     REFERENCES public.users (user_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE CASCADE;
+
+
+ALTER TABLE IF EXISTS public.patient_baselines
+    ADD CONSTRAINT patient_baselines_patient_id_fkey FOREIGN KEY (patient_id)
+    REFERENCES public.patients (patient_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+CREATE INDEX IF NOT EXISTS idx_patient_baselines_patient_id
+    ON public.patient_baselines(patient_id);
 
 
 ALTER TABLE IF EXISTS public.patients
@@ -465,6 +582,13 @@ ALTER TABLE IF EXISTS public.user_documents
     ON DELETE CASCADE;
 
 
+ALTER TABLE IF EXISTS public.user_email_otps
+    ADD CONSTRAINT user_email_otps_user_id_fkey FOREIGN KEY (user_id)
+    REFERENCES public.users (user_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE;
+
+
 ALTER TABLE IF EXISTS public.user_permission_overrides
     ADD CONSTRAINT user_permission_overrides_overridden_by_fkey FOREIGN KEY (overridden_by)
     REFERENCES public.users (user_id) MATCH SIMPLE
@@ -482,6 +606,13 @@ ALTER TABLE IF EXISTS public.user_permission_overrides
 ALTER TABLE IF EXISTS public.users
     ADD CONSTRAINT users_facility_id_fkey FOREIGN KEY (facility_id)
     REFERENCES public.facilities (facility_id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE NO ACTION;
+
+
+ALTER TABLE IF EXISTS public.vital_signs_readings
+    ADD CONSTRAINT vital_signs_readings_patient_id_fkey FOREIGN KEY (patient_id)
+    REFERENCES public.patients (patient_id) MATCH SIMPLE
     ON UPDATE NO ACTION
     ON DELETE NO ACTION;
 

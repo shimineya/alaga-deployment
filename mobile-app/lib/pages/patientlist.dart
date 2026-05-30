@@ -4,6 +4,7 @@ import 'dart:async';
 
 // [INTEGRATION] Import API service for fetching patient data
 import '../services/api_service.dart';
+import '../models/user_session.dart';
 
 class PatientListScreen extends StatefulWidget {
   final VoidCallback? onBack; 
@@ -153,7 +154,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey.shade300, width: 1),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
               ),
               child: TextField(
                 controller: _searchController,
@@ -215,7 +216,14 @@ class _PatientListScreenState extends State<PatientListScreen> {
                               padding: const EdgeInsets.all(16),
                               itemCount: filteredPatients.length,
                               itemBuilder: (context, index) {
-                                return _buildPatientCard(filteredPatients[index], mainTextStyle, descriptionStyle);
+                                return _buildPatientCard(
+                                  filteredPatients[index],
+                                  mainTextStyle,
+                                  descriptionStyle,
+                                  // [OWASP A01] Callback triggers a list refresh
+                                  // after a successful removal — keeps state consistent.
+                                  onRemoved: _fetchPatients,
+                                );
                               },
                             ),
                           ),
@@ -225,53 +233,17 @@ class _PatientListScreenState extends State<PatientListScreen> {
     );
   }
 
-  Widget _buildPatientCard(Map<String, dynamic> patient, TextStyle main, TextStyle desc) {
-    return PatientCardWidget(patient: patient, mainStyle: main, descStyle: desc);
-  }
-
-  Widget _buildStatusBadge(bool isWet, bool isOffline, String status, TextStyle desc) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: isWet ? Colors.orange.shade100 : (isOffline ? Colors.grey.shade100 : const Color(0xFFE8F5E9)),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isWet) ...[const Icon(Icons.opacity, size: 12, color: Colors.orange), const SizedBox(width: 4)],
-          Text(isWet ? "WET" : status,
-              style: desc.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: isWet ? Colors.orange.shade900 : (isOffline ? Colors.grey : Colors.green.shade700))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDeviceBadge(String id, Color color, TextStyle main) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: color.withOpacity(0.3))),
-      child: Text(id, style: main.copyWith(fontSize: 10, color: color.withOpacity(0.9))),
-    );
-  }
-
-  Widget _buildVital(IconData icon, String label, String value, Color color, TextStyle desc, TextStyle main) {
-    return Column(
-      children: [
-        Row(children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
-          Text(label, style: desc.copyWith(fontSize: 10, fontWeight: FontWeight.bold))
-        ]),
-        const SizedBox(height: 4),
-        Text(value, style: main.copyWith(fontSize: 13)),
-      ],
+  Widget _buildPatientCard(
+    Map<String, dynamic> patient,
+    TextStyle main,
+    TextStyle desc, {
+    VoidCallback? onRemoved,
+  }) {
+    return PatientCardWidget(
+      patient: patient,
+      mainStyle: main,
+      descStyle: desc,
+      onRemoved: onRemoved,
     );
   }
 
@@ -291,11 +263,6 @@ class _PatientListScreenState extends State<PatientListScreen> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, TextStyle desc, TextStyle main) {
-    return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text(label, style: desc.copyWith(fontSize: 11)), Text(value, style: main.copyWith(fontSize: 11))]);
-  }
 
   Widget _buildEmptyState(TextStyle style) {
     return Center(
@@ -369,8 +336,16 @@ class PatientCardWidget extends StatefulWidget {
   final Map<String, dynamic> patient;
   final TextStyle mainStyle;
   final TextStyle descStyle;
+  // [OWASP A01] Parent-only: callback to refresh the list after removal.
+  final VoidCallback? onRemoved;
 
-  const PatientCardWidget({Key? key, required this.patient, required this.mainStyle, required this.descStyle}) : super(key: key);
+  const PatientCardWidget({
+    Key? key,
+    required this.patient,
+    required this.mainStyle,
+    required this.descStyle,
+    this.onRemoved,
+  }) : super(key: key);
 
   @override
   State<PatientCardWidget> createState() => _PatientCardWidgetState();
@@ -484,10 +459,10 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: color.withOpacity(0.3))),
-      child: Text(id, style: main.copyWith(fontSize: 10, color: color.withOpacity(0.9))),
+          border: Border.all(color: color.withValues(alpha: 0.3))),
+      child: Text(id, style: main.copyWith(fontSize: 10, color: color.withValues(alpha: 0.9))),
     );
   }
 
@@ -526,6 +501,74 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
         ),
       ],
     );
+  }
+
+  // [OWASP A01] Only a parent account can permanently remove a patient.
+  // A two-step confirmation dialog is shown to prevent accidental deletion.
+  // Calls DELETE /api/caregiver/patients/:id — the backend re-verifies the JWT role.
+  Future<void> _confirmRemovePatient(BuildContext tileContext) async {
+    final patientName = widget.patient['name'] as String? ?? 'this patient';
+    final patientId = widget.patient['patient_id'];
+
+    final confirmed = await showDialog<bool>(
+      context: tileContext,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Remove Patient?",
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.redAccent),
+        ),
+        content: Text(
+          "You are about to permanently remove $patientName from the system. "
+          "All associated records and device assignments will be unlinked. "
+          "This action cannot be undone.",
+          style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[700]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text("Cancel", style: GoogleFonts.poppins(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text("Yes, Remove", style: GoogleFonts.poppins(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // [OWASP A05] Patient ID is sent as a typed path parameter — never concatenated as a raw string.
+    final result = await ApiService.delete('/caregiver/patients/$patientId');
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(tileContext).showSnackBar(
+        SnackBar(
+          content: Text("$patientName has been removed.", style: GoogleFonts.albertSans()),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      // Notify the parent list screen to refresh its data.
+      widget.onRemoved?.call();
+    } else {
+      // [OWASP A10] Display only the server's generic error — no stack traces.
+      ScaffoldMessenger.of(tileContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Failed to remove patient.', style: GoogleFonts.albertSans()),
+          backgroundColor: Colors.grey[700],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -639,6 +682,28 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
 
                 const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
                 _buildDetailRow("System Integrity", isOffline ? "Offline" : "Secure - Live Connection", widget.descStyle, widget.mainStyle),
+
+                // [OWASP A01] Remove Patient button — visible to parent accounts only.
+                // [GDPR] Supports the 'Right to Erasure' for enrolled patient records.
+                if (UserSession.current?.isParent == true) ...[
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _confirmRemovePatient(context),
+                      icon: const Icon(Icons.person_remove_outlined, size: 16, color: Colors.redAccent),
+                      label: Text(
+                        "Remove Patient",
+                        style: GoogleFonts.poppins(fontSize: 13, color: Colors.redAccent),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

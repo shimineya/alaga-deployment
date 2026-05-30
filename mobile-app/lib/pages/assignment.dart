@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
-// [INTEGRATION] Live data from GET /api/assignments/my-assignments
+// [INTEGRATION] Live data from GET /api/assignments/my-assignments and
+//               GET /api/assignments/pending-invites
 import '../services/api_service.dart';
 
 class AssignmentScreen extends StatefulWidget {
@@ -16,19 +18,19 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   static const Color _bgColor = Color(0xFFFDFCF5);
   static const Color _pendingOrange = Color(0xFFFF9F69);
   static const Color _activeGreen = Color(0xFF66CB9F);
-  static const Color _dangerRed = Color(0xFFE57373);
 
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
   List<Map<String, dynamic>> _assignments = [];
+  List<Map<String, dynamic>> _pendingInvites = [];
   bool _isLoading = true;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _fetchAssignments();
+    _fetchAll();
   }
 
   @override
@@ -37,37 +39,428 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
     super.dispose();
   }
 
-  // [INTEGRATION] Fetches assigned patients and their care teams from
-  // GET /api/assignments/my-assignments.
-  // Each row in the response is a patient the current user has access to,
-  // along with the full care_team array.
-  Future<void> _fetchAssignments() async {
+  // ---------------------------------------------------------------------------
+  // DATA FETCHING
+  // ---------------------------------------------------------------------------
+
+  // [INTEGRATION] Fetches both active assignments and pending invitations in
+  // parallel for efficiency. Pending invites are only fetched for caregivers
+  // (non-parent users) since parents are the ones who send invitations.
+  Future<void> _fetchAll() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    final result = await ApiService.get('/assignments/my-assignments');
+    // Run both fetches concurrently
+    final results = await Future.wait([
+      ApiService.get('/assignments/my-assignments'),
+      ApiService.get('/assignments/pending-invites'),
+    ]);
 
     if (!mounted) return;
 
-    if (result['success'] == true) {
-      final data = (result['data'] as List<dynamic>? ?? [])
+    final assignResult = results[0];
+    final inviteResult = results[1];
+
+    if (assignResult['success'] == true) {
+      _assignments = (assignResult['data'] as List<dynamic>? ?? [])
           .map((a) => Map<String, dynamic>.from(a as Map))
           .toList();
-      setState(() {
-        _assignments = data;
-        _isLoading = false;
-      });
     } else {
-      setState(() {
-        _errorMessage = result['message'] ?? 'Failed to load assignments.';
-        _isLoading = false;
+      _errorMessage = assignResult['message'] ?? 'Failed to load assignments.';
+    }
+
+    if (inviteResult['success'] == true) {
+      _pendingInvites = (inviteResult['data'] as List<dynamic>? ?? [])
+          .map((i) => Map<String, dynamic>.from(i as Map))
+          .toList();
+    }
+    // Silently ignore invite fetch failure — assignments still display
+
+    setState(() => _isLoading = false);
+
+    // Show invite dialog automatically if there are pending invitations
+    if (_pendingInvites.isNotEmpty && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showNextPendingInvite(0);
       });
     }
   }
 
-  // [INTEGRATION] Revoke access for a caregiver
+  // ---------------------------------------------------------------------------
+  // PENDING INVITE DIALOG FLOW
+  // [DPA] Caregivers must provide explicit, informed consent before being
+  // linked to a patient's Protected Health Information (PHI).
+  // ---------------------------------------------------------------------------
+
+  void _showNextPendingInvite(int index) {
+    if (index >= _pendingInvites.length || !mounted) return;
+    final invite = _pendingInvites[index];
+    _showInviteResponseDialog(invite, onDone: () {
+      // After responding, show the next pending invite (if any)
+      if (index + 1 < _pendingInvites.length) {
+        _showNextPendingInvite(index + 1);
+      } else {
+        _fetchAll(); // Refresh data after all invites are handled
+      }
+    });
+  }
+
+  void _showInviteResponseDialog(
+    Map<String, dynamic> invite, {
+    required VoidCallback onDone,
+  }) {
+    final patientName = invite['patient_name'] ?? 'Unknown Patient';
+    final relationship = invite['relationship'] ?? 'Caregiver';
+    final accessLevel = invite['access_level'] ?? 'View';
+    final inviterFirst = invite['invited_by_first_name'] ?? '';
+    final inviterLast = invite['invited_by_last_name'] ?? '';
+    final inviterName = '$inviterFirst $inviterLast'.trim();
+    final invitedAt = invite['invited_at'];
+    final accessId = invite['access_id'];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // [UX] Force explicit decision — no dismissal
+      builder: (dialogContext) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header icon
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: _teal.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.assignment_ind_outlined,
+                    color: _teal,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                Text(
+                  'New Assignment',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  inviterName.isNotEmpty
+                      ? '$inviterName has assigned you to care for:'
+                      : 'You have been assigned to care for:',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.albertSans(
+                    fontSize: 13,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Patient name card
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 12, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: _teal.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _teal.withOpacity(0.2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        patientName,
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: const Color(0xFF2D3436),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      _inviteDetailRow(
+                          Icons.badge_outlined, 'Your Role', relationship),
+                      _inviteDetailRow(
+                          Icons.lock_outline, 'Access Level', accessLevel),
+                      // [UX] Tooltip suggestion: "View = read-only data.
+                      // Edit = can update patient records."
+                      if (invitedAt != null)
+                        _inviteDetailRow(
+                          Icons.schedule_outlined,
+                          'Invited',
+                          _formatInviteTime(invitedAt.toString()),
+                        ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // [DPA] Plain-language consent notice
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 14, color: Colors.amber.shade700),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'By accepting, you will be granted access to view the '
+                          'health data of this patient in accordance with the '
+                          'Data Privacy Act of 2012.',
+                          style: GoogleFonts.albertSans(
+                            fontSize: 10,
+                            color: Colors.amber.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Action buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          _respondToInvite(
+                              accessId, 'decline', onDone: onDone);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.red.shade300),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text(
+                          'Decline',
+                          style: GoogleFonts.poppins(
+                            color: Colors.red.shade400,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          _respondToInvite(
+                              accessId, 'accept', onDone: onDone);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _teal,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text(
+                          'Accept',
+                          style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _inviteDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 12, color: Colors.grey),
+          const SizedBox(width: 6),
+          Text('$label: ',
+              style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Flexible(
+            child: Text(value,
+                style: const TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatInviteTime(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      return DateFormat('MMM d, h:mm a').format(dt);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  // [INTEGRATION] POST /assignments/respond-invite
+  // Sends the caregiver's Accept/Decline decision to the backend.
+  Future<void> _respondToInvite(
+    dynamic accessId,
+    String action, {
+    required VoidCallback onDone,
+  }) async {
+    final result = await ApiService.post(
+      '/assignments/respond-invite',
+      body: {
+        'access_id': accessId,
+        'action': action,
+      },
+    );
+
+    if (!mounted) return;
+
+    final color = action == 'accept' ? _teal : Colors.redAccent;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['message'] ??
+            (action == 'accept'
+                ? 'Assignment accepted.'
+                : 'Assignment declined.')),
+        backgroundColor: result['success'] == true ? color : Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    onDone();
+  }
+
+  // ---------------------------------------------------------------------------
+  // SELF-REMOVAL
+  // [DPA] The caregiver exercises their right to withdraw from a care role.
+  // ---------------------------------------------------------------------------
+
+  void _showSelfRemoveDialog(int patientId, String patientName) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Remove My Assignment',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to remove yourself from the care team of:',
+              style: GoogleFonts.albertSans(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              patientName,
+              style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold, color: const Color(0xFF2D3436)),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_outlined,
+                      size: 14, color: Colors.orange.shade700),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'You will lose access to this patient\'s health data. '
+                      'A new assignment invitation will be required to regain access.',
+                      style: GoogleFonts.albertSans(
+                          fontSize: 10, color: Colors.orange.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Keep Assignment'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _selfRemove(patientId);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade400,
+              foregroundColor: Colors.white,
+            ),
+            child: Text('Remove Me', style: GoogleFonts.poppins()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // [INTEGRATION] DELETE /assignments/caregiver/self-remove
+  // [OWASP A01] The backend verifies the JWT matches the record being deleted —
+  //             a user cannot remove someone else via this endpoint.
+  Future<void> _selfRemove(int patientId) async {
+    final result = await ApiService.delete(
+      '/assignments/caregiver/self-remove',
+      body: {'patient_id': patientId},
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['message'] ?? 'Assignment removed.'),
+        backgroundColor:
+            result['success'] == true ? _teal : Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    if (result['success'] == true) {
+      _fetchAll();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ADMIN: REVOKE ANOTHER CAREGIVER
+  // ---------------------------------------------------------------------------
+
   Future<void> _revokeAccess(int patientId, int targetUserId) async {
     final result = await ApiService.delete(
       '/assignments/caregiver/revoke',
@@ -77,20 +470,21 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       },
     );
     if (!mounted) return;
-    if (result['success'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Caregiver access revoked.')),
-      );
-      _fetchAssignments();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Failed to revoke access.')),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['message'] ?? 'Caregiver access revoked.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    if (result['success'] == true) _fetchAll();
   }
 
-  // [INTEGRATION] Update permissions for a caregiver
-  Future<void> _updatePermissions(int patientId, int targetUserId, String relationship, String accessLevel) async {
+  // ---------------------------------------------------------------------------
+  // ADMIN: UPDATE PERMISSIONS
+  // ---------------------------------------------------------------------------
+
+  Future<void> _updatePermissions(
+      int patientId, int targetUserId, String relationship, String accessLevel) async {
     final result = await ApiService.put(
       '/assignments/caregiver/permissions',
       body: {
@@ -101,16 +495,13 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       },
     );
     if (!mounted) return;
-    if (result['success'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Permissions updated successfully.')),
-      );
-      _fetchAssignments();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Failed to update permissions.')),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['message'] ?? 'Permissions updated.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    if (result['success'] == true) _fetchAll();
   }
 
   void _showEditDialog(int patientId, Map<String, dynamic> member) {
@@ -123,43 +514,64 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            final roles = {'Primary Caregiver', 'Secondary Caregiver', 'Parent', 'Doctor', 'Nurse', selectedRole};
+            final roles = {
+              'Primary Caregiver',
+              'Secondary Caregiver',
+              'Parent',
+              'Doctor',
+              'Nurse',
+              selectedRole
+            };
             final accesses = {'Admin', 'Edit', 'View', selectedAccess};
             return AlertDialog(
-              title: const Text('Edit Permissions'),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              title: Text('Edit Permissions',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Caregiver: ${member['first_name'] ?? ''} ${member['last_name'] ?? ''}'),
+                  Text(
+                    'Caregiver: ${member['first_name'] ?? ''} ${member['last_name'] ?? ''}',
+                    style: GoogleFonts.albertSans(fontSize: 13),
+                  ),
                   const SizedBox(height: 16),
                   Tooltip(
-                    message: 'Select the relationship of the caregiver to the patient.',
+                    message:
+                        'Select the relationship of the caregiver to the patient.',
                     child: const Text('Role:'),
                   ),
                   DropdownButton<String>(
                     isExpanded: true,
                     value: selectedRole,
                     items: roles
-                        .map((role) => DropdownMenuItem(value: role, child: Text(role)))
+                        .map((role) =>
+                            DropdownMenuItem(value: role, child: Text(role)))
                         .toList(),
                     onChanged: (val) {
-                      if (val != null) setStateDialog(() => selectedRole = val);
+                      if (val != null) {
+                        setStateDialog(() => selectedRole = val);
+                      }
                     },
                   ),
                   const SizedBox(height: 16),
                   Tooltip(
-                    message: 'Admin allows editing everything. Edit allows data changes. View is read-only.',
+                    message:
+                        'Admin allows editing everything. Edit allows data changes. View is read-only.',
                     child: const Text('Access Level:'),
                   ),
                   DropdownButton<String>(
                     isExpanded: true,
                     value: selectedAccess,
                     items: accesses
-                        .map((level) => DropdownMenuItem(value: level, child: Text(level)))
+                        .map((level) => DropdownMenuItem(
+                            value: level, child: Text(level)))
                         .toList(),
                     onChanged: (val) {
-                      if (val != null) setStateDialog(() => selectedAccess = val);
+                      if (val != null) {
+                        setStateDialog(() => selectedAccess = val);
+                      }
                     },
                   ),
                 ],
@@ -172,9 +584,12 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                 ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
-                    _updatePermissions(patientId, targetUserId, selectedRole, selectedAccess);
+                    _updatePermissions(patientId, targetUserId, selectedRole,
+                        selectedAccess);
                   },
-                  style: ElevatedButton.styleFrom(backgroundColor: _teal, foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: _teal,
+                      foregroundColor: Colors.white),
                   child: const Text('Save'),
                 ),
               ],
@@ -190,8 +605,14 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Remove Caregiver'),
-          content: Text('Are you sure you want to remove ${member['first_name'] ?? ''} ${member['last_name'] ?? ''} from the care team?'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Remove Caregiver',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          content: Text(
+            'Are you sure you want to remove '
+            '${member['first_name'] ?? ''} ${member['last_name'] ?? ''} '
+            'from the care team?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -202,7 +623,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                 Navigator.pop(context);
                 _revokeAccess(patientId, member['user_id']);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red, foregroundColor: Colors.white),
               child: const Text('Remove'),
             ),
           ],
@@ -210,6 +632,10 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       },
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // BUILD
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -230,10 +656,48 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
         ),
         title: const Text(''),
         actions: [
+          // Pending invite badge button
+          if (_pendingInvites.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_active_outlined,
+                        color: Colors.black54),
+                    tooltip:
+                        'You have ${_pendingInvites.length} pending assignment invitation(s). Tap to review.',
+                    onPressed: () => _showNextPendingInvite(0),
+                  ),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: const BoxDecoration(
+                        color: Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${_pendingInvites.length}',
+                          style: const TextStyle(
+                              fontSize: 9,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.refresh_outlined, color: Colors.black54),
             tooltip: 'Refresh',
-            onPressed: _fetchAssignments,
+            onPressed: _fetchAll,
           ),
         ],
       ),
@@ -258,8 +722,48 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
             ),
             const SizedBox(height: 8),
             Text('Patients assigned to your care.',
-                style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
+                style:
+                    GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
             const SizedBox(height: 16),
+
+            // --- Pending Invitations Banner ---
+            if (_pendingInvites.isNotEmpty) ...[
+              GestureDetector(
+                onTap: () => _showNextPendingInvite(0),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: _pendingOrange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: _pendingOrange.withOpacity(0.4), width: 1.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.assignment_ind_outlined,
+                          color: _pendingOrange, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'You have ${_pendingInvites.length} pending assignment '
+                          'invitation${_pendingInvites.length > 1 ? 's' : ''}. '
+                          'Tap to review.',
+                          style: GoogleFonts.albertSans(
+                            fontSize: 12,
+                            color: _pendingOrange,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: _pendingOrange),
+                    ],
+                  ),
+                ),
+              ),
+            ],
 
             // --- Search ---
             TextField(
@@ -277,7 +781,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: _teal, width: 1.5),
+                  borderSide:
+                      const BorderSide(color: _teal, width: 1.5),
                 ),
               ),
             ),
@@ -292,10 +797,15 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
               children: [
-                _statCard('Total Patients',
-                    '${_assignments.length}', Icons.people_outline, Colors.blue),
-                _statCard('My Assignments',
-                    '${_assignments.length}', Icons.assignment_ind_outlined, _teal),
+                _statCard('Total Patients', '${_assignments.length}',
+                    Icons.people_outline, Colors.blue),
+                _statCard(
+                    'Pending Invitations',
+                    '${_pendingInvites.length}',
+                    Icons.pending_actions_outlined,
+                    _pendingInvites.isNotEmpty
+                        ? _pendingOrange
+                        : Colors.grey),
               ],
             ),
             const SizedBox(height: 24),
@@ -322,10 +832,11 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                   const SizedBox(height: 12),
                   Text(_errorMessage!,
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.albertSans(color: Colors.grey)),
+                      style:
+                          GoogleFonts.albertSans(color: Colors.grey)),
                   const SizedBox(height: 16),
                   TextButton(
-                      onPressed: _fetchAssignments,
+                      onPressed: _fetchAll,
                       child: const Text('Retry',
                           style: TextStyle(color: _teal))),
                 ]),
@@ -358,6 +869,10 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // ASSIGNMENT CARD
+  // ---------------------------------------------------------------------------
+
   Widget _buildAssignmentCard(Map<String, dynamic> data) {
     final patientId = data['patient_id'];
     final name = data['name'] ?? 'Unknown Patient';
@@ -368,7 +883,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
         .toList();
     final teamCount = data['care_team_count'] ?? careTeam.length;
 
-    final isPrimary = accessLevel == 'Edit' || accessLevel == 'Admin';
+    final isPrimary =
+        accessLevel == 'Edit' || accessLevel == 'Admin';
     final statusColor = isPrimary ? _activeGreen : _pendingOrange;
     final statusLabel = isPrimary ? 'Primary' : 'Secondary';
 
@@ -398,7 +914,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                     backgroundColor: _teal.withOpacity(0.1),
                     child: Text(name[0],
                         style: const TextStyle(
-                            color: _teal, fontWeight: FontWeight.bold)),
+                            color: _teal,
+                            fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: 12),
                   Text(name,
@@ -407,8 +924,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                 ],
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -423,12 +940,13 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
           ),
           const Divider(height: 20),
 
-          // Relationship and access
+          // Role and access info
           _infoRow(Icons.badge_outlined, 'Your Role', relationship),
           _infoRow(Icons.lock_outline, 'Access Level', accessLevel),
-          _infoRow(Icons.group_outlined, 'Care Team Size', '$teamCount member(s)'),
+          _infoRow(Icons.group_outlined, 'Care Team Size',
+              '$teamCount member(s)'),
 
-          // Care team members
+          // Care team members list
           if (careTeam.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text('Care Team',
@@ -439,7 +957,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
             const SizedBox(height: 8),
             ...careTeam.map((member) {
               final mName =
-                  '${member['first_name'] ?? ''} ${member['last_name'] ?? ''}'.trim();
+                  '${member['first_name'] ?? ''} ${member['last_name'] ?? ''}'
+                      .trim();
               final mRole = member['role'] ?? '';
               final mRelationship = member['relationship'] ?? '';
               return Padding(
@@ -450,8 +969,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                   decoration: BoxDecoration(
                     color: _teal.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(8),
-                    border:
-                        const Border(left: BorderSide(color: _teal, width: 3)),
+                    border: const Border(
+                        left: BorderSide(color: _teal, width: 3)),
                   ),
                   child: Row(
                     children: [
@@ -459,7 +978,9 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                         radius: 14,
                         backgroundColor: _teal.withOpacity(0.15),
                         child: Text(
-                          mName.isNotEmpty ? mName[0].toUpperCase() : 'U',
+                          mName.isNotEmpty
+                              ? mName[0].toUpperCase()
+                              : 'U',
                           style: const TextStyle(
                               color: _teal,
                               fontSize: 11,
@@ -469,7 +990,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
                             Text(mName,
                                 style: const TextStyle(
@@ -483,21 +1005,28 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                           ],
                         ),
                       ),
+                      // Admin controls to edit/remove other caregivers
                       if (isPrimary && patientId != null) ...[
                         IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.blue),
-                          tooltip: 'Edit Permissions', // [User Experience] Tooltip for non-technical users
+                          icon: const Icon(Icons.edit_outlined,
+                              size: 18, color: Colors.blue),
+                          tooltip: 'Edit Permissions',
+                          // [User Experience] Tooltip text: "Change this caregiver's role or access level."
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
-                          onPressed: () => _showEditDialog(patientId, member),
+                          onPressed: () =>
+                              _showEditDialog(patientId, member),
                         ),
                         const SizedBox(width: 8),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                          tooltip: 'Remove Caregiver', // [User Experience] Tooltip for clear actions
+                          icon: const Icon(Icons.person_remove_outlined,
+                              size: 18, color: Colors.red),
+                          tooltip: 'Remove Caregiver from Care Team',
+                          // [User Experience] Tooltip text: "Remove this person from the patient's care team."
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
-                          onPressed: () => _showRevokeDialog(patientId, member),
+                          onPressed: () =>
+                              _showRevokeDialog(patientId, member),
                         ),
                       ],
                     ],
@@ -506,10 +1035,41 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
               );
             }),
           ],
+
+          const SizedBox(height: 12),
+
+          // "Cancel My Assignment" — available to all caregivers for their own record
+          // [DPA] This gives the caregiver the right to withdraw from a care role.
+          if (patientId != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () =>
+                    _showSelfRemoveDialog(patientId, name),
+                icon: const Icon(Icons.exit_to_app_outlined,
+                    size: 15, color: Colors.red),
+                label: Text(
+                  'Cancel My Assignment',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // HELPER WIDGETS
+  // ---------------------------------------------------------------------------
 
   Widget _infoRow(IconData icon, String label, String value) {
     return Padding(
@@ -519,8 +1079,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
           Icon(icon, size: 14, color: Colors.grey),
           const SizedBox(width: 8),
           Text('$label: ',
-              style:
-                  const TextStyle(fontSize: 12, color: Colors.grey)),
+              style: const TextStyle(fontSize: 12, color: Colors.grey)),
           Text(value,
               style: const TextStyle(
                   fontSize: 12, fontWeight: FontWeight.w600)),
@@ -548,7 +1107,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(label,
-                    style: const TextStyle(fontSize: 9, color: Colors.grey),
+                    style: const TextStyle(
+                        fontSize: 9, color: Colors.grey),
                     overflow: TextOverflow.ellipsis),
                 Text(count,
                     style: const TextStyle(

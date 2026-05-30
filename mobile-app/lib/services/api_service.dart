@@ -211,15 +211,23 @@ class ApiService {
   }
 
   /// Sends an authenticated DELETE request.
+  /// [body] is optional but supported for routes that require a JSON payload
+  /// (e.g., DELETE /assignments/caregiver/revoke which needs patient_id + target_user_id).
   static Future<Map<String, dynamic>> delete(
     String endpoint, {
-    bool requiresAuth = true, required Map<String, int> body,
+    bool requiresAuth = true,
+    Map<String, dynamic>? body,
   }) async {
     try {
       final uri = Uri.parse('$_baseUrl$endpoint');
 
       final response = await http
-          .delete(uri, headers: _buildHeaders(requiresAuth: requiresAuth))
+          .delete(
+            uri,
+            headers: _buildHeaders(requiresAuth: requiresAuth),
+            // [OWASP A05] Body is JSON-encoded; never concatenated into a URL.
+            body: body != null ? jsonEncode(body) : null,
+          )
           .timeout(const Duration(seconds: 15));
 
       return _parseResponse(response);

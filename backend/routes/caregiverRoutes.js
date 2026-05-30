@@ -857,4 +857,260 @@ router.delete('/patients/:id/care-team/:userId', async (req, res) => {
     }
 });
 
+// ==========================================
+// DELETE PATIENT
+// [OWASP A01] Only admin/parent accounts may permanently remove a patient.
+// [GDPR / DPA] Supports the Right to Erasure for enrolled patient PHI.
+// [HIPAA] Cascades device unlinking and access revocation inside a transaction.
+//          An audit entry is written to access_logs before deletion.
+// [OWASP A05] Patient ID is a parameterized path variable — never concatenated.
+// ==========================================
+router.delete('/patients/:id', async (req, res) => {
+    // [OWASP A01] Server-side role check — client-side guard is UI-only.
+    if (req.user.role !== 'admin' && req.user.role !== 'parent') {
+        return res.status(403).json({
+            success: false,
+            message: 'Only parent or administrator accounts can remove patients.'
+        });
+    }
+
+    const patientId = req.params.id;
+    const actorId   = req.user.id;
+    const client    = await pool.connect();
+
+    try {
+        // Verify the patient actually exists before attempting deletion.
+        // [OWASP A05] Parameterized query — no string concatenation.
+        const check = await client.query(
+            'SELECT patient_id, name FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Patient record not found.' });
+        }
+        const patientName = check.rows[0].name;
+
+        await client.query('BEGIN');
+
+        // 1. [HIPAA] Write audit trail BEFORE destructive operation.
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, target_patient_id, resource_affected, details, "timestamp")
+             VALUES ($1, 'DELETE_PATIENT', $2, 'patient', $3::jsonb, NOW())`,
+            [actorId, patientId, JSON.stringify({ removed_patient_name: patientName, actor_id: actorId })]
+        );
+
+        // 2. Unlink all devices assigned to this patient — resets them to AVAILABLE.
+        await client.query(
+            `UPDATE device_whitelist
+             SET assigned_patient_id = NULL, status = 'AVAILABLE'
+             WHERE assigned_patient_id = $1`,
+            [patientId]
+        );
+
+        // 3. Clear device_serial_number on the patient row (defensive — row will be deleted).
+        await client.query(
+            'UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1',
+            [patientId]
+        );
+
+        // 4. Revoke all access grants for this patient.
+        await client.query(
+            'DELETE FROM patient_access WHERE patient_id = $1',
+            [patientId]
+        );
+
+        // 5. Remove associated sensor history.
+        await client.query(
+            'DELETE FROM sensor_readings WHERE patient_id = $1',
+            [patientId]
+        );
+
+        // 6. Remove anomaly events tied to this patient.
+        await client.query(
+            'DELETE FROM anomaly_events WHERE patient_id = $1',
+            [patientId]
+        );
+
+        // 7. Hard-delete the patient record.
+        await client.query(
+            'DELETE FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: `Patient ${patientName} has been permanently removed.` });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        // [OWASP A10] Generic error — no internal details exposed to client.
+        console.error('Delete Patient Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to remove patient record.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// DELETE DEVICE FROM INVENTORY
+// [OWASP A01] Only admin/parent accounts may remove a device from the whitelist.
+// [OWASP A05] Serial number is a parameterized path variable.
+// [HIPAA] Audit entry written before deletion.
+// ==========================================
+router.delete('/devices/:serialNumber', async (req, res) => {
+    // [OWASP A01] Server-side role guard.
+    if (req.user.role !== 'admin' && req.user.role !== 'parent') {
+        return res.status(403).json({
+            success: false,
+            message: 'Only parent or administrator accounts can remove devices from inventory.'
+        });
+    }
+
+    const serialNumber = req.params.serialNumber;
+    const actorId      = req.user.id;
+    const client       = await pool.connect();
+
+    try {
+        // Confirm the device exists.
+        const check = await client.query(
+            'SELECT serial_number, device_name, assigned_patient_id FROM device_whitelist WHERE serial_number = $1',
+            [serialNumber]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Device not found in inventory.' });
+        }
+
+        const device     = check.rows[0];
+        const patientId  = device.assigned_patient_id;
+
+        await client.query('BEGIN');
+
+        // [HIPAA] Audit trail before deletion.
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+             VALUES ($1, 'DELETE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+            [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
+        );
+
+        // If the device was assigned to a patient, clear the patient's device reference first.
+        if (patientId) {
+            await client.query(
+                'UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1 AND device_serial_number = $2',
+                [patientId, serialNumber]
+            );
+        }
+
+        // Hard-delete the device from the whitelist.
+        await client.query(
+            'DELETE FROM device_whitelist WHERE serial_number = $1',
+            [serialNumber]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: `Device ${serialNumber} has been removed from inventory.` });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        // [OWASP A10] Generic error response.
+        console.error('Delete Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to remove device from inventory.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// DELETE USER ACCOUNT
+// [OWASP A01] Only admin/parent accounts may remove a user.
+//             A parent cannot remove their own account via this endpoint.
+// [GDPR / DPA] Supports Right to Erasure for staff and caregiver accounts.
+// [HIPAA] Audit entry written before deletion.
+// [OWASP A05] userId is a parameterized path variable.
+// ==========================================
+router.delete('/users/:userId', async (req, res) => {
+    // [OWASP A01] Server-side role guard.
+    if (req.user.role !== 'admin' && req.user.role !== 'parent') {
+        return res.status(403).json({
+            success: false,
+            message: 'Only parent or administrator accounts can remove user accounts.'
+        });
+    }
+
+    const targetUserId = parseInt(req.params.userId, 10);
+    const actorId      = req.user.id;
+
+    // [OWASP A01] Prevent self-deletion — would lock out the parent account.
+    if (targetUserId === actorId) {
+        return res.status(400).json({
+            success: false,
+            message: 'You cannot remove your own account. Contact a System Administrator.'
+        });
+    }
+
+    const client = await pool.connect();
+
+    try {
+        // Confirm the target user exists and is not a system_admin.
+        const check = await client.query(
+            `SELECT user_id, username, role FROM users WHERE user_id = $1`,
+            [targetUserId]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'User account not found.' });
+        }
+
+        const targetUser = check.rows[0];
+
+        // [OWASP A01] System admins can only be removed by other system admins — never by a parent.
+        if (targetUser.role === 'system_admin') {
+            client.release();
+            return res.status(403).json({
+                success: false,
+                message: 'System administrator accounts cannot be removed from this panel.'
+            });
+        }
+
+        await client.query('BEGIN');
+
+        // [HIPAA] Audit trail before deletion.
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+             VALUES ($1, 'DELETE_USER', 'users', $2::jsonb, NOW())`,
+            [actorId, JSON.stringify({ removed_user_id: targetUserId, removed_username: targetUser.username, role: targetUser.role })]
+        );
+
+        // 1. Revoke all patient access grants for the removed user.
+        await client.query(
+            'DELETE FROM patient_access WHERE user_id = $1',
+            [targetUserId]
+        );
+
+        // 2. Invalidate all active OTPs/sessions for this user.
+        await client.query(
+            'UPDATE user_email_otps SET consumed_at = NOW() WHERE user_id = $1 AND consumed_at IS NULL',
+            [targetUserId]
+        );
+
+        // 3. Hard-delete the user account.
+        await client.query(
+            'DELETE FROM users WHERE user_id = $1',
+            [targetUserId]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: `User account ${targetUser.username} has been permanently removed.` });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        // [OWASP A10] Generic error — no stack trace exposed to client.
+        console.error('Delete User Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to remove user account.' });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
+

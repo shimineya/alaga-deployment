@@ -21,10 +21,20 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   bool _isLoading = true;
   String? _errorMessage;
 
+  // [INTEGRATION] Patient list cached here so the Register Device dialog
+  // does not need a separate StatefulWidget to manage its own async fetch.
+  List<Map<String, dynamic>> _patientList = [];
+  bool _isFetchingPatients = false;
+
   @override
   void initState() {
     super.initState();
     _fetchDevices();
+    // [OWASP A01] Only parents assign devices. Pre-fetch patients now so
+    // the dropdown in the dialog opens instantly without an extra spinner.
+    if (UserSession.current?.isParent == true) {
+      _fetchPatientsForDialog();
+    }
   }
 
   // [INTEGRATION] Fetches device inventory from GET /api/caregiver/devices.
@@ -49,6 +59,29 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  // [INTEGRATION] Fetches the parent's patient roster for the Register Device dialog.
+  // Uses GET /api/caregiver/patients — backend scopes response to the logged-in user.
+  Future<void> _fetchPatientsForDialog() async {
+    if (_isFetchingPatients) return;
+    _isFetchingPatients = true;
+
+    final result = await ApiService.get('/caregiver/patients');
+
+    if (!mounted) return;
+    _isFetchingPatients = false;
+
+    if (result['success'] == true && result['data'] != null) {
+      final raw = List<dynamic>.from(result['data']);
+      setState(() {
+        _patientList = raw.map((p) => {
+          'patient_id': p['patient_id'],
+          'name': p['name'] ?? 'Unknown',
+        }).toList();
+      });
+    }
+    // Silently ignore errors — the dialog will show an appropriate message.
   }
 
   // Computed getters from API data
@@ -113,7 +146,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                 children: [
                   _popupFieldWrapper("Device Type", DropdownButtonFormField<String>(
                     decoration: _popupInputDecoration(),
-                    value: selectedType,
+                    initialValue: selectedType,
                     items: ["Vital Signs", "Smart Diaper Device"].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
                     onChanged: (val) => setDialogState(() => selectedType = val!),
                   )),
@@ -166,6 +199,233 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00796B), foregroundColor: Colors.white),
                   child: const Text("Add"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // REGISTER DEVICE TO PATIENT DIALOG
+  // [OWASP A01] Visible only to parent accounts. Enforced both here (UI) and
+  // on the backend (JWT role check on the PATCH endpoint).
+  // [OWASP A05] patient_id is sent as a typed integer in the JSON body —
+  // never concatenated into a URL string.
+  // ---------------------------------------------------------------------------
+
+  void _showRegisterDeviceDialog(BuildContext pageContext) {
+    // Guard: if patients have not loaded yet, trigger a refresh then open.
+    if (_patientList.isEmpty && !_isFetchingPatients) {
+      _fetchPatientsForDialog();
+    }
+
+    // Dialog-local state. Using a String key makes the cascade reset clean.
+    Map<String, dynamic>? selectedPatient;
+    String selectedDeviceType = "Vital Signs";
+    Map<String, dynamic>? selectedDevice;
+
+    showDialog(
+      context: pageContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            // ----------------------------------------------------------------
+            // Filter the already-loaded device inventory to only show devices
+            // that match the chosen type AND are currently unassigned.
+            // This avoids a second network call and enforces data minimisation.
+            // ----------------------------------------------------------------
+            final List<Map<String, dynamic>> availableDevices = _allDevices.where((d) {
+              final isUnassigned = d['assigned_patient_id'] == null;
+              final name = (d['device_name'] ?? '').toString().toLowerCase();
+              final isMatchingType = selectedDeviceType == "Vital Signs"
+                  ? name.contains('vital')
+                  : name.contains('diaper') || name.contains('smart');
+              return isUnassigned && isMatchingType;
+            }).toList();
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFFB2DFDB),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              title: Text(
+                "Register Device to Patient",
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // --------------------------------------------------------
+                    // Dropdown 1: Select Patient
+                    // --------------------------------------------------------
+                    _popupFieldWrapper(
+                      "Select Patient",
+                      _patientList.isEmpty
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFF80CBC4)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00897B)),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    "Loading patients...",
+                                    style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : DropdownButtonFormField<Map<String, dynamic>>(
+                              decoration: _popupInputDecoration(hint: "Select a patient"),
+                              initialValue: selectedPatient,
+                              isExpanded: true,
+                              items: _patientList.map((p) {
+                                return DropdownMenuItem<Map<String, dynamic>>(
+                                  value: p,
+                                  // [OWASP A01] Only patients belonging to
+                                  // the logged-in parent are in this list.
+                                  child: Text(
+                                    p['name'] as String,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.poppins(fontSize: 13),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (val) => setDialogState(() => selectedPatient = val),
+                            ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // --------------------------------------------------------
+                    // Dropdown 2: Device Type
+                    // Resetting selectedDevice when type changes prevents
+                    // a stale device from a different category being submitted.
+                    // --------------------------------------------------------
+                    _popupFieldWrapper(
+                      "Device Type",
+                      DropdownButtonFormField<String>(
+                        decoration: _popupInputDecoration(),
+                        initialValue: selectedDeviceType,
+                        items: ["Vital Signs", "Smart Diaper Device"].map((type) {
+                          return DropdownMenuItem(value: type, child: Text(type, style: GoogleFonts.poppins(fontSize: 13)));
+                        }).toList(),
+                        onChanged: (val) => setDialogState(() {
+                          selectedDeviceType = val!;
+                          // Reset device selection when the type changes.
+                          selectedDevice = null;
+                        }),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // --------------------------------------------------------
+                    // Dropdown 3: Available Device ID
+                    // Only unassigned devices of the selected type are shown.
+                    // --------------------------------------------------------
+                    _popupFieldWrapper(
+                      "Available Device ID",
+                      availableDevices.isEmpty
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFF80CBC4)),
+                              ),
+                              child: Text(
+                                "No available ${selectedDeviceType.toLowerCase()} devices",
+                                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                              ),
+                            )
+                          : DropdownButtonFormField<Map<String, dynamic>>(
+                              decoration: _popupInputDecoration(hint: "Select a device"),
+                              initialValue: selectedDevice,
+                              isExpanded: true,
+                              items: availableDevices.map((d) {
+                                return DropdownMenuItem<Map<String, dynamic>>(
+                                  value: d,
+                                  child: Text(
+                                    d['serial_number'] as String,
+                                    style: GoogleFonts.poppins(fontSize: 13),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (val) => setDialogState(() => selectedDevice = val),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text("Cancel", style: TextStyle(color: Color(0xFF004D40))),
+                ),
+                ElevatedButton(
+                  onPressed: (selectedPatient == null || selectedDevice == null)
+                      ? null
+                      : () async {
+                          final int patientId = selectedPatient!['patient_id'] as int;
+                          final String serialNumber = selectedDevice!['serial_number'] as String;
+
+                          // [OWASP A05] Parameters are typed values in a JSON body —
+                          // never concatenated into a SQL string on the backend.
+                          // [OWASP A01] JWT role is verified server-side before the
+                          // UPDATE is executed on device_whitelist.
+                          // Endpoint: POST /api/caregiver/patients/:patientId/assign-device
+                          // Body: { serialNumber } — matches caregiverRoutes.js line 550.
+                          final result = await ApiService.post(
+                            '/caregiver/patients/$patientId/assign-device',
+                            body: {'serialNumber': serialNumber},
+                          );
+
+                          if (!mounted) return;
+
+                          if (result['success'] == true) {
+                            Navigator.pop(dialogContext);
+                            _fetchDevices();
+                            ScaffoldMessenger.of(pageContext).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  "$serialNumber assigned to ${selectedPatient!['name']} successfully.",
+                                  style: GoogleFonts.albertSans(),
+                                ),
+                                backgroundColor: const Color(0xFF4DB6AC),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          } else {
+                            // [OWASP A10] Show the server's generic error message.
+                            // The backend must never leak stack traces here.
+                            ScaffoldMessenger.of(pageContext).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  result['message'] ?? 'Failed to register device.',
+                                  style: GoogleFonts.albertSans(),
+                                ),
+                                backgroundColor: Colors.redAccent,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00796B),
+                    foregroundColor: Colors.white,
+                    // Visually disable when required fields are not yet selected.
+                    disabledBackgroundColor: Colors.grey.shade300,
+                  ),
+                  child: const Text("Register"),
                 ),
               ],
             );
@@ -235,20 +495,38 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          // [OWASP A01] Only parent (admin) accounts can register new hardware.
+                          // [OWASP A01] Only parent accounts can register hardware or assign devices.
                           if (UserSession.current?.isParent == true) ...[
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: () => _showNewDeviceDialog(context),
-                                icon: const Icon(Icons.add, size: 18),
-                                label: const Text("Add Device to Inventory", style: TextStyle(fontSize: 14)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF4DB6AC),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                            Row(
+                              children: [
+                                // --- Add Device to Inventory ---
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _showNewDeviceDialog(context),
+                                    icon: const Icon(Icons.add, size: 16),
+                                    label: const Text("+ Inventory", style: TextStyle(fontSize: 13)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF4DB6AC),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 10),
+                                // --- Register Device to Patient ---
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _showRegisterDeviceDialog(context),
+                                    icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
+                                    label: const Text("Register", style: TextStyle(fontSize: 13)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF00796B),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 20),
                           ],
@@ -324,6 +602,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     final isAssigned = device['assigned_patient_id'] != null;
     final isVital = deviceName.toString().toLowerCase().contains('vital');
     final color = isVital ? Colors.blue : Colors.orange;
+    // [OWASP A01] Only parent accounts can remove devices from the inventory.
+    final isParent = UserSession.current?.isParent == true;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -365,13 +645,123 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
               ],
             ),
           ),
-          Icon(
-            isVital ? Icons.monitor_heart_outlined : Icons.baby_changing_station,
-            color: color.withValues(alpha: 0.5),
-            size: 28,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isVital ? Icons.monitor_heart_outlined : Icons.baby_changing_station,
+                color: color.withValues(alpha: 0.5),
+                size: 28,
+              ),
+              // [OWASP A01] Delete button only visible to parent accounts.
+              if (isParent) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
+                  tooltip: 'Remove device from inventory',
+                  onPressed: () => _confirmRemoveDevice(context, device),
+                ),
+              ],
+            ],
           ),
         ],
       ),
     );
+  }
+  // [OWASP A01] Only a parent account can remove a device from the inventory.
+  // [OWASP A05] Serial number is sent as a typed path parameter — never concatenated.
+  // A two-step confirmation dialog is required before the DELETE is executed.
+  Future<void> _confirmRemoveDevice(
+    BuildContext pageContext,
+    Map<String, dynamic> device,
+  ) async {
+    final serialNumber = device['serial_number'] as String? ?? 'this device';
+    final isAssigned = device['assigned_patient_id'] != null;
+
+    final confirmed = await showDialog<bool>(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Remove Device?",
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.redAccent),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "You are about to remove $serialNumber from the device inventory.",
+              style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[700]),
+            ),
+            if (isAssigned) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "This device is currently assigned to a patient. Removing it will unlink it from that patient.",
+                        style: GoogleFonts.albertSans(fontSize: 12, color: Colors.orange.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text("Cancel", style: GoogleFonts.poppins(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text("Yes, Remove", style: GoogleFonts.poppins(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // [OWASP A05] Serial number is sent as a path segment — no string concatenation into queries.
+    final result = await ApiService.delete('/caregiver/devices/$serialNumber');
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      _fetchDevices();
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text("Device $serialNumber removed from inventory.", style: GoogleFonts.albertSans()),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      // [OWASP A10] Display only the server's generic error — no stack traces.
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Failed to remove device.', style: GoogleFonts.albertSans()),
+          backgroundColor: Colors.grey[700],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 }

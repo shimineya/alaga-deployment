@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Live data from GET /api/caregiver/users
 import '../services/api_service.dart';
+import '../models/user_session.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -298,7 +299,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           Row(
             children: [
               CircleAvatar(
-                backgroundColor: _teal.withOpacity(0.1),
+                backgroundColor: _teal.withValues(alpha: 0.1),
                 child: Text(
                   displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
                   style: TextStyle(color: _teal, fontWeight: FontWeight.bold),
@@ -328,6 +329,32 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               _badge(
                   isActive ? 'ACTIVE' : status.toUpperCase(),
                   isActive ? _caregiverGreen : Colors.grey)),
+
+          // [OWASP A01] Remove User button — visible to parent accounts only.
+          // [GDPR] Supports 'Right to Erasure' — parent can permanently revoke a user's access.
+          if (UserSession.current?.isParent == true) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmRemoveUser(context, user),
+                icon: const Icon(Icons.person_remove_outlined,
+                    size: 15, color: _dangerRed),
+                label: Text(
+                  'Remove User',
+                  style: GoogleFonts.poppins(fontSize: 12, color: _dangerRed),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: _dangerRed),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -355,4 +382,86 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 fontSize: 10,
                 fontWeight: FontWeight.bold)),
       );
+
+  // [OWASP A01] Only parent accounts can remove users.
+  // [GDPR] Supports the Right to Erasure — parent-initiated account removal.
+  // [OWASP A05] userId is sent as a typed path parameter — never concatenated.
+  // A two-step confirmation dialog guards against accidental removal.
+  Future<void> _confirmRemoveUser(
+    BuildContext pageContext,
+    Map<String, dynamic> user,
+  ) async {
+    final userId = user['id'] ?? user['user_id'];
+    final fullName =
+        '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
+    final displayName =
+        fullName.isNotEmpty ? fullName : (user['username'] ?? 'this user');
+
+    final confirmed = await showDialog<bool>(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Remove User?",
+          style: GoogleFonts.poppins(
+              fontWeight: FontWeight.bold, color: Colors.redAccent),
+        ),
+        content: Text(
+          "You are about to permanently remove $displayName from the system. "
+          "Their account and access credentials will be revoked immediately. "
+          "This action cannot be undone.",
+          style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[700]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text("Cancel", style: GoogleFonts.poppins(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text("Yes, Remove", style: GoogleFonts.poppins(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // [OWASP A05] userId is sent as a path segment — no string concatenation into queries.
+    final result = await ApiService.delete('/caregiver/users/$userId');
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      _fetchUsers();
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(
+            "$displayName has been removed from the system.",
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      // [OWASP A10] Show only the server's generic error — no stack traces.
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['message'] ?? 'Failed to remove user.',
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.grey[700],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 }

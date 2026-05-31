@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Users, UserPlus } from 'lucide-react';
 
 import PatientOnboarding from '../facility-admin/PatientOnboarding';
+import { AddNewPatient } from '../AddNewPatient';
 import { CaregiverDashboardNew } from '../CaregiverDashboardNew';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 
@@ -15,7 +16,12 @@ export default function PatientRecordsHub() {
     // Authorization
     const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    const isClinical   = ['caregiver', 'medical_staff'].includes(role);
+    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+    // isParent is kept separate from isClinical so the assignment guard
+    // still distinguishes between staff (who see assignment tracker) and
+    // parents (who see the same tracker but from the guardian perspective).
+    const isParent     = role === 'parent';
+    const isClinical   = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     // [OWASP A01 / RBAC] Override-aware visibility helper — checks DB overrides first.
     const hasPermission = (moduleId: string, roleDefault: boolean): boolean => {
@@ -28,10 +34,10 @@ export default function PatientRecordsHub() {
 
     // Visibility — module IDs match UserRBACManager MODULE_REGISTRY exactly
     const canSeeRoster      = hasPermission('my-patients',  isClinical || isAdminTier);
-    // [OWASP A01] Onboarding calls /api/facility-admin/patients (verifyFacilityAdmin protected).
-    // Clinical roles (caregiver, medical_staff) MUST NOT see this tab — they would receive
-    // a 403 "Access Forbidden: Facility Admin Role Required" response on every form submit.
-    const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isAdminTier);
+    // [OWASP A01] Parent can register their own child as a patient.
+    // Backend guard: caregiverRoutes.js POST /patients/new allows admin | medical_staff | parent.
+    // Facility Admin sees this to onboard ward patients; Parent sees it to enroll their child.
+    const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isParent || isAdminTier);
 
     const tabCount = [canSeeRoster, canSeeOnboarding].filter(Boolean).length;
     
@@ -96,7 +102,15 @@ export default function PatientRecordsHub() {
 
                     {canSeeOnboarding && (
                         <TabsContent value="onboarding" className="mt-0 flex-1 min-h-[500px] outline-none">
-                            <PatientOnboarding />
+                            {/* [OWASP A01] Route to the correct component by role.
+                                Parent calls /api/caregiver/patients (permitted by backend).
+                                FacilityAdmin calls /api/facility-admin/patients.
+                                Sending a parent token to the facility-admin endpoint would
+                                return HTTP 403 — so we split the component here at the UI layer. */}
+                            {isParent
+                                ? <AddNewPatient onSuccess={() => {}} onCancel={() => {}} />
+                                : <PatientOnboarding />
+                            }
                         </TabsContent>
                     )}
                 </Tabs>

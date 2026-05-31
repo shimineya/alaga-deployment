@@ -89,7 +89,11 @@ export const MODULE_REGISTRY: { group: string; modules: { id: string; label: str
 // ================================================================
 export function computeRoleDefaults(role: string): Record<string, boolean> {
     const r               = role.toLowerCase();
-    const isClinical      = r === 'caregiver' || r === 'medical_staff';
+    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+    // Backend caregiverRoutes.js explicitly permits parent for device registration,
+    // patient enrollment, and patient/device removal alongside 'admin'.
+    const isParent        = r === 'parent';
+    const isClinical      = r === 'caregiver' || r === 'medical_staff' || isParent;
     const isFacilityAdmin = r === 'facility_admin';
     const isAdminTier     = r === 'system_admin' || r === 'admin' || r === 'sysadmin';
 
@@ -101,9 +105,11 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
 
         // --- Patient Records Hub ---
         // PatientRecordsHub: canSeeRoster      = isClinical || isAdminTier
-        //                    canSeeOnboarding  = isFacilityAdmin || isClinical || isAdminTier
+        //                    canSeeOnboarding  = isFacilityAdmin || isParent || isAdminTier
+        // [OWASP A01] Parent can enroll their own child as a patient.
+        // Backend guard: caregiverRoutes.js /patients/new allows admin | medical_staff | parent.
         'my-patients':             isClinical || isAdminTier,
-        'add-patient':             isFacilityAdmin || isClinical || isAdminTier,
+        'add-patient':             isFacilityAdmin || isParent || isClinical || isAdminTier,
 
         // --- Device Management Hub ---
         // DeviceManagementHub: canSeeMyDevices   = isClinical || isFacilityAdmin || isAdminTier

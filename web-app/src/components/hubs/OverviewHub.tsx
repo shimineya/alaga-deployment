@@ -16,7 +16,9 @@ export default function OverviewHub() {
     // Authorization Flags
     const isSysAdmin = ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    const isClinical = ['caregiver', 'medical_staff'].includes(role);
+    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+    // Parents land on the Caregiver Dashboard (live patient vitals for their child).
+    const isClinical = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     // Visibility Logic
     const canSeeGlobal = isSysAdmin;

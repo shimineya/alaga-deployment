@@ -5,8 +5,9 @@ interface User {
   user_id: number;
   username: string;
   email: string;
-  // [OWASP A01] All five role tiers recognised by the backend
-  role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver';
+  // [OWASP A01] All six role tiers recognised by the backend.
+  // 'parent' is the consumer-facing home-monitoring role (mirrors mobile isParent flag).
+  role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver' | 'parent';
   account_status: string;
   facility_id?: number | null;
 }

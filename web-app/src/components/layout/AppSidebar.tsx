@@ -23,7 +23,11 @@ export default function AppSidebar() {
   // Role Logic Checkers
   const isAdminTier     = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
   const isFacilityAdmin = role === 'facility_admin';
-  const isClinical      = ['caregiver', 'medical_staff'].includes(role);
+  // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+  // isClinical includes 'parent' so all caregiver-equivalent hub visibility
+  // checks resolve correctly without duplicating the parent check everywhere.
+  const isParent        = role === 'parent';
+  const isClinical      = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
   // [RBAC] Pre-compute the role's baseline defaults from the shared registry.
   // This is the SAME function UserRBACManager uses for toggle states, so the
@@ -116,7 +120,13 @@ export default function AppSidebar() {
           <div className="overflow-hidden">
             <p className="text-sm font-bold text-white truncate">{user?.name || user?.username || 'User'}</p>
             <p className="text-[10px] text-teal-400 uppercase tracking-wider font-semibold truncate">
-              {role.replace('_', ' ')}
+              {/* [UX] Human-readable role labels. 'parent' becomes 'Parent / Guardian'
+                  to reflect the caregiver relationship to the infant/patient. */}
+              {role === 'parent' ? 'Parent / Guardian'
+                : role === 'medical_staff' ? 'Medical Staff'
+                : role === 'facility_admin' ? 'Facility Admin'
+                : role === 'system_admin' ? 'System Admin'
+                : role.replace('_', ' ')}
             </p>
           </div>
         </div>

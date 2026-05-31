@@ -16,7 +16,10 @@ export default function SettingsHub() {
     // Authorizations
     const isSysAdmin = ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    const isClinical = ['caregiver', 'medical_staff'].includes(role);
+    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+    // Parent gets Account Profile and Preferences tabs only.
+    // System Overrides and Compliance are facility/admin-tier only — not surfaced to parents.
+    const isClinical = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     // Visibilities (Based on RBAC or role defaults)
     const canSeeAccount = isSysAdmin || (permissions && permissions['settings_profile'] !== false) || isClinical || isFacilityAdmin;

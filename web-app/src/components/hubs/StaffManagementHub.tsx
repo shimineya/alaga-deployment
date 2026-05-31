@@ -16,7 +16,10 @@ export default function StaffManagementHub() {
     // Authorizations
     const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    const isClinical   = ['caregiver', 'medical_staff'].includes(role);
+    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+    // Parent sees 'My Care Assignments' tab (read-only: who is caring for their child).
+    // Parent does NOT see Ward Staff Management — that is a facility-level admin function.
+    const isClinical   = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     // [OWASP A01 / RBAC] Override-aware visibility helper
     const hasPermission = (moduleId: string, roleDefault: boolean): boolean => {

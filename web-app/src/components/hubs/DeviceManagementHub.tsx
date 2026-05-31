@@ -17,7 +17,10 @@ export default function DeviceManagementHub() {
     // Authorizations
     const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    const isClinical   = ['caregiver', 'medical_staff'].includes(role);
+    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
+    // Backend caregiverRoutes.js POST /devices/register allows admin | medical_staff | parent.
+    // Parent sees My Devices (their child's sensor) and Add Device (pair new ESP32).
+    const isClinical   = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     // [OWASP A01 / RBAC] Override-aware visibility helper
     const hasPermission = (moduleId: string, roleDefault: boolean): boolean => {

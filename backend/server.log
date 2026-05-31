@@ -4143,3 +4143,10 @@
 [2026-05-31T19:58:30.041Z] POST /api/device/data
 [2026-05-31T19:58:35.160Z] POST /api/device/data
 [2026-05-31T19:58:40.076Z] POST /api/device/data
+[2026-05-31T21:12:02.020Z] GET /api/auth/my-permissions
+[2026-05-31T21:13:40.707Z] POST /api/auth/register
+[2026-05-31T21:15:04.574Z] POST /api/auth/resend-otp
+[2026-05-31T21:16:12.253Z] POST /api/auth/verify-otp
+[2026-05-31T21:16:24.709Z] POST /api/auth/login
+[2026-05-31T21:16:25.948Z] GET /api/caregiver/patients
+[2026-05-31T21:16:27.619Z] GET /api/caregiver/patients

@@ -171,7 +171,8 @@ class _IntroContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
+      // Prevents vertical overflow on smaller screens
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -182,7 +183,8 @@ class _IntroContent extends StatelessWidget {
             fit: BoxFit.contain,
           ),
 
-          const SizedBox(height: 40),
+          // Flexible gap so the layout adapts to available height
+          const SizedBox(height: 24),
 
           // Using GoogleFonts for Poppins titles
           Text(
@@ -203,12 +205,15 @@ class _IntroContent extends StatelessWidget {
             description,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontFamily: 'AlbertSans', // Back to your local font
+              fontFamily: 'AlbertSans',
               fontSize: 14,
               color: Colors.black87,
               height: 1.6,
             ),
           ),
+
+          // Bottom padding so content never sits flush at the edge
+          const SizedBox(height: 16),
         ],
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
+import '../models/user_session.dart';
 import 'login.dart';
 
 class BiometricService {
@@ -111,9 +112,61 @@ class RegistrationSuccessPage extends StatelessWidget {
                           final isSupported = await biometricService.isDeviceSupported();
                           final available = await biometricService.getAvailableBiometrics();
 
-                          if (canUse && isSupported && available.isNotEmpty) {
-                            await biometricService.authenticate(
-                              reason: 'Scan your fingerprint to enable biometric login',
+                          if (!context.mounted) return;
+
+                          if (!canUse || !isSupported || available.isEmpty) {
+                            // Device does not support biometrics — inform the user
+                            // and proceed to login without enabling the feature.
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Your device does not support biometric login.',
+                                  style: GoogleFonts.albertSans(),
+                                ),
+                                backgroundColor: Colors.orangeAccent,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(builder: (_) => const LoginPage()),
+                              (route) => false,
+                            );
+                            return;
+                          }
+
+                          final authenticated = await biometricService.authenticate(
+                            reason: 'Scan your fingerprint to enable biometric login',
+                          );
+
+                          if (!context.mounted) return;
+
+                          if (authenticated) {
+                            // [OWASP A07] Persist the opt-in flag in AES-encrypted storage.
+                            // This is the single source of truth for whether biometric
+                            // login is available on the login screen.
+                            await SessionManager.enableBiometrics();
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Biometric login has been enabled.',
+                                  style: GoogleFonts.albertSans(),
+                                ),
+                                backgroundColor: const Color(0xFF4DB6AC),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          } else {
+                            // Scan was cancelled or failed — do not enable the feature.
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Biometric scan was not completed. You can enable it later in Settings.',
+                                  style: GoogleFonts.albertSans(),
+                                ),
+                                backgroundColor: Colors.orangeAccent,
+                                behavior: SnackBarBehavior.floating,
+                              ),
                             );
                           }
 

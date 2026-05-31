@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service to fetch and persist settings
 import '../services/api_service.dart';
+import '../models/user_session.dart';
+import 'biometrics.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -22,6 +24,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool infoNotifications = false;
   bool emailNotifications = true;
   bool smsNotifications = false;
+
+  // Security Settings (loaded from encrypted local storage)
+  bool _isBiometricEnabled = false;
+  bool _isBiometricAvailable = false;
 
   // Dropdown Values
   String selectedTimezone = "Asia/Manila (PHT)";
@@ -49,6 +55,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // [INTEGRATION] Fetch device count to show live active devices
     final devicesResult = await ApiService.get('/caregiver/devices');
+
+    // Check biometric hardware availability and stored preference in parallel.
+    final biometricService = BiometricService();
+    final canCheck = await biometricService.canCheckBiometrics();
+    final isSupported = await biometricService.isDeviceSupported();
+    final available = await biometricService.getAvailableBiometrics();
+    final biometricEnabled = await SessionManager.isBiometricEnabled();
 
     if (!mounted) return;
 
@@ -85,6 +98,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         _activeDevices = "Unavailable";
       }
+
+      // [OWASP A07] Biometric availability and user preference loaded from
+      // AES-encrypted local storage. Never read from a plain key-value store.
+      _isBiometricAvailable = canCheck && isSupported && available.isNotEmpty;
+      _isBiometricEnabled   = biometricEnabled;
 
       _isLoading = false;
     });
@@ -130,6 +148,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  // Handles the biometric toggle in the Security card.
+  // Enabling requires a fresh OS biometric scan to confirm the user's intent.
+  // Disabling removes the flag immediately without a scan (standard UX pattern).
+  Future<void> _toggleBiometric(bool enable) async {
+    if (enable) {
+      final biometricService = BiometricService();
+      final authenticated = await biometricService.authenticate(
+        reason: 'Confirm your fingerprint to enable biometric login',
+      );
+
+      if (!mounted) return;
+
+      if (authenticated) {
+        // [OWASP A07] Write to AES-encrypted storage only after the OS confirms identity.
+        await SessionManager.enableBiometrics();
+        setState(() => _isBiometricEnabled = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Biometric login has been enabled.', style: GoogleFonts.albertSans()),
+            backgroundColor: const Color(0xFF4DB6AC),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        // Scan failed or was cancelled; keep the toggle off.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Biometric scan was not completed. No changes were made.',
+              style: GoogleFonts.albertSans(),
+            ),
+            backgroundColor: Colors.orangeAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      await SessionManager.disableBiometrics();
+      setState(() => _isBiometricEnabled = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Biometric login has been disabled.', style: GoogleFonts.albertSans()),
+          backgroundColor: Colors.grey.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   // --- Logic for Update Check ---
@@ -302,7 +369,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 4. Software Update
+            // 4. Security Settings
+            _buildSectionCard(
+              title: "Security",
+              icon: Icons.lock_outline,
+              children: [
+                _isBiometricAvailable
+                    ? _buildSwitchTile(
+                        "Biometric Login",
+                        "Use your fingerprint to log in instead of your password.",
+                        _isBiometricEnabled,
+                        _toggleBiometric,
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          "Biometric login is not available on this device.",
+                          style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+              ],
+            ),
+
+            // 5. Software Update
             _buildSectionCard(
               title: "Software Update",
               icon: Icons.system_update_outlined,

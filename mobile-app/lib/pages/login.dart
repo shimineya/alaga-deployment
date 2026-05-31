@@ -104,33 +104,99 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _loginWithBiometrics() async {
+    // [OWASP A07] Step 1: Confirm the user explicitly opted in during registration
+    // or via Settings. Do NOT trigger the OS biometric dialog if they never enabled it.
+    final isEnabled = await SessionManager.isBiometricEnabled();
+
+    if (!mounted) return;
+
+    if (!isEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Biometric login is not set up. Please log in with your credentials first, then enable it in Settings.',
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.orangeAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // Step 2: Load the biometric session snapshot BEFORE prompting the OS dialog.
+    // We need the stored username to validate against the typed field.
+    final biometricSession = await SessionManager.loadBiometricSession();
+
+    if (!mounted) return;
+
+    if (biometricSession == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No saved session found. Please log in with your credentials first.',
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.orangeAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // Step 3: Account ownership check.
+    // [OWASP A01] Silently logging in as a different person when a mismatched
+    // username is typed is a Broken Access Control violation in a clinical system.
+    //
+    // - If the field is empty: auto-fill the stored account's username and proceed.
+    // - If the field matches the stored account: proceed normally.
+    // - If the field contains a DIFFERENT username: block and require password login
+    //   for that account. This prevents one user from using another's biometric token.
+    final typedUsername = _usernameCtrl.text.trim();
+
+    if (typedUsername.isEmpty) {
+      // Auto-fill the stored account's username so the user knows whose
+      // account they are about to log into via biometrics.
+      setState(() => _usernameCtrl.text = biometricSession.username);
+    } else if (typedUsername.toLowerCase() != biometricSession.username.toLowerCase()) {
+      // The typed username does not match the account registered for biometric login.
+      // Do NOT trigger the OS prompt — doing so and silently logging in as the
+      // wrong person would be a patient data access violation.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Biometric login is set up for "${biometricSession.username}". '
+            'To use biometrics for a different account, please log in with '
+            'your password first, then enable biometrics in Settings.',
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+      return;
+    }
+
+    // Step 4: Ownership confirmed. Prompt the OS biometric dialog.
     final authenticated = await _biometricService.authenticate(
-      reason: 'Scan your fingerprint to log in',
+      reason: 'Scan your fingerprint to log in as ${biometricSession.username}',
     );
 
     if (!mounted) return;
 
     if (authenticated) {
-      // [TECHNICAL DEBT] Biometric login currently bypasses the backend.
-      // In production, the biometric would unlock the stored JWT from secure storage
-      // and validate it against the backend before granting access.
-      // For the prototype, we load the saved session if available.
-      final session = await SessionManager.loadSession();
-      if (session != null && mounted) {
+      // [TECHNICAL DEBT] The biometric scan unlocks the biometric session snapshot
+      // stored in ALAGA_BIOMETRIC_SESSION. This key is intentionally preserved
+      // across logout so biometrics work after the user signs out.
+      // In production, this token must be sent to POST /auth/validate-token
+      // to confirm it has not been revoked server-side before granting access.
+      // This is documented in the Recommendations chapter as a future upgrade.
+      await SessionManager.saveSession(biometricSession);
+      if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const DashboardScreen()),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'No saved session found. Please log in with your credentials first.',
-              style: GoogleFonts.albertSans(),
-            ),
-            backgroundColor: Colors.orangeAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
         );
       }
     }

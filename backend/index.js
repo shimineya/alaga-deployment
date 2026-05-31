@@ -633,9 +633,16 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             searchKey = username.toLowerCase().trim();
         }
 
-        // Database Query
+        // [OWASP A05] Parameterized query. We select only the columns needed
+        // to satisfy the Minimum Necessary rule (HIPAA) while also fetching
+        // profile_picture_url so the JWT session is fully hydrated on login —
+        // avoiding the race condition where the dashboard avatar is blank until
+        // the user visits the Profile tab.
         const result = await pool.query(
-            'SELECT * FROM users WHERE email = $1 OR username = $1',
+            `SELECT user_id, username, email, role, first_name,
+                    account_status, is_locked, is_verified,
+                    password_hash, profile_picture_url
+             FROM users WHERE email = $1 OR username = $1`,
             [searchKey]
         );
 
@@ -689,7 +696,10 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
                 email: user.email,
                 role: user.role,
                 name: user.first_name, // Added for frontend display
-                account_status: user.account_status
+                account_status: user.account_status,
+                // [FIX] Include profile picture URL so the dashboard avatar
+                // renders immediately after login without a separate API call.
+                profilePictureUrl: user.profile_picture_url || null,
             }
         });
 

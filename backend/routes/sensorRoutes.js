@@ -11,40 +11,33 @@
  *   POST /api/sensor/flag-normal  <- Caregiver flags a reading (JWT required)
  *   GET  /api/sensor/status/:id   <- Latest reading for a patient (JWT required)
  *   GET  /api/sensor/ai-health    <- Internal AI service health probe (Admin only)
+ *   GET  /api/sensor/history/:id  <- Telemetry history for graphing (JWT required)
  */
 
 const express = require('express');
 const router  = express.Router();
-const axios   = require('axios');
 const crypto  = require('crypto');
 const { body, param, validationResult } = require('express-validator');
 const pool    = require('../db');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // ---------------------------------------------------------------------------
-// Configuration — read from environment, never hard-coded
-// [OWASP A02] Credentials must come from environment, not source code
+// [CHANGE] Import AI service — uses PythonShell directly instead of HTTP axios
 // ---------------------------------------------------------------------------
-const AI_SERVICE_URL   = process.env.AI_SERVICE_URL   || 'http://127.0.0.1:5001';
-const AI_INTERNAL_TOKEN = process.env.AI_INTERNAL_TOKEN || '';
-const DEVICE_API_KEY   = process.env.DEVICE_API_KEY   || '';
+const { runPrediction, flagAsNormal } = require('../services/alagarAIService');
 
 // ---------------------------------------------------------------------------
 // Helper: Validate the X-Device-Key header against the device_whitelist table.
 // [OWASP A07] Per-device token authentication.
-// The ESP32 sends its serial number + token; we verify the token hash in the DB.
-// Returns the matching device row, or null if invalid.
 // ---------------------------------------------------------------------------
 async function authenticateDevice(serialNumber, providedToken) {
     if (!serialNumber || !providedToken) return null;
 
-    // [OWASP A04] Hash the provided token before DB comparison — we never store plaintext
     const tokenHash = crypto
         .createHash('sha256')
         .update(providedToken)
         .digest('hex');
 
-    // [OWASP A05] Parameterized query — no SQL injection risk
     const result = await pool.query(
         `SELECT serial_number, device_name, status, assigned_patient_id
          FROM device_whitelist
@@ -58,8 +51,7 @@ async function authenticateDevice(serialNumber, providedToken) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: Load a patient's baseline rows from PostgreSQL and format them
-// for the Python AI service.
+// Helper: Load a patient's baseline rows from PostgreSQL
 // ---------------------------------------------------------------------------
 async function loadPatientBaseline(patientId) {
     const result = await pool.query(
@@ -73,28 +65,8 @@ async function loadPatientBaseline(patientId) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: Call the internal Python AI service.
-// [OWASP A02] Always sends the X-Internal-Token — the Python service rejects
-//             requests without it even from localhost.
-// ---------------------------------------------------------------------------
-async function callAiService(endpoint, payload) {
-    const response = await axios.post(
-        `${AI_SERVICE_URL}${endpoint}`,
-        payload,
-        {
-            headers: {
-                'Content-Type'    : 'application/json',
-                'X-Internal-Token': AI_INTERNAL_TOKEN
-            },
-            timeout: 5000  // 5-second timeout — ESP32 cannot wait indefinitely
-        }
-    );
-    return response.data;
-}
-
-// ---------------------------------------------------------------------------
 // Helper: Write a structured entry to access_logs for the PHI audit trail.
-// [HIPAA / OWASP A09] Every access to or storage of PHI must be logged.
+// [HIPAA / OWASP A09]
 // ---------------------------------------------------------------------------
 async function logPhiAccess(action, patientId, ipAddress, details = {}) {
     await pool.query(
@@ -103,7 +75,6 @@ async function logPhiAccess(action, patientId, ipAddress, details = {}) {
          VALUES (NULL, $1, $2, $3, 'INFO', 'SUCCESS', $4)`,
         [patientId, action, ipAddress, JSON.stringify(details)]
     ).catch(err => {
-        // [OWASP A10] Log failure must not crash the main flow
         console.error('[SENSOR] Failed to write PHI access log:', err.message);
     });
 }
@@ -112,11 +83,6 @@ async function logPhiAccess(action, patientId, ipAddress, details = {}) {
 // ===========================================================================
 // ENDPOINT 1: Receive vital signs + moisture from an ESP32 device
 // POST /api/sensor/reading
-//
-// [OWASP A07] Authentication: X-Device-Serial + X-Device-Token headers.
-//             The device_whitelist table maps serial -> hashed token -> patient.
-// [OWASP A05] Input validation: all numeric fields validated via express-validator.
-// [HIPAA]     Every reading is written to sensor_readings + access_logs.
 // ===========================================================================
 const readingValidation = [
     body('heart_rate')
@@ -141,7 +107,6 @@ router.post('/reading', readingValidation, async (req, res) => {
     }
 
     // Step 2: Authenticate the device
-    // [OWASP A07] Device must present its serial number and token
     const deviceSerial = req.headers['x-device-serial'] || '';
     const deviceToken  = req.headers['x-device-token']  || '';
     const clientIp     = req.ip || req.connection.remoteAddress;
@@ -151,12 +116,10 @@ router.post('/reading', readingValidation, async (req, res) => {
         device = await authenticateDevice(deviceSerial, deviceToken);
     } catch (authErr) {
         console.error('[SENSOR] Device auth DB error:', authErr.message);
-        // [OWASP A10] Generic message — no internal detail
         return res.status(500).json({ success: false, message: 'Authentication check failed.' });
     }
 
     if (!device) {
-        // [OWASP A09] Log the failed device auth attempt
         await pool.query(
             `INSERT INTO access_logs (action, ip_address, severity, status, details)
              VALUES ('DEVICE_AUTH_FAILURE', $1, 'WARNING', 'FAILURE', $2)`,
@@ -178,8 +141,7 @@ router.post('/reading', readingValidation, async (req, res) => {
 
     let readingId;
 
-    // Step 4: Write raw reading to sensor_readings for audit and history
-    // [HIPAA] Every PHI data point must have an immutable audit record
+    // Step 4: Write raw reading to sensor_readings
     try {
         const readingResult = await pool.query(
             `INSERT INTO sensor_readings (patient_id, heart_rate, spo2, temperature, moisture_value)
@@ -193,31 +155,27 @@ router.post('/reading', readingValidation, async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to store reading.' });
     }
 
-    // Step 5: Load patient baseline from PostgreSQL and call the AI service
+    // Step 5: Fetch patient type, then call AI via PythonShell
+    // [CHANGE] Replaced callAiService('/predict', ...) with runPrediction()
     let aiResult;
     try {
-        const baseline = await loadPatientBaseline(patientId);
-
-        // Fetch patient type so the OC-SVM applies the right HR threshold
         const patientRow = await pool.query(
             'SELECT patient_type FROM patients WHERE patient_id = $1',
             [patientId]
         );
         const patientType = patientRow.rows[0]?.patient_type || 'adult';
 
-        aiResult = await callAiService('/predict', {
+        aiResult = await runPrediction({
             patient_id  : patientId,
             heart_rate  : heartRate,
             temperature : temperature,
             spo2        : spo2,
             moisture    : moisture,
-            patient_type: patientType,
-            baseline    : baseline
+            patient_type: patientType
         });
 
     } catch (aiErr) {
-        // [OWASP A10] AI service down is non-fatal — the reading is already stored.
-        // The system continues without AI classification rather than losing sensor data.
+        // AI failure is non-fatal — reading is already stored
         console.error('[SENSOR] AI service call failed:', aiErr.message);
         aiResult = {
             status      : 'UNKNOWN',
@@ -230,13 +188,11 @@ router.post('/reading', readingValidation, async (req, res) => {
     if (aiResult.alerts && aiResult.alerts.length > 0) {
         try {
             for (const alert of aiResult.alerts) {
-                // Determine ocsvm_score: use 0.0 for rule-based alerts, -1.0 for OC-SVM anomalies
                 const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
                 const anomalyType = alert.vital === 'multi_feature'
                     ? 'ocsvm_anomaly'
                     : `rule_${alert.vital}`;
 
-                // [OWASP A05] Parameterized insert — no injection risk
                 const eventResult = await pool.query(
                     `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
                      VALUES ($1, $2, $3, $4)
@@ -253,19 +209,16 @@ router.post('/reading', readingValidation, async (req, res) => {
                     [
                         eventId,
                         alert.message,
-                        // Map AI severity strings to our DB convention
                         alert.severity === 'critical' ? 'Critical' : 'Warning'
                     ]
                 );
             }
         } catch (alertErr) {
-            // Non-fatal — log it but still respond to ESP32
             console.error('[SENSOR] Alert insert error:', alertErr.message);
         }
     }
 
     // Step 7: Write PHI access log
-    // [HIPAA / OWASP A09] Record that PHI was received and processed
     await logPhiAccess('SENSOR_READING_RECEIVED', patientId, clientIp, {
         device_serial: deviceSerial,
         reading_id   : readingId,
@@ -290,9 +243,6 @@ router.post('/reading', readingValidation, async (req, res) => {
 // ===========================================================================
 // ENDPOINT 2: Caregiver flags a reading as normal (updates adaptive baseline)
 // POST /api/sensor/flag-normal
-//
-// [OWASP A01] Requires a valid caregiver JWT. Verifies patient assignment
-//             via patient_access table to prevent IDOR.
 // ===========================================================================
 const flagValidation = [
     body('patient_id').isInt({ min: 1 }).withMessage('patient_id must be a positive integer'),
@@ -312,7 +262,7 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
     const { patient_id: patientId, vital, value } = req.body;
     const clientIp  = req.ip || req.connection.remoteAddress;
 
-    // [OWASP A01] IDOR Prevention: verify the caregiver is assigned to this patient
+    // [OWASP A01] IDOR Prevention
     const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
     let hasAccess = accessRoles.includes(req.user.role);
 
@@ -331,14 +281,11 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
         });
     }
 
-    // Call the Python AI service to update the in-memory baseline
+    // [CHANGE] Replaced callAiService('/baseline/flag', ...) with flagAsNormal()
     let aiResponse;
     try {
-        aiResponse = await callAiService('/baseline/flag', {
-            patient_id: patientId,
-            vital      : vital,
-            value      : parseFloat(value)
-        });
+        const message = await flagAsNormal(patientId, vital, parseFloat(value));
+        aiResponse = { message };
     } catch (aiErr) {
         console.error('[SENSOR] Baseline flag AI call failed:', aiErr.message);
         return res.status(502).json({
@@ -347,28 +294,23 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
         });
     }
 
-    // Persist the updated baseline to PostgreSQL so it survives restarts
+    // Persist updated baseline to PostgreSQL
+    // NOTE: flagAsNormal() via PythonShell only returns a message string.
+    // Extended baseline stats (mean, bounds) are managed inside the Python model's memory.
+    // If you need to persist them, upgrade alaga_predict.py to return full stats on flag.
     try {
         await pool.query(
             `INSERT INTO patient_baselines
                  (patient_id, vital_name, flag_count, flagged_values,
                   mean_value, upper_bound, lower_bound, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             VALUES ($1, $2, 1, $3, NULL, NULL, NULL, NOW())
              ON CONFLICT (patient_id, vital_name) DO UPDATE
-                SET flag_count     = EXCLUDED.flag_count,
-                    flagged_values = EXCLUDED.flagged_values,
-                    mean_value     = EXCLUDED.mean_value,
-                    upper_bound    = EXCLUDED.upper_bound,
-                    lower_bound    = EXCLUDED.lower_bound,
-                    updated_at     = NOW()`,
+                SET flag_count  = patient_baselines.flag_count + 1,
+                    updated_at  = NOW()`,
             [
                 patientId,
                 vital,
-                aiResponse.flag_count,
-                JSON.stringify(aiResponse.flagged_values || []),
-                aiResponse.mean_value  || null,
-                aiResponse.upper_bound || null,
-                aiResponse.lower_bound || null
+                JSON.stringify([parseFloat(value)])
             ]
         );
     } catch (dbErr) {
@@ -386,14 +328,7 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
 
     return res.json({
         success: true,
-        message: aiResponse.message,
-        baseline: {
-            vital      : vital,
-            flag_count : aiResponse.flag_count,
-            lower_bound: aiResponse.lower_bound,
-            upper_bound: aiResponse.upper_bound,
-            mean_value : aiResponse.mean_value
-        }
+        message: aiResponse.message
     });
 });
 
@@ -401,9 +336,6 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
 // ===========================================================================
 // ENDPOINT 3: Get latest reading and AI status for a patient
 // GET /api/sensor/status/:patient_id
-//
-// [OWASP A01] JWT required. IDOR check via patient_access table.
-// [HIPAA]     Minimum necessary — returns only the latest reading, not history.
 // ===========================================================================
 router.get(
     '/status/:patient_id',
@@ -418,7 +350,6 @@ router.get(
         const userId    = req.user.id;
         const patientId = parseInt(req.params.patient_id, 10);
 
-        // [OWASP A01] IDOR Prevention
         const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
         let hasAccess = accessRoles.includes(req.user.role);
 
@@ -438,7 +369,6 @@ router.get(
         }
 
         try {
-            // Fetch the latest sensor reading
             const readingResult = await pool.query(
                 `SELECT sr.reading_id, sr.heart_rate, sr.spo2, sr.temperature,
                         sr.moisture_value, sr.recorded_at,
@@ -479,7 +409,6 @@ router.get(
 
         } catch (err) {
             console.error('[SENSOR] Status fetch error:', err.message);
-            // [OWASP A10] Generic message
             return res.status(500).json({ success: false, message: 'Failed to retrieve patient status.' });
         }
     }
@@ -487,11 +416,10 @@ router.get(
 
 
 // ===========================================================================
-// ENDPOINT 4: AI service health probe (Admin / System Admin only)
+// ENDPOINT 4: AI service health probe (Admin only)
 // GET /api/sensor/ai-health
-//
-// [OWASP A09] Gives admins visibility into whether the AI service is running
-//             without exposing the internal URL or token to non-admins.
+// [CHANGE] Instead of pinging a Python HTTP server, runs a test prediction
+//          via PythonShell and reports success/failure.
 // ===========================================================================
 router.get('/ai-health', verifyToken, async (req, res) => {
     const adminRoles = ['admin', 'system_admin', 'sysadmin'];
@@ -500,27 +428,37 @@ router.get('/ai-health', verifyToken, async (req, res) => {
     }
 
     try {
-        const response = await axios.get(`${AI_SERVICE_URL}/health`, {
-            headers: { 'X-Internal-Token': AI_INTERNAL_TOKEN },
-            timeout: 3000
+        // Run a dummy prediction to verify Python + model are reachable
+        const testResult = await runPrediction({
+            patient_id  : 'HEALTH_CHECK',
+            heart_rate  : 75,
+            temperature : 36.5,
+            spo2        : 98,
+            moisture    : 0,
+            patient_type: 'adult'
         });
-        return res.json({ success: true, ai_service: response.data });
+
+        return res.json({
+            success   : true,
+            ai_service: {
+                status : 'ok',
+                result : testResult.status,
+                message: 'PythonShell AI bridge is responding.'
+            }
+        });
     } catch (err) {
         return res.status(503).json({
-            success: false,
-            message: 'AI service is not responding.',
-            // [OWASP A10] Return only the error code, not the internal URL
+            success   : false,
+            message   : 'AI service (PythonShell) is not responding.',
             error_code: err.code || 'UNREACHABLE'
         });
     }
 });
 
+
 // ===========================================================================
 // ENDPOINT 5: Fetch Telemetry History for Graphing
 // GET /api/sensor/history/:patient_id
-//
-// [OWASP A01] JWT required. IDOR check via patient_access table.
-// [HIPAA / OWASP A09] Logs PHI access.
 // ===========================================================================
 router.get(
     '/history/:patient_id',
@@ -536,7 +474,6 @@ router.get(
         const patientId = parseInt(req.params.patient_id, 10);
         const clientIp  = req.ip || req.connection.remoteAddress;
 
-        // [OWASP A01] IDOR Prevention
         const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
         let hasAccess = accessRoles.includes(req.user.role);
 
@@ -556,7 +493,6 @@ router.get(
         }
 
         try {
-            // [OWASP A05] Parameterized query to fetch last 20 readings for the graph
             const result = await pool.query(
                 `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
                  FROM sensor_readings
@@ -566,21 +502,18 @@ router.get(
                 [patientId]
             );
 
-            // [HIPAA / OWASP A09] Record PHI Access
             await logPhiAccess('SENSOR_HISTORY_ACCESSED', patientId, clientIp, { limit: 20 });
 
-            // Reverse the array so it is chronological (oldest to newest) for graphing
             const chronologicalData = result.rows.reverse();
 
             return res.json({
-                success: true,
+                success   : true,
                 patient_id: patientId,
-                history: chronologicalData
+                history   : chronologicalData
             });
 
         } catch (err) {
             console.error('[SENSOR] History fetch error:', err.message);
-            // [OWASP A10] Generic message
             return res.status(500).json({ success: false, message: 'Failed to retrieve patient history.' });
         }
     }

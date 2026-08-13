@@ -6,6 +6,7 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
+import { Patient } from '../types';
 import {
     Users,
     UserPlus,
@@ -13,9 +14,7 @@ import {
     ShieldAlert,
     RefreshCw,
     Stethoscope,
-    MoreHorizontal,
-    Mail,
-    Phone
+    Mail
 } from 'lucide-react';
 import { CaregiverManagement } from './CaregiverManagement';
 import { AssignCaregiverModal } from './AssignCaregiverModal';
@@ -36,7 +35,12 @@ export interface CaregiverProfile {
     last_active?: string;
 }
 
-export const CaregiverUserManagement: React.FC = () => {
+interface CaregiverUserManagementProps {
+    patients?: Patient[];
+    user?: any;
+}
+
+export const CaregiverUserManagement: React.FC<CaregiverUserManagementProps> = ({ patients = [], user }) => {
     const { token } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -44,46 +48,25 @@ export const CaregiverUserManagement: React.FC = () => {
     const [caregivers, setCaregivers] = useState<CaregiverProfile[]>([]);
     const [isInviteOpen, setIsInviteOpen] = useState(false);
 
-    // --- FETCH DATA ---
+    // --- FETCH DATA FROM BACKEND ---
     const fetchData = useCallback(async () => {
         if (!token) return;
         setIsLoading(true);
         try {
-            // SIMULATED API CALL - Replace with GET /api/caregivers/all
-            await new Promise(r => setTimeout(r, 600));
+            const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+            const response = await fetch(`${apiBase}/api/caregivers/all`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
 
-            // Mock Data
-            const mockData: CaregiverProfile[] = [
-                {
-                    user_id: 101,
-                    name: "Nurse Maria Santos",
-                    email: "m.santos@hospital.com",
-                    role: "Medical Staff",
-                    status: "Active",
-                    permissions: { can_view_vitals: true, can_receive_alerts: true, can_manage_patients: true, is_admin: false },
-                    last_active: "2025-10-27T08:30:00Z"
-                },
-                {
-                    user_id: 102,
-                    name: "Dr. Jose Rizal",
-                    email: "j.rizal@hospital.com",
-                    role: "Medical Staff",
-                    status: "Active",
-                    permissions: { can_view_vitals: true, can_receive_alerts: true, can_manage_patients: true, is_admin: true },
-                    last_active: "2025-10-27T09:15:00Z"
-                },
-                {
-                    user_id: 201,
-                    name: "Mrs. Dela Cruz",
-                    email: "mommy@gmail.com",
-                    role: "Family Member",
-                    status: "Pending",
-                    permissions: { can_view_vitals: true, can_receive_alerts: true, can_manage_patients: false, is_admin: false }
+            if (data.success && Array.isArray(data.data)) {
+                setCaregivers(data.data);
+                if (!selectedCaregiver && data.data.length > 0) {
+                    setSelectedCaregiver(data.data[0]);
                 }
-            ];
-            setCaregivers(mockData);
-            if (!selectedCaregiver && mockData.length > 0) setSelectedCaregiver(mockData[0]);
-
+            } else {
+                setCaregivers([]);
+            }
         } catch (error) {
             console.error(error);
             toast.error("Failed to load caregiver list");
@@ -182,7 +165,7 @@ export const CaregiverUserManagement: React.FC = () => {
                                                 <div className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-600 border border-slate-200">
                                                     {person.role}
                                                 </div>
-                                                {person.permissions.is_admin && (
+                                                {person.permissions?.is_admin && (
                                                     <div className="px-1.5 py-0.5 rounded bg-purple-100 text-[10px] font-medium text-purple-700 border border-purple-200 flex items-center gap-1">
                                                         <ShieldAlert className="w-2.5 h-2.5" /> Admin
                                                     </div>
@@ -219,7 +202,7 @@ export const CaregiverUserManagement: React.FC = () => {
             <AssignCaregiverModal
                 isOpen={isInviteOpen}
                 onClose={() => setIsInviteOpen(false)}
-                patientId={0} // 0 indicates general invite, not specific patient
+                patientId={0} 
                 patientName="Facility Staff"
                 onSuccess={() => {
                     setIsInviteOpen(false);

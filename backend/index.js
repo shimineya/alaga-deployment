@@ -13,6 +13,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
+const scheduleRoutes = require('./routes/schedules');
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -1051,6 +1052,7 @@ app.use('/api/assignments', assignmentRoutes);
 const profileRoutes = require('./routes/profileRoutes');
 app.use('/api/user/profile', profileRoutes);
 
+app.use('/api/schedules', scheduleRoutes);
 // Alerts, Audit, and Triage Routes
 const alertsRoutes = require('./routes/alertsRoutes');
 app.use('/api/alerts', alertsRoutes);

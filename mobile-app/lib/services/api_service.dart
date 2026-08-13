@@ -31,7 +31,7 @@ class ApiService {
       return url;
     }
     // Fallback to PC IP if .env is missing/empty
-    return 'http://192.168.254.113:3000'; 
+    return 'http://192.168.0.188:3000'; 
   }
 
   /// Public accessor for constructing full API URLs.

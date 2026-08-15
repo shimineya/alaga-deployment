@@ -1,601 +1,188 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Textarea } from './ui/textarea';
-import { Activity, Upload, Eye, EyeOff, Check, ArrowLeft } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { ArrowLeft, Loader2, UserPlus, Stethoscope } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const SignUp: React.FC = () => {
   const navigate = useNavigate();
-  const [step, setStep] = useState<'role-select' | 'form'>('role-select');
-  const [showPassword, setShowPassword] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<'medical_staff' | 'caregiver' | null>(null);
-  
+  const [loading, setLoading] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<'caregiver' | 'medical_staff'>('caregiver');
+
   const [formData, setFormData] = useState({
-    // Section 1: Common Fields
     firstName: '',
     middleInitial: '',
     lastName: '',
     email: '',
+    mobileNumber: '',
     username: '',
     password: '',
-    mobileNumber: '',
-    
-    // Section 2: Medical Staff Fields
-    professionalTitle: '',
-    licenseNumber: '',
-    practiceType: '',
-    practiceAddress: '',
-    idDocument: null as File | null,
-    soloPractitioner: false,
-    
-    // Section 2: Caregiver Fields
-    relationshipToPatient: '',
-    primaryWorkArea: '',
-    yearsExperience: '',
-    workShift: '',
-    notificationStyle: [] as string[],
-    caregiverIdDocument: null as File | null,
+    confirmPassword: '',
   });
 
-  const handleRoleSelect = (role: 'medical_staff' | 'caregiver') => {
-    setSelectedRole(role);
-    setStep('form');
-  };
-
-  const handleInputChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleNotificationToggle = (style: string) => {
-    setFormData(prev => ({
-      ...prev,
-      notificationStyle: prev.notificationStyle.includes(style)
-        ? prev.notificationStyle.filter(s => s !== style)
-        : [...prev.notificationStyle, style]
-    }));
-  };
-
-  const handleFileUpload = (field: string, file: File | null) => {
-    setFormData(prev => ({ ...prev, [field]: file }));
-  };
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
-    // Section 1 Validation
-    if (!formData.firstName || !formData.lastName || !formData.email || 
-        !formData.username || !formData.password || !formData.mobileNumber) {
-      toast.error('Please fill all required fields');
-      return false;
-    }
+    const newErrors: Record<string, string> = {};
+    if (!formData.firstName) newErrors.firstName = "Required";
+    if (!formData.lastName) newErrors.lastName = "Required";
+    if (!formData.email) newErrors.email = "Required";
+    if (!formData.username) newErrors.username = "Required";
+    if (!formData.password) newErrors.password = "Required";
+    if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Mismatch";
 
-    if (formData.password.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return false;
-    }
-
-    if (!formData.mobileNumber.match(/^\+63\s?\d{3}\s?\d{3}\s?\d{4}$/)) {
-      toast.error('Invalid mobile number format. Use: +63 XXX XXX XXXX');
-      return false;
-    }
-
-    // Role-specific validation
-    if (selectedRole === 'medical_staff') {
-      if (!formData.professionalTitle || !formData.licenseNumber || 
-          !formData.practiceType || !formData.practiceAddress || !formData.idDocument) {
-        toast.error('Please fill all medical staff required fields');
-        return false;
-      }
-    }
-
-    if (selectedRole === 'caregiver') {
-      if (!formData.relationshipToPatient || !formData.primaryWorkArea || 
-          !formData.yearsExperience || !formData.workShift || !formData.caregiverIdDocument) {
-        toast.error('Please fill all caregiver required fields');
-        return false;
-      }
-    }
-
-    return true;
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
-    if (!validateForm()) return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) {
+      toast.error("Please correct the errors in the form.");
+      return;
+    }
 
-    // Store form data in sessionStorage for verification page
-    sessionStorage.setItem('signupData', JSON.stringify({
-      ...formData,
-      role: selectedRole,
-      idDocument: formData.idDocument?.name,
-      caregiverIdDocument: formData.caregiverIdDocument?.name,
-    }));
+    setLoading(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // [Fix] Map camelCase form fields to the snake_case keys expected by the backend
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          middle_initial: formData.middleInitial || null,
+          mobile_number: formData.mobileNumber || null,
+          email: formData.email,
+          username: formData.username,
+          password: formData.password,
+          role: selectedRole
+        })
+      });
 
-    toast.success('Sending verification code to your email...');
-    navigate('/verify-email');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Registration failed");
+
+      // [OWASP A07] Registration succeeded — backend has sent an OTP to the email.
+      // Store the pending verification context in sessionStorage so EmailVerification.tsx
+      // can call /api/auth/verify-otp with the correct user_id and email.
+      // This mirrors the mobile app's RegisterScreen behaviour exactly.
+      sessionStorage.setItem('pendingOtpVerification', JSON.stringify({
+        user_id: data.user_id,
+        email: data.email,
+      }));
+
+      toast.success("Account created! Please check your email for the verification code.");
+      navigate('/verify-email');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const renderRoleSelection = () => (
-    <div className="min-h-screen flex items-center justify-center p-6" style={{ backgroundColor: '#F0FAF9' }}>
-      <Card className="w-full max-w-2xl border-0" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)' }}>
-        <CardHeader className="text-center pb-8">
-          <div className="flex justify-center mb-4">
-            <div 
-              className="w-16 h-16 rounded-full flex items-center justify-center"
-              style={{ 
-                backgroundColor: '#7DD3C0',
-                boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)'
-              }}
-            >
-              <Activity className="w-9 h-9 text-white" />
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error on type
+    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <Card className="w-full max-w-[500px] shadow-lg border-0">
+        <CardHeader className="pb-3 pt-5 px-6 border-b bg-slate-50/50">
+          <div className="flex justify-between items-center">
+            <div className="space-y-1">
+              <CardTitle className="text-lg font-bold text-slate-800">Create Account</CardTitle>
+              <CardDescription className="text-xs">Join the Alaga monitoring network</CardDescription>
             </div>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/login')} className="h-7 text-xs text-slate-500">
+              <ArrowLeft className="w-3 h-3 mr-1" /> Back
+            </Button>
           </div>
-          <CardTitle className="text-3xl mb-2" style={{ color: '#2C3E50' }}>Welcome to ALAGA</CardTitle>
-          <CardDescription className="text-base">
-            Smart Patient Monitoring System
-          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6 pb-8">
-          <div className="text-center mb-6">
-            <h3 className="text-xl mb-2" style={{ color: '#2C3E50' }}>Choose Your Role</h3>
-            <p className="text-sm" style={{ color: '#7F8C8D' }}>
-              Select the role that best describes your position
-            </p>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div
-              onClick={() => handleRoleSelect('medical_staff')}
-              className="p-6 rounded-lg border-2 cursor-pointer transition-all hover:shadow-lg"
-              style={{ 
-                borderColor: '#E8F6F3',
-                backgroundColor: 'white'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#7DD3C0';
-                e.currentTarget.style.backgroundColor = '#F0FAF9';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#E8F6F3';
-                e.currentTarget.style.backgroundColor = 'white';
-              }}
-            >
-              <div className="text-center">
-                <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: '#E8F6F3' }}>
-                  <Activity className="w-6 h-6" style={{ color: '#7DD3C0' }} />
-                </div>
-                <h4 className="text-lg mb-2" style={{ color: '#2C3E50' }}>Medical Staff</h4>
-                <p className="text-sm" style={{ color: '#7F8C8D' }}>
-                  Physicians, Nurses, and Medical Professionals
-                </p>
-              </div>
-            </div>
+        <CardContent className="p-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
 
-            <div
-              onClick={() => handleRoleSelect('caregiver')}
-              className="p-6 rounded-lg border-2 cursor-pointer transition-all hover:shadow-lg"
-              style={{ 
-                borderColor: '#E8F6F3',
-                backgroundColor: 'white'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#7DD3C0';
-                e.currentTarget.style.backgroundColor = '#F0FAF9';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#E8F6F3';
-                e.currentTarget.style.backgroundColor = 'white';
-              }}
-            >
-              <div className="text-center">
-                <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: '#E8F6F3' }}>
-                  <Activity className="w-6 h-6" style={{ color: '#7DD3C0' }} />
-                </div>
-                <h4 className="text-lg mb-2" style={{ color: '#2C3E50' }}>Caregiver</h4>
-                <p className="text-sm" style={{ color: '#7F8C8D' }}>
-                  Family Members, Hired Caregivers, and Support Staff
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center pt-4">
-            <p className="text-sm" style={{ color: '#7F8C8D' }}>
-              Already have an account?{' '}
-              <button 
-                onClick={() => navigate('/login')}
-                className="underline"
-                style={{ color: '#7DD3C0' }}
+            {/* Role Selection (Compact Toggle) */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg mb-4">
+              <button
+                type="button"
+                onClick={() => setSelectedRole('caregiver')}
+                className={`flex items-center justify-center gap-2 text-xs font-medium py-1.5 rounded-md transition-all ${selectedRole === 'caregiver' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                Log In
+                <UserPlus className="w-3.5 h-3.5" /> Caregiver
               </button>
-            </p>
-          </div>
+              <button
+                type="button"
+                onClick={() => setSelectedRole('medical_staff')}
+                className={`flex items-center justify-center gap-2 text-xs font-medium py-1.5 rounded-md transition-all ${selectedRole === 'medical_staff' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Stethoscope className="w-3.5 h-3.5" /> Medical Staff
+              </button>
+            </div>
+
+            {/* Row 1: Names */}
+            <div className="grid grid-cols-12 gap-3">
+              <div className="col-span-5 space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">First Name</Label>
+                <Input className={`h-8 text-xs ${errors.firstName ? 'border-red-400' : ''}`} value={formData.firstName} onChange={(e) => handleChange('firstName', e.target.value)} />
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">M.I.</Label>
+                <Input className="h-8 text-xs text-center" maxLength={2} value={formData.middleInitial} onChange={(e) => handleChange('middleInitial', e.target.value)} />
+              </div>
+              <div className="col-span-5 space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">Last Name</Label>
+                <Input className={`h-8 text-xs ${errors.lastName ? 'border-red-400' : ''}`} value={formData.lastName} onChange={(e) => handleChange('lastName', e.target.value)} />
+              </div>
+            </div>
+
+            {/* Row 2: Contact */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">Email</Label>
+                <Input type="email" className={`h-8 text-xs ${errors.email ? 'border-red-400' : ''}`} value={formData.email} onChange={(e) => handleChange('email', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">Mobile No.</Label>
+                <Input className="h-8 text-xs" value={formData.mobileNumber} onChange={(e) => handleChange('mobileNumber', e.target.value)} />
+              </div>
+            </div>
+
+            {/* Row 3: Account */}
+            <div className="space-y-1">
+              <Label className="text-[10px] uppercase font-bold text-slate-500">Username</Label>
+              <Input className={`h-8 text-xs ${errors.username ? 'border-red-400' : ''}`} value={formData.username} onChange={(e) => handleChange('username', e.target.value)} />
+            </div>
+
+            {/* Row 4: Passwords */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">Password</Label>
+                <Input type="password" className={`h-8 text-xs ${errors.password ? 'border-red-400' : ''}`} value={formData.password} onChange={(e) => handleChange('password', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase font-bold text-slate-500">Confirm</Label>
+                <Input type="password" className={`h-8 text-xs ${errors.confirmPassword ? 'border-red-400' : ''}`} value={formData.confirmPassword} onChange={(e) => handleChange('confirmPassword', e.target.value)} />
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              className="w-full h-9 bg-teal-600 hover:bg-teal-700 text-white mt-4 text-xs font-medium"
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : null}
+              Register
+            </Button>
+          </form>
         </CardContent>
       </Card>
     </div>
   );
-
-  const renderForm = () => (
-    <div className="min-h-screen py-12 px-6" style={{ backgroundColor: '#F0FAF9' }}>
-      <div className="max-w-3xl mx-auto">
-        <Button 
-          variant="ghost" 
-          onClick={() => setStep('role-select')}
-          className="mb-4"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Role Selection
-        </Button>
-
-        <Card className="border-0" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)' }}>
-          <CardHeader>
-            <div className="flex items-center gap-3 mb-2">
-              <div 
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: '#7DD3C0' }}
-              >
-                <Activity className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <CardTitle style={{ color: '#2C3E50' }}>Create Your Account</CardTitle>
-                <CardDescription>
-                  {selectedRole === 'medical_staff' ? 'Medical Staff Registration' : 'Caregiver Registration'}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-8">
-            {/* Section 1: Common Fields */}
-            <div className="space-y-6">
-              <div className="pb-2 border-b">
-                <h3 className="text-lg" style={{ color: '#2C3E50' }}>Section 1: Account Information</h3>
-                <p className="text-sm" style={{ color: '#7F8C8D' }}>Basic details for all users</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2 space-y-2">
-                  <Label>First Name *</Label>
-                  <Input
-                    placeholder="Enter first name"
-                    value={formData.firstName}
-                    onChange={(e) => handleInputChange('firstName', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>M.I.</Label>
-                  <Input
-                    placeholder="M.I."
-                    maxLength={1}
-                    value={formData.middleInitial}
-                    onChange={(e) => handleInputChange('middleInitial', e.target.value.toUpperCase())}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Last Name *</Label>
-                <Input
-                  placeholder="Enter last name"
-                  value={formData.lastName}
-                  onChange={(e) => handleInputChange('lastName', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Email Address *</Label>
-                <Input
-                  type="email"
-                  placeholder="name@email.com"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Username *</Label>
-                <Input
-                  placeholder="Choose a unique username"
-                  value={formData.username}
-                  onChange={(e) => handleInputChange('username', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Password *</Label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Minimum 8 characters with symbols/numbers"
-                    value={formData.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4 text-gray-400" />
-                    ) : (
-                      <Eye className="w-4 h-4 text-gray-400" />
-                    )}
-                  </button>
-                </div>
-                {formData.password && formData.password.length < 8 && (
-                  <p className="text-xs text-red-600">Password must be at least 8 characters</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Mobile Number *</Label>
-                <Input
-                  placeholder="+63 XXX XXX XXXX"
-                  value={formData.mobileNumber}
-                  onChange={(e) => handleInputChange('mobileNumber', e.target.value)}
-                />
-                <p className="text-xs" style={{ color: '#7F8C8D' }}>
-                  Required for urgent medical SMS alerts
-                </p>
-              </div>
-            </div>
-
-            {/* Section 2: Role-Specific Fields */}
-            {selectedRole === 'medical_staff' && (
-              <div className="space-y-6">
-                <div className="pb-2 border-b">
-                  <h3 className="text-lg" style={{ color: '#2C3E50' }}>Section 2: Professional Information</h3>
-                  <p className="text-sm" style={{ color: '#7F8C8D' }}>Medical staff credentials</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Professional Title *</Label>
-                  <Select value={formData.professionalTitle} onValueChange={(v) => handleInputChange('professionalTitle', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your title" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="private_physician">Private Physician</SelectItem>
-                      <SelectItem value="independent_nurse">Independent Nurse</SelectItem>
-                      <SelectItem value="consultant">Consultant</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Medical License Number *</Label>
-                  <Input
-                    placeholder="e.g., PRC License or Board ID"
-                    value={formData.licenseNumber}
-                    onChange={(e) => handleInputChange('licenseNumber', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Type of Practice *</Label>
-                  <Select value={formData.practiceType} onValueChange={(v) => handleInputChange('practiceType', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select practice type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="solo">Solo/Private Practice</SelectItem>
-                      <SelectItem value="clinic">Clinic-Affiliated</SelectItem>
-                      <SelectItem value="home_health">Independent Home-Health</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Practice/Office Address *</Label>
-                  <Textarea
-                    placeholder="Physical location of your medical services"
-                    value={formData.practiceAddress}
-                    onChange={(e) => handleInputChange('practiceAddress', e.target.value)}
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Identity Verification *</Label>
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center" style={{ borderColor: '#E8F6F3' }}>
-                    <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: '#7DD3C0' }} />
-                    <p className="text-sm mb-2" style={{ color: '#2C3E50' }}>
-                      {formData.idDocument ? formData.idDocument.name : 'Upload Professional ID/License'}
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => handleFileUpload('idDocument', e.target.files?.[0] || null)}
-                      className="hidden"
-                      id="med-id-upload"
-                    />
-                    <label htmlFor="med-id-upload">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => document.getElementById('med-id-upload')?.click()}
-                      >
-                        Choose File
-                      </Button>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="solo-practitioner"
-                    checked={formData.soloPractitioner}
-                    onChange={(e) => handleInputChange('soloPractitioner', e.target.checked)}
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: '#7DD3C0' }}
-                  />
-                  <label htmlFor="solo-practitioner" className="text-sm" style={{ color: '#2C3E50' }}>
-                    I am operating independently without a company/facility
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {selectedRole === 'caregiver' && (
-              <div className="space-y-6">
-                <div className="pb-2 border-b">
-                  <h3 className="text-lg" style={{ color: '#2C3E50' }}>Section 2: Caregiver Information</h3>
-                  <p className="text-sm" style={{ color: '#7F8C8D' }}>Your caregiving details</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Relationship to Patient *</Label>
-                  <Select value={formData.relationshipToPatient} onValueChange={(v) => handleInputChange('relationshipToPatient', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select relationship" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="parent">Parent</SelectItem>
-                      <SelectItem value="spouse">Spouse</SelectItem>
-                      <SelectItem value="child">Child</SelectItem>
-                      <SelectItem value="sibling">Sibling</SelectItem>
-                      <SelectItem value="hired_help">Private Hired Help</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Primary Work Area *</Label>
-                  <Input
-                    placeholder="e.g., Home Address, Room Number, or Specific Residence"
-                    value={formData.primaryWorkArea}
-                    onChange={(e) => handleInputChange('primaryWorkArea', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Years of Experience *</Label>
-                  <Input
-                    type="number"
-                    placeholder="Number of years in caregiving role"
-                    value={formData.yearsExperience}
-                    onChange={(e) => handleInputChange('yearsExperience', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Primary Work Shift *</Label>
-                  <Select value={formData.workShift} onValueChange={(v) => handleInputChange('workShift', v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select shift" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="morning">Morning</SelectItem>
-                      <SelectItem value="afternoon">Afternoon</SelectItem>
-                      <SelectItem value="night">Night</SelectItem>
-                      <SelectItem value="24_7">24/7 Live-in</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Notification Style *</Label>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="notif-alarm"
-                        checked={formData.notificationStyle.includes('alarm')}
-                        onChange={() => handleNotificationToggle('alarm')}
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: '#7DD3C0' }}
-                      />
-                      <label htmlFor="notif-alarm" className="text-sm" style={{ color: '#2C3E50' }}>
-                        High-Volume Alarm
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="notif-push"
-                        checked={formData.notificationStyle.includes('push')}
-                        onChange={() => handleNotificationToggle('push')}
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: '#7DD3C0' }}
-                      />
-                      <label htmlFor="notif-push" className="text-sm" style={{ color: '#2C3E50' }}>
-                        Silent Push Notification
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="notif-sms"
-                        checked={formData.notificationStyle.includes('sms')}
-                        onChange={() => handleNotificationToggle('sms')}
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: '#7DD3C0' }}
-                      />
-                      <label htmlFor="notif-sms" className="text-sm" style={{ color: '#2C3E50' }}>
-                        SMS Only
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Identity Verification *</Label>
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center" style={{ borderColor: '#E8F6F3' }}>
-                    <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: '#7DD3C0' }} />
-                    <p className="text-sm mb-2" style={{ color: '#2C3E50' }}>
-                      {formData.caregiverIdDocument ? formData.caregiverIdDocument.name : 'Upload ID Document'}
-                    </p>
-                    <p className="text-xs mb-3" style={{ color: '#7F8C8D' }}>
-                      Caregiver ID, Facility ID, or Government ID
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => handleFileUpload('caregiverIdDocument', e.target.files?.[0] || null)}
-                      className="hidden"
-                      id="caregiver-id-upload"
-                    />
-                    <label htmlFor="caregiver-id-upload">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => document.getElementById('caregiver-id-upload')?.click()}
-                      >
-                        Choose File
-                      </Button>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <div className="pt-6">
-              <Button 
-                onClick={handleSubmit}
-                className="w-full text-white"
-                style={{ backgroundColor: '#7DD3C0' }}
-              >
-                <Check className="w-4 h-4 mr-2" />
-                Continue to Email Verification
-              </Button>
-            </div>
-
-            <div className="text-center text-sm" style={{ color: '#7F8C8D' }}>
-              By signing up, you agree to our Terms of Service and Privacy Policy
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-
-  return step === 'role-select' ? renderRoleSelection() : renderForm();
 };

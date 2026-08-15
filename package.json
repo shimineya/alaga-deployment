@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "fs": "^0.0.1-security",
+    "joi": "^18.0.2",
+    "multer": "^2.0.2",
+    "path": "^0.12.7",
+    "tailwindcss-animate": "^1.0.7"
+  }
+}

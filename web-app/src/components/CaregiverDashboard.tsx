@@ -35,9 +35,9 @@ export const CaregiverDashboard: React.FC = () => {
   useEffect(() => {
     patients.forEach(patient => {
       if (patient.deviceBattery < 20) {
-        const existingAlert = alerts.find(a => 
-          a.patientId === patient.id && 
-          a.type === 'device' && 
+        const existingAlert = alerts.find(a =>
+          a.patientId === patient.id &&
+          a.type === 'device' &&
           a.message.includes('battery')
         );
         if (!existingAlert) {
@@ -47,9 +47,9 @@ export const CaregiverDashboard: React.FC = () => {
         }
       }
       if (!patient.deviceConnected) {
-        const existingAlert = alerts.find(a => 
-          a.patientId === patient.id && 
-          a.type === 'device' && 
+        const existingAlert = alerts.find(a =>
+          a.patientId === patient.id &&
+          a.type === 'device' &&
           a.message.includes('connection')
         );
         if (!existingAlert) {
@@ -65,7 +65,7 @@ export const CaregiverDashboard: React.FC = () => {
     if (selectedPatient) {
       // Generate mock vital signs data
       const vitals = generateMockVitalSigns(selectedPatient.id, selectedPatient.baselineVitals);
-      
+
       // Filter based on time range
       const now = Date.now();
       const ranges = {
@@ -73,19 +73,19 @@ export const CaregiverDashboard: React.FC = () => {
         '6h': 6 * 60 * 60 * 1000,
         '24h': 24 * 60 * 60 * 1000,
       };
-      
-      const filtered = vitals.filter(v => 
+
+      const filtered = vitals.filter(v =>
         now - new Date(v.timestamp).getTime() <= ranges[timeRange]
       );
-      
+
       setVitalSigns(filtered);
     }
   }, [selectedPatient, timeRange]);
 
   const handleAcknowledgeAlert = (alertId: string) => {
-    setAlerts(prev => 
-      prev.map(alert => 
-        alert.id === alertId 
+    setAlerts(prev =>
+      prev.map(alert =>
+        alert.id === alertId
           ? { ...alert, acknowledged: true, acknowledgedBy: user?.id, acknowledgedAt: new Date() }
           : alert
       )
@@ -94,20 +94,20 @@ export const CaregiverDashboard: React.FC = () => {
   };
 
   const handleMarkAllRead = () => {
-    setAlerts(prev => 
+    setAlerts(prev =>
       prev.map(alert => ({ ...alert, acknowledged: true, acknowledgedBy: user?.id, acknowledgedAt: new Date() }))
     );
     toast.success('All alerts marked as read');
   };
 
   const unacknowledgedAlerts = alerts.filter(a => !a.acknowledged);
-  
+
   // Create patient names map for notification panel
   const patientNamesMap = patients.reduce((acc, patient) => {
     acc[patient.id] = patient.name;
     return acc;
   }, {} as Record<string, string>);
-  
+
   const getBatteryColor = (level: number) => {
     if (level > 50) return 'var(--status-success)';
     if (level > 20) return 'var(--status-warning)';
@@ -129,7 +129,7 @@ export const CaregiverDashboard: React.FC = () => {
                 <p className="text-xs text-muted-foreground">Caregiver Portal</p>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <NotificationPanel
                 alerts={alerts}
@@ -137,12 +137,12 @@ export const CaregiverDashboard: React.FC = () => {
                 onMarkAllRead={handleMarkAllRead}
                 patientNames={patientNamesMap}
               />
-              
+
               <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-muted">
                 <User className="w-4 h-4" />
                 <span className="text-sm">{user?.name}</span>
               </div>
-              
+
               <Button variant="outline" size="sm" onClick={logout}>
                 <LogOut className="w-4 h-4 mr-2" />
                 Logout
@@ -163,13 +163,12 @@ export const CaregiverDashboard: React.FC = () => {
               </CardHeader>
               <CardContent className="space-y-3">
                 {patients.map(patient => (
-                  <div 
+                  <div
                     key={patient.id}
-                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                      selectedPatient?.id === patient.id 
-                        ? 'border-primary bg-muted' 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${selectedPatient?.id === patient.id
+                        ? 'border-primary bg-muted'
                         : 'border-transparent hover:border-border'
-                    }`}
+                      }`}
                     onClick={() => setSelectedPatient(patient)}
                   >
                     <div className="flex items-start justify-between mb-2">
@@ -183,7 +182,7 @@ export const CaregiverDashboard: React.FC = () => {
                         <Badge variant="destructive" className="text-xs">Offline</Badge>
                       )}
                     </div>
-                    
+
                     {/* Device Status */}
                     <div className="flex items-center justify-between pt-2 border-t text-xs">
                       <div className="flex items-center gap-1">
@@ -226,9 +225,9 @@ export const CaregiverDashboard: React.FC = () => {
                       </span>
                     </div>
                     <div className="w-full bg-muted rounded-full h-2">
-                      <div 
+                      <div
                         className="h-2 rounded-full transition-all"
-                        style={{ 
+                        style={{
                           width: `${selectedPatient.deviceBattery}%`,
                           backgroundColor: getBatteryColor(selectedPatient.deviceBattery)
                         }}
@@ -292,7 +291,7 @@ export const CaregiverDashboard: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <AlertsList
-                  alerts={alerts.filter(a => 
+                  alerts={alerts.filter(a =>
                     selectedPatient ? a.patientId === selectedPatient.id : true
                   ).slice(0, 5)}
                   onAcknowledge={handleAcknowledgeAlert}
@@ -313,8 +312,8 @@ export const CaregiverDashboard: React.FC = () => {
                         <CardTitle>Patient Monitor</CardTitle>
                         <CardDescription>Real-time vital signs and status</CardDescription>
                       </div>
-                      <Select 
-                        value={selectedPatient.id} 
+                      <Select
+                        value={selectedPatient.id}
                         onValueChange={(id) => {
                           const patient = patients.find(p => p.id === id);
                           if (patient) setSelectedPatient(patient);
@@ -363,7 +362,7 @@ export const CaregiverDashboard: React.FC = () => {
                             <Activity className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--teal-500)' }} />
                             <p className="text-xs text-muted-foreground">Heart Rate</p>
                             <p className="text-2xl mt-1">
-                              {vitalSigns.length > 0 
+                              {vitalSigns.length > 0
                                 ? Math.round(vitalSigns[vitalSigns.length - 1].heartRate)
                                 : selectedPatient.baselineVitals.heartRate
                               }
@@ -379,7 +378,7 @@ export const CaregiverDashboard: React.FC = () => {
                             <Activity className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--teal-600)' }} />
                             <p className="text-xs text-muted-foreground">Temperature</p>
                             <p className="text-2xl mt-1">
-                              {vitalSigns.length > 0 
+                              {vitalSigns.length > 0
                                 ? vitalSigns[vitalSigns.length - 1].temperature.toFixed(1)
                                 : selectedPatient.baselineVitals.temperature
                               }
@@ -395,7 +394,7 @@ export const CaregiverDashboard: React.FC = () => {
                             <Activity className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--teal-700)' }} />
                             <p className="text-xs text-muted-foreground">SpO₂</p>
                             <p className="text-2xl mt-1">
-                              {vitalSigns.length > 0 
+                              {vitalSigns.length > 0
                                 ? Math.round(vitalSigns[vitalSigns.length - 1].spo2)
                                 : selectedPatient.baselineVitals.spo2
                               }
@@ -411,7 +410,7 @@ export const CaregiverDashboard: React.FC = () => {
                             <Activity className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--teal-400)' }} />
                             <p className="text-xs text-muted-foreground">Moisture</p>
                             <p className="text-2xl mt-1">
-                              {vitalSigns.length > 0 
+                              {vitalSigns.length > 0
                                 ? Math.round(vitalSigns[vitalSigns.length - 1].moistureLevel)
                                 : 0
                               }
@@ -432,7 +431,7 @@ export const CaregiverDashboard: React.FC = () => {
                     <TabsTrigger value="spo2">SpO₂</TabsTrigger>
                     <TabsTrigger value="moisture">Moisture</TabsTrigger>
                   </TabsList>
-                  
+
                   <TabsContent value="heartRate">
                     <Card>
                       <CardContent className="pt-6 h-80">

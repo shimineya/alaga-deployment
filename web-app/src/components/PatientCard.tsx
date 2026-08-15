@@ -1,110 +1,85 @@
 import React from 'react';
-import { Patient } from '../types';
+import { Patient } from '../types'; // Ensure this matches your type definition
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Activity, Thermometer, Droplets, Battery, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { Activity, Thermometer, Droplets, User, Clock } from 'lucide-react';
+import { cn } from './ui/utils';
 
 interface PatientCardProps {
   patient: Patient;
-  onClick?: () => void;
-  compact?: boolean;
+  onClick?: (patient: Patient) => void;
 }
 
-export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick, compact = false }) => {
-  const getBatteryColor = (level: number) => {
-    if (level > 50) return 'var(--status-success)';
-    if (level > 20) return 'var(--status-warning)';
-    return 'var(--status-critical)';
-  };
-
-  const getStatusBadge = () => {
-    if (!patient.deviceConnected) {
-      return <Badge variant="destructive">Disconnected</Badge>;
-    }
-    if (patient.deviceBattery < 20) {
-      return <Badge className="bg-[var(--status-warning)] text-white">Low Battery</Badge>;
-    }
-    return <Badge className="bg-[var(--status-success)] text-white">Active</Badge>;
-  };
+export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) => {
+  // [LOGIC] Determine status color based on patient condition
+  // Adjust 'is_critical' field name based on your actual DB schema (e.g., patient.status === 'Critical')
+  const isCritical = patient.status === 'Critical' || patient.status === 'Emergency';
+  
+  const statusColor = isCritical ? 'var(--status-critical)' : 'var(--status-stable)';
+  const borderColor = isCritical ? 'border-red-200' : 'border-teal-100';
+  const bgColor = isCritical ? 'bg-red-50/30' : 'bg-card';
 
   return (
     <Card 
-      className={`hover:shadow-lg transition-shadow ${onClick ? 'cursor-pointer' : ''}`}
-      onClick={onClick}
+      className={cn(
+        "transition-all duration-200 hover:shadow-lg hover:border-primary/50 cursor-pointer group",
+        borderColor,
+        bgColor
+      )}
+      onClick={() => onClick?.(patient)}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-lg">{patient.name}</CardTitle>
-            <p className="text-sm text-muted-foreground">{patient.age} years old</p>
+      <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "h-10 w-10 rounded-full flex items-center justify-center",
+            isCritical ? "bg-red-100 text-red-600" : "bg-teal-100 text-teal-600"
+          )}>
+            <User className="h-5 w-5" />
           </div>
-          {getStatusBadge()}
+          <div>
+            <CardTitle className="text-base font-bold leading-none">
+              {patient.first_name} {patient.last_name}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
         </div>
+        <Badge 
+          variant="outline" 
+          className={cn(
+            "capitalize",
+            isCritical ? "border-red-500 text-red-600 bg-red-50" : "border-teal-500 text-teal-600 bg-teal-50"
+          )}
+        >
+          {patient.status || 'Stable'}
+        </Badge>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {!compact && patient.medicalConditions.length > 0 && (
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Medical Conditions:</p>
-            <div className="flex flex-wrap gap-1">
-              {patient.medicalConditions.map((condition, idx) => (
-                <Badge key={idx} variant="outline" className="text-xs">
-                  {condition}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
 
-        <div className="grid grid-cols-3 gap-2">
-          <div className="flex items-center gap-1" style={{ color: 'var(--teal-700)' }}>
-            <Activity className="w-4 h-4" />
-            <div>
-              <p className="text-xs text-muted-foreground">HR</p>
-              <p className="text-sm">{patient.baselineVitals.heartRate} bpm</p>
-            </div>
+      <CardContent className="p-4 pt-2">
+        {/* Vitals Grid - Integrated from MiniVitalCard */}
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          {/* Heart Rate */}
+          <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <Activity className="h-4 w-4 text-rose-500 mb-1" />
+            <span className="text-lg font-bold text-slate-900">{patient.heart_rate || '--'}</span>
+            <span className="text-[10px] text-muted-foreground uppercase">BPM</span>
           </div>
-          <div className="flex items-center gap-1" style={{ color: 'var(--teal-700)' }}>
-            <Thermometer className="w-4 h-4" />
-            <div>
-              <p className="text-xs text-muted-foreground">Temp</p>
-              <p className="text-sm">{patient.baselineVitals.temperature}°C</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1" style={{ color: 'var(--teal-700)' }}>
-            <Droplets className="w-4 h-4" />
-            <div>
-              <p className="text-xs text-muted-foreground">SpO₂</p>
-              <p className="text-sm">{patient.baselineVitals.spo2}%</p>
-            </div>
-          </div>
-        </div>
 
-        <div className="flex items-center justify-between pt-2 border-t">
-          <div className="flex items-center gap-2">
-            <Battery 
-              className="w-4 h-4" 
-              style={{ color: getBatteryColor(patient.deviceBattery) }}
-            />
-            <span className="text-xs" style={{ color: getBatteryColor(patient.deviceBattery) }}>
-              {patient.deviceBattery}%
-            </span>
+          {/* SpO2 */}
+          <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <Droplets className="h-4 w-4 text-sky-500 mb-1" />
+            <span className="text-lg font-bold text-slate-900">{patient.spo2 || '--'}</span>
+            <span className="text-[10px] text-muted-foreground uppercase">%</span>
           </div>
-          <div className="flex items-center gap-1">
-            {patient.deviceConnected ? (
-              <>
-                <Wifi className="w-4 h-4" style={{ color: 'var(--status-success)' }} />
-                <span className="text-xs text-muted-foreground">Connected</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-4 h-4" style={{ color: 'var(--status-critical)' }} />
-                <span className="text-xs" style={{ color: 'var(--status-critical)' }}>Offline</span>
-              </>
-            )}
+
+          {/* Temperature */}
+          <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+            <Thermometer className="h-4 w-4 text-amber-500 mb-1" />
+            <span className="text-lg font-bold text-slate-900">{patient.temperature || '--'}</span>
+            <span className="text-[10px] text-muted-foreground uppercase">°C</span>
           </div>
-          <span className="text-xs text-muted-foreground">
-            {patient.deviceId}
-          </span>
         </div>
       </CardContent>
     </Card>

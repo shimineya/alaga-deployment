@@ -6,135 +6,165 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
-import { Heart, Activity, Droplets } from 'lucide-react';
+import { Activity, ShieldAlert, Lock, Loader2, MailWarning } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // [OWASP A07] Tracks whether the login failure is due to an unverified email.
+  // When true, the UI shows a prominent link to resume the OTP verification flow.
+  const [unverifiedContext, setUnverifiedContext] = useState<{
+    user_id: number;
+    email: string;
+  } | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setUnverifiedContext(null);
+
+    if (!username || !password) {
+      setError('Please fill in all fields');
+      return;
+    }
+
     setLoading(true);
-
     try {
-      // First, validate credentials without actually logging in
-      // In real app, this would be an API call to check if credentials are correct
-      const mockUsers = [
-        { email: 'caregiver@alaga.com', password: 'password123' },
-        { email: 'medstaff@alaga.com', password: 'password123' }
-      ];
+      const result = await login(username, password);
 
-      const userExists = mockUsers.find(u => u.email === email && u.password === password);
+      if (result.success && result.user) {
+        toast.success('Welcome back!');
 
-      if (!userExists) {
-        setError('Invalid email or password. Please try again.');
-        setLoading(false);
-        return;
+        // [OWASP A01] Route to the correct dashboard based on role
+        const role = result.user.role;
+        if (role === 'system_admin' || role === 'admin') {
+          navigate('/sysadmin', { replace: true });
+        } else if (role === 'facility_admin') {
+          navigate('/facility-admin', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
+      } else if (result.requiresOtp && result.user_id && result.email) {
+        // [OWASP A07] Account exists but the email has not been verified yet.
+        // Store the context so the user can proceed directly to /verify-email.
+        sessionStorage.setItem('pendingOtpVerification', JSON.stringify({
+          user_id: result.user_id,
+          email: result.email,
+        }));
+        setUnverifiedContext({ user_id: result.user_id, email: result.email });
+        setError(result.message || 'Email not verified.');
+      } else {
+        setError(result.message || 'Invalid credentials');
+        toast.error(result.message || 'Login failed');
       }
-
-      // Store credentials temporarily for verification
-      sessionStorage.setItem('loginPendingVerification', JSON.stringify({
-        email,
-        password
-      }));
-
-      // Redirect to email verification
-      navigate('/login-verify');
-    } catch (err) {
-      setError('An error occurred. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred');
+      toast.error('Login failed');
+    } finally {
       setLoading(false);
     }
   };
 
+  const handleGoToVerification = () => {
+    // pendingOtpVerification is already set in sessionStorage above
+    navigate('/verify-email');
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, var(--teal-50) 0%, var(--teal-200) 100%)' }}>
-      <div className="w-full max-w-md">
-        {/* Logo and branding */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4" style={{ backgroundColor: 'var(--teal-500)' }}>
-            <Heart className="w-10 h-10 text-white" />
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <Card className="w-full max-w-[360px] shadow-lg border-0">
+        <CardHeader className="text-center pb-2 space-y-1 pt-6">
+          <div className="mx-auto w-10 h-10 bg-teal-50 rounded-full flex items-center justify-center mb-1">
+            <Activity className="w-6 h-6 text-teal-600" />
           </div>
-          <h1 className="text-4xl mb-2" style={{ color: 'var(--teal-900)' }}>Alaga</h1>
-          <p className="text-sm" style={{ color: 'var(--teal-700)' }}>Smart Patient Monitoring System</p>
-          <div className="flex items-center justify-center gap-4 mt-4">
-            <div className="flex items-center gap-1" style={{ color: 'var(--teal-600)' }}>
-              <Activity className="w-4 h-4" />
-              <span className="text-xs">Vital Signs</span>
+          <CardTitle className="text-lg font-bold text-slate-800">Alaga Login</CardTitle>
+          <CardDescription className="text-xs">Secure access for Caregivers &amp; Staff</CardDescription>
+        </CardHeader>
+
+        <CardContent className="px-6 pb-6">
+          <form onSubmit={handleSubmit} className="space-y-3">
+
+            {/* Unverified account banner — shown only when the backend returns requiresOtp */}
+            {unverifiedContext ? (
+              <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <MailWarning className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-yellow-800">
+                    {error} Please verify your email to continue.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full h-7 text-xs bg-yellow-500 hover:bg-yellow-600 text-white"
+                  onClick={handleGoToVerification}
+                >
+                  Go to Email Verification
+                </Button>
+              </div>
+            ) : error ? (
+              <Alert variant="destructive" className="py-2 px-3 text-xs bg-red-50 text-red-700 border-red-200">
+                <ShieldAlert className="h-3 w-3 mr-2" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className="space-y-1">
+              <Label htmlFor="username" className="text-xs font-semibold text-slate-500 uppercase">Username</Label>
+              <Input
+                id="username"
+                type="text"
+                placeholder="Enter username"
+                className="h-9 text-sm"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+              />
             </div>
-            <div className="flex items-center gap-1" style={{ color: 'var(--teal-600)' }}>
-              <Droplets className="w-4 h-4" />
-              <span className="text-xs">Smart Diaper Moisture Sensor</span>
+
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="password" className="text-xs font-semibold text-slate-500 uppercase">Password</Label>
+              </div>
+              <Input
+                id="password"
+                type="password"
+                className="h-9 text-sm"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
             </div>
-          </div>
-        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign In</CardTitle>
-            <CardDescription>Enter your credentials to access the dashboard</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="bg-input-background"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="bg-input-background"
-                />
-              </div>
+            <Button
+              type="submit"
+              className="w-full h-9 bg-teal-600 hover:bg-teal-700 text-white font-medium mt-2 text-xs"
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Lock className="w-3 h-3 mr-2" />}
+              {loading ? 'Verifying...' : 'Sign In'}
+            </Button>
 
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Signing in...' : 'Sign In'}
-              </Button>
-
-              <div className="text-center pt-4">
-                <p className="text-sm" style={{ color: 'var(--teal-700)' }}>
-                  Don't have an account?{' '}
-                  <a 
-                    href="/signup" 
-                    className="underline hover:no-underline"
-                    style={{ color: 'var(--teal-600)' }}
-                  >
-                    Sign Up
-                  </a>
-                </p>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <p className="text-center mt-6 text-xs" style={{ color: 'var(--teal-700)' }}>
-          © 2025 Alaga System. Compliant with Data Privacy Act of 2012.
-        </p>
-      </div>
+            <div className="text-center mt-3">
+              <p className="text-xs text-gray-500">
+                New user?{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/signup')}
+                  className="font-medium text-teal-600 hover:underline"
+                >
+                  Create account
+                </button>
+              </p>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 };

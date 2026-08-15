@@ -22,8 +22,11 @@ export interface Patient {
   deviceBattery: number;
   deviceConnected: boolean;
   lastUpdated: Date;
+  assignedCaregiverName?: string; // [NEW] Added for UI display
   doctorsOrders?: DoctorsOrdersData;
+  accessLevel?: 'View' | 'Edit' | 'Admin'; // [NEW] Current user's access level for this patient
 }
+
 
 export interface DoctorsOrdersData {
   vitalSignThresholds: {

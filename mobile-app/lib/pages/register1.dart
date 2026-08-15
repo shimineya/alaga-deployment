@@ -1,55 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:local_auth/local_auth.dart';
 
-class BiometricService {
-  final LocalAuthentication _localAuth = LocalAuthentication();
-
-  Future<bool> canCheckBiometrics() async {
-    try {
-      return await _localAuth.canCheckBiometrics;
-    } catch (e) {
-      print('Error checking biometrics: $e');
-      return false;
-    }
-  }
-
-  Future<bool> isDeviceSupported() async {
-    try {
-      return await _localAuth.isDeviceSupported();
-    } catch (e) {
-      print('Error checking device support: $e');
-      return false;
-    }
-  }
-
-  Future<List<BiometricType>> getAvailableBiometrics() async {
-    try {
-      return await _localAuth.getAvailableBiometrics();
-    } catch (e) {
-      print('Error getting available biometrics: $e');
-      return [];
-    }
-  }
-
-  Future<bool> authenticate({required String reason}) async {
-    try {
-      return await _localAuth.authenticate(
-        localizedReason: reason,
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: true,
-        ),
-      );
-    } catch (e) {
-      print('Biometric authentication error: $e');
-      return false;
-    }
-  }
-}
+// [INTEGRATION] Import the API service and registration data model
+import '../models/registration_data.dart';
+import '../services/api_service.dart';
+import 'otp.dart';
+import 'login.dart'; 
 
 class CreateCredentialsPage extends StatefulWidget {
-  const CreateCredentialsPage({super.key});
+  // [OWASP A01] RegistrationData is required -- contains personal info and role
+  // from the previous steps in the registration flow.
+  final RegistrationData registrationData;
+
+  const CreateCredentialsPage({super.key, required this.registrationData});
 
   @override
   State<CreateCredentialsPage> createState() => _CreateCredentialsPageState();
@@ -57,7 +21,6 @@ class CreateCredentialsPage extends StatefulWidget {
 
 class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
   final _formKey = GlobalKey<FormState>();
-  final BiometricService _biometricService = BiometricService();
 
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
@@ -66,6 +29,7 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
+  bool _submitted = false;
 
   @override
   void dispose() {
@@ -75,135 +39,101 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+  // UI Helper for Password Requirements
+  Widget _buildPasswordRequirements(String password) {
+    bool hasMinLength = password.length >= 12;
+    bool hasUpperAndLower = password.contains(RegExp(r'[A-Z]')) && password.contains(RegExp(r'[a-z]'));
+    bool hasNumberAndSymbol = password.contains(RegExp(r'[0-9]')) && password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/]'));
 
-    if (_passwordCtrl.text != _confirmPasswordCtrl.text) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Passwords do not match')),
-        );
-      }
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    // Simulate API delay
-    await Future.delayed(const Duration(seconds: 2));
-
-    setState(() => _isLoading = false);
-
-    if (!mounted) return;
-
-    final canUseBiometrics = await _biometricService.canCheckBiometrics();
-    final isSupported = await _biometricService.isDeviceSupported();
-    final availableBiometrics = await _biometricService.getAvailableBiometrics();
-
-    print('Can use biometrics: $canUseBiometrics');
-    print('Is device supported: $isSupported');
-    print('Available biometrics: $availableBiometrics');
-
-    if (canUseBiometrics && isSupported && availableBiometrics.isNotEmpty) {
-      _showBiometricPrompt();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created successfully!')),
-      );
-    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAEAE4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Password Requirements:',
+            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+          ),
+          const SizedBox(height: 8),
+          _buildRequirementRow('Minimum of 12 characters long', hasMinLength),
+          const SizedBox(height: 4),
+          _buildRequirementRow('At least one uppercase and lowercase letter', hasUpperAndLower),
+          const SizedBox(height: 4),
+          _buildRequirementRow('At least one number and one symbol', hasNumberAndSymbol),
+        ],
+      ),
+    );
   }
 
-  void _showBiometricPrompt() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+  Widget _buildRequirementRow(String text, bool isMet) {
+    return Row(
+      children: [
+        isMet
+            ? const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 16)
+            : Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.black38, width: 1.5),
+                ),
+              ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.albertSans(
+              fontSize: 12,
+              fontWeight: isMet ? FontWeight.w600 : FontWeight.w400,
+              color: isMet ? const Color(0xFF4CAF50) : Colors.black54,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInput({
+    required TextEditingController controller,
+    required String hint,
+    required bool isRequired,
+    bool obscureText = false,
+    Widget? suffixIcon,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      validator: validator,
+      style: const TextStyle(fontFamily: 'AlbertSans', fontSize: 14, color: Colors.black87),
+      decoration: InputDecoration(
+        suffixIcon: suffixIcon,
+        errorStyle: const TextStyle(height: 0, fontSize: 0),
+        label: RichText(
+          text: TextSpan(
+            text: hint,
+            style: const TextStyle(fontFamily: 'AlbertSans', color: Colors.black38, fontSize: 14),
             children: [
-              Text(
-                'Enable biometrics for easier log in?',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    if (!mounted) return;
-
-                    Navigator.pop(context);
-
-                    final authenticated = await _biometricService.authenticate(
-                      reason: 'Scan your fingerprint to enable biometric login',
-                    );
-
-                    if (!mounted) return;
-
-                    if (authenticated) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Biometric login enabled!')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Authentication cancelled or failed. You can set this up later in settings.',
-                          ),
-                          duration: Duration(seconds: 3),
-                        ),
-                      );
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5FA9A9),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    'Enable',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () {
-                    if (!mounted) return;
-                    Navigator.pop(context);
-                  },
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: Text(
-                    'Skip',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ),
-              ),
+              if (isRequired)
+                const TextSpan(text: ' *', style: TextStyle(color: Colors.red)),
             ],
           ),
+        ),
+        filled: true,
+        fillColor: const Color(0xFFF5F5F0),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black54, width: 1.2),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 2.0),
         ),
       ),
     );
@@ -212,308 +142,210 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 32),
-              Center(
-                child: Column(
-                  children: [
-                    Image.asset(
-                      'assets/images/WELCOME.png',
-                      height: 80,
+      backgroundColor: const Color(0xFF5FA9A9),
+      body: Column(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.only(top: 20, bottom: 25),
+              child: Column(
+                children: [
+                  Image.asset('assets/images/alagahead.png', height: 90),
+                  const SizedBox(height: 8),
+                  Text(
+                    'ALAGA',
+                    style: GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Your partner in patient care.',
-                      style: const TextStyle(
-                        fontFamily: 'AlbertSans',
-                        fontSize: 14,
-                        fontStyle: FontStyle.italic,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 40),
-              Text(
-                'Register',
-                style: GoogleFonts.poppins(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Complete all fields to continue.',
-                style: const TextStyle(
-                  fontFamily: 'AlbertSans',
-                  fontSize: 14,
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    _buildInput(
-                      controller: _usernameCtrl,
-                      hint: 'Username',
-                      isRequired: true,
-                      validator: (v) =>
-                          v!.isEmpty ? 'Username required' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildPasswordInput(
-                      controller: _passwordCtrl,
-                      hint: 'Password',
-                      isRequired: true,
-                      isVisible: _isPasswordVisible,
-                      onToggleVisibility: () {
-                        setState(() {
-                          _isPasswordVisible = !_isPasswordVisible;
-                        });
-                      },
-                      validator: (v) {
-                        if (v!.isEmpty) return 'Password required';
-                        if (v.length < 6) return 'Password must be at least 6 characters';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    _buildPasswordInput(
-                      controller: _confirmPasswordCtrl,
-                      hint: 'Confirm Password',
-                      isRequired: false,
-                      isVisible: _isConfirmPasswordVisible,
-                      onToggleVisibility: () {
-                        setState(() {
-                          _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
-                        });
-                      },
-                      validator: (v) =>
-                          v!.isEmpty ? 'Please confirm password' : null,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 40),
-              Center(
-                child: SizedBox(
-                  width: 200,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF5FA9A9),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
-                            ),
-                          )
-                        : Text(
-                            'Sign Up',
-                            style: GoogleFonts.poppins(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black,
-                            ),
-                          ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Center(
-                child: RichText(
-                  text: TextSpan(
-                    text: 'Registered already? ',
-                    style: const TextStyle(
+                  const Text(
+                    'Your partner in patient care.',
+                    style: TextStyle(
                       fontFamily: 'AlbertSans',
-                      fontSize: 14,
-                      color: Colors.black54,
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.black,
                     ),
-                    children: [
-                      TextSpan(
-                        text: 'Log in',
-                        style: const TextStyle(
-                          fontFamily: 'AlbertSans',
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const TextSpan(
-                        text: ' instead.',
-                        style: TextStyle(
-                          fontFamily: 'AlbertSans',
-                          fontSize: 14,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    ],
                   ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF5F5F0),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(30),
+                  topRight: Radius.circular(30),
                 ),
               ),
-              const SizedBox(height: 32),
-            ],
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 30),
+                    Text('Register', style: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.w600, color: Colors.black87)),
+                    const SizedBox(height: 4),
+                    const Text('Complete all fields to continue.', style: TextStyle(fontFamily: 'AlbertSans', fontSize: 14, color: Colors.black)),
+                    const SizedBox(height: 24),
+                    Form(
+                      key: _formKey,
+                      autovalidateMode: _submitted ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
+                      child: Column(
+                        children: [
+                          _buildInput(
+                            controller: _usernameCtrl,
+                            hint: 'Username',
+                            isRequired: true,
+                            validator: (v) => v!.isEmpty ? "" : null,
+                          ),
+                          const SizedBox(height: 12),
+                          _buildInput(
+                            controller: _passwordCtrl,
+                            hint: 'Password',
+                            isRequired: true,
+                            obscureText: !_isPasswordVisible,
+                            suffixIcon: IconButton(
+                              icon: Icon(_isPasswordVisible ? Icons.visibility : Icons.visibility_off, color: Colors.black45),
+                              onPressed: () => setState(() => _isPasswordVisible = !_isPasswordVisible),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty || v.length < 12) return "";
+                              if (!v.contains(RegExp(r'[A-Z]')) || !v.contains(RegExp(r'[a-z]'))) return "";
+                              if (!v.contains(RegExp(r'[0-9]')) || !v.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/]'))) return "";
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _passwordCtrl,
+                            builder: (context, value, _) => _buildPasswordRequirements(value.text),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildInput(
+                            controller: _confirmPasswordCtrl,
+                            hint: 'Confirm Password',
+                            isRequired: true,
+                            obscureText: !_isConfirmPasswordVisible,
+                            suffixIcon: IconButton(
+                              icon: Icon(_isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off, color: Colors.black45),
+                              onPressed: () => setState(() => _isConfirmPasswordVisible = !_isConfirmPasswordVisible),
+                            ),
+                            validator: (v) => v != _passwordCtrl.text ? "" : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: 200,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _submit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5FA9A9),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                            : Text('Sign Up', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // RESTORED LOGIN NAVIGATION
+                    RichText(
+                      text: TextSpan(
+                        text: 'Registered already? ',
+                        style: const TextStyle(fontFamily: 'AlbertSans', fontSize: 14, color: Colors.black),
+                        children: [
+                          TextSpan(
+                            text: 'Log in',
+                            style: const TextStyle(
+                              fontFamily: 'AlbertSans', 
+                              fontWeight: FontWeight.w800, 
+                              color: Colors.black,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.pushAndRemoveUntil(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                                  (route) => false,
+                                );
+                              },
+                          ),
+                          const TextSpan(text: ' instead.'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildInput({
-    required TextEditingController controller,
-    required String hint,
-    required bool isRequired,
-    TextInputType keyboardType = TextInputType.text,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      validator: validator,
-      style: const TextStyle(
-        fontFamily: 'AlbertSans',
-        fontSize: 14,
-      ),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(
-          fontFamily: 'AlbertSans',
-          color: Colors.black38,
-        ),
-        label: isRequired
-            ? RichText(
-                text: TextSpan(
-                  text: hint,
-                  style: const TextStyle(
-                    fontFamily: 'AlbertSans',
-                    color: Colors.black38,
-                    fontSize: 14,
-                  ),
-                  children: const [
-                    TextSpan(
-                      text: ' *',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                  ],
-                ),
-              )
-            : null,
-        filled: true,
-        fillColor: const Color(0xFFF5F5F0),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.black54),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.black),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.red),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.red),
-        ),
-      ),
-    );
-  }
+  // [INTEGRATION] Sends the complete registration payload to POST /api/auth/register.
+  // On success, navigates to the OTP verification page.
+  // On failure, displays the backend's error message in a SnackBar.
+  Future<void> _submit() async {
+    setState(() => _submitted = true);
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
 
-  Widget _buildPasswordInput({
-    required TextEditingController controller,
-    required String hint,
-    required bool isRequired,
-    required bool isVisible,
-    required VoidCallback onToggleVisibility,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      obscureText: !isVisible,
-      validator: validator,
-      style: const TextStyle(
-        fontFamily: 'AlbertSans',
-        fontSize: 14,
-      ),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(
-          fontFamily: 'AlbertSans',
-          color: Colors.black38,
-        ),
-        label: isRequired
-            ? RichText(
-                text: TextSpan(
-                  text: hint,
-                  style: const TextStyle(
-                    fontFamily: 'AlbertSans',
-                    color: Colors.black38,
-                    fontSize: 14,
-                  ),
-                  children: const [
-                    TextSpan(
-                      text: ' *',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                  ],
-                ),
-              )
-            : Text(
-                hint,
-                style: const TextStyle(
-                  fontFamily: 'AlbertSans',
-                  color: Colors.black38,
-                  fontSize: 14,
-                ),
-              ),
-        filled: true,
-        fillColor: const Color(0xFFF5F5F0),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.black54),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.black),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.red),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.red),
-        ),
-        suffixIcon: IconButton(
-          icon: Icon(
-            isVisible ? Icons.visibility : Icons.visibility_off,
-            color: Colors.black54,
-          ),
-          onPressed: onToggleVisibility,
-        ),
-      ),
+    // Populate credentials into the RegistrationData model
+    widget.registrationData.username = _usernameCtrl.text;
+    widget.registrationData.password = _passwordCtrl.text;
+
+    // [OWASP A05] Send the complete registration payload via parameterized API service.
+    // requiresAuth: false -- no JWT needed for registration.
+    // [FIX] 45-second timeout: the backend runs DNS MX validation + bcrypt 12
+    // rounds + DB writes before responding. 15s was too short and caused the
+    // app to show "Network error" even when the registration had succeeded.
+    final result = await ApiService.post(
+      '/auth/register',
+      body: widget.registrationData.toJson(),
+      requiresAuth: false,
+      timeoutSeconds: 45,
     );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (result['success'] == true) {
+      // Backend returns { requiresOtp: true, user_id: ..., email: ... }
+      // Navigate to OTP verification page with the returned identifiers.
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => OTPVerificationPage(
+            userId: result['user_id'],
+            email: result['email'],
+            purpose: result['otpPurpose'] ?? 'REGISTER_VERIFY',
+          ),
+        ),
+      );
+    } else {
+      // [OWASP A10] Display the backend's generic error message.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['message'] ?? 'Registration failed. Please try again.',
+            style: GoogleFonts.albertSans(),
+          ),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 }

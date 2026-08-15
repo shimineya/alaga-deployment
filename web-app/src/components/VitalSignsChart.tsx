@@ -1,59 +1,87 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { VitalSign } from '../types';
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
+} from 'recharts';
 
 interface VitalSignsChartProps {
-  data: VitalSign[];
-  metric: 'heartRate' | 'temperature' | 'spo2' | 'moistureLevel';
-  title: string;
-  unit: string;
-  color?: string;
+  data: any[];
+  dataKey: string;     // e.g., 'heart_rate', 'temperature'
+  label: string;       // e.g., 'Heart Rate'
+  color?: string;      // Hex or CSS var
+  unit?: string;       // e.g., 'bpm'
 }
 
 export const VitalSignsChart: React.FC<VitalSignsChartProps> = ({
   data,
-  metric,
-  title,
-  unit,
-  color = 'var(--teal-500)',
+  dataKey,
+  label,
+  color = "var(--primary)",
+  unit = ""
 }) => {
-  const chartData = data.map(d => ({
-    time: new Date(d.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    value: Number(d[metric].toFixed(1)),
-  }));
-
   return (
-    <div className="w-full h-full">
-      <h4 className="mb-2">{title}</h4>
-      <ResponsiveContainer width="100%" height="90%">
-        <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+    <div className="w-full h-[250px] p-2">
+      <div className="flex items-center justify-between mb-2 px-2">
+        <h4 className="text-sm font-medium text-muted-foreground">{label} Trend</h4>
+      </div>
+      
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id={`gradient-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+          
           <XAxis 
-            dataKey="time" 
-            tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
-            interval="preserveStartEnd"
+            dataKey="timestamp" 
+            tickFormatter={(str) => {
+              const date = new Date(str);
+              return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }}
+            tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
           />
+          
           <YAxis 
-            tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
-            label={{ value: unit, angle: -90, position: 'insideLeft', style: { fill: 'var(--muted-foreground)' } }}
+            tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
+            domain={['auto', 'auto']} // Auto-scale based on data
           />
+          
           <Tooltip 
             contentStyle={{ 
-              backgroundColor: 'var(--card)',
-              border: '1px solid var(--border)',
+              backgroundColor: 'var(--card)', 
+              borderColor: 'var(--border)', 
               borderRadius: '8px',
+              fontSize: '12px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
             }}
+            labelStyle={{ color: 'var(--muted-foreground)' }}
+            itemStyle={{ color: color, fontWeight: 'bold' }}
+            formatter={(value: number) => [`${value} ${unit}`, label]}
           />
-          <Legend />
-          <Line 
+          
+          <Area 
             type="monotone" 
-            dataKey="value" 
+            dataKey={dataKey} 
             stroke={color} 
             strokeWidth={2}
-            dot={false}
-            name={title}
+            fillOpacity={1} 
+            fill={`url(#gradient-${dataKey})`} 
+            animationDuration={1500}
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );

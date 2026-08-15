@@ -2,97 +2,102 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Activity, Mail, Shield, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { Mail, Shield, AlertCircle, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+// [OWASP A07] Masks the email address for display so the user can confirm
+// it is correct without fully exposing it on screen.
+// Example: "coronado.carlgab@gmail.com" -> "co***@gmail.com"
+const maskEmail = (email: string): string => {
+  const [localPart, domain] = email.split('@');
+  if (!domain || localPart.length <= 2) return email;
+  return `${localPart.slice(0, 2)}***@${domain}`;
+};
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export const EmailVerification: React.FC = () => {
   const navigate = useNavigate();
   const [code, setCode] = useState(['', '', '', '', '', '']);
-  const [timeLeft, setTimeLeft] = useState(60);
+  const [resendTimer, setResendTimer] = useState(60);
   const [canResend, setCanResend] = useState(false);
-  const [attempts, setAttempts] = useState(0);
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockTimeLeft, setLockTimeLeft] = useState(0);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [codeExpired, setCodeExpired] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [shakeActive, setShakeActive] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Mock verification code (in real app, this would be generated server-side)
-  const [correctCode] = useState('123456');
-  const [codeExpiryTime, setCodeExpiryTime] = useState(Date.now() + 10 * 60 * 1000); // 10 minutes
+  // [OWASP A07] Pending verification context stored by SignUp.tsx after successful registration.
+  const [pendingData, setPendingData] = useState<{ user_id: number; email: string } | null>(null);
 
   useEffect(() => {
-    // Check if user came from signup
-    const signupData = sessionStorage.getItem('signupData');
-    if (!signupData) {
-      navigate('/signup');
+    // [OWASP A07] Guard: if there is no pending verification context, the user
+    // did not come from SignUp — redirect them back to start the flow correctly.
+    const raw = sessionStorage.getItem('pendingOtpVerification');
+    if (!raw) {
+      navigate('/registration');
       return;
     }
 
-    // Auto-focus first input
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed.user_id || !parsed.email) throw new Error('Incomplete');
+      setPendingData(parsed);
+    } catch {
+      sessionStorage.removeItem('pendingOtpVerification');
+      navigate('/registration');
+      return;
+    }
+
+    // Auto-focus first OTP box on mount
     inputRefs.current[0]?.focus();
   }, [navigate]);
 
-  // Resend timer
+  // Resend cooldown countdown
   useEffect(() => {
-    if (timeLeft > 0 && !canResend) {
-      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (timeLeft === 0) {
+    if (canResend) return;
+    if (resendTimer <= 0) {
       setCanResend(true);
+      return;
     }
-  }, [timeLeft, canResend]);
+    const timer = setTimeout(() => setResendTimer(t => t - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendTimer, canResend]);
 
-  // Lock timer
-  useEffect(() => {
-    if (isLocked && lockTimeLeft > 0) {
-      const timer = setTimeout(() => setLockTimeLeft(lockTimeLeft - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (lockTimeLeft === 0 && isLocked) {
-      setIsLocked(false);
-      setAttempts(0);
-      toast.success('Account unlocked. You may try again.');
-    }
-  }, [isLocked, lockTimeLeft]);
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
-  // Check code expiry
-  useEffect(() => {
-    const checkExpiry = setInterval(() => {
-      if (Date.now() > codeExpiryTime) {
-        setCodeExpired(true);
-        toast.error('Your verification code has expired. Please request a new one.');
-      }
-    }, 1000);
-
-    return () => clearInterval(checkExpiry);
-  }, [codeExpiryTime]);
+  const triggerShake = () => {
+    setShakeActive(true);
+    setTimeout(() => setShakeActive(false), 600);
+  };
 
   const handleInputChange = (index: number, value: string) => {
-    // Only allow numbers
+    // [OWASP A05] Allow only numeric digits in each OTP box.
     if (value && !/^\d$/.test(value)) return;
 
     const newCode = [...code];
     newCode[index] = value;
     setCode(newCode);
 
-    // Auto-focus next input
+    // Auto-advance focus to the next box
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-verify when all 6 digits are entered
-    if (newCode.every(digit => digit !== '') && newCode.join('').length === 6) {
-      setTimeout(() => verifyCode(newCode.join('')), 300);
+    // Auto-submit when all 6 digits are filled
+    if (newCode.every(d => d !== '') && newCode.join('').length === 6) {
+      setTimeout(() => submitCode(newCode.join('')), 300);
     }
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace') {
       if (!code[index] && index > 0) {
-        // Move to previous input if current is empty
         inputRefs.current[index - 1]?.focus();
       } else {
-        // Clear current input
         const newCode = [...code];
         newCode[index] = '';
         setCode(newCode);
@@ -106,118 +111,116 @@ export const EmailVerification: React.FC = () => {
 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData('text').trim();
-    
-    // Only process if it's 6 digits
-    if (/^\d{6}$/.test(pastedData)) {
-      const newCode = pastedData.split('');
-      setCode(newCode);
+    const pasted = e.clipboardData.getData('text').trim();
+    if (/^\d{6}$/.test(pasted)) {
+      const digits = pasted.split('');
+      setCode(digits);
       inputRefs.current[5]?.focus();
-      
-      // Auto-verify
-      setTimeout(() => verifyCode(pastedData), 300);
+      setTimeout(() => submitCode(pasted), 300);
     }
   };
 
-  const verifyCode = (enteredCode: string) => {
-    if (isLocked) {
-      toast.error(`Too many attempts. Please wait ${Math.floor(lockTimeLeft / 60)}:${(lockTimeLeft % 60).toString().padStart(2, '0')}`);
-      return;
-    }
-
-    if (codeExpired) {
-      toast.error('This code has expired. Please request a new one.');
-      setCode(['', '', '', '', '', '']);
-      inputRefs.current[0]?.focus();
-      return;
-    }
+  const submitCode = async (enteredCode: string) => {
+    if (!pendingData) return;
+    if (isVerifying) return;
 
     setIsVerifying(true);
+    try {
+      // [OWASP A05] Parameterized request body — no string concatenation.
+      const response = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: pendingData.user_id,
+          email: pendingData.email,
+          otp: enteredCode,
+          purpose: 'REGISTER_VERIFY',
+        }),
+      });
 
-    // Simulate API call
-    setTimeout(() => {
-      if (enteredCode === correctCode) {
-        // Success - green animation
-        toast.success('Email verified successfully!');
-        
-        // Get signup data and complete registration
-        const signupData = sessionStorage.getItem('signupData');
-        if (signupData) {
-          const userData = JSON.parse(signupData);
-          // In real app, send to backend here
-          console.log('Registering user:', userData);
-          
-          // Clear session storage
-          sessionStorage.removeItem('signupData');
-          
-          // Redirect to login
-          setTimeout(() => {
-            navigate('/login');
-          }, 1500);
-        }
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Verification succeeded — clean up and send user to login
+        sessionStorage.removeItem('pendingOtpVerification');
+        toast.success('Email verified successfully! You can now log in.');
+        setTimeout(() => navigate('/login'), 1200);
       } else {
-        // Incorrect code - red animation with shake
-        const newAttempts = attempts + 1;
-        setAttempts(newAttempts);
-
-        if (newAttempts >= 5) {
-          setIsLocked(true);
-          setLockTimeLeft(30 * 60); // 30 minutes
-          toast.error('Too many failed attempts. Account locked for 30 minutes.');
-        } else {
-          toast.error(`Invalid code. ${5 - newAttempts} attempts remaining.`);
-        }
-
-        // Shake animation
+        // [OWASP A10] Show only the server's message — no stack trace
+        triggerShake();
         setCode(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
-      }
-      setIsVerifying(false);
-    }, 800);
-  };
 
-  const handleResendCode = () => {
-    if (!canResend || codeExpired) {
-      // Generate new code
-      setCodeExpired(false);
-      setCodeExpiryTime(Date.now() + 10 * 60 * 1000);
-      setTimeLeft(60);
-      setCanResend(false);
+        if (response.status === 429) {
+          toast.error('Too many incorrect attempts. Please request a new code.');
+        } else {
+          toast.error(data.message || 'Invalid code. Please try again.');
+        }
+      }
+    } catch {
+      // [OWASP A10] Generic network error — no internal detail exposed to the user
+      toast.error('Network error. Please check your connection and try again.');
       setCode(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
-      
-      toast.success('A new verification code has been sent to your email');
+    } finally {
+      setIsVerifying(false);
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  const handleResendCode = async () => {
+    if (!canResend || !pendingData || isResending) return;
 
-  const getCodeStatus = () => {
-    const enteredCode = code.join('');
-    if (enteredCode.length === 6) {
-      if (isVerifying) return 'verifying';
-      if (enteredCode === correctCode) return 'success';
-      return 'error';
+    setIsResending(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/resend-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: pendingData.user_id,
+          email: pendingData.email,
+          purpose: 'REGISTER_VERIFY',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast.success('A new verification code has been sent to your email.');
+        setCode(['', '', '', '', '', '']);
+        setResendTimer(60);
+        setCanResend(false);
+        inputRefs.current[0]?.focus();
+      } else if (response.status === 429) {
+        // Backend enforces a 60-second cooldown between resend requests
+        toast.error('Please wait at least 60 seconds before requesting another code.');
+      } else {
+        toast.error(data.message || 'Could not resend code. Please try again.');
+      }
+    } catch {
+      toast.error('Network error. Could not resend code.');
+    } finally {
+      setIsResending(false);
     }
-    return 'default';
   };
 
-  const status = getCodeStatus();
+  const handleCancel = () => {
+    sessionStorage.removeItem('pendingOtpVerification');
+    navigate('/login');
+  };
+
+  const codeString = code.join('');
+  const isComplete = codeString.length === 6;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6" style={{ backgroundColor: '#F0FAF9' }}>
       <Card className="w-full max-w-md border-0" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)' }}>
         <CardHeader className="text-center pb-6">
           <div className="flex justify-center mb-4">
-            <div 
+            <div
               className="w-16 h-16 rounded-full flex items-center justify-center"
-              style={{ 
+              style={{
                 backgroundColor: '#7DD3C0',
-                boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)'
+                boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)',
               }}
             >
               <Mail className="w-9 h-9 text-white" />
@@ -227,117 +230,90 @@ export const EmailVerification: React.FC = () => {
             Verify Your Email
           </CardTitle>
           <CardDescription className="text-base">
-            We've sent a 6-digit code to your email address
+            We sent a 6-digit code to
           </CardDescription>
+          {pendingData && (
+            <p className="text-sm font-semibold mt-1" style={{ color: '#7DD3C0' }}>
+              {maskEmail(pendingData.email)}
+            </p>
+          )}
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {/* Warning Messages */}
-          {isLocked && (
-            <div className="p-4 rounded-lg bg-red-50 border border-red-200">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-                <div>
-                  <p className="text-sm text-red-800">
-                    Too many failed attempts. Please try again in {formatTime(lockTimeLeft)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {codeExpired && (
-            <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-200">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
-                <div>
-                  <p className="text-sm text-yellow-800">
-                    This code has expired. Please request a new one.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Code Input Boxes */}
-          <div className="space-y-4">
+          {/* OTP Input Boxes */}
+          <div className="space-y-3">
             <div className="flex justify-center gap-2">
               {code.map((digit, index) => (
                 <input
                   key={index}
-                  ref={(el) => (inputRefs.current[index] = el)}
+                  ref={el => (inputRefs.current[index] = el)}
                   type="text"
                   inputMode="numeric"
                   maxLength={1}
                   value={digit}
-                  onChange={(e) => handleInputChange(index, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  onChange={e => handleInputChange(index, e.target.value)}
+                  onKeyDown={e => handleKeyDown(index, e)}
                   onPaste={index === 0 ? handlePaste : undefined}
-                  disabled={isLocked || isVerifying}
+                  disabled={isVerifying}
                   className={`
-                    w-12 h-14 text-center text-2xl rounded-lg border-2 transition-all
-                    focus:outline-none focus:ring-2
-                    ${status === 'success' 
-                      ? 'border-green-500 bg-green-50 text-green-700' 
-                      : status === 'error'
-                      ? 'border-red-500 bg-red-50 text-red-700 animate-shake'
-                      : 'border-gray-300 focus:border-[#7DD3C0] focus:ring-[#7DD3C0]/20'
-                    }
-                    ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}
+                    w-12 h-14 text-center text-2xl font-semibold rounded-lg border-2
+                    transition-all focus:outline-none focus:ring-2
+                    ${shakeActive ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 focus:border-[#7DD3C0] focus:ring-[#7DD3C0]/20'}
+                    ${isVerifying ? 'opacity-60 cursor-not-allowed' : ''}
+                    ${shakeActive ? 'animate-shake' : ''}
                   `}
-                  style={{
-                    fontSize: '1.5rem',
-                    fontWeight: '600',
-                    color: status === 'default' ? '#2C3E50' : undefined
-                  }}
+                  style={{ color: '#2C3E50' }}
                 />
               ))}
             </div>
 
-            {/* Status Message */}
-            {status === 'verifying' && (
-              <p className="text-center text-sm" style={{ color: '#7DD3C0' }}>
-                Verifying code...
-              </p>
-            )}
-            {status === 'success' && (
-              <div className="flex items-center justify-center gap-2 text-green-600">
-                <Shield className="w-4 h-4" />
-                <p className="text-sm">Code verified successfully!</p>
+            {/* Inline status */}
+            {isVerifying && (
+              <div className="flex items-center justify-center gap-2" style={{ color: '#7DD3C0' }}>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <p className="text-sm">Verifying code...</p>
               </div>
             )}
           </div>
 
-          {/* Security Info */}
+          {/* Security notice box */}
           <div className="p-4 rounded-lg" style={{ backgroundColor: '#E8F6F3' }}>
             <div className="flex items-start gap-2">
-              <Shield className="w-5 h-5 mt-0.5" style={{ color: '#7DD3C0' }} />
-              <div className="flex-1">
-                <p className="text-sm mb-2" style={{ color: '#2C3E50' }}>
-                  <strong>Security Notice:</strong>
+              <Shield className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: '#7DD3C0' }} />
+              <div>
+                <p className="text-sm font-semibold mb-1" style={{ color: '#2C3E50' }}>
+                  Security Notice
                 </p>
-                <ul className="text-xs space-y-1" style={{ color: '#7F8C8D' }}>
+                <ul className="text-xs space-y-0.5" style={{ color: '#7F8C8D' }}>
                   <li>• Code expires in 10 minutes</li>
-                  <li>• Maximum 5 attempts allowed</li>
-                  <li>• Account locks for 30 minutes after 5 failed attempts</li>
+                  <li>• Maximum 5 attempts per code</li>
+                  <li>• Do not share this code with anyone</li>
                 </ul>
               </div>
             </div>
           </div>
 
-          {/* Resend Code */}
+          {/* Resend section */}
           <div className="text-center">
             <p className="text-sm mb-2" style={{ color: '#7F8C8D' }}>
-              Didn't receive the code?
+              Did not receive the code?
             </p>
-            {canResend || codeExpired ? (
+            {canResend ? (
               <Button
                 onClick={handleResendCode}
+                disabled={isResending}
                 variant="outline"
                 size="sm"
                 style={{ color: '#7DD3C0', borderColor: '#7DD3C0' }}
               >
-                Resend Code
+                {isResending ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin mr-2" />
+                    Sending...
+                  </>
+                ) : (
+                  'Resend Code'
+                )}
               </Button>
             ) : (
               <Button
@@ -346,28 +322,36 @@ export const EmailVerification: React.FC = () => {
                 size="sm"
                 className="opacity-50 cursor-not-allowed"
               >
-                Resend in {formatTime(timeLeft)}
+                Resend in {formatTime(resendTimer)}
               </Button>
             )}
           </div>
 
-          {/* Back to Login */}
-          <div className="text-center pt-4 border-t">
+          {/* Warning if code has not arrived */}
+          <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-200">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-yellow-800">
+                Check your spam folder if the email does not arrive within a minute.
+                The sender will be listed as the Alaga system account.
+              </p>
+            </div>
+          </div>
+
+          {/* Cancel / back */}
+          <div className="text-center pt-2 border-t">
             <button
-              onClick={() => {
-                sessionStorage.removeItem('signupData');
-                navigate('/login');
-              }}
+              onClick={handleCancel}
               className="text-sm underline"
               style={{ color: '#7DD3C0' }}
             >
-              Back to Login
+              Cancel and Return to Login
             </button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Add shake animation */}
+      {/* Shake animation */}
       <style>{`
         @keyframes shake {
           0%, 100% { transform: translateX(0); }

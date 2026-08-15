@@ -1,21 +1,32 @@
-import React from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  BarChart3, 
-  List, 
-  Heart, 
-  Bell, 
-  FileText, 
-  Wifi, 
-  Settings, 
+import React, { useState } from 'react';
+import {
+  LayoutDashboard,
+  Users,
+  List,
+  FileText,
+  Wifi,
+  Settings,
   User,
   Activity,
-  UserPlus,
-  TrendingUp,
   ClipboardList,
-  Cpu
+  LogOut,
+  ChevronDown,
+  Battery,
+  Layers,
+  RefreshCw,
+  Terminal,
+  TrendingUp,
+  Bell
 } from 'lucide-react';
+import { Button } from './ui/button';
+import { useAuth } from '../lib/auth-context';
+import { useCaregiverLanguage } from '../lib/caregiver-language-context';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 interface DashboardSidebarProps {
   activeItem?: string;
@@ -23,110 +34,138 @@ interface DashboardSidebarProps {
   userRole?: 'caregiver' | 'medical_staff';
 }
 
-const caregiverMenuItems = [
-  { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { id: 'my-patients', icon: Users, label: 'My Patients' },
-  { id: 'add-patient', icon: UserPlus, label: 'Add A New Patient' },
-  { id: 'alerts-reports', icon: Bell, label: 'Alerts & Reports' },
-  { id: 'analytics', icon: BarChart3, label: 'Analytics' },
-  { id: 'vital-signs', icon: Heart, label: 'Vital Signs' },
-  { id: 'device-status', icon: Wifi, label: 'Device Status' },
-  { id: 'settings', icon: Settings, label: 'Settings' },
-  { id: 'profile', icon: User, label: 'Profile' },
-];
+export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, onItemClick, userRole }) => {
+  const { logout } = useAuth();
+  const { t } = useCaregiverLanguage();
+  const [isDeviceMenuOpen, setIsDeviceMenuOpen] = useState(false);
+  const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false);
 
-const medicalStaffMenuItems = [
-  { id: 'dashboard', icon: LayoutDashboard, label: 'Main Dashboard' },
-  { id: 'add-patient', icon: UserPlus, label: 'Add New Patient' },
-  { id: 'master-list', icon: List, label: 'Master Patient List' },
-  { id: 'analytics-reports', icon: FileText, label: 'Analytics & Reports' },
-  { id: 'health-trends', icon: TrendingUp, label: 'Health Trends' },
-  { id: 'activity-logs', icon: ClipboardList, label: 'Activity & Logs' },
-  { id: 'sensor-health', icon: Cpu, label: 'Sensor Health' },
-  { id: 'system-settings', icon: Settings, label: 'System Settings' },
-  { id: 'profile', icon: User, label: 'Profile' },
-];
+  const caregiverMenuItems = [
+    { id: 'dashboard', icon: LayoutDashboard, label: t('Dashboard', 'Dashboard') },
+    { id: 'alerts-hub', icon: Bell, label: t('Alerts Hub', 'Alerts Hub') },
+    { id: 'patient-list', icon: List, label: t('Patient List', 'Listahan ng Pasyente') },
+    { id: 'assignment-tracker', icon: ClipboardList, label: t('Assignments', 'Mga Assignment') },
+    { id: 'user-management', icon: Users, label: t('Caregiver Management', 'Pamamahala ng Caregiver') },
+    { id: 'reports', icon: FileText, label: t('Reports', 'Mga Report') },
+    { id: 'settings', icon: Settings, label: t('Settings', 'Mga Setting') },
+    { id: 'profile', icon: User, label: t('Profile', 'Profile') },
+  ];
 
-export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ 
-  activeItem = 'dashboard',
-  onItemClick,
-  userRole = 'caregiver'
-}) => {
-  const menuItems = userRole === 'medical_staff' ? medicalStaffMenuItems : caregiverMenuItems;
+  const reportsSubItems = [
+    { id: 'reports-daily-summary', icon: Activity, label: 'Daily Health Summary' },
+    { id: 'reports-anomaly-log', icon: Battery, label: 'Anomaly Log (Silence Check)' },
+    { id: 'reports-moisture-hygiene', icon: Layers, label: 'Moisture & Hygiene Tracker' },
+    { id: 'reports-weekly-trends', icon: TrendingUp, label: 'Weekly Trend Analysis' },
+    { id: 'reports-export', icon: FileText, label: 'Exportable Health Report' },
+  ];
+
+  const deviceSubItems = [
+    { id: 'my-devices', icon: Wifi, label: 'My Devices' },
+    // Status & Battery removed (Integrated into My Devices)
+    // Groups removed (Integrated into My Devices)
+    { id: 'firmware-update', icon: RefreshCw, label: 'Firmware (OTA)' },
+    { id: 'diagnostics', icon: Terminal, label: 'Diagnostics' },
+  ];
 
   return (
-    <aside 
-      className="fixed left-0 top-0 h-screen w-60 flex flex-col"
-      style={{ backgroundColor: '#2C3E50', zIndex: 50 }}
-    >
-      {/* Logo Section */}
-      <div className="p-6 border-b border-white/10">
+    <aside className="w-64 h-screen bg-white border-r border-slate-200 flex flex-col shadow-sm sticky top-0">
+      <div className="p-6 border-b border-slate-100 bg-teal-50/30">
         <div className="flex items-center gap-3">
-          <div 
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105"
-            style={{ 
-              backgroundColor: '#7DD3C0',
-              boxShadow: '0 0 20px rgba(125, 211, 192, 0.3)'
-            }}
-          >
-            <Activity className="w-6 h-6 text-white" />
+          <div className="w-8 h-8 bg-teal-600 rounded-lg flex items-center justify-center shadow-md">
+            <Activity className="text-white w-5 h-5" />
           </div>
-          <div>
-            <h1 className="text-white text-lg tracking-tight">ALAGA</h1>
-            <p className="text-xs" style={{ color: '#BDC3C7' }}>Patient Monitoring</p>
-          </div>
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight italic">ALAGA</h1>
         </div>
       </div>
 
-      {/* Navigation Menu */}
-      <nav className="flex-1 py-4 overflow-y-auto">
-        <ul className="space-y-1 px-3">
-          {menuItems.map((item) => {
+      <nav className="flex-1 overflow-y-auto py-3">
+        <ul className="space-y-0.5 px-3">
+          {caregiverMenuItems.map((item) => {
+            // [UX] Insert Device Management dropdown after Assignment Tracker
+            if (item.id === 'user-management') {
+              return (
+                <li key="device-mgmt-dropdown" className="relative group">
+                  <DropdownMenu onOpenChange={setIsDeviceMenuOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className={`
+                          w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
+                          ${isDeviceMenuOpen ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}
+                        `}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Wifi className={`w-4 h-4 ${isDeviceMenuOpen ? 'text-teal-600' : 'text-slate-400'}`} />
+                          <span>Device Management</span>
+                        </div>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isDeviceMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="right" align="start" className="w-56 ml-2 bg-white border-slate-200 shadow-xl p-1">
+                      {deviceSubItems.map((sub) => (
+                        <DropdownMenuItem
+                          key={sub.id}
+                          onClick={() => onItemClick?.(sub.id)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs text-slate-600 cursor-pointer hover:bg-teal-50 hover:text-teal-700 rounded-md transition-colors"
+                        >
+                          <sub.icon className="w-3.5 h-3.5" />
+                          {sub.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </li>
+              );
+            }
+
+            // Reports dropdown (caregiver)
+            if (item.id === 'reports' && userRole === 'caregiver') {
+              const isReportsActive = activeItem?.startsWith('reports-');
+              return (
+                <li key="reports-dropdown" className="relative group">
+                  <DropdownMenu onOpenChange={setIsReportsMenuOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className={`
+                          w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
+                          ${isReportsMenuOpen || isReportsActive ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}
+                        `}
+                      >
+                        <div className="flex items-center gap-3">
+                          <FileText className={`w-4 h-4 ${isReportsMenuOpen || isReportsActive ? 'text-teal-600' : 'text-slate-400'}`} />
+                          <span>Reports</span>
+                        </div>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isReportsMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="right" align="start" className="w-56 ml-2 bg-white border-slate-200 shadow-xl p-1 max-h-[280px] overflow-y-auto">
+                      {reportsSubItems.map((sub) => (
+                        <DropdownMenuItem
+                          key={sub.id}
+                          onClick={() => onItemClick?.(sub.id)}
+                          className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer rounded-md transition-colors ${activeItem === sub.id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-teal-50 hover:text-teal-700'}`}
+                        >
+                          <sub.icon className="w-3.5 h-3.5" />
+                          {sub.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </li>
+              );
+            }
+
             const Icon = item.icon;
             const isActive = activeItem === item.id;
-            
             return (
               <li key={item.id}>
                 <button
                   onClick={() => onItemClick?.(item.id)}
                   className={`
-                    w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
-                    transition-all duration-300 relative
-                    ${isActive 
-                      ? 'text-white' 
-                      : 'hover:text-white'
-                    }
+                    w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
+                    ${isActive ? 'bg-teal-50 text-teal-700 shadow-sm ring-1 ring-teal-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}
                   `}
-                  style={isActive ? {
-                    backgroundColor: 'rgba(125, 211, 192, 0.15)',
-                    color: '#FFFFFF',
-                    boxShadow: '0 0 15px rgba(125, 211, 192, 0.2)'
-                  } : {
-                    color: '#BDC3C7'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.backgroundColor = 'rgba(232, 246, 243, 0.1)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }
-                  }}
                 >
-                  {/* Active indicator bar */}
-                  {isActive && (
-                    <div 
-                      className="absolute left-0 top-0 bottom-0 w-1 rounded-r"
-                      style={{ 
-                        backgroundColor: '#7DD3C0',
-                        boxShadow: '0 0 10px rgba(125, 211, 192, 0.5)'
-                      }}
-                    />
-                  )}
-                  
-                  <Icon className="w-5 h-5 flex-shrink-0" style={isActive ? { color: '#7DD3C0' } : {}} />
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-teal-600' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                 </button>
               </li>
@@ -135,12 +174,16 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
         </ul>
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-white/10">
-        <div className="text-xs text-center" style={{ color: '#7F8C8D' }}>
-          <p>© 2025 Alaga System</p>
-          <p className="mt-1">Version 1.0.0</p>
-        </div>
+      <div className="p-3 border-t border-slate-100">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-slate-500 hover:text-red-600 hover:bg-red-50 h-9"
+          onClick={() => logout()}
+        >
+          <LogOut className="w-4 h-4 mr-3" />
+          <span>Sign Out</span>
+        </Button>
       </div>
     </aside>
   );

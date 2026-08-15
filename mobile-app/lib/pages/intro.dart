@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart'; 
 import 'register.dart';
 
 class IntroPage extends StatefulWidget {
@@ -33,12 +34,11 @@ class _IntroPageState extends State<IntroPage> {
                 alignment: Alignment.topRight,
                 child: TextButton(
                   onPressed: _navigateToRegister,
-                  child: const Text(
+                  child: Text(
                     'Skip',
-                    style: TextStyle(
+                    style: GoogleFonts.poppins(
                       color: Colors.black,
                       fontSize: 16,
-                      fontFamily: 'Poppins',
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -63,7 +63,7 @@ class _IntroPageState extends State<IntroPage> {
                       image: 'assets/images/monitor.png',
                       title: 'Your Patient\'s Wellness,\nMonitored with Ease',
                       description:
-                          'Track vital signs and bed-wetting events effortlessly through a swab-based system, organized by patient and caregivers.',
+                          'Track vital signs and bed-wetting events effortlessly through a clean, intuitive dashboard designed for its users.',
                       imageHeight: 350,
                     ),
                   ),
@@ -134,11 +134,10 @@ class _IntroPageState extends State<IntroPage> {
                   ),
                   child: Text(
                     _currentPage < 2 ? 'Next' : 'Get Started',
-                    style: const TextStyle(
+                    style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: Colors.black,
-                      fontFamily: 'Poppins',
                     ),
                   ),
                 ),
@@ -172,7 +171,8 @@ class _IntroContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
+      // Prevents vertical overflow on smaller screens
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -183,21 +183,24 @@ class _IntroContent extends StatelessWidget {
             fit: BoxFit.contain,
           ),
 
-          const SizedBox(height: 40),
+          // Flexible gap so the layout adapts to available height
+          const SizedBox(height: 24),
 
+          // Using GoogleFonts for Poppins titles
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
+            style: GoogleFonts.poppins(
               fontSize: 24,
               fontWeight: FontWeight.w600,
               color: Colors.black,
+              height: 1.2,
             ),
           ),
 
           const SizedBox(height: 16),
 
+          // Using your working local 'AlbertSans' for description
           Text(
             description,
             textAlign: TextAlign.center,
@@ -208,6 +211,9 @@ class _IntroContent extends StatelessWidget {
               height: 1.6,
             ),
           ),
+
+          // Bottom padding so content never sits flush at the edge
+          const SizedBox(height: 16),
         ],
       ),
     );

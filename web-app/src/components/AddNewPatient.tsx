@@ -169,30 +169,32 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         }
     };
 
-    const handleSearchCaregiver = async (query: string) => {
-        if (!query || query.length < 3) return;
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/search?query=${query}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
-            if (data.success && data.data.length > 0) {
-                const user = data.data[0];
-                setFormData(prev => ({
-                    ...prev,
-                    assignedCaregiverName: `${user.first_name} ${user.last_name}`,
-                    assignedCaregiverId: user.user_id,
-                    assignedCaregiverEmail: user.email
-                }));
-                toast.success(`Found: ${user.first_name} ${user.last_name}`);
-            } else {
-                toast.error("User not found");
-                setFormData(prev => ({ ...prev, assignedCaregiverName: '', assignedCaregiverId: '' }));
-            }
-        } catch (error) {
-            console.error(error);
+ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const handleSearchCaregiver = async (query: string) => {
+    if (!query || query.length < 3) return;
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/search?query=${query}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success && data.data.length > 0) {
+            const user = data.data[0];
+            setFormData(prev => ({
+                ...prev,
+                assignedCaregiverName: `${user.first_name} ${user.last_name}`,
+                assignedCaregiverId: user.user_id,
+                assignedCaregiverEmail: user.email
+            }));
+            toast.success(`Found: ${user.first_name} ${user.last_name}`);
+        } else {
+            toast.error("User not found");
+            setFormData(prev => ({ ...prev, assignedCaregiverName: '', assignedCaregiverId: '' }));
         }
-    };
+    } catch (error) {
+        console.error(error);
+    }
+};
 
     const [currentStep, setCurrentStep] = useState(1);
 

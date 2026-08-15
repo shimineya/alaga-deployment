@@ -53,18 +53,20 @@ export default function SecurityControls() {
         } catch (err) { toast.error("Failed to ban IP"); }
     };
 
-    const handleUnban = async (id: number) => {
-        if (!confirm("Unban this IP?")) return;
-        try {
-            const token = localStorage.getItem('token');
-            await fetch(`http://localhost:3000/api/admin/security/ip-ban/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            toast.success("IP Unbanned");
-            fetchData();
-        } catch (err) { toast.error("Failed"); }
-    };
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const handleUnban = async (id: number) => {
+    if (!confirm("Unban this IP?")) return;
+    try {
+        const token = localStorage.getItem('token');
+        await fetch(`${API_URL}/api/admin/security/ip-ban/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        toast.success("IP Unbanned");
+        fetchData();
+    } catch (err) { toast.error("Failed"); }
+};
 
     const saveRateLimit = async () => {
         try {

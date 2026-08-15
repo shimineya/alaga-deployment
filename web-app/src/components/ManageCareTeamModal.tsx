@@ -37,32 +37,34 @@ export const ManageCareTeamModal: React.FC<ManageCareTeamModalProps> = ({
     const [loading, setLoading] = useState(false);
     const [isAssignModalOpen, setAssignModalOpen] = useState(false);
 
-    const fetchTeam = async () => {
-        if (!isOpen) return;
-        setLoading(true);
-        try {
-            const url = `http://localhost:3000/api/caregiver/patients/${patientId}/care-team`;
-            console.log("Fetching Care Team from:", url); // [DEBUG]
-            const response = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-            if (!response.ok) {
-                if (response.status === 404) throw new Error("Endpoint not found. Restart backend?");
-                throw new Error("Failed to fetch");
-            }
+const fetchTeam = async () => {
+    if (!isOpen) return;
+    setLoading(true);
+    try {
+        const url = `${API_URL}/api/caregiver/patients/${patientId}/care-team`;
+        console.log("Fetching Care Team from:", url);
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
 
-            const data = await response.json();
-            if (data.success) {
-                setTeam(data.data);
-            }
-        } catch (error: any) {
-            console.error(error);
-            toast.error(error.message || "Failed to load assigned caregivers");
-        } finally {
-            setLoading(false);
+        if (!response.ok) {
+            if (response.status === 404) throw new Error("Endpoint not found. Restart backend?");
+            throw new Error("Failed to fetch");
         }
-    };
+
+        const data = await response.json();
+        if (data.success) {
+            setTeam(data.data);
+        }
+    } catch (error: any) {
+        console.error(error);
+        toast.error(error.message || "Failed to load assigned caregivers");
+    } finally {
+        setLoading(false);
+    }
+};
 
     useEffect(() => {
         if (isOpen) {
@@ -70,27 +72,29 @@ export const ManageCareTeamModal: React.FC<ManageCareTeamModalProps> = ({
         }
     }, [isOpen, patientId]);
 
-    const handleRemove = async (userId: number) => {
-        if (!confirm("Are you sure you want to remove this caregiver?")) return;
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/care-team/${userId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+const handleRemove = async (userId: number) => {
+    if (!confirm("Are you sure you want to remove this caregiver?")) return;
 
-            if (data.success) {
-                toast.success("Caregiver removed");
-                fetchTeam(); // Refresh local list
-                onUpdate(); // Refresh parent tracker
-            } else {
-                toast.error(data.message);
-            }
-        } catch (error) {
-            toast.error("Failed to remove caregiver");
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/care-team/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            toast.success("Caregiver removed");
+            fetchTeam();
+            onUpdate();
+        } else {
+            toast.error(data.message);
         }
-    };
+    } catch (error) {
+        toast.error("Failed to remove caregiver");
+    }
+};
 
     return (
         <>

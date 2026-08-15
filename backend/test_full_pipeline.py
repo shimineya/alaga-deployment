@@ -1,7 +1,7 @@
 import requests
 import json
 
-SERVER_URL = "http://localhost:3000/api/sensor/reading"
+SERVER_URL = "https://alaga-backend.onrender.com/api/sensor/reading"
 DEVICE_SERIAL = "VS-2026-0001"
 DEVICE_TOKEN = "VS-2026-0001"
 

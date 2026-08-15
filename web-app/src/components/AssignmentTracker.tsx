@@ -119,50 +119,54 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
     }, [fetchData]);
 
     // --- ACTIONS ---
-    const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') => {
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/unlink-device`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ type })
-            });
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-            const data = await response.json();
-            if (data.success) {
-                toast.success("Device unlinked successfully");
-                fetchData();
-                if (onRefresh) onRefresh(); // Trigger parent refresh
-            } else {
-                toast.error(data.message || "Failed to unlink device");
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error("Network error during unlink");
+const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') => {
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-device`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ type })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            toast.success("Device unlinked successfully");
+            fetchData();
+            if (onRefresh) onRefresh();
+        } else {
+            toast.error(data.message || "Failed to unlink device");
         }
-    };
+    } catch (error) {
+        console.error(error);
+        toast.error("Network error during unlink");
+    }
+};
 
-    const handleUnlinkCaregiver = async (patientId: number) => {
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/unlink-caregiver`, {
-                method: 'PUT',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-            const data = await response.json();
-            if (data.success) {
-                toast.success("Caregiver removed from patient");
-                fetchData();
-                if (onRefresh) onRefresh(); // Trigger parent refresh
-            } else {
-                toast.error("Failed to remove caregiver");
-            }
-        } catch (error) {
-            toast.error("Network error");
+const handleUnlinkCaregiver = async (patientId: number) => {
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-caregiver`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            toast.success("Caregiver removed from patient");
+            fetchData();
+            if (onRefresh) onRefresh();
+        } else {
+            toast.error("Failed to remove caregiver");
         }
-    };
+    } catch (error) {
+        toast.error("Network error");
+    }
+};
 
     const openAssignDevice = (pId: number, pName: string) => {
         setSelectedPatientId(pId);

@@ -32,73 +32,75 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
     const [searchResults, setSearchResults] = useState<{ id: number, name: string, email: string }[]>([]);
     const [hasSearched, setHasSearched] = useState(false);
 
-    const handleSearch = async () => {
-        if (!searchQuery) return;
-        setLoading(true);
-        setSearchResults([]); // Clear previous
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/search?query=${encodeURIComponent(searchQuery)}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-            if (data.success && Array.isArray(data.data)) {
-                // Map DB columns to UI expected format
-                const mapped = data.data.map((u: any) => ({
-                    id: u.user_id,
-                    name: `${u.first_name} ${u.last_name}`.trim() || u.username,
-                    email: u.email
-                }));
-                setSearchResults(mapped);
-            } else {
-                setSearchResults([]);
-            }
-        } catch (error) {
-            console.error("Search error:", error);
-            toast.error("Failed to search users");
-        } finally {
-            setHasSearched(true);
-            setLoading(false);
+const handleSearch = async () => {
+    if (!searchQuery) return;
+    setLoading(true);
+    setSearchResults([]);
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/search?query=${encodeURIComponent(searchQuery)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.success && Array.isArray(data.data)) {
+            const mapped = data.data.map((u: any) => ({
+                id: u.user_id,
+                name: `${u.first_name} ${u.last_name}`.trim() || u.username,
+                email: u.email
+            }));
+            setSearchResults(mapped);
+        } else {
+            setSearchResults([]);
         }
-    };
+    } catch (error) {
+        console.error("Search error:", error);
+        toast.error("Failed to search users");
+    } finally {
+        setHasSearched(true);
+        setLoading(false);
+    }
+};
 
-    const handleAssign = async (caregiverId: number | null, email: string | null = null) => {
-        // [OWASP] If email (invite) logic is needed later, we can add it. For now, only ID assignment.
-        if (!caregiverId && email) {
-            toast.info("Email invitation feature coming soon.");
-            return;
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const handleAssign = async (caregiverId: number | null, email: string | null = null) => {
+    if (!caregiverId && email) {
+        toast.info("Email invitation feature coming soon.");
+        return;
+    }
+    if (!caregiverId) return;
+
+    setLoading(true);
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/assign-caregiver`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                caregiverId,
+                relationship
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            toast.success("Caregiver assigned successfully.");
+            onSuccess();
+        } else {
+            toast.error(data.message || "Failed to assign caregiver");
         }
-        if (!caregiverId) return;
-
-        setLoading(true);
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/assign-caregiver`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    caregiverId,
-                    relationship
-                })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                toast.success("Caregiver assigned successfully.");
-                onSuccess();
-            } else {
-                toast.error(data.message || "Failed to assign caregiver");
-            }
-        } catch (error) {
-            console.error("Assignment error:", error);
-            toast.error("Network error: Failed to assign");
-        } finally {
-            setLoading(false);
-        }
-    };
+    } catch (error) {
+        console.error("Assignment error:", error);
+        toast.error("Network error: Failed to assign");
+    } finally {
+        setLoading(false);
+    }
+};
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

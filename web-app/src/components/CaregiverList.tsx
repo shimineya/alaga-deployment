@@ -53,35 +53,37 @@ export const CaregiverList: React.FC<CaregiverListProps> = ({
         setIsUpdateOpen(true);
     };
 
-    const handleRevoke = async (caregiverId: string, caregiverName: string) => {
-        if (!confirm(`Are you sure you want to remove ${caregiverName} from the care team?`)) return;
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-        try {
-            const response = await fetch('http://localhost:3000/api/assignments/caregiver/revoke', {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    patient_id: patientId,
-                    target_user_id: caregiverId
-                })
-            });
+const handleRevoke = async (caregiverId: string, caregiverName: string) => {
+    if (!confirm(`Are you sure you want to remove ${caregiverName} from the care team?`)) return;
 
-            const data = await response.json();
+    try {
+        const response = await fetch(`${API_URL}/api/assignments/caregiver/revoke`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                patient_id: patientId,
+                target_user_id: caregiverId
+            })
+        });
 
-            if (data.success) {
-                toast.success(`${caregiverName} removed successfully.`);
-                onRefresh();
-            } else {
-                toast.error(data.message || "Failed to remove caregiver.");
-            }
-        } catch (err) {
-            console.error(err);
-            toast.error("Network error.");
+        const data = await response.json();
+
+        if (data.success) {
+            toast.success(`${caregiverName} removed successfully.`);
+            onRefresh();
+        } else {
+            toast.error(data.message || "Failed to remove caregiver.");
         }
-    };
+    } catch (err) {
+        console.error(err);
+        toast.error("Network error.");
+    }
+};
 
     return (
         <Card className="border-slate-200 shadow-sm">

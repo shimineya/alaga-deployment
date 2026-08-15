@@ -66,23 +66,25 @@ export default function DeviceGovernance() {
         }
     };
 
-    const toggleStatus = async (mac: string, currentStatus: string) => {
-        const newStatus = currentStatus === 'ACTIVE' ? 'REVOKED' : 'ACTIVE';
-        if (!confirm(`Are you sure you want to set this device to ${newStatus}?`)) return;
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-        try {
-            const token = localStorage.getItem('token');
-            await fetch(`http://localhost:3000/api/admin/devices/${mac}/status`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ status: newStatus })
-            });
-            toast.success(`Device ${newStatus}`);
-            fetchDevices();
-        } catch (err) {
-            toast.error("Failed to update status");
-        }
-    };
+const toggleStatus = async (mac: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'ACTIVE' ? 'REVOKED' : 'ACTIVE';
+    if (!confirm(`Are you sure you want to set this device to ${newStatus}?`)) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        await fetch(`${API_URL}/api/admin/devices/${mac}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ status: newStatus })
+        });
+        toast.success(`Device ${newStatus}`);
+        fetchDevices();
+    } catch (err) {
+        toast.error("Failed to update status");
+    }
+};
 
     return (
         <div className="space-y-6">

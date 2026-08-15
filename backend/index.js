@@ -1,6 +1,12 @@
 require('dotenv').config(); // [OWASP A02] Load env vars before any other module reads them
 const express = require('express');
+
 const cors = require('cors');
+app.use(cors({
+  origin: 'https://alaga01.netlify.app',
+  credentials: true
+}));
+
 const helmet = require('helmet'); // [OWASP A02] Security Headers
 const rateLimit = require('express-rate-limit'); // [OWASP A07] Brute Force Protection
 const { body, validationResult } = require('express-validator'); // [OWASP A05] Input Validation
@@ -20,7 +26,12 @@ const scheduleRoutes = require('./routes/schedules');
 const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
+
 const port = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 const OTP_EXPIRY_MINUTES = 10;
 

@@ -25,7 +25,7 @@ const scheduleRoutes = require('./routes/schedules');
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
 const adminRoutes = require('./routes/adminRoutes');
 
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

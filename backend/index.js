@@ -1100,6 +1100,6 @@ app.use((err, req, res, next) => {
 const HOST = '0.0.0.0';
 
 app.listen(PORT, HOST, () => {
-    console.log(`ALAGA Server running on http://${HOST}:${port}`);
+    console.log(`ALAGA Server running on http://${HOST}:${PORT}`);
     console.log(`Accepting local network connections for mobile testing.`);
 });

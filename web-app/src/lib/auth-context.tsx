@@ -5,8 +5,6 @@ interface User {
   user_id: number;
   username: string;
   email: string;
-  // [OWASP A01] All six role tiers recognised by the backend.
-  // 'parent' is the consumer-facing home-monitoring role (mirrors mobile isParent flag).
   role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver' | 'parent';
   account_status: string;
   facility_id?: number | null;
@@ -15,19 +13,12 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  // [RBAC] Flat permission map loaded from the backend on login.
-  // Key = module_id (e.g. 'my-patients'), Value = true/false.
-  // An absent key means "follow role default" (treated as granted).
-  permissions: Record<string, boolean>;
-  // [RBAC] True when the logged-in account is a system admin tier.
-  // SysAdmins are always exempt from permission restrictions.
+  permissions: Record;
   isSysAdmin: boolean;
   login: (usernameOrEmail: string, password: string) => Promise<{
     success: boolean;
     user?: User;
     message?: string;
-    // [OWASP A07] Surfaces unverified-account state so the login page can
-    // redirect the user to /verify-email instead of showing a generic error.
     requiresOtp?: boolean;
     user_id?: number;
     email?: string;
@@ -36,32 +27,24 @@ interface AuthContextType {
   isLoading: boolean;
   token: string | null;
   updateToken: (newToken: string) => void;
-  // [RBAC] Re-fetch permissions (call after a sysadmin updates their own account, if needed)
-  refreshPermissions: () => Promise<void>;
-  // [UX] Re-read the user object from localStorage and update React state.
-  // Call this after a successful profile/username update so the header and
-  // sidebar reflect the change immediately without a full logout.
+  refreshPermissions: () => Promise;
   refreshUser: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext(undefined);
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
-  // [RBAC] Permissions are NOT persisted to localStorage — they are always
-  // fetched fresh from the backend on login / page load.
-  // This ensures a revoked permission takes effect on the next session,
-  // without stale data surviving a browser refresh.
-  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+  const [permissions, setPermissions] = useState>({});
   const [isSysAdmin, setIsSysAdmin] = useState(false);
 
-  // [OWASP A01] Fetch the logged-in user's effective permission map from the backend.
-  // This merges role_permissions (defaults) + user_permission_overrides (per-user).
   const fetchPermissions = useCallback(async (activeToken: string) => {
     try {
-      const res = await fetch('http://localhost:3000/api/auth/my-permissions', {
+      const res = await fetch(`${API_URL}/api/auth/my-permissions`, {
         headers: { 'Authorization': `Bearer ${activeToken}` },
       });
       const data = await res.json();
@@ -70,20 +53,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsSysAdmin(data.isSysAdmin === true);
       }
     } catch {
-      // [OWASP A10] Network failure on permission fetch — fail open for prototype.
-      // In production, this should fail closed (deny all) until the fetch succeeds.
-      // TECHNICAL DEBT: replace with fail-closed logic before commercial release.
       setPermissions({});
     }
   }, []);
 
-  // Public refresh function exposed via context (for edge-case use)
   const refreshPermissions = useCallback(async () => {
     const activeToken = localStorage.getItem('token');
     if (activeToken) await fetchPermissions(activeToken);
   }, [fetchPermissions]);
 
-  // 1. Check for existing session on page load (Auto-Login + Permission Restore)
   useEffect(() => {
     const checkLogin = async () => {
       const storedToken = localStorage.getItem('token');
@@ -93,7 +71,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           setUser(JSON.parse(storedUser));
           setToken(storedToken);
-          // [RBAC] Fetch permissions every page load so revocations take effect on refresh
           await fetchPermissions(storedToken);
         } catch (e) {
           console.error('Failed to restore session', e);
@@ -105,7 +82,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkLogin();
   }, [fetchPermissions]);
 
-  // [Kill Switch] Global 401 interceptor to enforce session revocation
   useEffect(() => {
     const originalFetch = window.fetch;
     window.fetch = async (...args) => {
@@ -126,10 +102,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { window.fetch = originalFetch; };
   }, []);
 
-  // 2. Login Function
   const login = async (usernameOrEmail: string, password: string) => {
     try {
-      const response = await fetch('http://localhost:3000/api/auth/login', {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: usernameOrEmail, password }),
@@ -142,13 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('user', JSON.stringify(data.user));
         setUser(data.user);
         setToken(data.token);
-        // [RBAC] Fetch this user's effective permissions immediately after login
         await fetchPermissions(data.token);
         return { success: true, user: data.user };
       }
 
-      // [OWASP A07] Surface the unverified-account state so LoginPage can
-      // redirect to /verify-email instead of showing a generic error message.
       return {
         success: false,
         message: data.message || 'Login failed',
@@ -165,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const t = localStorage.getItem('token');
       if (t) {
-        await fetch('http://localhost:3000/api/auth/logout', {
+        await fetch(`${API_URL}/api/auth/logout`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
         });
@@ -185,34 +157,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(newToken);
   };
 
-  // [UX] Re-read the stored user from localStorage and push it into React
-  // state so that any component reading user?.username (sidebar, header)
-  // reflects the latest value after a profile save — without a full re-login.
   const refreshUser = () => {
     try {
       const storedUser = localStorage.getItem('user');
       if (storedUser) setUser(JSON.parse(storedUser));
     } catch {
-      // If the stored value is corrupt, leave state as-is
+      // If corrupt, leave state
     }
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      login,
-      logout,
-      isLoading,
-      isAuthenticated: !!user,
-      permissions,
-      isSysAdmin,
-      token,
-      updateToken,
-      refreshPermissions,
-      refreshUser,
-    }}>
+    
       {children}
-    </AuthContext.Provider>
+    
   );
 };
 

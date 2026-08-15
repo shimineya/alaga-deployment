@@ -1,7 +1,7 @@
 require('dotenv').config(); // [OWASP A02] Load env vars before any other module reads them
 const express = require('express');
-
 const cors = require('cors');
+const app = express();
 app.use(cors({
   origin: 'https://alaga01.netlify.app',
   credentials: true

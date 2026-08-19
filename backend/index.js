@@ -19,8 +19,8 @@ const scheduleRoutes = require('./routes/schedules');
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        user: process.env.EMAIL_USER || process.env.SMTP_USER,
+        pass: process.env.EMAIL_PASS || process.env.SMTP_PASS
     }
 });
 
@@ -170,7 +170,7 @@ const loadSmtpConfig = async () => {
 const sendOtpEmail = async ({ to, otp, purpose }) => {
   try {
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_USER || process.env.SMTP_USER,
       to,
       subject: 'Your OTP Code',
       html: `<p>Your verification code is: <strong>${otp}</strong></p>`

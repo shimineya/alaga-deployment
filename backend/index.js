@@ -2,10 +2,6 @@ require('dotenv').config(); // [OWASP A02] Load env vars before any other module
 const express = require('express');
 const cors = require('cors');
 const app = express();
-app.use(cors({
-  origin: 'https://alaga01.netlify.app',
-  credentials: true
-}));
 
 const helmet = require('helmet'); // [OWASP A02] Security Headers
 const rateLimit = require('express-rate-limit'); // [OWASP A07] Brute Force Protection
@@ -40,6 +36,7 @@ const OTP_EXPIRY_MINUTES = 10;
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:3000',
+    'https://alaga01.netlify.app',
     process.env.FRONTEND_URL // Must be set in Render Dashboard (e.g., 'https://alaga-app.netlify.app')
 ].filter(Boolean); // Removes undefined values when running locally to prevent mapping errors
 

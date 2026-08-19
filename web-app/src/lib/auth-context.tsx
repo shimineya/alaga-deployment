@@ -13,7 +13,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  permissions: Record;
+  permissions: Record<string, boolean>;
   isSysAdmin: boolean;
   login: (usernameOrEmail: string, password: string) => Promise<{
     success: boolean;
@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
-  const [permissions, setPermissions] = useState<Record<string, string>>({});
+  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isSysAdmin, setIsSysAdmin] = useState(false);
 
   const fetchPermissions = useCallback(async (activeToken: string) => {

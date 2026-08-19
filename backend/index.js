@@ -20,6 +20,8 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 const scheduleRoutes = require('./routes/schedules');
+const { Resend } = require('resend');
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -164,39 +166,23 @@ const loadSmtpConfig = async () => {
 };
 
 const sendOtpEmail = async ({ to, otp, purpose }) => {
-    const smtp = await loadSmtpConfig();
-    if (!smtp || !smtp.host || !smtp.user || !smtp.pass) {
-        throw new Error('SMTP is not configured. Configure smtp_config first.');
-    }
-
-    const transporter = nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        auth: { user: smtp.user, pass: smtp.pass },
+  if (!resend) {
+    console.warn('Failed to send email: RESEND_API_KEY is not configured in process.env');
+    return;
+  }
+  try {
+    const data = await resend.emails.send({
+      from: 'Alaga Monitoring System <onboarding@resend.dev>', // Use onboarding@resend.dev for testing if you haven't verified a custom domain yet
+      to: [to],
+      subject: 'Your OTP Code',
+      html: `<p>Your verification code is: <strong>${otp}</strong></p>`
     });
 
-    const subject =
-        purpose === 'REGISTER_VERIFY'
-            ? 'ALAGA Email Verification Code'
-            : 'ALAGA One-Time Password';
-
-    const html = `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-            <h2>ALAGA Verification</h2>
-            <p>Your one-time verification code is:</p>
-            <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
-            <p>This code expires in ${OTP_EXPIRY_MINUTES} minutes.</p>
-            <p>If you did not request this, you can ignore this email.</p>
-        </div>
-    `;
-
-    await transporter.sendMail({
-        from: smtp.from,
-        to,
-        subject,
-        html,
-    });
+    console.log('Email sent successfully:', data);
+  } catch (error) {
+    console.error('Failed to send email via Resend:', error);
+    throw error;
+  }
 };
 
 // ==========================================

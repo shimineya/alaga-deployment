@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
-  const [permissions, setPermissions] = useState>({});
+  const [permissions, setPermissions] = useState<Record<string, string>>({});
   const [isSysAdmin, setIsSysAdmin] = useState(false);
 
   const fetchPermissions = useCallback(async (activeToken: string) => {

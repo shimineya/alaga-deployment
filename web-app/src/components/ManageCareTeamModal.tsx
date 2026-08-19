@@ -72,8 +72,6 @@ const fetchTeam = async () => {
         }
     }, [isOpen, patientId]);
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
 const handleRemove = async (userId: number) => {
     if (!confirm("Are you sure you want to remove this caregiver?")) return;
 

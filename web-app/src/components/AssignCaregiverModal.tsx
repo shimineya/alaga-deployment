@@ -63,8 +63,6 @@ const handleSearch = async () => {
     }
 };
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
 const handleAssign = async (caregiverId: number | null, email: string | null = null) => {
     if (!caregiverId && email) {
         toast.info("Email invitation feature coming soon.");

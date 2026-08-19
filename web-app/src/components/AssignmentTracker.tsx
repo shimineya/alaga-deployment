@@ -146,8 +146,6 @@ const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') =
     }
 };
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
 const handleUnlinkCaregiver = async (patientId: number) => {
     try {
         const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-caregiver`, {

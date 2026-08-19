@@ -17,7 +17,7 @@ router.get('/clinical', async (req, res) => {
         let params;
 
         // [OWASP A01] Role-Based Data Scoping
-        if (role === 'admin' || role === 'medical_staff' || role === 'sysadmin' || role === 'system_admin') {
+        if (role === 'admin' || role === 'medical_staff' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
             // High-level staff see all active clinical alerts
             query = `
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 

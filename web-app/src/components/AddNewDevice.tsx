@@ -37,8 +37,8 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
             toast.info("Analyzing QR Code...");
 
             setTimeout(() => {
-                setVitalDeviceNo("VS-2025-001");
-                setDiaperDeviceNo("SD-2025-002");
+                setVitalDeviceNo("VS-2026-0001");
+                setDiaperDeviceNo("SD-2026-0002");
                 setIsLoading(false);
                 setActiveTab("manual");
                 toast.success("QR Code Scanned Successfully!");
@@ -130,7 +130,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                             </Label>
                             <Input
                                 id="vitalDeviceNo"
-                                placeholder="e.g. VS-2025-001"
+                                placeholder="e.g. VS-2026-0001"
                                 value={vitalDeviceNo}
                                 onChange={(e) => {
                                     setVitalDeviceNo(e.target.value.toUpperCase());
@@ -148,7 +148,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                             </Label>
                             <Input
                                 id="diaperDeviceNo"
-                                placeholder="e.g. SD-2025-001"
+                                placeholder="e.g. SD-2026-0001"
                                 value={diaperDeviceNo}
                                 onChange={(e) => {
                                     setDiaperDeviceNo(e.target.value.toUpperCase());

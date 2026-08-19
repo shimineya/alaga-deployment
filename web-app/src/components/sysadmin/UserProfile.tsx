@@ -129,7 +129,7 @@ export default function UserProfile() {
                         profile_picture_url: data.profile.profile_picture_url || prev.profile_picture_url
                     }));
 
-                    // [UX] Write the updated username back to the stored user object
+                    // [UX] Write the updated username and profile picture back to the stored user object
                     // so that the sidebar and header reflect the change on next render
                     // without requiring a full logout and re-login cycle.
                     try {
@@ -137,6 +137,7 @@ export default function UserProfile() {
                         if (storedUser) {
                             const parsed = JSON.parse(storedUser);
                             parsed.username = data.profile.username || parsed.username;
+                            parsed.profile_picture_url = data.profile.profile_picture_url || parsed.profile_picture_url;
                             localStorage.setItem('user', JSON.stringify(parsed));
                             refreshUser(); // Sync React auth state from updated localStorage
                         }

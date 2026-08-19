@@ -8,6 +8,7 @@ interface User {
   role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver' | 'parent';
   account_status: string;
   facility_id?: number | null;
+  profile_picture_url?: string | null;
 }
 
 interface AuthContextType {

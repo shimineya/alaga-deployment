@@ -65,12 +65,11 @@ router.get('/devices', async (req, res) => {
 // ==========================================
 router.post('/devices', async (req, res) => {
     // [OWASP A01] Role guard: only the parent / admin accounts can register devices.
-    // A caregiver hitting this endpoint directly (e.g. via Postman) is rejected here
-    // even if the mobile UI has already hidden the button from them.
-    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent') {
+    // A caregiver, parent or admin account can register devices.
+    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent' && req.user.role !== 'caregiver') {
         return res.status(403).json({
             success: false,
-            message: 'Only parent or administrator accounts can register new devices.'
+            message: 'Only parent, caregiver, or administrator accounts can register new devices.'
         });
     }
 

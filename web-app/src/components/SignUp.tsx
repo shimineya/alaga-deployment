@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -9,8 +9,12 @@ import { toast } from 'sonner';
 
 export const SignUp: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const userType = location.state?.userType || 'clinical';
   const [loading, setLoading] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<'caregiver' | 'medical_staff'>('caregiver');
+  const [selectedRole, setSelectedRole] = useState<'caregiver' | 'medical_staff' | 'parent'>(
+    userType === 'home' ? 'parent' : 'caregiver'
+  );
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -108,23 +112,30 @@ export const SignUp: React.FC = () => {
         <CardContent className="p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
 
-            {/* Role Selection (Compact Toggle) */}
-            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg mb-4">
-              <button
-                type="button"
-                onClick={() => setSelectedRole('caregiver')}
-                className={`flex items-center justify-center gap-2 text-xs font-medium py-1.5 rounded-md transition-all ${selectedRole === 'caregiver' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <UserPlus className="w-3.5 h-3.5" /> Caregiver
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedRole('medical_staff')}
-                className={`flex items-center justify-center gap-2 text-xs font-medium py-1.5 rounded-md transition-all ${selectedRole === 'medical_staff' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <Stethoscope className="w-3.5 h-3.5" /> Medical Staff
-              </button>
-            </div>
+            {/* Role Selection (Compact Toggle or Static Indicator) */}
+            {userType === 'home' ? (
+              <div className="flex items-center justify-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-lg mb-4 text-xs font-semibold">
+                <UserPlus className="w-4 h-4 text-amber-600" />
+                Registering Parent / Guardian Account (Home Use)
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg mb-4">
+                <button
+                  type="button"
+                  onClick={() => setSelectedRole('caregiver')}
+                  className={`flex items-center justify-center gap-2 text-xs font-medium py-1.5 rounded-md transition-all ${selectedRole === 'caregiver' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <UserPlus className="w-3.5 h-3.5" /> Caregiver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRole('medical_staff')}
+                  className={`flex items-center justify-center gap-2 text-xs font-medium py-1.5 rounded-md transition-all ${selectedRole === 'medical_staff' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <Stethoscope className="w-3.5 h-3.5" /> Medical Staff
+                </button>
+              </div>
+            )}
 
             {/* Row 1: Names */}
             <div className="grid grid-cols-12 gap-3">

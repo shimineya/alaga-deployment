@@ -114,8 +114,16 @@ export default function AppSidebar() {
       {/* User Area bottom */}
       <div className="p-4 border-t border-slate-800 bg-slate-900/50">
         <div className="flex items-center gap-3 mb-4 px-2">
-          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 border border-slate-700">
-            <UserCircle className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-800 flex items-center justify-center text-slate-300 border border-slate-700">
+            {user?.profile_picture_url ? (
+              <img
+                src={`${import.meta.env.VITE_API_URL || ''}${user.profile_picture_url}`}
+                alt="Avatar"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <UserCircle className="w-5 h-5" />
+            )}
           </div>
           <div className="overflow-hidden">
             <p className="text-sm font-bold text-white truncate">{user?.name || user?.username || 'User'}</p>

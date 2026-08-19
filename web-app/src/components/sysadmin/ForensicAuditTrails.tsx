@@ -69,10 +69,12 @@ export default function ForensicAuditTrails() {
         fetchLogs(tab);
     };
 
-    const handleExportPdf = () => {
-        window.open(`http://localhost:3000/api/sysadmin/audit-logs/export`, '_blank');
-        toast.info('PDF export started. Event logged.');
-    };
+   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const handleExportPdf = () => {
+    window.open(`${API_URL}/api/sysadmin/audit-logs/export`, '_blank');
+    toast.info('PDF export started. Event logged.');
+};
 
     const tabs = [
         { key: 'all', label: 'All Events' },

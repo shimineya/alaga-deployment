@@ -189,20 +189,22 @@ export default function SystemSettings() {
     };
 
     // 5. Delete Announcement
-    const deleteAnnouncement = async (id: number) => {
-        if (!confirm("Delete this announcement?")) return;
-        try {
-            const token = localStorage.getItem('token');
-            await fetch(`http://localhost:3000/api/admin/announcements/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            toast.success("Deleted");
-            fetchAnnouncements();
-        } catch (err) {
-            toast.error("Failed to delete");
-        }
-    };
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const deleteAnnouncement = async (id: number) => {
+    if (!confirm("Delete this announcement?")) return;
+    try {
+        const token = localStorage.getItem('token');
+        await fetch(`${API_URL}/api/admin/announcements/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        toast.success("Deleted");
+        fetchAnnouncements();
+    } catch (err) {
+        toast.error("Failed to delete");
+    }
+};
 
     // 6. Test Email (New)
     const handleTestEmail = async () => {

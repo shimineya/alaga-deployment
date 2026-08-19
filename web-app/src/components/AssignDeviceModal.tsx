@@ -64,34 +64,36 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
         }
     }, [isOpen, token]);
 
-    const handleAssign = async () => {
-        if (!selectedDevice) return;
-        setLoading(true);
-        try {
-            const response = await fetch(`http://localhost:3000/api/caregiver/patients/${patientId}/assign-device`, {
-                method: 'POST', // Changed from PUT to POST to match my backend addition
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ serialNumber: selectedDevice })
-            });
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-            const data = await response.json();
+const handleAssign = async () => {
+    if (!selectedDevice) return;
+    setLoading(true);
+    try {
+        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/assign-device`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ serialNumber: selectedDevice })
+        });
 
-            if (data.success) {
-                toast.success(`Assigned ${selectedDevice} to ${patientName}`);
-                onSuccess();
-            } else {
-                toast.error(data.message || "Failed to assign device");
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error("Network error: Failed to assign device");
-        } finally {
-            setLoading(false);
+        const data = await response.json();
+
+        if (data.success) {
+            toast.success(`Assigned ${selectedDevice} to ${patientName}`);
+            onSuccess();
+        } else {
+            toast.error(data.message || "Failed to assign device");
         }
-    };
+    } catch (error) {
+        console.error(error);
+        toast.error("Network error: Failed to assign device");
+    } finally {
+        setLoading(false);
+    }
+};
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

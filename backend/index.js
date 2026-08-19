@@ -2,6 +2,7 @@ require('dotenv').config(); // [OWASP A02] Load env vars before any other module
 const express = require('express');
 const cors = require('cors');
 const app = express();
+app.set('trust proxy', 1);
 
 const helmet = require('helmet'); // [OWASP A02] Security Headers
 const rateLimit = require('express-rate-limit'); // [OWASP A07] Brute Force Protection

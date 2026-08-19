@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from './ui/button';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
+import { API_URL } from '../lib/config';
 import { Users, Trash2, UserPlus, Shield, Loader2 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { AssignCaregiverModal } from './AssignCaregiverModal';
@@ -36,8 +37,6 @@ export const ManageCareTeamModal: React.FC<ManageCareTeamModalProps> = ({
     const [team, setTeam] = useState<CareTeamMember[]>([]);
     const [loading, setLoading] = useState(false);
     const [isAssignModalOpen, setAssignModalOpen] = useState(false);
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const fetchTeam = async () => {
     if (!isOpen) return;

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../lib/auth-context';
+import { API_URL } from '../lib/config';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -168,8 +169,6 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
             setIsLoading(false);
         }
     };
-
- const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleSearchCaregiver = async (query: string) => {
     if (!query || query.length < 3) return;

@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
+import { API_URL } from '../lib/config';
 import {
     Users,
     Smartphone,
@@ -119,7 +120,6 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
     }, [fetchData]);
 
     // --- ACTIONS ---
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') => {
     try {

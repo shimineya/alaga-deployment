@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
+import { API_URL } from '../lib/config';
 import { UserPlus, Loader2, Mail, Search } from 'lucide-react';
 
 interface AssignCaregiverModalProps {
@@ -31,8 +32,6 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
     // Mock Search State
     const [searchResults, setSearchResults] = useState<{ id: number, name: string, email: string }[]>([]);
     const [hasSearched, setHasSearched] = useState(false);
-
- const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleSearch = async () => {
     if (!searchQuery) return;

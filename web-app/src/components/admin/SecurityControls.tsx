@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { API_URL } from "@/lib/config";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -52,8 +53,6 @@ export default function SecurityControls() {
             }
         } catch (err) { toast.error("Failed to ban IP"); }
     };
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleUnban = async (id: number) => {
     if (!confirm("Unban this IP?")) return;

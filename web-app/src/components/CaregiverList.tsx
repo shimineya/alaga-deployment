@@ -9,6 +9,7 @@ import { AssignCaregiverModal } from './AssignCaregiverModal';
 import { UpdateCaregiverModal } from './UpdateCaregiverModal';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
+import { API_URL } from '../lib/config';
 
 /* 
   [Data Privacy Act] 
@@ -52,8 +53,6 @@ export const CaregiverList: React.FC<CaregiverListProps> = ({
         setSelectedCaregiver(caregiver);
         setIsUpdateOpen(true);
     };
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleRevoke = async (caregiverId: string, caregiverName: string) => {
     if (!confirm(`Are you sure you want to remove ${caregiverName} from the care team?`)) return;

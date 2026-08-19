@@ -16,8 +16,13 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 const scheduleRoutes = require('./routes/schedules');
-const { Resend } = require('resend');
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -163,21 +168,17 @@ const loadSmtpConfig = async () => {
 };
 
 const sendOtpEmail = async ({ to, otp, purpose }) => {
-  if (!resend) {
-    console.warn('Failed to send email: RESEND_API_KEY is not configured in process.env');
-    return;
-  }
   try {
-    const data = await resend.emails.send({
-      from: 'Alaga Monitoring System <onboarding@resend.dev>', // Use onboarding@resend.dev for testing if you haven't verified a custom domain yet
-      to: [to],
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to,
       subject: 'Your OTP Code',
       html: `<p>Your verification code is: <strong>${otp}</strong></p>`
     });
 
-    console.log('Email sent successfully:', data);
+    console.log('Email sent successfully:', info.messageId);
   } catch (error) {
-    console.error('Failed to send email via Resend:', error);
+    console.error('Failed to send email via Gmail:', error);
     throw error;
   }
 };

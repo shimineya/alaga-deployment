@@ -149,7 +149,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                     name: `${formData.firstName} ${formData.lastName}`,
                     birthdate: formData.dateOfBirth,
                     medicalCondition: formData.medicalCondition,
-                    assignedCaregiverId: formData.assignedCaregiverId || null,
+                    assignedCaregiverEmail: formData.assignedCaregiverEmail || null,
                     vitalDeviceNo: formData.vsDeviceId,
                     diaperDeviceNo: formData.sdDeviceId
                 })
@@ -319,74 +319,25 @@ const handleSearchCaregiver = async (query: string) => {
                                     <Stethoscope className="w-3.5 h-3.5 text-blue-600" />
                                 </div>
                                 <div className="space-y-0.5">
-                                    <p className="text-xs font-semibold text-blue-800">Assign Primary Caregiver</p>
-                                    <p className="text-[10px] text-blue-600 leading-tight">Optional. You can search for an existing nurse/doctor or scan their ID.</p>
+                                    <p className="text-xs font-semibold text-blue-800">Invite Caregiver</p>
+                                    <p className="text-[10px] text-blue-600 leading-tight">Optional. Enter the email address of the caregiver/medical staff you want to invite to this patient's care team.</p>
                                 </div>
                             </div>
 
-                            <Tabs defaultValue="manual" className="w-full">
-                                <TabsList className="grid w-full grid-cols-2 mb-4 h-9 bg-slate-100/80 p-1">
-                                    <TabsTrigger value="manual" className="text-xs h-7">Search Database</TabsTrigger>
-                                    <TabsTrigger value="qr" className="text-xs h-7">Scan ID Token</TabsTrigger>
-                                </TabsList>
-
-                                <TabsContent value="manual" className="space-y-3 mt-0">
-                                    <div className="space-y-1.5">
-                                        <Label className="text-xs font-semibold text-slate-600">Email / Username</Label>
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                                            <Input
-                                                className="pl-9 h-9 text-sm"
-                                                placeholder="nurse@hospital.com"
-                                                value={formData.assignedCaregiverEmail}
-                                                onChange={e => setFormData({ ...formData, assignedCaregiverEmail: e.target.value })}
-                                                onBlur={() => handleSearchCaregiver(formData.assignedCaregiverEmail)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        handleSearchCaregiver(formData.assignedCaregiverEmail);
-                                                    }
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Result Feedback */}
-                                    {formData.assignedCaregiverName && (
-                                        <div className="flex items-center gap-3 p-2 bg-emerald-50 border border-emerald-100 rounded-md">
-                                            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                                                <User className="w-4 h-4 text-emerald-600" />
-                                            </div>
-                                            <div>
-                                                <p className="text-xs font-semibold text-emerald-800">{formData.assignedCaregiverName}</p>
-                                                <p className="text-[10px] text-emerald-600">Matched User</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </TabsContent>
-
-                                <TabsContent value="qr" className="mt-0">
-                                    <div
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer h-[160px] flex flex-col items-center justify-center gap-2 group"
-                                    >
-                                        <input
-                                            ref={fileInputRef}
-                                            type="file"
-                                            accept="image/*"
-                                            className="hidden"
-                                            onChange={handleQRUpload}
+                            <div className="space-y-3 mt-0">
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-600">Caregiver Email Address</Label>
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                        <Input
+                                            className="pl-9 h-9 text-sm"
+                                            placeholder="nurse@hospital.com"
+                                            value={formData.assignedCaregiverEmail}
+                                            onChange={e => setFormData({ ...formData, assignedCaregiverEmail: e.target.value })}
                                         />
-                                        <div className="p-2.5 bg-white rounded-full shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-                                            <QrCode className="w-5 h-5 text-slate-400" />
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-xs font-medium text-slate-700">Click to Upload QR</p>
-                                            <p className="text-[10px] text-slate-400">Supports PNG, JPG</p>
-                                        </div>
                                     </div>
-                                </TabsContent>
-                            </Tabs>
+                                </div>
+                            </div>
                         </div>
                     )}
 

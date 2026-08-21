@@ -254,9 +254,25 @@ router.post('/patients', async (req, res) => {
 
     const client = await pool.connect();
     try {
-        const { name, birthdate, medicalCondition, assignedCaregiverId } = req.body;
+        const { name, birthdate, medicalCondition, assignedCaregiverEmail } = req.body;
 
         await client.query('BEGIN');
+
+        let resolvedCaregiverId = null;
+        if (assignedCaregiverEmail) {
+            const caregiverRes = await client.query(
+                `SELECT user_id FROM users WHERE LOWER(email) = LOWER($1) AND role IN ('caregiver', 'medical_staff')`,
+                [assignedCaregiverEmail.trim()]
+            );
+            if (caregiverRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({
+                    success: false,
+                    message: `Caregiver/Med Staff user with email "${assignedCaregiverEmail}" not found.`
+                });
+            }
+            resolvedCaregiverId = caregiverRes.rows[0].user_id;
+        }
 
         // 1. Insert Patient
         const patientRes = await client.query(
@@ -275,11 +291,11 @@ router.post('/patients', async (req, res) => {
             [req.user.id, newPatientId]
         );
 
-        if (assignedCaregiverId) {
+        if (resolvedCaregiverId) {
             await client.query(
                 `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
                  VALUES ($1, $2, 'Assigned Caregiver', 'View', 'Pending', $3)`,
-                [assignedCaregiverId, newPatientId, req.user.id]
+                [resolvedCaregiverId, newPatientId, req.user.id]
             );
         }
 
@@ -746,6 +762,99 @@ router.post('/patients/:id/assign-caregiver', async (req, res) => {
         await client.query('ROLLBACK');
         console.error("Assign Caregiver Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to assign caregiver' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 3.8.5. INVITE CAREGIVER BY EMAIL AND PATIENT NAME
+// ==========================================
+router.post('/patients/invite-by-email', async (req, res) => {
+    const { caregiverEmail, patientName } = req.body;
+    const userId = req.user.id;
+    const role = req.user.role.toLowerCase();
+
+    if (!caregiverEmail || !patientName) {
+        return res.status(400).json({ success: false, message: 'Caregiver email and patient name are required' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Find patient based on user's role
+        let patientRow;
+        if (role === 'admin' || role === 'system_admin' || role === 'sysadmin') {
+            // Admin can access all patients
+            const patRes = await client.query(
+                `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1)`,
+                [patientName.trim()]
+            );
+            patientRow = patRes.rows[0];
+        } else if (role === 'facility_admin') {
+            // Facility admin can access facility's patients
+            const patRes = await client.query(
+                `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND facility_id = $2`,
+                [patientName.trim(), req.user.facility_id]
+            );
+            patientRow = patRes.rows[0];
+        } else {
+            // Parent/Caregiver must have Edit access to the patient
+            const patRes = await client.query(
+                `SELECT p.patient_id FROM patients p
+                 JOIN patient_access pa ON p.patient_id = pa.patient_id
+                 WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.access_level = 'Edit'`,
+                [patientName.trim(), userId]
+            );
+            patientRow = patRes.rows[0];
+        }
+
+        if (!patientRow) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: `Patient with name "${patientName}" not found or not in your access scope.` });
+        }
+
+        const patientId = patientRow.patient_id;
+
+        // 2. Find caregiver
+        const caregiverRes = await client.query(
+            `SELECT user_id FROM users WHERE LOWER(email) = LOWER($1) AND role IN ('caregiver', 'medical_staff')`,
+            [caregiverEmail.trim()]
+        );
+
+        if (caregiverRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: `Caregiver/Med Staff user with email "${caregiverEmail}" not found.` });
+        }
+
+        const caregiverId = caregiverRes.rows[0].user_id;
+
+        // 3. Check if already assigned
+        const check = await client.query(
+            "SELECT 1 FROM patient_access WHERE patient_id = $1 AND user_id = $2",
+            [patientId, caregiverId]
+        );
+
+        if (check.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: 'Caregiver invitation/assignment already exists for this patient.' });
+        }
+
+        // 4. Insert pending invitation
+        await client.query(
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+             VALUES ($1, $2, 'Assigned Caregiver', 'View', 'Pending', $3)`,
+            [caregiverId, patientId, userId]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: `Invitation successfully sent to ${caregiverEmail}.` });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Invite Caregiver Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to send caregiver invitation.' });
     } finally {
         client.release();
     }

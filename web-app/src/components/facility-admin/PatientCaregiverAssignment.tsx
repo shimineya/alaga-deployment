@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Link2, Link2Off, Search, X } from 'lucide-react';
+import { Link2, Link2Off, Search, X, UserPlus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { AssignCaregiverModal } from '../AssignCaregiverModal';
 
 // [OWASP A01] All API calls scoped to facility_admin routes
 const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
@@ -29,6 +30,9 @@ export default function PatientCaregiverAssignment() {
     const [search, setSearch] = useState('');
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
+    const [isAssignOpen, setIsAssignOpen] = useState(false);
+    const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
+    const [selectedPatientName, setSelectedPatientName] = useState('');
 
     const handleSearchChange = (val: string) => {
         setSearch(val);
@@ -122,14 +126,26 @@ export default function PatientCaregiverAssignment() {
 
             <Card className="bg-white border border-slate-200 shadow-sm">
                 <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2">
-                        <Link2 className="w-4 h-4 text-teal-600" />
-                        <div>
-                            <CardTitle className="text-sm text-slate-800">Assignment Table</CardTitle>
-                            <CardDescription className="text-[10px] text-slate-500 mt-0.5">
-                                Multiple caregivers can be assigned per patient to support shift rotations.
-                            </CardDescription>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Link2 className="w-4 h-4 text-teal-600" />
+                            <div>
+                                <CardTitle className="text-sm text-slate-800">Assignment Table</CardTitle>
+                                <CardDescription className="text-[10px] text-slate-500 mt-0.5">
+                                    Multiple caregivers can be assigned per patient to support shift rotations.
+                                </CardDescription>
+                            </div>
                         </div>
+                        <Button 
+                            onClick={() => {
+                                setSelectedPatientId(-1); // indicating general modal
+                                setSelectedPatientName('');
+                                setIsAssignOpen(true);
+                            }}
+                            className="bg-teal-600 hover:bg-teal-700 text-white text-xs h-8"
+                        >
+                            <UserPlus className="w-3.5 h-3.5 mr-1" /> Invite Caregiver
+                        </Button>
                     </div>
                     <div className="relative w-full">
                         <div className="flex items-center gap-2 mt-2">
@@ -185,8 +201,24 @@ export default function PatientCaregiverAssignment() {
                                     return (
                                         <tr key={p.patient_id} className="border-b border-slate-50 hover:bg-slate-50 align-top">
                                             <td className="px-4 py-2.5">
-                                                <p className="font-medium text-slate-800">{p.patient_name}</p>
-                                                <p className="text-[10px] text-slate-400">ID: {p.patient_id}</p>
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <p className="font-medium text-slate-800">{p.patient_name}</p>
+                                                        <p className="text-[10px] text-slate-400">ID: {p.patient_id}</p>
+                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setSelectedPatientId(p.patient_id);
+                                                            setSelectedPatientName(p.patient_name);
+                                                            setIsAssignOpen(true);
+                                                        }}
+                                                        className="h-7 text-[10px] text-teal-600 hover:text-teal-800 hover:bg-teal-50"
+                                                    >
+                                                        <UserPlus className="w-3.5 h-3.5 mr-1" /> Invite
+                                                    </Button>
+                                                </div>
                                             </td>
                                             <td className="px-4 py-2.5">
                                                 {p.caregivers.length === 0
@@ -265,6 +297,18 @@ export default function PatientCaregiverAssignment() {
                     </table>
                 </CardContent>
             </Card>
+            {selectedPatientId !== null && (
+                <AssignCaregiverModal
+                    isOpen={isAssignOpen}
+                    onClose={() => setIsAssignOpen(false)}
+                    patientId={selectedPatientId}
+                    patientName={selectedPatientName}
+                    onSuccess={() => {
+                        setIsAssignOpen(false);
+                        fetchPatients();
+                    }}
+                />
+            )}
         </div>
     );
 }

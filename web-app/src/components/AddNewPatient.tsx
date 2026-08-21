@@ -20,7 +20,8 @@ import {
     User,
     PlusCircle,
     RefreshCw,
-    CheckCircle
+    CheckCircle,
+    Mail
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddNewDeviceModal } from './AddNewDevice'; // [UX] Integrated for workflow continuity

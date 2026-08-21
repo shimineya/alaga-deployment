@@ -1111,5 +1111,56 @@ router.delete('/users/:userId', async (req, res) => {
     }
 });
 
+// ==========================================
+// ROUTE: POST /baseline/reset
+// Description: Reset baseline for all patients assigned to this caregiver
+// ==========================================
+router.post('/baseline/reset', async (req, res) => {
+    const userId = req.user.id;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Get all patient IDs assigned to this caregiver
+        const accessResult = await client.query(
+            'SELECT patient_id FROM patient_access WHERE user_id = $1',
+            [userId]
+        );
+
+        const patientIds = accessResult.rows.map(row => row.patient_id);
+
+        if (patientIds.length > 0) {
+            // Delete learned vitals baselines
+            await client.query(
+                'DELETE FROM patient_baselines WHERE patient_id = ANY($1)',
+                [patientIds]
+            );
+
+            // Reset SVM baseline on patients table
+            await client.query(
+                'UPDATE patients SET svm_baseline_data = NULL, baseline_reset_at = NOW() WHERE patient_id = ANY($1)',
+                [patientIds]
+            );
+
+            // Log access
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'SVM_BASELINE_RESET', $2, 'WARNING')`,
+                [userId, `Reset baseline for patients: ${patientIds.join(', ')}`]
+            );
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Baseline reset successful for all assigned patients.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Caregiver Baseline Reset Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to reset baseline.' });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
 

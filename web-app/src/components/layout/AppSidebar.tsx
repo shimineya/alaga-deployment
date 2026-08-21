@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
+import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
 // [RBAC] Shared registry — same source of truth used by UserRBACManager
 import { computeRoleDefaults } from '@/lib/rbac-registry';
 import { 
@@ -18,6 +19,7 @@ import {
 
 export default function AppSidebar() {
   const { user, logout, permissions, isSysAdmin } = useAuth();
+  const { t } = useCaregiverLanguage();
   const role = user?.role?.toLowerCase() || '';
 
   // Role Logic Checkers
@@ -65,14 +67,14 @@ export default function AppSidebar() {
   const canSeeSettings   = true;
 
   const navItems = [
-    { label: 'Dashboard',        path: '/dashboard', icon: LayoutDashboard, visible: canSeeDashboard },
-    { label: 'Patient Records',  path: '/patients',  icon: Users,           visible: canSeePatients },
-    { label: 'Device Management',path: '/devices',   icon: RadioReceiver,   visible: canSeeDevices },
-    { label: 'User Management',  path: '/staff',     icon: Users,           visible: canSeeStaff },
-    { label: 'Security & Access',path: '/security',  icon: Lock,            visible: canSeeSecurity },
-    { label: 'Alerts',           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts },
-    { label: 'Clinical Reports', path: '/reports',   icon: ActivitySquare,  visible: canSeeReports },
-    { label: 'System Settings',  path: '/settings',  icon: Settings,        visible: canSeeSettings },
+    { label: t('Dashboard', 'Dashboard'),        path: '/dashboard', icon: LayoutDashboard, visible: canSeeDashboard },
+    { label: t('Patient Records', 'Mga Rekord ng Pasyente'),  path: '/patients',  icon: Users,           visible: canSeePatients },
+    { label: t('Device Management', 'Pamamahala ng Device'),path: '/devices',   icon: RadioReceiver,   visible: canSeeDevices },
+    { label: t('User Management', 'Pamamahala ng User'),  path: '/staff',     icon: Users,           visible: canSeeStaff },
+    { label: t('Security & Access', 'Seguridad at Akses'),path: '/security',  icon: Lock,            visible: canSeeSecurity },
+    { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts },
+    { label: t('Clinical Reports', 'Mga Klinikal na Ulat'), path: '/reports',   icon: ActivitySquare,  visible: canSeeReports },
+    { label: t('System Settings', 'Mga Setting ng System'),  path: '/settings',  icon: Settings,        visible: canSeeSettings },
   ];
 
   return (
@@ -87,7 +89,7 @@ export default function AppSidebar() {
       </div>
 
       <div className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 ml-2 mt-4">Command Modules</div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 ml-2 mt-4">{t('Command Modules', 'Mga Module ng Utos')}</div>
         
         {navItems.filter(item => item.visible).map((item) => (
           <NavLink
@@ -130,10 +132,10 @@ export default function AppSidebar() {
             <p className="text-[10px] text-teal-400 uppercase tracking-wider font-semibold truncate">
               {/* [UX] Human-readable role labels. 'parent' becomes 'Parent / Guardian'
                   to reflect the caregiver relationship to the infant/patient. */}
-              {role === 'parent' ? 'Parent / Guardian'
-                : role === 'medical_staff' ? 'Medical Staff'
-                : role === 'facility_admin' ? 'Facility Admin'
-                : role === 'system_admin' ? 'System Admin'
+              {role === 'parent' ? t('Parent / Guardian', 'Magulang / Tagapangalaga')
+                : role === 'medical_staff' ? t('Medical Staff', 'Klinikal na Staff')
+                : role === 'facility_admin' ? t('Facility Admin', 'Admin ng Pasilidad')
+                : role === 'system_admin' ? t('System Admin', 'Admin ng System')
                 : role.replace('_', ' ')}
             </p>
           </div>
@@ -143,7 +145,7 @@ export default function AppSidebar() {
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-red-500/10 hover:text-red-400 text-sm font-medium transition-colors border border-slate-700 hover:border-red-500/30"
         >
           <LogOut className="w-4 h-4" />
-          Sign Out
+          {t('Sign Out', 'Mag-sign Out')}
         </button>
       </div>
     </div>

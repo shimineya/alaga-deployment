@@ -6,9 +6,11 @@ import { Label } from '../ui/label';
 import { User, Mail, Phone, Lock, Camera, Save, Edit3, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
+import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
 
 export default function UserProfile() {
     const { user, refreshUser } = useAuth();
+    const { t } = useCaregiverLanguage();
     const [profile, setProfile] = useState({
         username: user?.username || '',
         email: user?.email || '',
@@ -156,7 +158,7 @@ export default function UserProfile() {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-slate-500 animate-pulse">Loading profile...</div>;
+        return <div className="p-8 text-center text-slate-500 animate-pulse">{t('Loading profile...', 'Kinakarga ang profile...')}</div>;
     }
 
     const currentImgUrl = previewUrl || (profile.profile_picture_url ? `${API_BASE}${profile.profile_picture_url}` : null);
@@ -167,16 +169,16 @@ export default function UserProfile() {
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-4">
                     <CardTitle className="text-lg text-slate-800 flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <User className="w-5 h-5 text-teal-600" /> Account Profile
+                            <User className="w-5 h-5 text-teal-600" /> {t('Account Profile', 'Profile ng Account')}
                         </div>
                         {!isEditing && (
                             <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} className="h-8 text-xs font-semibold">
-                                <Edit3 className="w-3.5 h-3.5 mr-1.5" /> Edit Profile
+                                <Edit3 className="w-3.5 h-3.5 mr-1.5" /> {t('Edit Profile', 'I-edit ang Profile')}
                             </Button>
                         )}
                     </CardTitle>
                     <CardDescription>
-                        {isEditing ? 'Update your personal details below.' : 'View your personal details and security credentials.'}
+                        {isEditing ? t('Update your personal details below.', 'I-update ang iyong mga personal na detalye sa ibaba.') : t('View your personal details and security credentials.', 'Tingnan ang iyong mga personal na detalye at kredensyal sa seguridad.')}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
@@ -194,7 +196,7 @@ export default function UserProfile() {
                                 <button 
                                     onClick={() => fileInputRef.current?.click()}
                                     className="absolute bottom-0 right-0 w-10 h-10 bg-teal-600 hover:bg-teal-700 text-white rounded-full shadow-md flex items-center justify-center transition-colors transition-transform group-hover:scale-105"
-                                    title="Upload new picture"
+                                    title={t('Upload new picture', 'Mag-upload ng bagong larawan')}
                                 >
                                     <Camera className="w-4 h-4" />
                                 </button>
@@ -217,7 +219,7 @@ export default function UserProfile() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                                 <div className="space-y-1.5">
                                     <Label className="text-xs text-slate-500 flex items-center gap-1.5">
-                                        <User className="w-3.5 h-3.5 text-slate-400" /> Username
+                                        <User className="w-3.5 h-3.5 text-slate-400" /> {t('Username', 'Username')}
                                     </Label>
                                     {isEditing ? (
                                         <Input 
@@ -227,12 +229,12 @@ export default function UserProfile() {
                                             className="h-9 focus-visible:ring-teal-500"
                                         />
                                     ) : (
-                                        <p className="text-sm font-medium text-slate-800">{profile.username || 'Not set'}</p>
+                                        <p className="text-sm font-medium text-slate-800">{profile.username || t('Not set', 'Hindi nakatakda')}</p>
                                     )}
                                 </div>
                                 <div className="space-y-1.5">
                                     <Label className="text-xs text-slate-500 flex items-center gap-1.5">
-                                        <Mail className="w-3.5 h-3.5 text-slate-400" /> Email Address
+                                        <Mail className="w-3.5 h-3.5 text-slate-400" /> {t('Email Address', 'Address ng Email')}
                                     </Label>
                                     {isEditing ? (
                                         <Input 
@@ -240,7 +242,7 @@ export default function UserProfile() {
                                             value={profile.email}
                                             disabled
                                             className="h-9 bg-slate-50 cursor-not-allowed text-slate-500"
-                                            title="Email cannot be changed"
+                                            title={t('Email cannot be changed', 'Hindi maaaring baguhin ang email')}
                                         />
                                     ) : (
                                         <p className="text-sm font-medium text-slate-800">{profile.email}</p>
@@ -248,7 +250,7 @@ export default function UserProfile() {
                                 </div>
                                 <div className="space-y-1.5 sm:col-span-2">
                                     <Label className="text-xs text-slate-500 flex items-center gap-1.5">
-                                        <Phone className="w-3.5 h-3.5 text-slate-400" /> Contact Number
+                                        <Phone className="w-3.5 h-3.5 text-slate-400" /> {t('Contact Number', 'Numero ng Telepono')}
                                     </Label>
                                     {isEditing ? (
                                         <Input 
@@ -259,7 +261,7 @@ export default function UserProfile() {
                                             placeholder="+63 900 000 0000"
                                         />
                                     ) : (
-                                        <p className="text-sm font-medium text-slate-800">{profile.mobile_number || 'Not set'}</p>
+                                        <p className="text-sm font-medium text-slate-800">{profile.mobile_number || t('Not set', 'Hindi nakatakda')}</p>
                                     )}
                                 </div>
                             </div>
@@ -269,24 +271,24 @@ export default function UserProfile() {
                                     <hr className="my-5 border-slate-100" />
                                     <div className="space-y-3">
                                         <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                            <Lock className="w-4 h-4 text-slate-400" /> Change Password
+                                            <Lock className="w-4 h-4 text-slate-400" /> {t('Change Password', 'Baguhin ang Password')}
                                         </h4>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
-                                                <Label className="text-xs text-slate-600">New Password</Label>
+                                                <Label className="text-xs text-slate-600">{t('New Password', 'Bagong Password')}</Label>
                                                 <Input 
                                                     type="password" 
-                                                    placeholder="Leave blank to keep current"
+                                                    placeholder={t('Leave blank to keep current', 'Iwanang blanko para panatilihin ang kasalukuyan')}
                                                     value={password}
                                                     onChange={e => setPassword(e.target.value)}
                                                     className="h-9 focus-visible:ring-teal-500"
                                                 />
                                             </div>
                                             <div className="space-y-1.5">
-                                                <Label className="text-xs text-slate-600">Confirm Password</Label>
+                                                <Label className="text-xs text-slate-600">{t('Confirm Password', 'Kumpirmahin ang Password')}</Label>
                                                 <Input 
                                                     type="password" 
-                                                    placeholder="Confirm new password"
+                                                    placeholder={t('Confirm new password', 'Kumpirmahin ang bagong password')}
                                                     value={confirmPassword}
                                                     onChange={e => setConfirmPassword(e.target.value)}
                                                     className="h-9 focus-visible:ring-teal-500"
@@ -310,16 +312,16 @@ export default function UserProfile() {
                                         disabled={isSaving}
                                         className="text-slate-500 hover:text-slate-700"
                                     >
-                                        <X className="w-4 h-4 mr-1.5" /> Cancel
+                                        <X className="w-4 h-4 mr-1.5" /> {t('Cancel', 'Kanselahin')}
                                     </Button>
                                     <Button 
                                         onClick={handleSave} 
                                         disabled={isSaving}
                                         className="bg-teal-600 hover:bg-teal-700 text-white min-w-[120px]"
                                     >
-                                        {isSaving ? 'Saving...' : (
+                                        {isSaving ? t('Saving...', 'Nagsasave...') : (
                                             <span className="flex items-center gap-2">
-                                                <Save className="w-4 h-4" /> Save Changes
+                                                <Save className="w-4 h-4" /> {t('Save Changes', 'I-save ang mga Pagbabago')}
                                             </span>
                                         )}
                                     </Button>

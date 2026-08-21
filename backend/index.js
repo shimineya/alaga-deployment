@@ -32,9 +32,6 @@ const transporter = nodemailer.createTransport({
 const adminRoutes = require('./routes/adminRoutes');
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on port ${PORT}`);
-});
 
 const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 const OTP_EXPIRY_MINUTES = 10;

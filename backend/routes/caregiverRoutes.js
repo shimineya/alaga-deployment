@@ -928,18 +928,21 @@ router.delete('/patients/:id/care-team/:userId', async (req, res) => {
 
         await client.query('BEGIN');
 
-        // [SAFETY] Check if this is the last caregiver
-        const countRes = await client.query(
-            "SELECT COUNT(*) FROM patient_access WHERE patient_id = $1",
-            [patientId]
+        // [SAFETY] Check access level of target member to avoid removing the primary owner
+        const targetCheck = await client.query(
+            "SELECT access_level FROM patient_access WHERE patient_id = $1 AND user_id = $2",
+            [patientId, userId]
         );
-        const count = parseInt(countRes.rows[0].count);
+        if (targetCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Caregiver not found in this team.' });
+        }
 
-        if (count <= 1) {
+        if (targetCheck.rows[0].access_level === 'Edit') {
             await client.query('ROLLBACK');
             return res.status(400).json({
                 success: false,
-                message: 'Cannot remove the last caregiver. Assign another caregiver first to prevent losing access.'
+                message: 'Cannot remove the primary owner of this patient record.'
             });
         }
 

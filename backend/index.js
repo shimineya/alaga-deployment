@@ -54,7 +54,11 @@ app.use(cors({
     credentials: true
 }));
 
-app.use(helmet());
+// [OWASP A02] Security Headers: Configure CORP to allow cross-origin resource sharing
+// so that Netlify can load static files (like profile pictures) from Render.
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(express.json());
 
 // [NOTE] JSON parse error handler moved to AFTER all route registrations

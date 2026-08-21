@@ -47,7 +47,7 @@ export default function FacilityAdminLayout() {
                 </header>
 
                 <main className="flex-1 overflow-y-auto p-4 scroll-smooth">
-                    <div className="w-full h-full pb-10">
+                    <div className="w-full min-h-full pb-20">
                         <Outlet />
                     </div>
                 </main>

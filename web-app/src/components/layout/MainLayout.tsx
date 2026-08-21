@@ -13,7 +13,9 @@ export default function MainLayout() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         <main className="flex-1 overflow-y-auto p-6 scroll-smooth">
-          <Outlet />
+          <div className="w-full min-h-full pb-20">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

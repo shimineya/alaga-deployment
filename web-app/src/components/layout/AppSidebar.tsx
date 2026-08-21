@@ -100,7 +100,7 @@ export default function AppSidebar() {
                 });
                 const teamData = await teamRes.json();
                 if (teamData.success && Array.isArray(teamData.data)) {
-                  if (teamData.data.some((m: any) => m.invite_status === 'Pending' || m.invite_status === 'Rejected')) {
+                  if (teamData.data.some((m: any) => m.invite_status === 'Pending' || m.invite_status === 'Declined')) {
                     hasUpdate = true;
                     break;
                   }
@@ -116,7 +116,7 @@ export default function AppSidebar() {
             if (patData.success && Array.isArray(patData.data)) {
               for (const pat of patData.data) {
                 if (Array.isArray(pat.caregivers)) {
-                  if (pat.caregivers.some((c: any) => c.invite_status === 'Pending' || c.invite_status === 'Rejected')) {
+                  if (pat.caregivers.some((c: any) => c.invite_status === 'Pending' || c.invite_status === 'Declined')) {
                     hasUpdate = true;
                     break;
                   }

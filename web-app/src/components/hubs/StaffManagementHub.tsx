@@ -1,4 +1,5 @@
 import React from 'react';
+import { Navigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -7,11 +8,17 @@ import { Contact, Link2 } from 'lucide-react';
 import WardStaffManagement from '../facility-admin/WardStaffManagement';
 import PatientCaregiverAssignment from '../facility-admin/PatientCaregiverAssignment';
 import { AssignmentTracker } from '../AssignmentTracker';
+import ParentCareTeamManagement from '../ParentCareTeamManagement';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 
 export default function StaffManagementHub() {
     const { user, permissions, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
+
+    // [OWASP A01] Caregiver and Medical Staff are not allowed in this admin/parent area.
+    if (role === 'caregiver' || role === 'medical_staff') {
+        return <Navigate to="/dashboard" replace />;
+    }
 
     // Authorizations
     const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
@@ -99,7 +106,7 @@ export default function StaffManagementHub() {
                     <TabsContent value={canSeeMyAssignments ? "my-assignments" : "admin-assignments"} className="mt-0 flex-1 min-h-[500px] outline-none">
                         <BreakGlassWrapper targetHub="Staff Management - Assignments">
                             {canSeeMyAssignments 
-                                ? <AssignmentTracker /> 
+                                ? (role === 'parent' ? <ParentCareTeamManagement /> : <AssignmentTracker />) 
                                 : <PatientCaregiverAssignment />
                             }
                         </BreakGlassWrapper>

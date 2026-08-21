@@ -47,6 +47,23 @@ export const MyDevices: React.FC = () => {
     const [devices, setDevices] = useState<Device[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+
+    const handleSearchChange = (val: string) => {
+        setSearchQuery(val);
+        setCurrentPage(1);
+        if (val.trim().length > 0) {
+            const matches = devices
+                .map(d => d.device_name)
+                .filter(name => name.toLowerCase().includes(val.toLowerCase()));
+            setSuggestions(Array.from(new Set(matches)));
+            setShowSuggestions(true);
+        } else {
+            setSuggestions([]);
+            setShowSuggestions(false);
+        }
+    };
 
     // [HIPAA Audit Trail] Fetching device logs for oversight
     const fetchInventory = async () => {
@@ -152,15 +169,33 @@ export const MyDevices: React.FC = () => {
                         <option value="MAINTENANCE">Maintenance</option>
                     </select>
 
-                    {/* Search */}
                     <div className="relative w-full sm:w-64">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <Input
                             placeholder="Search devices..."
                             value={searchQuery}
-                            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} // Reset to page 1 on search
+                            onChange={(e) => handleSearchChange(e.target.value)}
+                            onFocus={() => setShowSuggestions(suggestions.length > 0)}
+                            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                             className="pl-10 h-9"
                         />
+                        {showSuggestions && suggestions.length > 0 && (
+                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                                {suggestions.map((sug) => (
+                                    <button
+                                        key={sug}
+                                        onClick={() => {
+                                            setSearchQuery(sug);
+                                            setCurrentPage(1);
+                                            setShowSuggestions(false);
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 hover:text-teal-700 text-slate-700 transition-colors"
+                                    >
+                                        {sug}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Refresh */}

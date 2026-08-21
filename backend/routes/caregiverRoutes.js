@@ -529,7 +529,7 @@ router.get('/patients', async (req, res) => {
                     ) as latest_telemetry
                 FROM patients p
                 JOIN patient_access pa ON p.patient_id = pa.patient_id
-                WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
+                WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE AND (pa.invite_status = 'Active' OR pa.invite_status IS NULL)
                 ORDER BY p.patient_id, p.created_at DESC
             `;
             params = [userId];
@@ -795,7 +795,7 @@ router.get('/patients/:id/care-team', async (req, res) => {
         const patientId = req.params.id;
         const result = await pool.query(
             `SELECT u.user_id, u.first_name, u.last_name, u.email, u.role as system_role,
-                    pa.relationship, pa.access_level
+                    pa.relationship, pa.access_level, pa.invite_status
              FROM patient_access pa
              JOIN users u ON pa.user_id = u.user_id
              WHERE pa.patient_id = $1
@@ -1124,7 +1124,7 @@ router.post('/baseline/reset', async (req, res) => {
 
         // Get all patient IDs assigned to this caregiver
         const accessResult = await client.query(
-            'SELECT patient_id FROM patient_access WHERE user_id = $1',
+            "SELECT patient_id FROM patient_access WHERE user_id = $1 AND (invite_status = 'Active' OR invite_status IS NULL)",
             [userId]
         );
 

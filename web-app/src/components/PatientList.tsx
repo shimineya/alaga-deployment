@@ -59,12 +59,29 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
     const [editBirthdate, setEditBirthdate] = useState('');
     const [editNotes, setEditNotes] = useState('');
     const [isEditLoading, setIsEditLoading] = useState(false);
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+
+    const handleSearchChange = (val: string) => {
+        setSearchQuery(val);
+        if (val.trim().length > 0) {
+            const matches = patients
+                .map(p => p.name)
+                .filter(name => name.toLowerCase().includes(val.toLowerCase()));
+            setSuggestions(Array.from(new Set(matches)));
+            setShowSuggestions(true);
+        } else {
+            setSuggestions([]);
+            setShowSuggestions(false);
+        }
+    };
 
     // --- Archive Confirmation State ---
     const [archiveTarget, setArchiveTarget] = useState<Patient | null>(null);
     const [isArchiveLoading, setIsArchiveLoading] = useState(false);
 
-    const { token } = useAuth();
+    const { token, user } = useAuth();
+    const role = user?.role?.toLowerCase() || '';
 
     // Filter Logic
     const filteredPatients = patients.filter(patient => {
@@ -185,19 +202,39 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
                         <Input
                             placeholder="Search name or room..."
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => handleSearchChange(e.target.value)}
+                            onFocus={() => setShowSuggestions(suggestions.length > 0)}
+                            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                             className="pl-10"
                         />
+                        {showSuggestions && suggestions.length > 0 && (
+                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                                {suggestions.map((sug) => (
+                                    <button
+                                        key={sug}
+                                        onClick={() => {
+                                            setSearchQuery(sug);
+                                            setShowSuggestions(false);
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 hover:text-teal-700 text-slate-700 transition-colors"
+                                    >
+                                        {sug}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                    {/* CREATE — Add Patient button */}
-                    <Button
-                        onClick={() => setIsAddPatientOpen(true)}
-                        className="bg-teal-600 hover:bg-teal-700 text-white"
-                        id="btn-add-patient"
-                    >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Add Patient
-                    </Button>
+                    {/* CREATE — Add Patient button (hidden for caregivers) */}
+                    {role !== 'caregiver' && (
+                        <Button
+                            onClick={() => setIsAddPatientOpen(true)}
+                            className="bg-teal-600 hover:bg-teal-700 text-white"
+                            id="btn-add-patient"
+                        >
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Add Patient
+                        </Button>
+                    )}
                 </div>
             </div>
 

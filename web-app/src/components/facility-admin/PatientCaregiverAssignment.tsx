@@ -15,7 +15,7 @@ interface StaffMember {
 }
 
 interface CaregiverRef {
-    user_id: number; username: string;
+    user_id: number; username: string; invite_status?: string;
 }
 
 interface Patient {
@@ -27,6 +27,22 @@ export default function PatientCaregiverAssignment() {
     const [patients, setPatients] = useState<Patient[]>([]);
     const [allCaregivers, setAllCaregivers] = useState<StaffMember[]>([]);
     const [search, setSearch] = useState('');
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+
+    const handleSearchChange = (val: string) => {
+        setSearch(val);
+        if (val.trim().length > 0) {
+            const matches = patients
+                .map(p => p.patient_name)
+                .filter(name => name.toLowerCase().includes(val.toLowerCase()));
+            setSuggestions(Array.from(new Set(matches)));
+            setShowSuggestions(true);
+        } else {
+            setSuggestions([]);
+            setShowSuggestions(false);
+        }
+    };
     const [assignments, setAssignments] = useState<Record<number, number>>({});
 
     const fetchPatients = async () => {
@@ -115,14 +131,34 @@ export default function PatientCaregiverAssignment() {
                             </CardDescription>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-2">
-                        <Search className="w-4 h-4 text-slate-400" />
-                        <Input
-                            value={search}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-                            placeholder="Search patients by name..."
-                            className="h-8 text-sm border-0 border-b border-slate-200 rounded-none focus-visible:ring-0 px-0"
-                        />
+                    <div className="relative w-full">
+                        <div className="flex items-center gap-2 mt-2">
+                            <Search className="w-4 h-4 text-slate-400" />
+                            <Input
+                                value={search}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearchChange(e.target.value)}
+                                onFocus={() => setShowSuggestions(suggestions.length > 0)}
+                                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                                placeholder="Search patients by name..."
+                                className="h-8 text-sm border-0 border-b border-slate-200 rounded-none focus-visible:ring-0 px-0 w-full"
+                            />
+                        </div>
+                        {showSuggestions && suggestions.length > 0 && (
+                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                                {suggestions.map((sug) => (
+                                    <button
+                                        key={sug}
+                                        onClick={() => {
+                                            setSearch(sug);
+                                            setShowSuggestions(false);
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 hover:text-teal-700 text-slate-700 transition-colors"
+                                    >
+                                        {sug}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -157,22 +193,35 @@ export default function PatientCaregiverAssignment() {
                                                     ? <span className="text-xs text-amber-600 font-medium">Unassigned</span>
                                                     : (
                                                         <div className="flex flex-wrap gap-1">
-                                                            {p.caregivers.map(c => (
-                                                                <Badge
-                                                                    key={c.user_id}
-                                                                    variant="secondary"
-                                                                    className="text-xs flex items-center gap-1 pr-1"
-                                                                >
-                                                                    {c.username}
-                                                                    <button
-                                                                        onClick={() => handleUnassign(p.patient_id, c.user_id, c.username, p.patient_name)}
-                                                                        className="ml-0.5 rounded-full hover:bg-red-100 hover:text-red-600 p-0.5 transition-colors"
-                                                                        title={`Remove ${c.username}`}
+                                                            {p.caregivers.map(c => {
+                                                                let badgeClass = "text-xs flex items-center gap-1 pr-1 ";
+                                                                let statusText = "";
+                                                                if (c.invite_status === 'Pending') {
+                                                                    badgeClass += "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100";
+                                                                    statusText = " (Pending)";
+                                                                } else if (c.invite_status === 'Declined') {
+                                                                    badgeClass += "bg-red-50 text-red-700 border-red-200 hover:bg-red-100";
+                                                                    statusText = " (Declined)";
+                                                                } else {
+                                                                    badgeClass += "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
+                                                                }
+                                                                return (
+                                                                    <Badge
+                                                                        key={c.user_id}
+                                                                        variant="outline"
+                                                                        className={badgeClass}
                                                                     >
-                                                                        <X className="w-3 h-3" />
-                                                                    </button>
-                                                                </Badge>
-                                                            ))}
+                                                                        <span>{c.username}{statusText}</span>
+                                                                        <button
+                                                                            onClick={() => handleUnassign(p.patient_id, c.user_id, c.username, p.patient_name)}
+                                                                            className="ml-0.5 rounded-full hover:bg-slate-200 p-0.5 transition-colors text-slate-400 hover:text-slate-600"
+                                                                            title={`Remove ${c.username}`}
+                                                                        >
+                                                                            <X className="w-3 h-3" />
+                                                                        </button>
+                                                                    </Badge>
+                                                                );
+                                                            })}
                                                         </div>
                                                     )
                                                 }

@@ -17,7 +17,9 @@ export default function PatientOnboarding() {
 
     // Device pairing state
     const [pairPatientId, setPairPatientId] = useState('');
-    const [serialNumber, setSerialNumber] = useState('');
+    const [pairingType, setPairingType] = useState('both'); // 'both' | 'diaper' | 'vital'
+    const [diaperSN, setDiaperSN] = useState('');
+    const [vitalSN, setVitalSN] = useState('');
 
     // SVM reset state
     const [resetPatientId, setResetPatientId] = useState('');
@@ -48,14 +50,48 @@ export default function PatientOnboarding() {
     };
 
     const handlePairDevice = async () => {
-        if (!pairPatientId || !serialNumber) return toast.error('Patient ID and serial number are required.');
-        const res = await fetch(`${API}/patients/${pairPatientId}/pair-device`, {
-            method: 'POST', headers: getAuth(),
-            body: JSON.stringify({ serial_number: serialNumber })
-        });
-        const data = await res.json();
-        if (data.success) { toast.success(data.message); setPairPatientId(''); setSerialNumber(''); }
-        else toast.error(data.message);
+        if (!pairPatientId) return toast.error('Patient ID is required.');
+        
+        let diaperToPair = '';
+        let vitalToPair = '';
+
+        if (pairingType === 'both' || pairingType === 'diaper') {
+            diaperToPair = diaperSN.trim();
+            if (!diaperToPair) return toast.error('Smart Diaper Device serial number is required.');
+        }
+        if (pairingType === 'both' || pairingType === 'vital') {
+            vitalToPair = vitalSN.trim();
+            if (!vitalToPair) return toast.error('Vital Signs Device serial number is required.');
+        }
+
+        try {
+            // Function to pair a single device
+            const pairOne = async (sn: string, label: string) => {
+                const res = await fetch(`${API}/patients/${pairPatientId}/pair-device`, {
+                    method: 'POST', 
+                    headers: getAuth(),
+                    body: JSON.stringify({ serial_number: sn })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    throw new Error(`${label}: ${data.message}`);
+                }
+            };
+
+            if (diaperToPair) {
+                await pairOne(diaperToPair, 'Smart Diaper');
+            }
+            if (vitalToPair) {
+                await pairOne(vitalToPair, 'Vital Signs');
+            }
+
+            toast.success('Device(s) paired successfully.');
+            setPairPatientId('');
+            setDiaperSN('');
+            setVitalSN('');
+        } catch (err: any) {
+            toast.error(err.message || 'Device pairing failed.');
+        }
     };
 
     const handleResetBaseline = async () => {
@@ -134,13 +170,42 @@ export default function PatientOnboarding() {
                     {/* Device Pairing */}
                     <Card className="bg-white border-slate-200 shadow-sm">
                         <CardHeader>
-                            <CardTitle className="text-slate-800 text-sm flex items-center gap-2"><Cpu className="w-4 h-4 text-teal-600" /> Pair ESP32 Device to Patient</CardTitle>
+                            <CardTitle className="text-slate-800 text-sm flex items-center gap-2"><Cpu className="w-4 h-4 text-teal-600" /> Pair Device/s To Patient</CardTitle>
                             <CardDescription className="text-xs text-slate-500">The serial number must be pre-approved by System Admin in the Device Whitelist.</CardDescription>
                         </CardHeader>
-                        <CardContent className="space-y-2">
-                            <Input value={pairPatientId} onChange={e => setPairPatientId(e.target.value)} placeholder="Patient ID" type="number" className="h-8 text-sm" />
-                            <Input value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="Device Serial Number (e.g. ALA-001)" className="h-8 text-sm font-mono" />
-                            <Button onClick={handlePairDevice} className="w-full h-8 bg-slate-700 hover:bg-slate-600 text-white text-sm">Pair Device</Button>
+                        <CardContent className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Patient ID</label>
+                                <Input value={pairPatientId} onChange={e => setPairPatientId(e.target.value)} placeholder="e.g. 5" type="number" className="h-8 text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Device Selection</label>
+                                <select 
+                                    value={pairingType} 
+                                    onChange={e => setPairingType(e.target.value)}
+                                    className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                >
+                                    <option value="both">Both Devices</option>
+                                    <option value="diaper">Smart Diaper Device only</option>
+                                    <option value="vital">Vital Signs Device only</option>
+                                </select>
+                            </div>
+                            
+                            {(pairingType === 'both' || pairingType === 'diaper') && (
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">Smart Diaper Device</label>
+                                    <Input value={diaperSN} onChange={e => setDiaperSN(e.target.value)} placeholder="e.g. SD-2026-0001" className="h-8 text-sm font-mono" />
+                                </div>
+                            )}
+
+                            {(pairingType === 'both' || pairingType === 'vital') && (
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">Vital Signs Device</label>
+                                    <Input value={vitalSN} onChange={e => setVitalSN(e.target.value)} placeholder="e.g. VS-2026-0001" className="h-8 text-sm font-mono" />
+                                </div>
+                            )}
+
+                            <Button onClick={handlePairDevice} className="w-full h-8 bg-slate-700 hover:bg-slate-600 text-white text-sm">Pair Device/s</Button>
                         </CardContent>
                     </Card>
 

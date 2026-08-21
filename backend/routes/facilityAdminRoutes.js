@@ -463,10 +463,11 @@ router.put('/patients/:patientId/assign-staff', async (req, res) => {
         }
 
         // [OWASP A05] Insert the new assignment (multiple caregivers allowed for shift coverage)
+        // Starts in 'Pending' status so caregiver can Accept or Decline.
         await pool.query(
-            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
-             VALUES ($1, $2, 'Assigned Caregiver', 'Full')`,
-            [caregiver_id, patientId]
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+             VALUES ($1, $2, 'Assigned Caregiver', 'Full', 'Pending', $3)`,
+            [caregiver_id, patientId, req.user.id]
         );
 
         // [OWASP A09] Audit trail
@@ -544,7 +545,7 @@ router.get('/patients', async (req, res) => {
             `SELECT p.patient_id, p.name AS patient_name,
                     COALESCE(
                         json_agg(
-                            json_build_object('user_id', pa.user_id, 'username', u.username)
+                            json_build_object('user_id', pa.user_id, 'username', u.username, 'invite_status', pa.invite_status)
                         ) FILTER (WHERE pa.user_id IS NOT NULL),
                         '[]'::json
                     ) AS caregivers

@@ -211,9 +211,9 @@ router.post('/respond-invite', async (req, res) => {
                 [req.user.id, patient_id, `Caregiver accepted assignment as ${relationship}`]
             );
         } else {
-            // Decline — remove the pending record entirely
+            // Decline — update status to 'Declined'
             await client.query(
-                `DELETE FROM patient_access WHERE access_id = $1`,
+                `UPDATE patient_access SET invite_status = 'Declined' WHERE access_id = $1`,
                 [access_id]
             );
 

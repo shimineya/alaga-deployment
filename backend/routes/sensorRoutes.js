@@ -268,7 +268,7 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
 
     if (!hasAccess) {
         const accessCheck = await pool.query(
-            'SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2',
+            "SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2 AND (invite_status = 'Active' OR invite_status IS NULL)",
             [userId, patientId]
         ).catch(() => ({ rows: [] }));
         hasAccess = accessCheck.rows.length > 0;
@@ -355,7 +355,7 @@ router.get(
 
         if (!hasAccess) {
             const accessCheck = await pool.query(
-                'SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2',
+                "SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2 AND (invite_status = 'Active' OR invite_status IS NULL)",
                 [userId, patientId]
             ).catch(() => ({ rows: [] }));
             hasAccess = accessCheck.rows.length > 0;
@@ -479,7 +479,7 @@ router.get(
 
         if (!hasAccess) {
             const accessCheck = await pool.query(
-                'SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2',
+                "SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2 AND (invite_status = 'Active' OR invite_status IS NULL)",
                 [userId, patientId]
             ).catch(() => ({ rows: [] }));
             hasAccess = accessCheck.rows.length > 0;

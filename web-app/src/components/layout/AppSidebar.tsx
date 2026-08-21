@@ -14,7 +14,8 @@ import {
   Settings,
   LogOut,
   UserCircle,
-  Lock
+  Lock,
+  Link
 } from 'lucide-react';
 
 export default function AppSidebar() {
@@ -57,7 +58,10 @@ export default function AppSidebar() {
   const canSeePatients   = hasPermission('my-patients')   || hasPermission('add-patient');
   const canSeeDevices    = hasPermission('device-status') || hasPermission('add-device')
                         || hasPermission('diagnostics')   || hasPermission('topology');
-  const canSeeStaff      = hasPermission('ward-staff')    || hasPermission('patient-assignments');
+  // Caregivers and Medical Staff should not see User Management
+  const isCaregiverOrMedStaff = role === 'caregiver' || role === 'medical_staff';
+  const canSeeStaff      = !isCaregiverOrMedStaff && (hasPermission('ward-staff') || hasPermission('patient-assignments'));
+  const canSeeAssignmentCommandCenter = isCaregiverOrMedStaff;
   const canSeeSecurity   = isAdminTier
                         || hasPermission('security-operations')
                         || hasPermission('audit-logs')
@@ -68,6 +72,7 @@ export default function AppSidebar() {
 
   const navItems = [
     { label: t('Dashboard', 'Dashboard'),        path: '/dashboard', icon: LayoutDashboard, visible: canSeeDashboard },
+    { label: t('Assignment Command Center', 'Assignment Command Center'), path: '/assignments', icon: Link, visible: canSeeAssignmentCommandCenter },
     { label: t('Patient Records', 'Mga Rekord ng Pasyente'),  path: '/patients',  icon: Users,           visible: canSeePatients },
     { label: t('Device Management', 'Pamamahala ng Device'),path: '/devices',   icon: RadioReceiver,   visible: canSeeDevices },
     { label: t('User Management', 'Pamamahala ng User'),  path: '/staff',     icon: Users,           visible: canSeeStaff },

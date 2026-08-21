@@ -363,7 +363,7 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
                 [user_id]
             );
             const userRes = await pool.query(
-                `SELECT user_id, username, email, role, first_name, account_status
+                `SELECT user_id, username, email, role, first_name, account_status, profile_picture_url
                  FROM users WHERE user_id = $1`,
                 [user_id]
             );
@@ -387,6 +387,8 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
                     role: user.role,
                     name: user.first_name,
                     account_status: user.account_status,
+                    profilePictureUrl: user.profile_picture_url || null,
+                    profile_picture_url: user.profile_picture_url || null,
                 },
             });
         } catch (txErr) {
@@ -697,6 +699,7 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
                 // [FIX] Include profile picture URL so the dashboard avatar
                 // renders immediately after login without a separate API call.
                 profilePictureUrl: user.profile_picture_url || null,
+                profile_picture_url: user.profile_picture_url || null,
             }
         });
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
@@ -23,6 +23,11 @@ export default function AppSidebar() {
   const { t } = useCaregiverLanguage();
   const role = user?.role?.toLowerCase() || '';
 
+  // Real-time Notification States
+  const [hasUnreadAlerts, setHasUnreadAlerts] = useState(false);
+  const [hasPendingInvites, setHasPendingInvites] = useState(false);
+  const [hasCareTeamUpdates, setHasCareTeamUpdates] = useState(false);
+
   // Role Logic Checkers
   const isAdminTier     = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
   const isFacilityAdmin = role === 'facility_admin';
@@ -38,19 +43,98 @@ export default function AppSidebar() {
   const roleDefaults = computeRoleDefaults(role);
 
   // [OWASP A01 / RBAC] Override-aware visibility helper.
-  // Resolution order:
-  //   1. SysAdmins bypass everything — always true.
-  //   2. If a per-user override exists in the permissions map (from /api/auth/my-permissions),
-  //      use that value.
-  //   3. Fall back to the computed role default from rbac-registry (ground truth).
   const hasPermission = (moduleId: string): boolean => {
     if (isAdminTier) return true;
     if (Object.prototype.hasOwnProperty.call(permissions, moduleId)) {
       return permissions[moduleId];
     }
-    // Use computeRoleDefaults as the fallback — same logic UserRBACManager shows in toggles
     return roleDefaults[moduleId] ?? false;
   };
+
+  // Real-time Polling for Hub Updates
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const API_BASE = import.meta.env.VITE_API_URL || '';
+
+    const checkUpdates = async () => {
+      try {
+        // 1. Check Alerts (only if user has alerts module access)
+        if (hasPermission('alerts')) {
+          const res = await fetch(`${API_BASE}/api/alerts/clinical`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.success && Array.isArray(data.data)) {
+            setHasUnreadAlerts(data.data.some((a: any) => a.status !== 'Acknowledged'));
+          }
+        }
+
+        // 2. Check Pending Invites (Caregivers / Med Staff)
+        const isCaregiverOrMedStaff = role === 'caregiver' || role === 'medical_staff';
+        if (isCaregiverOrMedStaff) {
+          const res = await fetch(`${API_BASE}/api/assignments/pending-invites`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.success && Array.isArray(data.data)) {
+            setHasPendingInvites(data.data.length > 0);
+          }
+        }
+
+        // 3. Check Care Team Updates (Pending / Rejected invites) for Parents & Admins
+        const isParentOrAdmin = role === 'parent' || role === 'facility_admin';
+        if (isParentOrAdmin) {
+          let hasUpdate = false;
+          if (role === 'parent') {
+            const patRes = await fetch(`${API_BASE}/api/caregiver/patients`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const patData = await patRes.json();
+            if (patData.success && Array.isArray(patData.data)) {
+              for (const pat of patData.data) {
+                const teamRes = await fetch(`${API_BASE}/api/caregiver/patients/${pat.patient_id}/care-team`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const teamData = await teamRes.json();
+                if (teamData.success && Array.isArray(teamData.data)) {
+                  if (teamData.data.some((m: any) => m.invite_status === 'Pending' || m.invite_status === 'Rejected')) {
+                    hasUpdate = true;
+                    break;
+                  }
+                }
+              }
+            }
+          } else {
+            // Facility admin check
+            const patRes = await fetch(`${API_BASE}/api/facility-admin/patients`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const patData = await patRes.json();
+            if (patData.success && Array.isArray(patData.data)) {
+              for (const pat of patData.data) {
+                if (Array.isArray(pat.caregivers)) {
+                  if (pat.caregivers.some((c: any) => c.invite_status === 'Pending' || c.invite_status === 'Rejected')) {
+                    hasUpdate = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          setHasCareTeamUpdates(hasUpdate);
+        }
+      } catch (err) {
+        console.error("Sidebar poll error:", err);
+      }
+    };
+
+    checkUpdates();
+    const intervalId = setInterval(checkUpdates, 10000);
+    return () => clearInterval(intervalId);
+  }, [user, role, permissions]);
 
   // [RBAC] Hub visibility: a hub link stays visible as long as the user has
   // access to AT LEAST ONE tab inside it. The hub itself renders only allowed tabs.
@@ -72,12 +156,12 @@ export default function AppSidebar() {
 
   const navItems = [
     { label: t('Dashboard', 'Dashboard'),        path: '/dashboard', icon: LayoutDashboard, visible: canSeeDashboard },
-    { label: t('Assignment Command Center', 'Assignment Command Center'), path: '/assignments', icon: Link, visible: canSeeAssignmentCommandCenter },
+    { label: t('Assignment Command Center', 'Assignment Command Center'), path: '/assignments', icon: Link, visible: canSeeAssignmentCommandCenter, hasDot: hasPendingInvites },
     { label: t('Patient Records', 'Mga Rekord ng Pasyente'),  path: '/patients',  icon: Users,           visible: canSeePatients },
     { label: t('Device Management', 'Pamamahala ng Device'),path: '/devices',   icon: RadioReceiver,   visible: canSeeDevices },
-    { label: t('User Management', 'Pamamahala ng User'),  path: '/staff',     icon: Users,           visible: canSeeStaff },
+    { label: t('User Management', 'Pamamahala ng User'),  path: '/staff',     icon: Users,           visible: canSeeStaff, hasDot: hasCareTeamUpdates },
     { label: t('Security & Access', 'Seguridad at Akses'),path: '/security',  icon: Lock,            visible: canSeeSecurity },
-    { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts },
+    { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts, hasDot: hasUnreadAlerts },
     { label: t('Clinical Reports', 'Mga Klinikal na Ulat'), path: '/reports',   icon: ActivitySquare,  visible: canSeeReports },
     { label: t('System Settings', 'Mga Setting ng System'),  path: '/settings',  icon: Settings,        visible: canSeeSettings },
   ];
@@ -111,7 +195,10 @@ export default function AppSidebar() {
             {({ isActive }) => (
               <>
                 <item.icon className={`w-5 h-5 ${isActive ? 'text-teal-400' : 'text-slate-500 group-hover:text-slate-300'}`} />
-                {item.label}
+                <span className="flex-1 truncate">{item.label}</span>
+                {item.hasDot && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse ml-2 shrink-0 shadow-sm border border-slate-900" />
+                )}
               </>
             )}
           </NavLink>

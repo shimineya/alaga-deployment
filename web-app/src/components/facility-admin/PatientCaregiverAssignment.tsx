@@ -199,9 +199,9 @@ export default function PatientCaregiverAssignment() {
                                                                 if (c.invite_status === 'Pending') {
                                                                     badgeClass += "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100";
                                                                     statusText = " (Pending)";
-                                                                } else if (c.invite_status === 'Declined') {
+                                                                } else if (c.invite_status === 'Rejected') {
                                                                     badgeClass += "bg-red-50 text-red-700 border-red-200 hover:bg-red-100";
-                                                                    statusText = " (Declined)";
+                                                                    statusText = " (Rejected)";
                                                                 } else {
                                                                     badgeClass += "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
                                                                 }

@@ -222,10 +222,10 @@ export default function ParentCareTeamManagement() {
                                                                         {t('Pending Acceptance', 'Nakabinbing Pagtanggap')}
                                                                     </Badge>
                                                                 )}
-                                                                {member.invite_status === 'Declined' && (
+                                                                {member.invite_status === 'Rejected' && (
                                                                     <Badge className="bg-red-50 text-red-700 border-red-100 hover:bg-red-50 flex items-center gap-1 text-[10px] font-normal h-6 px-2.5">
                                                                         <XCircle className="w-3 h-3" />
-                                                                        {t('Declined invitation', 'Tinanggihan ang imbitasyon')}
+                                                                        {t('Rejected invitation', 'Tinanggihan ang imbitasyon')}
                                                                     </Badge>
                                                                 )}
                                                                 {(member.invite_status === 'Active' || !member.invite_status) && (

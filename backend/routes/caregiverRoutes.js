@@ -277,9 +277,9 @@ router.post('/patients', async (req, res) => {
 
         if (assignedCaregiverId) {
             await client.query(
-                `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
-                 VALUES ($1, $2, 'Assigned Caregiver', 'View')`,
-                [assignedCaregiverId, newPatientId]
+                `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+                 VALUES ($1, $2, 'Assigned Caregiver', 'View', 'Pending', $3)`,
+                [assignedCaregiverId, newPatientId, req.user.id]
             );
         }
 

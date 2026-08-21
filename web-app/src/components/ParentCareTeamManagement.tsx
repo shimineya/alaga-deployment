@@ -141,10 +141,20 @@ export default function ParentCareTeamManagement() {
                         {t('Manage caregivers and monitor their invitation status in real-time.', 'Pamahalaan ang mga caregiver at subaybayan ang katayuan ng kanilang imbitasyon sa real-time.')}
                     </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={fetchAllData} disabled={loading} className="h-9 gap-1.5">
-                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                    {t('Refresh Care Teams', 'I-refresh ang mga Care Team')}
-                </Button>
+                <div className="flex gap-2 shrink-0">
+                    <Button 
+                        size="sm" 
+                        onClick={() => openInviteModal(-1, '')}
+                        className="bg-teal-600 hover:bg-teal-700 text-white h-9 px-4 font-semibold shrink-0 gap-1.5"
+                    >
+                        <UserPlus className="w-4 h-4" />
+                        {t('Invite Member', 'Mag-imbita ng Miyembro')}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={fetchAllData} disabled={loading} className="h-9 gap-1.5">
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                        {t('Refresh Care Teams', 'I-refresh ang mga Care Team')}
+                    </Button>
+                </div>
             </div>
 
             {loading && patients.length === 0 ? (

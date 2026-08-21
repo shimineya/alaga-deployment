@@ -135,15 +135,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    try {
-      const t = localStorage.getItem('token');
-      if (t) {
-        await fetch(`${API_URL}/api/auth/logout`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
-        });
-      }
-    } catch { /* Proceed with local logout regardless */ }
+    const t = localStorage.getItem('token');
+    if (t) {
+      fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+      }).catch(() => {});
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);

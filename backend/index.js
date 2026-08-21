@@ -71,8 +71,9 @@ app.use((req, res, next) => {
 // --- MULTER CONFIGURATION (File Uploads) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
-        cb(null, 'uploads/'); // Ensure this folder exists
+        const uploadPath = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
+        cb(null, uploadPath); // Ensure this folder exists
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -92,7 +93,7 @@ const upload = multer({
     }
 });
 
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // --- VALIDATION RULES ---
 const registerValidation = [

@@ -79,7 +79,7 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-[450px]">
+            <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-slate-800">
                         <UserPlus className="w-5 h-5 text-teal-600" />
@@ -98,10 +98,10 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                             <Input
                                 id="caregiverEmail"
                                 type="email"
-                                placeholder="caregiver@alaga.local, nurse@hospital.com, parent@alaga.local"
+                                placeholder="registered email of caregiver, medical staff, or parent/guardian"
                                 value={caregiverEmail}
                                 onChange={(e) => setCaregiverEmail(e.target.value)}
-                                className="pl-9 h-9 text-sm"
+                                className="pl-9 h-9 text-sm placeholder:text-xs"
                                 required
                             />
                         </div>

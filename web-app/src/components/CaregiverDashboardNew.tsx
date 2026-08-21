@@ -85,6 +85,15 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     useEffect(() => {
         setActiveNavItem(initialTab);
     }, [initialTab]);
+
+    React.useEffect(() => {
+        if (selectedPatient) {
+            const updated = patients.find(p => p.id === selectedPatient.id);
+            if (updated) {
+                setSelectedPatient(updated);
+            }
+        }
+    }, [patients, selectedPatient]);
     const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -196,14 +205,15 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     roomNumber: 'Home',
                     condition: p.baseline_data?.condition || 'Stable',
                     status: 'Stable',
-                    medicalConditions: p.medical_history || [],
+                    medicalConditions: p.baseline_data?.medicalConditions || p.medical_history || [],
+                    illness: p.baseline_data?.illness || p.illness || 'N/A',
+                    emergencyContact: p.baseline_data?.emergencyContact || p.emergencyContact || null,
                     allergies: p.allergies || [],
                     medications: p.medications || [],
                     doctorsOrders: [],
                     baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
                     deviceConnected: !!p.device_serial_number,
                     assignedCaregiverName: p.assigned_caregiver_name,
-                    emergencyContact: { name: 'N/A', phone: 'N/A', relation: 'N/A' },
                     deleted: false,
                     archived: false
                 } as any));
@@ -924,6 +934,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     onBack={() => { setViewMode('dashboard'); setSelectedPatient(null); setProfileInitialTab('overview'); }}
                     caregiverName={selectedPatient.assignedCaregiverName}
                     initialTab={profileInitialTab}
+                    onRefresh={fetchPatients}
                 />
             );
         }

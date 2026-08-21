@@ -10,6 +10,8 @@ import { SmartDiaperEvents } from './patient/SmartDiaperEvents';
 import { CareLogs } from './patient/CareLogs';
 import { AlertHistory } from './patient/AlertHistory';
 import { CaregiverManagement } from './CaregiverManagement';
+import { Input } from './ui/input';
+import { toast } from 'sonner';
 
 import {
   ArrowLeft,
@@ -39,11 +41,92 @@ interface PatientProfileProps {
   // currentUserAccessLevel is now implicitly part of patient prop or should be passed?
   // Since we updated Patient interface, patient.accessLevel should be available.
   initialTab?: string; // [NEW] Allow setting the starting tab
+  onRefresh?: () => void;
 }
 
-export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack, caregiverName, initialTab = "overview" }) => {
+export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initialPatient, onBack, caregiverName, initialTab = "overview", onRefresh }) => {
+  const [patient, setPatient] = useState<Patient>(initialPatient);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
   const [timeRange, setTimeRange] = useState<'8h' | '24h' | '7d'>('24h');
+
+  // Sync state with prop
+  useEffect(() => {
+    setPatient(initialPatient);
+  }, [initialPatient]);
+
+  // Edit details state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editIllness, setEditIllness] = useState('');
+  const [editConditions, setEditConditions] = useState('');
+  const [editEmergencyContact, setEditEmergencyContact] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleStartEdit = () => {
+    setEditIllness(patient.illness || '');
+    setEditConditions(patient.medicalConditions?.join(', ') || '');
+    
+    let contactStr = '';
+    if (patient.emergencyContact) {
+      if (typeof patient.emergencyContact === 'string') {
+        contactStr = patient.emergencyContact;
+      } else {
+        const parts = [];
+        if (patient.emergencyContact.name) parts.push(patient.emergencyContact.name);
+        if (patient.emergencyContact.relationship) parts.push(`(${patient.emergencyContact.relationship})`);
+        if (patient.emergencyContact.phone) parts.push(`- ${patient.emergencyContact.phone}`);
+        contactStr = parts.join(' ');
+      }
+    }
+    setEditEmergencyContact(contactStr);
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = async () => {
+    setIsSaving(true);
+    try {
+      const isMock = patient.id.startsWith('p');
+      const token = localStorage.getItem('token');
+      
+      const newConditions = editConditions ? editConditions.split(',').map(c => c.trim()).filter(Boolean) : [];
+      
+      if (!isMock && token) {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients/${patient.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            name: patient.name,
+            illness: editIllness || null,
+            medicalConditions: newConditions,
+            emergencyContact: editEmergencyContact || null
+          })
+        });
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to update patient record.');
+        }
+      }
+      
+      // Update local state
+      setPatient(prev => ({
+        ...prev,
+        illness: editIllness || undefined,
+        medicalConditions: newConditions,
+        emergencyContact: editEmergencyContact || undefined
+      }));
+      
+      toast.success('Patient details updated successfully.');
+      setIsEditing(false);
+      onRefresh?.();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Failed to update patient.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Load Vitals
   useEffect(() => {
@@ -155,12 +238,6 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
           >
             Alerts
           </TabsTrigger>
-          <TabsTrigger
-            value="care-team"
-            className="cursor-pointer rounded-none border-b-2 border-transparent data-[state=active]:!border-primary data-[state=active]:!text-accent-foreground data-[state=active]:!bg-accent data-[state=active]:!shadow-none px-4 py-3 bg-transparent font-medium text-slate-500 hover:text-accent-foreground hover:bg-accent transition-colors"
-          >
-            Care Team
-          </TabsTrigger>
         </TabsList>
 
         {/* TAB: OVERVIEW */}
@@ -208,43 +285,100 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Patient Info Card */}
             <Card className="md:col-span-1 border-slate-200 shadow-sm h-fit">
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <User className="w-5 h-5 text-slate-500" /> Patient Details
                 </CardTitle>
+                {!isEditing && (patient.accessLevel === 'Edit' || patient.accessLevel === 'Admin' || !patient.accessLevel) && (
+                  <Button variant="ghost" size="sm" onClick={handleStartEdit} className="h-8 text-xs text-teal-600 hover:text-teal-700 hover:bg-teal-50">
+                    Edit
+                  </Button>
+                )}
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-xs text-slate-400">Primary Diagnosis</p>
-                  <p className="font-medium text-slate-800">{patient.illness || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Conditions</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {patient.medicalConditions.map((c, i) => (
-                      <Badge key={i} variant="secondary" className="text-xs">{c}</Badge>
-                    ))}
+              {!isEditing ? (
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-xs text-slate-400">Primary Diagnosis</p>
+                    <p className="font-medium text-slate-800">{patient.illness || 'N/A'}</p>
                   </div>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Emergency Contact</p>
-                  {patient.emergencyContact ? (
-                    <div>
-                      <p className="font-medium text-slate-800">{patient.emergencyContact.name}</p>
-                      <p className="text-sm text-slate-600">{patient.emergencyContact.relationship} • {patient.emergencyContact.phone}</p>
+                  <div>
+                    <p className="text-xs text-slate-400">Conditions</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {patient.medicalConditions && patient.medicalConditions.length > 0 ? (
+                        patient.medicalConditions.map((c, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs mr-1">{c}</Badge>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-500">None</p>
+                      )}
                     </div>
-                  ) : <p className="text-sm">N/A</p>}
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Assigned Caregiver</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold">
-                      {(caregiverName || 'U')[0]}
-                    </div>
-                    <p className="text-sm font-medium">{caregiverName || 'Unassigned'}</p>
                   </div>
-                </div>
-              </CardContent>
+                  <div>
+                    <p className="text-xs text-slate-400">Emergency Contact</p>
+                    {patient.emergencyContact ? (
+                      typeof patient.emergencyContact === 'string' ? (
+                        <p className="font-medium text-slate-800">{patient.emergencyContact}</p>
+                      ) : (
+                        <div>
+                          <p className="font-medium text-slate-800">{patient.emergencyContact.name}</p>
+                          {(patient.emergencyContact.relationship || patient.emergencyContact.phone) && (
+                            <p className="text-sm text-slate-600">
+                              {patient.emergencyContact.relationship || ''} {patient.emergencyContact.relationship && patient.emergencyContact.phone ? '•' : ''} {patient.emergencyContact.phone || ''}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    ) : <p className="text-sm">N/A</p>}
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Assigned Caregiver</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold">
+                        {(caregiverName || 'U')[0]}
+                      </div>
+                      <p className="text-sm font-medium">{caregiverName || 'Unassigned'}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              ) : (
+                <CardContent className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500">Primary Diagnosis</label>
+                    <Input 
+                      value={editIllness} 
+                      onChange={e => setEditIllness(e.target.value)} 
+                      placeholder="e.g. Hypertension"
+                      className="h-8 text-sm" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500">Conditions (comma-separated)</label>
+                    <Input 
+                      value={editConditions} 
+                      onChange={e => setEditConditions(e.target.value)} 
+                      placeholder="e.g. Diabetes, Asthma"
+                      className="h-8 text-sm" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500">Emergency Contact</label>
+                    <Input 
+                      value={editEmergencyContact} 
+                      onChange={e => setEditEmergencyContact(e.target.value)} 
+                      placeholder="e.g. Juan Santos (Son) - +63 912 345 6789"
+                      className="h-8 text-sm" 
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button onClick={handleSaveEdit} disabled={isSaving} className="flex-1 h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white font-medium">
+                      {isSaving ? 'Saving...' : 'Save'}
+                    </Button>
+                    <Button onClick={() => setIsEditing(false)} variant="outline" className="flex-1 h-8 text-xs">
+                      Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              )}
             </Card>
 
             {/* AI Suggestions / Status */}
@@ -354,21 +488,12 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient, onBack,
 
         {/* TAB: LOGS */}
         <TabsContent value="logs" className="mt-6">
-          <CareLogs />
+          <CareLogs patientId={patient.id} />
         </TabsContent>
 
         {/* TAB: ALERTS */}
         <TabsContent value="alerts" className="mt-6">
-          <AlertHistory />
-        </TabsContent>
-
-        {/* TAB: CARE TEAM */}
-        <TabsContent value="care-team" className="mt-6">
-          <CaregiverManagement
-            patientId={patient.id}
-            patientName={patient.name}
-            currentUserAccessLevel={patient.accessLevel || 'View'}
-          />
+          <AlertHistory patientId={patient.id} />
         </TabsContent>
 
       </Tabs>

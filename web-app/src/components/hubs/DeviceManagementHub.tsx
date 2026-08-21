@@ -9,6 +9,7 @@ import { CaregiverDashboardNew } from '../CaregiverDashboardNew';
 import ReadOnlyDiagnostics from '../facility-admin/ReadOnlyDiagnostics';
 import FirmwareOTAUpdates from '../sysadmin/FirmwareOTAUpdates';
 import FacilityTopologyBuilder from '../sysadmin/FacilityTopologyBuilder';
+import AssignDeviceToPatient from '../facility-admin/AssignDeviceToPatient';
 
 export default function DeviceManagementHub() {
     const { user, permissions, isSysAdmin } = useAuth();
@@ -37,11 +38,12 @@ export default function DeviceManagementHub() {
     const canSeeDiagnostics    = hasPermission('diagnostics',    isFacilityAdmin || isAdminTier);
     const canSeeTopologyAndOTA = hasPermission('topology',       isAdminTier);
 
-    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA].filter(Boolean).length;
+    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, isFacilityAdmin].filter(Boolean).length;
     
     let defaultTab = 'my-devices';
     if (!canSeeMyDevices) {
-        if (canSeeDiagnostics) defaultTab = 'diagnostics';
+        if (isFacilityAdmin) defaultTab = 'assign-device';
+        else if (canSeeDiagnostics) defaultTab = 'diagnostics';
         else if (canSeeTopologyAndOTA) defaultTab = 'topology';
     }
 
@@ -57,6 +59,22 @@ export default function DeviceManagementHub() {
                 <div className="border-b border-slate-200 mb-6 shrink-0">
                     <TooltipProvider delayDuration={300}>
                         <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                            {isFacilityAdmin && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <TabsTrigger 
+                                            value="assign-device" 
+                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                        >
+                                            <PenTool className="w-4 h-4" /> Assign Device to Patient
+                                        </TabsTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
+                                        <p className="text-xs">Pair Smart Diaper or Vital Signs devices to a patient.</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+
                             {canSeeMyDevices && (
                                 <Tooltip>
                                     <TooltipTrigger asChild>
@@ -150,6 +168,12 @@ export default function DeviceManagementHub() {
                 {canSeeAddDevice && (
                     <TabsContent value="add-device" className="mt-0 flex-1 min-h-[500px] outline-none">
                         <CaregiverDashboardNew initialTab="add-device" hideNavigation={true} />
+                    </TabsContent>
+                )}
+
+                {isFacilityAdmin && (
+                    <TabsContent value="assign-device" className="mt-0 flex-1 min-h-[500px] outline-none">
+                        <AssignDeviceToPatient />
                     </TabsContent>
                 )}
 

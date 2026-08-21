@@ -23,6 +23,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
     const [activeTab, setActiveTab] = useState("manual");
 
     // Form State
+    const [choice, setChoice] = useState<'both' | 'diaper' | 'vital'>('both');
     const [vitalDeviceNo, setVitalDeviceNo] = useState("");
     const [diaperDeviceNo, setDiaperDeviceNo] = useState("");
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -41,6 +42,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                 setDiaperDeviceNo("SD-2026-0002");
                 setIsLoading(false);
                 setActiveTab("manual");
+                setChoice('both');
                 toast.success("QR Code Scanned Successfully!");
             }, 1500);
         }
@@ -49,19 +51,26 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
 
-        if (!vitalDeviceNo.trim()) {
-            newErrors.vitalDeviceNo = "Vital device No. is required";
-        } else if (!/^VS-\d{4}-\d{3,}$/.test(vitalDeviceNo.trim())) {
-            newErrors.vitalDeviceNo = "Format: VS-YYYY-XXX";
+        const isDiaperRequired = choice === 'both' || choice === 'diaper';
+        const isVitalRequired = choice === 'both' || choice === 'vital';
+
+        if (isVitalRequired) {
+            if (!vitalDeviceNo.trim()) {
+                newErrors.vitalDeviceNo = "Vital Signs Device serial number is required";
+            } else if (!/^VS-\d{4}-\d{3,}$/.test(vitalDeviceNo.trim())) {
+                newErrors.vitalDeviceNo = "Format: VS-YYYY-XXXX (e.g. VS-2026-0001)";
+            }
         }
 
-        if (!diaperDeviceNo.trim()) {
-            newErrors.diaperDeviceNo = "Diaper device No. is required";
-        } else if (!/^SD-\d{4}-\d{3,}$/.test(diaperDeviceNo.trim())) {
-            newErrors.diaperDeviceNo = "Format: SD-YYYY-XXX";
+        if (isDiaperRequired) {
+            if (!diaperDeviceNo.trim()) {
+                newErrors.diaperDeviceNo = "Smart Diaper Device serial number is required";
+            } else if (!/^SD-\d{4}-\d{3,}$/.test(diaperDeviceNo.trim())) {
+                newErrors.diaperDeviceNo = "Format: SD-YYYY-XXXX (e.g. SD-2026-0001)";
+            }
         }
 
-        if (vitalDeviceNo && diaperDeviceNo && vitalDeviceNo === diaperDeviceNo) {
+        if (isVitalRequired && isDiaperRequired && vitalDeviceNo && diaperDeviceNo && vitalDeviceNo === diaperDeviceNo) {
             newErrors.diaperDeviceNo = "Device IDs cannot be the same";
         }
 
@@ -80,6 +89,9 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
 
         setIsLoading(true);
 
+        const isDiaperRequired = choice === 'both' || choice === 'diaper';
+        const isVitalRequired = choice === 'both' || choice === 'vital';
+
         try {
             const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices`, {
                 method: 'POST',
@@ -88,8 +100,8 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    vitalDeviceNo,
-                    diaperDeviceNo
+                    vitalDeviceNo: isVitalRequired ? vitalDeviceNo.trim() : null,
+                    diaperDeviceNo: isDiaperRequired ? diaperDeviceNo.trim() : null
                 })
             });
 
@@ -124,40 +136,61 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                 <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                     <div className="space-y-4">
                         <div className="space-y-1.5">
-                            <Label htmlFor="vitalDeviceNo" className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase">
-                                <Smartphone className="w-3.5 h-3.5 text-rose-500" />
-                                Vital Monitor S/N <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                                id="vitalDeviceNo"
-                                placeholder="e.g. VS-2026-0001"
-                                value={vitalDeviceNo}
+                            <Label htmlFor="deviceChoice" className="text-slate-700 font-semibold text-xs">Devices to Register</Label>
+                            <select
+                                id="deviceChoice"
+                                value={choice}
                                 onChange={(e) => {
-                                    setVitalDeviceNo(e.target.value.toUpperCase());
-                                    if (errors.vitalDeviceNo) setErrors({ ...errors, vitalDeviceNo: '' });
+                                    setChoice(e.target.value as any);
+                                    setErrors({});
                                 }}
-                                className={`font-mono text-sm h-9 uppercase ${errors.vitalDeviceNo ? 'border-red-500' : ''}`}
-                            />
-                            {errors.vitalDeviceNo && <span className="text-red-500 text-[10px]">{errors.vitalDeviceNo}</span>}
+                                className="w-full h-9 rounded-md border border-slate-300 text-sm px-2 text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                            >
+                                <option value="both">Both Devices</option>
+                                <option value="diaper">Smart Diaper Device Only</option>
+                                <option value="vital">Vital Signs Device Only</option>
+                            </select>
                         </div>
 
-                        <div className="space-y-1.5">
-                            <Label htmlFor="diaperDeviceNo" className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase">
-                                <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                                Smart Diaper S/N <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                                id="diaperDeviceNo"
-                                placeholder="e.g. SD-2026-0001"
-                                value={diaperDeviceNo}
-                                onChange={(e) => {
-                                    setDiaperDeviceNo(e.target.value.toUpperCase());
-                                    if (errors.diaperDeviceNo) setErrors({ ...errors, diaperDeviceNo: '' });
-                                }}
-                                className={`font-mono text-sm h-9 uppercase ${errors.diaperDeviceNo ? 'border-red-500' : ''}`}
-                            />
-                            {errors.diaperDeviceNo && <span className="text-red-500 text-[10px]">{errors.diaperDeviceNo}</span>}
-                        </div>
+                        {(choice === 'both' || choice === 'diaper') && (
+                            <div className="space-y-1.5 animate-in fade-in duration-200">
+                                <Label htmlFor="diaperDeviceNo" className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase">
+                                    <Smartphone className="w-3.5 h-3.5 text-blue-500" />
+                                    Smart Diaper Device <span className="text-red-500">*</span>
+                                </Label>
+                                <Input
+                                    id="diaperDeviceNo"
+                                    placeholder="e.g. SD-2026-0001"
+                                    value={diaperDeviceNo}
+                                    onChange={(e) => {
+                                        setDiaperDeviceNo(e.target.value.toUpperCase());
+                                        if (errors.diaperDeviceNo) setErrors({ ...errors, diaperDeviceNo: '' });
+                                    }}
+                                    className={`font-mono text-sm h-9 uppercase ${errors.diaperDeviceNo ? 'border-red-500' : ''}`}
+                                />
+                                {errors.diaperDeviceNo && <span className="text-red-500 text-[10px]">{errors.diaperDeviceNo}</span>}
+                            </div>
+                        )}
+
+                        {(choice === 'both' || choice === 'vital') && (
+                            <div className="space-y-1.5 animate-in fade-in duration-200">
+                                <Label htmlFor="vitalDeviceNo" className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase">
+                                    <Smartphone className="w-3.5 h-3.5 text-rose-500" />
+                                    Vital Signs Device <span className="text-red-500">*</span>
+                                </Label>
+                                <Input
+                                    id="vitalDeviceNo"
+                                    placeholder="e.g. VS-2026-0001"
+                                    value={vitalDeviceNo}
+                                    onChange={(e) => {
+                                        setVitalDeviceNo(e.target.value.toUpperCase());
+                                        if (errors.vitalDeviceNo) setErrors({ ...errors, vitalDeviceNo: '' });
+                                    }}
+                                    className={`font-mono text-sm h-9 uppercase ${errors.vitalDeviceNo ? 'border-red-500' : ''}`}
+                                />
+                                {errors.vitalDeviceNo && <span className="text-red-500 text-[10px]">{errors.vitalDeviceNo}</span>}
+                            </div>
+                        )}
                     </div>
 
                     <div className={`grid grid-cols-2 gap-3 ${isModal ? 'pt-2' : 'pt-4'}`}>

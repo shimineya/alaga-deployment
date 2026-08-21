@@ -46,7 +46,9 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         firstName: '',
         lastName: '',
         dateOfBirth: '',
-        medicalCondition: '',
+        primaryDiagnosis: '',
+        conditions: '',
+        emergencyContact: '',
         vsDeviceId: '',
         sdDeviceId: '',
         assignedCaregiverId: '',
@@ -59,6 +61,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
     const calculatedAge = useMemo(() => {
         if (!formData.dateOfBirth) return '';
         const birthDate = new Date(formData.dateOfBirth);
+        if (birthDate > new Date()) return '';
         const ageDifMs = Date.now() - birthDate.getTime();
         const ageDate = new Date(ageDifMs);
         return Math.abs(ageDate.getUTCFullYear() - 1970);
@@ -122,7 +125,14 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         const newErrors: Record<string, string> = {};
         if (!formData.firstName) newErrors.firstName = "Required";
         if (!formData.lastName) newErrors.lastName = "Required";
-        if (!formData.dateOfBirth) newErrors.dateOfBirth = "Required";
+        if (!formData.dateOfBirth) {
+            newErrors.dateOfBirth = "Required";
+        } else {
+            const birthDate = new Date(formData.dateOfBirth);
+            if (birthDate > new Date()) {
+                newErrors.dateOfBirth = "Cannot be in the future";
+            }
+        }
         return newErrors;
     };
 
@@ -133,7 +143,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         const formErrors = validateForm();
         if (Object.keys(formErrors).length > 0) {
             setErrors(formErrors);
-            toast.error("Please fill in all required fields.");
+            toast.error("Please fill in all required fields properly.");
             return;
         }
 
@@ -149,7 +159,10 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                 body: JSON.stringify({
                     name: `${formData.firstName} ${formData.lastName}`,
                     birthdate: formData.dateOfBirth,
-                    medicalCondition: formData.medicalCondition,
+                    medicalCondition: formData.conditions, // backwards-compatible field
+                    illness: formData.primaryDiagnosis || null,
+                    conditions: formData.conditions || null,
+                    emergencyContact: formData.emergencyContact || null,
                     assignedCaregiverEmail: formData.assignedCaregiverEmail || null,
                     vitalDeviceNo: formData.vsDeviceId,
                     diaperDeviceNo: formData.sdDeviceId
@@ -289,6 +302,7 @@ const handleSearchCaregiver = async (query: string) => {
                                             type="date"
                                             value={formData.dateOfBirth}
                                             onChange={e => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                                            max={new Date().toISOString().split('T')[0]}
                                             className={`flex-1 h-9 text-sm ${errors.dateOfBirth ? "border-red-500" : ""}`}
                                         />
                                         {calculatedAge && (
@@ -297,15 +311,38 @@ const handleSearchCaregiver = async (query: string) => {
                                             </div>
                                         )}
                                     </div>
+                                    {errors.dateOfBirth && (
+                                        <p className="text-xs text-red-500 mt-1">{errors.dateOfBirth}</p>
+                                    )}
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Medical Notes</Label>
-                                    <Textarea
-                                        placeholder="Brief medical history or conditions..."
-                                        value={formData.medicalCondition}
-                                        onChange={e => setFormData({ ...formData, medicalCondition: e.target.value })}
-                                        className="min-h-[140px] resize-none text-sm leading-relaxed"
+                                    <Label className="text-xs font-semibold text-slate-600">Primary Diagnosis</Label>
+                                    <Input
+                                        placeholder="e.g. Hypertension"
+                                        value={formData.primaryDiagnosis}
+                                        onChange={e => setFormData({ ...formData, primaryDiagnosis: e.target.value })}
+                                        className="h-9 text-sm"
+                                    />
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-600">Conditions</Label>
+                                    <Input
+                                        placeholder="e.g. Diabetes, Asthma"
+                                        value={formData.conditions}
+                                        onChange={e => setFormData({ ...formData, conditions: e.target.value })}
+                                        className="h-9 text-sm"
+                                    />
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-600">Emergency Contact</Label>
+                                    <Input
+                                        placeholder="e.g. Juan Santos (Son) - +63 912 345 6789"
+                                        value={formData.emergencyContact}
+                                        onChange={e => setFormData({ ...formData, emergencyContact: e.target.value })}
+                                        className="h-9 text-sm"
                                     />
                                 </div>
                             </div>

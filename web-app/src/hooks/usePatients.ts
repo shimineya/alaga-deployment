@@ -24,7 +24,9 @@ export const usePatients = (token: string | null) => {
                     roomNumber: p.room_number || 'Home',
                     condition: p.baseline_data?.condition || 'Stable',
                     status: 'Stable', // Default until sensors update
-                    medicalConditions: p.medical_history || [],
+                    medicalConditions: p.baseline_data?.medicalConditions || p.medical_history || [],
+                    illness: p.baseline_data?.illness || p.illness || 'N/A',
+                    emergencyContact: p.baseline_data?.emergencyContact || p.emergencyContact || null,
                     // Default Vitals (0 or -- indicates no data yet)
                     baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
                     deviceConnected: !!p.device_serial_number,

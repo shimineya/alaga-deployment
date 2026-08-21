@@ -90,23 +90,15 @@ const AlertsHub: React.FC = () => {
     const fetchAlerts = async () => {
         setIsLoading(true);
         try {
-            if (!isSysAdmin) {
-                const clinicalRes = await axios.get('/api/alerts/clinical');
-                setClinicalAlerts(clinicalRes.data.data);
-                
-                const hasCritical = clinicalRes.data.data.some((a: any) => a.severity === 'Critical' && a.status !== 'Acknowledged');
-                if (hasCritical) playAlertSound();
-            } else {
-                const [clinicalRes, sysRes] = await Promise.all([
-                    axios.get('/api/alerts/clinical'),
-                    axios.get('/api/alerts/system')
-                ]);
-                setClinicalAlerts(clinicalRes.data.data);
-                setSystemAlerts(sysRes.data.data);
-                
-                const hasCritical = clinicalRes.data.data.some((a: any) => a.severity === 'Critical' && a.status !== 'Acknowledged');
-                if (hasCritical) playAlertSound();
-            }
+            const [clinicalRes, sysRes] = await Promise.all([
+                axios.get('/api/alerts/clinical'),
+                axios.get('/api/alerts/system')
+            ]);
+            setClinicalAlerts(clinicalRes.data.data);
+            setSystemAlerts(sysRes.data.data);
+            
+            const hasCritical = clinicalRes.data.data.some((a: any) => a.severity === 'Critical' && a.status !== 'Acknowledged');
+            if (hasCritical) playAlertSound();
         } catch (error) {
             console.error("Failed to load alerts", error);
         } finally {
@@ -177,17 +169,15 @@ const AlertsHub: React.FC = () => {
                         )}
                     </TabsTrigger>
                     
-                    {isSysAdmin && (
-                        <TabsTrigger value="system" className="data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700 font-semibold rounded-xl px-4 py-2.5 transition-all">
-                            <HardDrive className="h-4 w-4 mr-2" />
-                            Hardware Diagnostics
-                            {systemAlerts.filter(a => a.status === 'Active').length > 0 && (
-                                <span className="ml-2 bg-amber-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
-                                    {systemAlerts.filter(a => a.status === 'Active').length}
-                                </span>
-                            )}
-                        </TabsTrigger>
-                    )}
+                    <TabsTrigger value="system" className="data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700 font-semibold rounded-xl px-4 py-2.5 transition-all">
+                        <HardDrive className="h-4 w-4 mr-2" />
+                        Hardware Diagnostics
+                        {systemAlerts.filter(a => a.status === 'Active').length > 0 && (
+                            <span className="ml-2 bg-amber-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
+                                {systemAlerts.filter(a => a.status === 'Active').length}
+                            </span>
+                        )}
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="clinical" className="space-y-4">
@@ -244,30 +234,28 @@ const AlertsHub: React.FC = () => {
                     )}
                 </TabsContent>
 
-                {isSysAdmin && (
-                    <TabsContent value="system" className="space-y-4">
-                        {systemAlerts.map(alert => (
-                            <Card key={alert.sys_alert_id} className={`overflow-hidden bg-white border-slate-200 rounded-2xl ${alert.status !== 'Active' ? 'opacity-60' : 'shadow-sm'}`}>
-                                <CardContent className="p-6 flex items-start gap-4">
-                                    <div className={`p-3.5 rounded-2xl ${alert.status === 'Active' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
-                                        <HardDrive className="h-6 w-6" />
+                <TabsContent value="system" className="space-y-4">
+                    {systemAlerts.map(alert => (
+                        <Card key={alert.sys_alert_id} className={`overflow-hidden bg-white border-slate-200 rounded-2xl ${alert.status !== 'Active' ? 'opacity-60' : 'shadow-sm'}`}>
+                            <CardContent className="p-6 flex items-start gap-4">
+                                <div className={`p-3.5 rounded-2xl ${alert.status === 'Active' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
+                                    <HardDrive className="h-6 w-6" />
+                                </div>
+                                <div className="flex-1 space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                                        <h3 className="font-bold text-slate-800 text-lg">{alert.alert_type}</h3>
+                                        <Badge className={getSeverityColor(alert.severity)} variant="outline">{alert.severity}</Badge>
+                                        {alert.patient_name && (
+                                            <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-xl font-semibold">Device: {alert.patient_name}</span>
+                                        )}
                                     </div>
-                                    <div className="flex-1 space-y-1">
-                                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                                            <h3 className="font-bold text-slate-800 text-lg">{alert.alert_type}</h3>
-                                            <Badge className={getSeverityColor(alert.severity)} variant="outline">{alert.severity}</Badge>
-                                            {alert.patient_name && (
-                                                <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-xl font-semibold">Device: {alert.patient_name}</span>
-                                            )}
-                                        </div>
-                                        <p className="text-sm text-slate-600">{alert.description}</p>
-                                        <p className="text-xs text-slate-400 pt-1">Logged: {new Date(alert.triggered_at).toLocaleString()}</p>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </TabsContent>
-                )}
+                                    <p className="text-sm text-slate-600">{alert.description}</p>
+                                    <p className="text-xs text-slate-400 pt-1">Logged: {new Date(alert.triggered_at).toLocaleString()}</p>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </TabsContent>
             </Tabs>
 
             <AcknowledgeModal 

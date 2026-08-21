@@ -25,6 +25,8 @@ export interface Patient {
   assignedCaregiverName?: string; // [NEW] Added for UI display
   doctorsOrders?: DoctorsOrdersData;
   accessLevel?: 'View' | 'Edit' | 'Admin'; // [NEW] Current user's access level for this patient
+  illness?: string;
+  emergencyContact?: any;
 }
 
 

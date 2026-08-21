@@ -446,7 +446,7 @@ export function SysAdminSidebar() {
                                                 }
                                             >
                                                 <Smartphone className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
-                                                <span>My Devices</span>
+                                                <span>Patients' Devices</span>
                                             </NavLink>
                                         </li>
                                         <li>

@@ -43,6 +43,7 @@ export default function ParentCareTeamManagement() {
     // States
     const [patients, setPatients] = useState<Patient[]>([]);
     const [careTeams, setCareTeams] = useState<Record<number, CareTeamMember[]>>({});
+    const [pendingInvites, setPendingInvites] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     
@@ -53,12 +54,21 @@ export default function ParentCareTeamManagement() {
 
     const API_BASE = import.meta.env.VITE_API_URL || '';
 
-    // Fetch patients and their care teams
+    // Fetch patients, care teams, and pending invitations
     const fetchAllData = useCallback(async () => {
         if (!token) return;
         setLoading(true);
         try {
-            // 1. Fetch parent's children
+            // 1. Fetch parent's own pending invitations
+            const inviteRes = await fetch(`${API_BASE}/api/assignments/pending-invites`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const inviteData = await inviteRes.json();
+            if (inviteData.success) {
+                setPendingInvites(inviteData.data || []);
+            }
+
+            // 2. Fetch parent's children
             const patRes = await fetch(`${API_BASE}/api/caregiver/patients`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -67,7 +77,7 @@ export default function ParentCareTeamManagement() {
                 const fetchedPatients: Patient[] = patData.data;
                 setPatients(fetchedPatients);
 
-                // 2. Fetch care team for each patient
+                // 3. Fetch care team for each patient
                 const teamsMap: Record<number, CareTeamMember[]> = {};
                 await Promise.all(
                     fetchedPatients.map(async (pat) => {
@@ -93,6 +103,30 @@ export default function ParentCareTeamManagement() {
     useEffect(() => {
         fetchAllData();
     }, [fetchAllData]);
+
+    // Accept / Decline Invitation
+    const handleRespondInvite = async (accessId: number, action: 'accept' | 'decline') => {
+        try {
+            const res = await fetch(`${API_BASE}/api/assignments/respond-invite`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ access_id: accessId, action })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(action === 'accept' ? 'Invitation accepted!' : 'Invitation declined.');
+                fetchAllData();
+            } else {
+                toast.error(data.message);
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to respond to invitation.');
+        }
+    };
 
     // Remove caregiver
     const handleRemoveCaregiver = async (patientId: number, caregiverId: number, caregiverName: string) => {
@@ -156,6 +190,75 @@ export default function ParentCareTeamManagement() {
                     </Button>
                 </div>
             </div>
+
+            {/* Pending Invitations Section */}
+            <Card className="border-amber-200 bg-amber-50/20 shadow-xs shrink-0 animate-in fade-in duration-200">
+                <CardHeader className="py-3 px-6 border-b border-amber-100 flex flex-row items-center justify-between gap-4">
+                    <div>
+                        <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+                            {t('Pending Care Team Invitations', 'Mga Nakabinbing Imbitasyon sa Care Team')} ({pendingInvites.length})
+                        </CardTitle>
+                        <CardDescription className="text-[10px] mt-0.5">
+                            {t('You have been invited to join the care team of these patients.', 'Inimbitahan kang sumali sa pangkat ng pangangalaga ng mga pasyenteng ito.')}
+                        </CardDescription>
+                    </div>
+                    {pendingInvites.length > 0 && (
+                        <Badge variant="outline" className="bg-amber-100/50 text-amber-800 border-amber-200 font-semibold text-[10px]">
+                            {pendingInvites.length} {t('New', 'Bago')}
+                        </Badge>
+                    )}
+                </CardHeader>
+                <CardContent className="p-4 space-y-3">
+                    {pendingInvites.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-2 text-center">
+                            {t('No pending invitations at this time.', 'Walang nakabinbing imbitasyon sa ngayon.')}
+                        </p>
+                    ) : (
+                        pendingInvites.map((invite) => (
+                            <div key={invite.access_id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-slate-100 rounded-lg gap-4 hover:shadow-xs transition-shadow">
+                                <div>
+                                    <h4 className="font-bold text-slate-800 text-xs">{invite.patient_name}</h4>
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 mt-0.5">
+                                        <span>
+                                            {t('Relationship', 'Relasyon')}: <span className="font-medium text-slate-700">{invite.relationship}</span>
+                                        </span>
+                                        <span className="hidden sm:inline text-slate-300">•</span>
+                                        {invite.invited_by_first_name && (
+                                            <span>
+                                                {t('Invited by', 'Inimbita ni')}: <span className="font-medium text-slate-700">{invite.invited_by_first_name} {invite.invited_by_last_name}</span>
+                                            </span>
+                                        )}
+                                        <span className="hidden sm:inline text-slate-300">•</span>
+                                        <span>
+                                            {t('Received', 'Natanggap')}: {new Date(invite.invited_at).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 shrink-0">
+                                    <Button
+                                        size="sm"
+                                        onClick={() => handleRespondInvite(invite.access_id, 'accept')}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[10px] h-7 px-3"
+                                    >
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        {t('Accept', 'Tanggapin')}
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleRespondInvite(invite.access_id, 'decline')}
+                                        className="border-slate-200 hover:bg-red-50 hover:text-red-600 font-semibold text-[10px] h-7 px-3 text-slate-600"
+                                    >
+                                        <XCircle className="w-3 h-3 mr-1" />
+                                        {t('Decline', 'Tanggihan')}
+                                    </Button>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </CardContent>
+            </Card>
 
             {loading && patients.length === 0 ? (
                 <div className="flex justify-center items-center py-20 flex-1">

@@ -6,6 +6,44 @@ const { verifyToken } = require('../middleware/authMiddleware');
 // Secure all routes with JWT verification
 router.use(verifyToken);
 
+// Helper: Checks for pending schedules that are due and writes permanent alert_notifications records for them.
+const recordDueSchedules = async () => {
+    try {
+        const dueSchedules = await pool.query(`
+            SELECT s.schedule_id, s.patient_name, s.event_type, s.custom_event_name, s.scheduled_at, p.patient_id
+            FROM schedules s
+            JOIN patients p ON LOWER(p.name) = LOWER(s.patient_name)
+            WHERE s.status = 'Pending' AND s.scheduled_at <= NOW()
+        `);
+
+        for (const s of dueSchedules.rows) {
+            const existing = await pool.query(
+                `SELECT event_id FROM anomaly_events WHERE anomaly_type = 'schedule_due' AND reading_id = $1`,
+                [s.schedule_id]
+            );
+
+            if (existing.rowCount === 0) {
+                const eventResult = await pool.query(
+                    `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
+                     VALUES ($1, $2, 'schedule_due', 0.0)
+                     RETURNING event_id`,
+                    [s.patient_id, s.schedule_id]
+                );
+                const eventId = eventResult.rows[0].event_id;
+
+                const msg = `Scheduled task due: ${s.event_type}${s.custom_event_name ? ` - ${s.custom_event_name}` : ''}`;
+                await pool.query(
+                    `INSERT INTO alert_notifications (event_id, status, message, severity, alert_category)
+                     VALUES ($1, 'Sent', $2, 'Warning', 'Clinical')`,
+                    [eventId, msg]
+                );
+            }
+        }
+    } catch (err) {
+        console.error("Error recording due schedules:", err.message);
+    }
+};
+
 // ==========================================
 // 1. GET /clinical - Fetch Patient Alerts
 // [HIPAA] Minimum Necessary Rule Enforced
@@ -13,11 +51,15 @@ router.use(verifyToken);
 router.get('/clinical', async (req, res) => {
     try {
         const { role, id: userId } = req.user;
+        const patientId = req.query.patientId;
         let query;
-        let params;
+        let params = [];
+
+        // Auto-record due schedules first
+        await recordDueSchedules();
 
         // [OWASP A01] Role-Based Data Scoping
-        if (role === 'admin' || role === 'medical_staff' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
             // High-level staff see all active clinical alerts
             query = `
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
@@ -27,12 +69,15 @@ router.get('/clinical', async (req, res) => {
                 FROM alert_notifications a
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
-                ORDER BY a.sent_at DESC
-                LIMIT 100
+                WHERE a.status IS DISTINCT FROM 'Archived'
             `;
-            params = [];
+            if (patientId) {
+                query += ` AND p.patient_id = $1`;
+                params.push(parseInt(patientId));
+            }
+            query += ` ORDER BY a.sent_at DESC LIMIT 100`;
         } else {
-            // Caregivers ONLY see alerts for assigned patients
+            // Caregivers see alerts for assigned patients OR patients paired with their registered devices
             query = `
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
                        a.acknowledged_by, a.acknowledged_at, a.action_taken,
@@ -41,20 +86,50 @@ router.get('/clinical', async (req, res) => {
                 FROM alert_notifications a
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
-                JOIN patient_access pa ON p.patient_id = pa.patient_id
-                WHERE pa.user_id = $1
-                ORDER BY a.sent_at DESC
-                LIMIT 50
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND p.patient_id IN (
+                    SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1
+                    UNION
+                    SELECT dw.assigned_patient_id FROM device_whitelist dw WHERE dw.assigned_patient_id IS NOT NULL AND dw.added_by = $1
+                  )
             `;
             params = [userId];
+            if (patientId) {
+                query += ` AND p.patient_id = $2`;
+                params.push(parseInt(patientId));
+            }
+            query += ` ORDER BY a.sent_at DESC LIMIT 50`;
         }
 
         const result = await pool.query(query, params);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Clinical Alerts Error:", err.message);
-        // [OWASP A10] Generic Error Message
         res.status(500).json({ success: false, message: 'Failed to fetch clinical alerts' });
+    }
+});
+
+// ==========================================
+// 1.1. PUT /clinical/archive-bulk - Archive one or many clinical alerts
+// ==========================================
+router.put('/clinical/archive-bulk', async (req, res) => {
+    try {
+        const { alertIds } = req.body;
+        if (!Array.isArray(alertIds) || alertIds.length === 0) {
+            return res.status(400).json({ success: false, message: 'An array of alertIds is required.' });
+        }
+
+        await pool.query(
+            `UPDATE alert_notifications 
+             SET status = 'Archived'
+             WHERE alert_id = ANY($1)`,
+            [alertIds]
+        );
+
+        res.json({ success: true, message: 'Alerts archived successfully.' });
+    } catch (err) {
+        console.error("Archive Alerts Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server Error during archiving' });
     }
 });
 
@@ -64,7 +139,7 @@ router.get('/clinical', async (req, res) => {
 // ==========================================
 router.put('/clinical/:id/acknowledge', async (req, res) => {
     try {
-        const alertId = req.params.id;
+        const alertId = parseInt(req.params.id);
         const userId = req.user.id;
         const { action_taken, resolution_notes } = req.body;
 
@@ -80,12 +155,27 @@ router.put('/clinical/:id/acknowledge', async (req, res) => {
                  action_taken = $2,
                  resolution_notes = $3
              WHERE alert_id = $4 AND status != 'Acknowledged'
-             RETURNING alert_id`,
+             RETURNING alert_id, event_id`,
             [userId, action_taken, resolution_notes || null, alertId]
         );
 
         if (result.rowCount === 0) {
             return res.status(404).json({ success: false, message: 'Alert not found or already acknowledged.' });
+        }
+
+        const eventId = result.rows[0].event_id;
+
+        const eventCheck = await pool.query(
+            `SELECT anomaly_type, reading_id FROM anomaly_events WHERE event_id = $1`,
+            [eventId]
+        );
+
+        if (eventCheck.rowCount > 0 && eventCheck.rows[0].anomaly_type === 'schedule_due') {
+            const scheduleId = eventCheck.rows[0].reading_id;
+            await pool.query(
+                `UPDATE schedules SET status = 'Completed' WHERE schedule_id = $1`,
+                [scheduleId]
+            );
         }
 
         res.json({ success: true, message: 'Alert acknowledged successfully. Audit trail updated.' });
@@ -100,21 +190,39 @@ router.put('/clinical/:id/acknowledge', async (req, res) => {
 // ==========================================
 router.get('/system', async (req, res) => {
     try {
-        const { role } = req.user;
-        if (!['admin', 'sysadmin', 'system_admin'].includes(role)) {
-            return res.status(403).json({ success: false, message: 'Forbidden. Admin access required.' });
+        const { role, id: userId } = req.user;
+        let query;
+        let params;
+
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
+            query = `
+                SELECT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
+                       h.status, h.resolved_at, h.resolution_notes,
+                       p.patient_id, p.name as patient_name
+                FROM hardware_system_alerts h
+                LEFT JOIN patients p ON h.patient_id = p.patient_id
+                ORDER BY h.triggered_at DESC
+                LIMIT 100
+            `;
+            params = [];
+        } else {
+            // Scoped to caregiver's/medical staff's/parent's assigned patients or registered devices
+            query = `
+                SELECT DISTINCT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
+                       h.status, h.resolved_at, h.resolution_notes,
+                       p.patient_id, p.name as patient_name
+                FROM hardware_system_alerts h
+                LEFT JOIN patients p ON h.patient_id = p.patient_id
+                LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
+                LEFT JOIN device_whitelist dw ON LOWER(h.device_serial) = LOWER(dw.serial_number)
+                WHERE pa.user_id = $1 OR dw.added_by = $1
+                ORDER BY h.triggered_at DESC
+                LIMIT 50
+            `;
+            params = [userId];
         }
 
-        const query = `
-            SELECT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
-                   h.status, h.resolved_at, h.resolution_notes,
-                   p.patient_id, p.name as patient_name
-            FROM hardware_system_alerts h
-            LEFT JOIN patients p ON h.patient_id = p.patient_id
-            ORDER BY h.triggered_at DESC
-            LIMIT 100
-        `;
-        const result = await pool.query(query);
+        const result = await pool.query(query, params);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("System Alerts Error:", err.message);
@@ -178,6 +286,108 @@ router.get('/audit', async (req, res) => {
     } catch (err) {
         console.error("Audit Logs Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch security audit logs' });
+    }
+});
+// ==========================================
+// 6. GET /schedules - Fetch Patient Schedules
+// ==========================================
+router.get('/schedules', async (req, res) => {
+    try {
+        const { role, id: userId } = req.user;
+        let query;
+        let params;
+
+        // Auto-record due schedules first
+        await recordDueSchedules();
+
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
+            query = `
+                SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
+                       a.acknowledged_by, a.acknowledged_at, a.action_taken, a.resolution_notes,
+                       p.patient_id, p.name as patient_name,
+                       e.reading_id as schedule_id
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                JOIN patients p ON e.patient_id = p.patient_id
+                WHERE e.anomaly_type = 'schedule_due'
+                ORDER BY a.sent_at DESC
+                LIMIT 100
+            `;
+            params = [];
+        } else {
+            query = `
+                SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
+                       a.acknowledged_by, a.acknowledged_at, a.action_taken, a.resolution_notes,
+                       p.patient_id, p.name as patient_name,
+                       e.reading_id as schedule_id
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                JOIN patients p ON e.patient_id = p.patient_id
+                WHERE e.anomaly_type = 'schedule_due' AND p.patient_id IN (
+                    SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1
+                    UNION
+                    SELECT dw.assigned_patient_id FROM device_whitelist dw WHERE dw.assigned_patient_id IS NOT NULL AND dw.added_by = $1
+                )
+                ORDER BY a.sent_at DESC
+                LIMIT 50
+            `;
+            params = [userId];
+        }
+
+        const result = await pool.query(query, params);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Fetch Alert Schedules Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch schedules' });
+    }
+});
+
+// ==========================================
+// 7. PUT /schedules/:id/acknowledge
+// ==========================================
+router.put('/schedules/:id/acknowledge', async (req, res) => {
+    try {
+        const scheduleId = parseInt(req.params.id);
+        const userId = req.user.id;
+        const { action_taken } = req.body;
+
+        // Find corresponding alert notification
+        const alertRes = await pool.query(
+            `SELECT a.alert_id FROM alert_notifications a
+             JOIN anomaly_events e ON a.event_id = e.event_id
+             WHERE e.anomaly_type = 'schedule_due' AND e.reading_id = $1 AND a.status != 'Acknowledged'`,
+            [scheduleId]
+        );
+
+        if (alertRes.rowCount > 0) {
+            const alertId = alertRes.rows[0].alert_id;
+            await pool.query(
+                `UPDATE alert_notifications 
+                 SET status = 'Acknowledged',
+                     acknowledged_by = $1,
+                     acknowledged_at = NOW(),
+                     action_taken = $2
+                 WHERE alert_id = $3`,
+                [userId, action_taken || 'Completed via schedule tab', alertId]
+            );
+        }
+
+        // Update the schedule itself
+        const result = await pool.query(
+            `UPDATE schedules 
+             SET status = 'Completed' 
+             WHERE schedule_id = $1 AND status != 'Completed'
+             RETURNING schedule_id`,
+            [scheduleId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Schedule not found or already completed.' });
+        }
+        res.json({ success: true, message: 'Schedule completed successfully.' });
+    } catch (err) {
+        console.error("Acknowledge Schedule Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to complete schedule.' });
     }
 });
 

@@ -751,14 +751,20 @@ router.get('/diagnostics/ping/:serialNumber', async (req, res) => {
     const { serialNumber } = req.params;
 
     try {
-        // [OWASP A01 / IDOR] Verify device belongs to a patient in this facility
+        // [OWASP A01 / IDOR] Verify device belongs to this facility (either patient or registered by user/admin of facility)
         const deviceCheck = await pool.query(
             `SELECT dw.serial_number, dw.device_name, dw.status, dw.last_heartbeat,
                     p.first_name, p.last_name
              FROM device_whitelist dw
-             JOIN patients p ON dw.assigned_patient_id = p.patient_id
-             WHERE dw.serial_number = $1 AND p.facility_id = $2`,
-            [serialNumber, facilityId]
+             LEFT JOIN patients p ON dw.assigned_patient_id = p.patient_id
+             LEFT JOIN users u_added ON dw.added_by = u_added.user_id
+             WHERE dw.serial_number = $1 
+               AND (
+                   dw.added_by = $2
+                   OR p.facility_id = $3
+                   OR u_added.facility_id = $3
+               )`,
+            [serialNumber, req.user.id, facilityId]
         );
 
         if (deviceCheck.rows.length === 0) {

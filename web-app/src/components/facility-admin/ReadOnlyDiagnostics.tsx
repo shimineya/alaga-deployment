@@ -67,8 +67,8 @@ export default function ReadOnlyDiagnostics() {
                             <Input
                                 value={pingSerial}
                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPingSerial(e.target.value)}
-                                placeholder="Serial Number (e.g. ALA-001)"
-                                className="h-8 text-sm font-mono"
+                                placeholder="Serial Number (SD-2026-0001 or VS-2026-0001)"
+                                className="h-8 text-xs font-mono placeholder:text-[10px]"
                             />
                             <Button onClick={handlePing} disabled={pinging} className="h-8 bg-teal-600 hover:bg-teal-700 text-white text-sm shrink-0">
                                 <Search className="w-4 h-4 mr-1.5" /> {pinging ? 'Checking...' : 'Ping'}

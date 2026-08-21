@@ -60,7 +60,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ activeItem, 
   ];
 
   const deviceSubItems = [
-    { id: 'my-devices', icon: Wifi, label: 'My Devices' },
+    { id: 'my-devices', icon: Wifi, label: "Patients' Devices" },
     // Status & Battery removed (Integrated into My Devices)
     // Groups removed (Integrated into My Devices)
     { id: 'firmware-update', icon: RefreshCw, label: 'Firmware (OTA)' },

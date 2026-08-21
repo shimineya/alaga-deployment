@@ -5,7 +5,6 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
-import { API_URL } from '../lib/config';
 import { UserPlus, Loader2, Mail, FileText } from 'lucide-react';
 
 interface AssignCaregiverModalProps {
@@ -47,9 +46,10 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
             return;
         }
 
+        const API_BASE = import.meta.env.VITE_API_URL || '';
         setLoading(true);
         try {
-            const response = await fetch(`${API_URL}/api/caregiver/patients/invite-by-email`, {
+            const response = await fetch(`${API_BASE}/api/caregiver/patients/invite-by-email`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

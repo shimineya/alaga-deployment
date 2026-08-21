@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth-context';
+import { CaregiverLanguageProvider } from './lib/caregiver-language-context';
 import { LoginPage } from './components/LoginPage';
 import { LoginEmailVerification } from './components/LoginEmailVerification';
 import { SignUp } from './components/SignUp';
@@ -121,8 +122,10 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <AppContent />
-        <Toaster />
+        <CaregiverLanguageProvider>
+          <AppContent />
+          <Toaster />
+        </CaregiverLanguageProvider>
       </AuthProvider>
     </Router>
   );

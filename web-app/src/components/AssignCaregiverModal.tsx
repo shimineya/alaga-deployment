@@ -38,11 +38,11 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
     const handleSendInvitation = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!caregiverEmail.trim()) {
-            toast.error("Caregiver email is required");
+            toast.error("Member email is required");
             return;
         }
         if (!patientNameInput.trim()) {
-            toast.error("Patient name is required");
+            toast.error("Patient name or Patient ID is required");
             return;
         }
 
@@ -83,22 +83,22 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-slate-800">
                         <UserPlus className="w-5 h-5 text-teal-600" />
-                        Invite Caregiver
+                        Invite Member
                     </DialogTitle>
                     <DialogDescription>
-                        Send an invitation to join the patient's care team. The caregiver will need to accept the invite.
+                        Send an invitation to join the patient's care team (caregiver, medical staff, or other parent guardian).
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleSendInvitation} className="space-y-4 py-2">
                     <div className="space-y-1.5">
-                        <Label htmlFor="caregiverEmail">Caregiver Email Address</Label>
+                        <Label htmlFor="caregiverEmail">Member Email Address</Label>
                         <div className="relative">
                             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input
                                 id="caregiverEmail"
                                 type="email"
-                                placeholder="nurse@hospital.com"
+                                placeholder="caregiver@alaga.local, nurse@hospital.com, parent@alaga.local"
                                 value={caregiverEmail}
                                 onChange={(e) => setCaregiverEmail(e.target.value)}
                                 className="pl-9 h-9 text-sm"
@@ -108,12 +108,12 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label htmlFor="patientName">Patient Name</Label>
+                        <Label htmlFor="patientName">Patient Name / Patient ID</Label>
                         <div className="relative">
                             <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input
                                 id="patientName"
-                                placeholder="Patient Name"
+                                placeholder="Enter Patient Name or ID"
                                 value={patientNameInput}
                                 onChange={(e) => setPatientNameInput(e.target.value)}
                                 className="pl-9 h-9 text-sm"

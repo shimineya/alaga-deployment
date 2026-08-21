@@ -177,7 +177,7 @@ export default function ParentCareTeamManagement() {
                                         className="bg-teal-600 hover:bg-teal-700 text-white h-9 px-4 font-semibold shrink-0"
                                     >
                                         <UserPlus className="w-4 h-4 mr-2" />
-                                        {t('Invite Caregiver', 'Mag-imbita ng Caregiver')}
+                                        {t('Invite Member', 'Mag-imbita ng Miyembro')}
                                     </Button>
                                 </CardHeader>
                                 <CardContent className="p-6">
@@ -186,7 +186,7 @@ export default function ParentCareTeamManagement() {
                                     </h4>
                                     {team.length === 0 ? (
                                         <p className="text-sm text-slate-400 italic py-2">
-                                            {t('No caregivers assigned yet. Click "Invite Caregiver" to add one.', 'Walang nakatalagang caregiver sa ngayon. I-click ang "Mag-imbita ng Caregiver" para magdagdag.')}
+                                            {t('No care team members assigned yet. Click "Invite Member" to add one.', 'Walang nakatalagang miyembro sa ngayon. I-click ang "Mag-imbita ng Miyembro" para magdagdag.')}
                                         </p>
                                     ) : (
                                         <div className="border rounded-xl divide-y bg-slate-50/20">

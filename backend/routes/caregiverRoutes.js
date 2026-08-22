@@ -28,6 +28,35 @@ router.get('/devices', async (req, res) => {
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  ORDER BY d.created_at DESC`
             );
+        } else if (role === 'facility_admin') {
+            // Scoped inventory for facility admin:
+            // 1. Devices they registered (added_by = userId)
+            // 2. Devices from users they created/gave an account to
+            // 3. Devices from the assignments they made (invited_by = userId)
+            // 4. Patients/devices of the users they gave an account to
+            result = await pool.query(
+                `SELECT DISTINCT d.serial_number, d.device_name, d.status, d.last_heartbeat,
+                        d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
+                        p.name as assigned_patient_name
+                 FROM device_whitelist d
+                 LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
+                 WHERE (
+                     d.added_by = $1
+                     OR d.added_by IN (
+                         SELECT user_id FROM users WHERE created_by = $1
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE invited_by = $1
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE user_id IN (
+                             SELECT user_id FROM users WHERE created_by = $1
+                         )
+                     )
+                 )
+                 ORDER BY d.created_at DESC`,
+                [userId]
+            );
         } else {
             // [OWASP A01] Caregiver scope:
             // Show devices this caregiver registered (added_by = userId)
@@ -66,10 +95,10 @@ router.get('/devices', async (req, res) => {
 router.post('/devices', async (req, res) => {
     // [OWASP A01] Role guard: only the parent / admin accounts can register devices.
     // A caregiver, parent or admin account can register devices.
-    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent' && req.user.role !== 'caregiver') {
+    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent' && req.user.role !== 'caregiver' && req.user.role !== 'facility_admin') {
         return res.status(403).json({
             success: false,
-            message: 'Only parent, caregiver, or administrator accounts can register new devices.'
+            message: 'Only parent, caregiver, facility admin, or administrator accounts can register new devices.'
         });
     }
 
@@ -654,6 +683,32 @@ router.post('/devices/unpair', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Serial number is required' });
         }
 
+        // [OWASP A01] Scoped check for facility admin
+        if (req.user.role === 'facility_admin') {
+            const hasAccess = await client.query(
+                `SELECT 1 FROM device_whitelist d
+                 WHERE d.serial_number = $1 AND (
+                     d.added_by = $2
+                     OR d.added_by IN (
+                         SELECT user_id FROM users WHERE created_by = $2
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE invited_by = $2
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE user_id IN (
+                             SELECT user_id FROM users WHERE created_by = $2
+                         )
+                     )
+                 )`,
+                [serialNumber, req.user.id]
+            );
+            if (hasAccess.rows.length === 0) {
+                client.release();
+                return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to unpair this device.' });
+            }
+        }
+
         await client.query('BEGIN');
 
         // 1. Remove assignment from device_whitelist
@@ -1070,15 +1125,16 @@ router.delete('/patients/:id', async (req, res) => {
 // ==========================================
 router.delete('/devices/:serialNumber', async (req, res) => {
     // [OWASP A01] Server-side role guard.
-    if (req.user.role !== 'admin' && req.user.role !== 'parent') {
+    if (req.user.role !== 'admin' && req.user.role !== 'parent' && req.user.role !== 'facility_admin') {
         return res.status(403).json({
             success: false,
-            message: 'Only parent or administrator accounts can remove devices from inventory.'
+            message: 'Only parent, facility admin, or administrator accounts can remove devices from inventory.'
         });
     }
 
     const serialNumber = req.params.serialNumber;
     const actorId      = req.user.id;
+    const role         = req.user.role;
     const client       = await pool.connect();
 
     try {
@@ -1090,6 +1146,32 @@ router.delete('/devices/:serialNumber', async (req, res) => {
         if (check.rows.length === 0) {
             client.release();
             return res.status(404).json({ success: false, message: 'Device not found in inventory.' });
+        }
+
+        // [OWASP A01] Verify facility admin scoped access
+        if (role === 'facility_admin') {
+            const hasAccess = await client.query(
+                `SELECT 1 FROM device_whitelist d
+                 WHERE d.serial_number = $1 AND (
+                     d.added_by = $2
+                     OR d.added_by IN (
+                         SELECT user_id FROM users WHERE created_by = $2
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE invited_by = $2
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE user_id IN (
+                             SELECT user_id FROM users WHERE created_by = $2
+                         )
+                     )
+                 )`,
+                [serialNumber, actorId]
+            );
+            if (hasAccess.rows.length === 0) {
+                client.release();
+                return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to delete this device.' });
+            }
         }
 
         const device     = check.rows[0];
@@ -1269,6 +1351,226 @@ router.post('/baseline/reset', async (req, res) => {
         await client.query('ROLLBACK');
         console.error('Caregiver Baseline Reset Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to reset baseline.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// ROUTE: POST /devices/archive
+// Description: Archive a device by serial number (deletes from whitelist)
+// ==========================================
+router.post('/devices/archive', async (req, res) => {
+    const { serialNumber } = req.body;
+    const actorId = req.user.id;
+    const role = req.user.role;
+
+    if (role !== 'admin' && role !== 'parent' && role !== 'facility_admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Only facility admin, parent or administrator accounts can remove devices from inventory.'
+        });
+    }
+
+    if (!serialNumber) {
+        return res.status(400).json({ success: false, message: 'Serial number is required.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        // Confirm the device exists.
+        const check = await client.query(
+            'SELECT serial_number, device_name, assigned_patient_id, added_by FROM device_whitelist WHERE serial_number = $1',
+            [serialNumber]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Device not found in inventory.' });
+        }
+
+        const device = check.rows[0];
+        const patientId = device.assigned_patient_id;
+
+        // Verify facility admin access
+        if (role === 'facility_admin') {
+            const hasAccess = await client.query(
+                `SELECT 1 FROM device_whitelist d
+                 WHERE d.serial_number = $1 AND (
+                     d.added_by = $2
+                     OR d.added_by IN (
+                         SELECT user_id FROM users WHERE created_by = $2
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE invited_by = $2
+                     )
+                     OR d.assigned_patient_id IN (
+                         SELECT patient_id FROM patient_access WHERE user_id IN (
+                             SELECT user_id FROM users WHERE created_by = $2
+                         )
+                     )
+                 )`,
+                [serialNumber, actorId]
+            );
+            if (hasAccess.rows.length === 0) {
+                client.release();
+                return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to delete this device.' });
+            }
+        }
+
+        await client.query('BEGIN');
+
+        // [HIPAA] Audit trail before deletion.
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+             VALUES ($1, 'DELETE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+            [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
+        );
+
+        // If the device was assigned to a patient, clear the patient's device reference first.
+        if (patientId) {
+            await client.query(
+                'UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1 AND device_serial_number = $2',
+                [patientId, serialNumber]
+            );
+        }
+
+        // Hard-delete the device from the whitelist.
+        await client.query(
+            'DELETE FROM device_whitelist WHERE serial_number = $1',
+            [serialNumber]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: `Device ${serialNumber} has been removed from inventory.` });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Archive Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive device from inventory.' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// ROUTE: POST /devices/assign
+// Description: Assign diaper/vitals devices to a patient by name
+// ==========================================
+router.post('/devices/assign', async (req, res) => {
+    const { patientName, smartDiaperSn, vitalSignsSn } = req.body;
+    const actorId = req.user.id;
+    const role = req.user.role.toLowerCase();
+
+    if (!patientName) {
+        return res.status(400).json({ success: false, message: 'Patient name is required.' });
+    }
+
+    if (!smartDiaperSn && !vitalSignsSn) {
+        return res.status(400).json({ success: false, message: 'At least one device serial number must be provided.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        // 1. Resolve Patient record using the actor's access scope
+        let patientRow;
+        if (role === 'admin' || role === 'system_admin' || role === 'sysadmin') {
+            const patRes = await client.query(
+                `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE`,
+                [patientName.trim()]
+            );
+            patientRow = patRes.rows[0];
+        } else if (role === 'facility_admin') {
+            const patRes = await client.query(
+                `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND facility_id = $2 AND is_archived IS DISTINCT FROM TRUE`,
+                [patientName.trim(), req.user.facility_id]
+            );
+            patientRow = patRes.rows[0];
+        } else {
+            const patRes = await client.query(
+                `SELECT p.patient_id FROM patients p
+                 JOIN patient_access pa ON p.patient_id = pa.patient_id
+                 WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.access_level = 'Edit' AND p.is_archived IS DISTINCT FROM TRUE`,
+                [patientName.trim(), actorId]
+            );
+            patientRow = patRes.rows[0];
+        }
+
+        if (!patientRow) {
+            client.release();
+            return res.status(404).json({ success: false, message: `Patient with name "${patientName}" not found or not in your access scope.` });
+        }
+
+        const patientId = patientRow.patient_id;
+
+        // 2. Validate device whitelist registration & availability
+        if (smartDiaperSn) {
+            const checkDiaper = await client.query(
+                `SELECT serial_number, assigned_patient_id FROM device_whitelist WHERE serial_number = $1`,
+                [smartDiaperSn]
+            );
+            if (checkDiaper.rows.length === 0) {
+                client.release();
+                return res.status(404).json({ success: false, message: `Diaper device ${smartDiaperSn} not registered in system whitelist.` });
+            }
+            if (checkDiaper.rows[0].assigned_patient_id && checkDiaper.rows[0].assigned_patient_id !== patientId) {
+                client.release();
+                return res.status(409).json({ success: false, message: `Diaper device ${smartDiaperSn} is already assigned to another patient.` });
+            }
+        }
+
+        if (vitalSignsSn) {
+            const checkVital = await client.query(
+                `SELECT serial_number, assigned_patient_id FROM device_whitelist WHERE serial_number = $1`,
+                [vitalSignsSn]
+            );
+            if (checkVital.rows.length === 0) {
+                client.release();
+                return res.status(404).json({ success: false, message: `Vital Signs device ${vitalSignsSn} not registered in system whitelist.` });
+            }
+            if (checkVital.rows[0].assigned_patient_id && checkVital.rows[0].assigned_patient_id !== patientId) {
+                client.release();
+                return res.status(409).json({ success: false, message: `Vital Signs device ${vitalSignsSn} is already assigned to another patient.` });
+            }
+        }
+
+        // 3. Begin Transaction & perform assignments
+        await client.query('BEGIN');
+
+        if (smartDiaperSn) {
+            await client.query(
+                `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2`,
+                [patientId, smartDiaperSn]
+            );
+            await client.query(
+                `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected)
+                 VALUES ($1, $2, 'ASSIGN_DEVICE', $3)`,
+                [actorId, patientId, `Assigned Smart Diaper ${smartDiaperSn} to Patient ${patientId}`]
+            );
+        }
+
+        if (vitalSignsSn) {
+            await client.query(
+                `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2`,
+                [patientId, vitalSignsSn]
+            );
+            await client.query(
+                `UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2`,
+                [vitalSignsSn, patientId]
+            );
+            await client.query(
+                `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected)
+                 VALUES ($1, $2, 'ASSIGN_DEVICE', $3)`,
+                [actorId, patientId, `Assigned Vital Signs Monitor ${vitalSignsSn} to Patient ${patientId}`]
+            );
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Devices assigned successfully!' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Assign Device Route Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to assign devices to patient.' });
     } finally {
         client.release();
     }

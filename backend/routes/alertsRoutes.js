@@ -59,7 +59,7 @@ router.get('/clinical', async (req, res) => {
         await recordDueSchedules();
 
         // [OWASP A01] Role-Based Data Scoping
-        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
             // High-level staff see all active clinical alerts
             query = `
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
@@ -73,6 +73,47 @@ router.get('/clinical', async (req, res) => {
             `;
             if (patientId) {
                 query += ` AND p.patient_id = $1`;
+                params.push(parseInt(patientId));
+            }
+            query += ` ORDER BY a.sent_at DESC LIMIT 100`;
+        } else if (role === 'facility_admin') {
+            // Facility admin sees alerts from patients they added, assignments they created, or staff they provisioned
+            query = `
+                SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
+                       a.acknowledged_by, a.acknowledged_at, a.action_taken,
+                       p.patient_id, p.name as patient_name,
+                       e.anomaly_type, e.ocsvm_score
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                JOIN patients p ON e.patient_id = p.patient_id
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND (
+                      p.patient_id IN (
+                          -- Patients assigned to users they gave an account to
+                          SELECT pa.patient_id 
+                          FROM patient_access pa
+                          JOIN users u ON pa.user_id = u.user_id
+                          WHERE u.created_by = $1
+                          
+                          UNION
+                          
+                          -- Patients where the admin invited/assigned caregivers
+                          SELECT pa2.patient_id
+                          FROM patient_access pa2
+                          WHERE pa2.invited_by = $1
+                          
+                          UNION
+                          
+                          -- Patients registered by this admin
+                          SELECT p2.patient_id
+                          FROM patients p2
+                          WHERE p2.baseline_data->>'created_by' = $1::text
+                      )
+                  )
+            `;
+            params = [userId];
+            if (patientId) {
+                query += ` AND p.patient_id = $2`;
                 params.push(parseInt(patientId));
             }
             query += ` ORDER BY a.sent_at DESC LIMIT 100`;
@@ -194,7 +235,7 @@ router.get('/system', async (req, res) => {
         let query;
         let params;
 
-        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
             query = `
                 SELECT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
                        h.status, h.resolved_at, h.resolution_notes,
@@ -205,6 +246,46 @@ router.get('/system', async (req, res) => {
                 LIMIT 100
             `;
             params = [];
+        } else if (role === 'facility_admin') {
+            // Scoped to facility admin's provisioned users, assignments, and their patients and devices
+            query = `
+                SELECT DISTINCT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
+                       h.status, h.resolved_at, h.resolution_notes,
+                       p.patient_id, p.name as patient_name
+                FROM hardware_system_alerts h
+                LEFT JOIN patients p ON h.patient_id = p.patient_id
+                WHERE (
+                    p.patient_id IN (
+                        -- Patients assigned to users they gave an account to
+                        SELECT pa.patient_id 
+                        FROM patient_access pa
+                        JOIN users u ON pa.user_id = u.user_id
+                        WHERE u.created_by = $1
+                        
+                        UNION
+                        
+                        -- Patients where the admin invited/assigned caregivers
+                        SELECT pa2.patient_id
+                        FROM patient_access pa2
+                        WHERE pa2.invited_by = $1
+                        
+                        UNION
+                        
+                        -- Patients registered by this admin
+                        SELECT p2.patient_id
+                        FROM patients p2
+                        WHERE p2.baseline_data->>'created_by' = $1::text
+                    )
+                    OR
+                    h.device_mac_address IN (
+                        SELECT serial_number FROM device_whitelist 
+                        WHERE added_by = $1 OR added_by IN (SELECT user_id FROM users WHERE created_by = $1)
+                    )
+                )
+                ORDER BY h.triggered_at DESC
+                LIMIT 100
+            `;
+            params = [userId];
         } else {
             // Scoped to caregiver's/medical staff's/parent's assigned patients or registered devices
             query = `

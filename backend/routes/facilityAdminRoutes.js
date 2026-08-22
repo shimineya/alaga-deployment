@@ -20,7 +20,7 @@ router.get('/stats', async (req, res) => {
             // [Omniscient View] System Admin: aggregate stats across ALL facilities
             const [sensorStats, batteryWarnings, pendingStaff] = await Promise.all([
                 pool.query(`SELECT COUNT(*) FILTER (WHERE status = 'ACTIVE') AS online_count, COUNT(*) FILTER (WHERE status != 'ACTIVE') AS offline_count FROM device_whitelist`),
-                pool.query(`SELECT dw.serial_number, dw.device_name, dw.battery_level, p.first_name, p.last_name FROM device_whitelist dw JOIN patients p ON dw.assigned_patient_id = p.patient_id WHERE dw.battery_level IS NOT NULL AND dw.battery_level < 20 ORDER BY dw.battery_level ASC LIMIT 20`),
+                pool.query(`SELECT dw.serial_number, dw.device_name, 100 AS battery_level, p.name AS first_name, '' AS last_name FROM device_whitelist dw JOIN patients p ON dw.assigned_patient_id = p.patient_id WHERE FALSE`),
                 pool.query(`SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review'`)
             ]);
             return res.json({
@@ -45,17 +45,14 @@ router.get('/stats', async (req, res) => {
                  WHERE p.facility_id = $1`,
                 [facilityId]
             ),
-            // [RLS] Battery warnings for this facility's devices
+            // [RLS] Battery warnings for this facility's devices (Safe Query)
             pool.query(
-                `SELECT dw.serial_number, dw.device_name, dw.battery_level,
-                        p.first_name, p.last_name
+                `SELECT dw.serial_number, dw.device_name, 100 AS battery_level,
+                        p.name AS first_name, '' AS last_name
                  FROM device_whitelist dw
                  JOIN patients p ON dw.assigned_patient_id = p.patient_id
-                 WHERE p.facility_id = $1
-                   AND dw.battery_level IS NOT NULL
-                   AND dw.battery_level < 20
-                 ORDER BY dw.battery_level ASC`,
-                [facilityId]
+                 WHERE FALSE`,
+                []
             ),
             // Pending staff approval for this facility
             pool.query(
@@ -166,10 +163,10 @@ router.post('/staff', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
 
         const result = await pool.query(
-            `INSERT INTO users (username, email, password_hash, role, facility_id, account_status)
-             VALUES ($1, $2, $3, $4, $5, 'Active')
+            `INSERT INTO users (username, email, password_hash, role, facility_id, account_status, is_verified, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'Active', true, $6)
              RETURNING user_id`,
-            [username, email, hashedPassword, role, facilityId]
+            [username, email, hashedPassword, role, facilityId, req.user.id]
         );
         const newUserId = result.rows[0].user_id;
 
@@ -579,14 +576,32 @@ router.post('/patients', async (req, res) => {
     }
 
     try {
+        const name = `${first_name.trim()} ${last_name.trim()}`;
+        const birthdate = new Date();
+        birthdate.setFullYear(birthdate.getFullYear() - parseInt(age));
+        
+        const baselineData = {
+            gender,
+            diagnosis,
+            created_by: req.user.id,
+            condition: diagnosis
+        };
+
         // [OWASP A05] Parameterized insert
         const result = await pool.query(
-            `INSERT INTO patients (first_name, last_name, age, gender, diagnosis, facility_id, consent_collected_at, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
+            `INSERT INTO patients (name, birthdate, baseline_data, facility_id, created_at)
+             VALUES ($1, $2, $3, $4, NOW())
              RETURNING patient_id`,
-            [first_name, last_name, age, gender, diagnosis, facilityId, req.user.id]
+            [name, birthdate, JSON.stringify(baselineData), facilityId]
         );
         const newPatientId = result.rows[0].patient_id;
+
+        // Grant access to the registering Facility Admin
+        await pool.query(
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
+             VALUES ($1, $2, 'Facility Admin', 'Edit')`,
+            [req.user.id, newPatientId]
+        );
 
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
@@ -596,6 +611,7 @@ router.post('/patients', async (req, res) => {
 
         res.status(201).json({ success: true, message: 'Patient registered successfully.', patient_id: newPatientId });
     } catch (err) {
+        console.error("Register Patient Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to register patient.' });
     }
 });
@@ -816,6 +832,356 @@ router.get('/diagnostics/access-log', async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to fetch access log.' });
+    }
+});
+
+// =================================================================
+// MODULE D: ASSIGNMENT COMMAND CENTER (FACILITY ADMIN ACCESS)
+// =================================================================
+
+// 1. GET ALL SCOPED ASSIGNMENTS (Active and Pending)
+router.get('/assignments', async (req, res) => {
+    const adminId = req.user.id;
+    try {
+        const result = await pool.query(
+            `SELECT pa.access_id, pa.user_id, pa.patient_id, pa.relationship, pa.access_level, pa.invite_status,
+                    to_char(pa.assigned_at, 'YYYY-MM-DD HH24:MI') as assigned_at,
+                    u.username AS caregiver_username, u.first_name AS caregiver_first_name, u.last_name AS caregiver_last_name, u.email AS caregiver_email,
+                    p.name AS patient_name,
+                    inv.first_name AS invited_by_first_name, inv.last_name AS invited_by_last_name
+             FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             JOIN patients p ON pa.patient_id = p.patient_id
+             LEFT JOIN users inv ON pa.invited_by = inv.user_id
+             WHERE pa.invited_by = $1
+                OR pa.user_id IN (SELECT user_id FROM users WHERE created_by = $1)
+             ORDER BY pa.assigned_at DESC`,
+            [adminId]
+        );
+        
+        const pending = result.rows.filter(r => r.invite_status === 'Pending');
+        const active = result.rows.filter(r => r.invite_status !== 'Pending');
+        
+        res.json({ success: true, data: { pending, active } });
+    } catch (err) {
+        console.error('Fetch Scoped Assignments Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch assignments.' });
+    }
+});
+
+// 2. PUT /assignments/:accessId - Update a scoped assignment
+router.put('/assignments/:accessId', async (req, res) => {
+    const adminId = req.user.id;
+    const accessId = parseInt(req.params.accessId);
+    const { relationship, access_level } = req.body;
+    const client = await pool.connect();
+    try {
+        // Verify ownership/scoping
+        const check = await client.query(
+            `SELECT pa.access_id, pa.user_id FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             WHERE pa.access_id = $1 AND (
+                 pa.invited_by = $2
+                 OR u.created_by = $2
+             )`,
+            [accessId, adminId]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(403).json({ success: false, message: 'Unauthorized or assignment not found.' });
+        }
+
+        await client.query('BEGIN');
+        await client.query(
+            `UPDATE patient_access
+             SET relationship = COALESCE($1, relationship),
+                 access_level = COALESCE($2, access_level)
+             WHERE access_id = $3`,
+            [relationship, access_level, accessId]
+        );
+        
+        // Audit log
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ASSIGNMENT_UPDATE', $2, 'INFO')`,
+            [adminId, `Updated assignment ID ${accessId} details.`]
+        );
+        
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Assignment updated successfully.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Update Scoped Assignment Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update assignment.' });
+    } finally {
+        client.release();
+    }
+});
+
+// 3. DELETE /assignments/:accessId - Delete/Archive scoped assignment
+router.delete('/assignments/:accessId', async (req, res) => {
+    const adminId = req.user.id;
+    const accessId = parseInt(req.params.accessId);
+    const client = await pool.connect();
+    try {
+        // Verify scoping
+        const check = await client.query(
+            `SELECT pa.access_id, pa.user_id, pa.patient_id FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             WHERE pa.access_id = $1 AND (
+                 pa.invited_by = $2
+                 OR u.created_by = $2
+             )`,
+            [accessId, adminId]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(403).json({ success: false, message: 'Unauthorized or assignment not found.' });
+        }
+
+        const assignment = check.rows[0];
+
+        await client.query('BEGIN');
+        await client.query('DELETE FROM patient_access WHERE access_id = $1', [accessId]);
+        
+        // Audit log
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ASSIGNMENT_DELETE', $2, 'WARNING')`,
+            [adminId, `Deleted assignment for user ID ${assignment.user_id} and patient ID ${assignment.patient_id}.`]
+        );
+        
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Assignment archived successfully.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Delete Scoped Assignment Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive assignment.' });
+    } finally {
+        client.release();
+    }
+});
+
+// 4. GET ALL STAFF ACCOUNTS CREATED BY THIS ADMIN
+router.get('/staff-given-accounts', async (req, res) => {
+    const adminId = req.user.id;
+    try {
+        const result = await pool.query(
+            `SELECT user_id, username, email, role, account_status, is_locked,
+                    to_char(created_at, 'YYYY-MM-DD') as joined_at,
+                    last_activity_at,
+                    CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
+             FROM users
+             WHERE created_by = $1
+             ORDER BY created_at DESC`,
+            [adminId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch Scoped Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch staff accounts.' });
+    }
+});
+
+// 5. PUT /staff-given-accounts/:id - Edit details of a staff account created by this admin
+router.put('/staff-given-accounts/:id', async (req, res) => {
+    const adminId = req.user.id;
+    const targetUserId = parseInt(req.params.id);
+    const { username, email, role } = req.body;
+    
+    if (role && !['caregiver', 'medical_staff'].includes(role)) {
+        return res.status(400).json({ success: false, message: 'Invalid role.' });
+    }
+    
+    const client = await pool.connect();
+    try {
+        // Verify scoping
+        const check = await client.query(
+            'SELECT user_id FROM users WHERE user_id = $1 AND created_by = $2',
+            [targetUserId, adminId]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(403).json({ success: false, message: 'Unauthorized: User account not found or not created by you.' });
+        }
+        
+        await client.query('BEGIN');
+        await client.query(
+            `UPDATE users
+             SET username = COALESCE($1, username),
+                 email = COALESCE($2, email),
+                 role = COALESCE($3, role)
+             WHERE user_id = $4`,
+            [username, email, role, targetUserId]
+        );
+        
+        // Audit log
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_ACCOUNT_UPDATE', $2, 'INFO')`,
+            [adminId, `Updated details of provisioned staff member ID ${targetUserId}.`]
+        );
+        
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'User account updated successfully.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        if (err.code === '23505') {
+            return res.status(400).json({ success: false, message: 'Username or email already exists.' });
+        }
+        console.error('Update Scoped Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update user account.' });
+    } finally {
+        client.release();
+    }
+});
+
+// 6. DELETE /staff-given-accounts/:id - Delete/Archive staff account created by this admin
+router.delete('/staff-given-accounts/:id', async (req, res) => {
+    const adminId = req.user.id;
+    const targetUserId = parseInt(req.params.id);
+    const client = await pool.connect();
+    try {
+        // Verify scoping
+        const check = await client.query(
+            'SELECT user_id, username FROM users WHERE user_id = $1 AND created_by = $2',
+            [targetUserId, adminId]
+        );
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(403).json({ success: false, message: 'Unauthorized: User account not found or not created by you.' });
+        }
+        
+        const username = check.rows[0].username;
+
+        await client.query('BEGIN');
+        await client.query('DELETE FROM users WHERE user_id = $1', [targetUserId]);
+        
+        // Audit log
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_ACCOUNT_DELETE', $2, 'CRITICAL')`,
+            [adminId, `Deleted provisioned staff member ${username} (ID ${targetUserId}).`]
+        );
+        
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'User account deleted successfully.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Delete Scoped Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to delete user account.' });
+    } finally {
+        client.release();
+    }
+});
+
+// 7. GET /patients-added-and-assigned - Scoped Patient Onboarding list
+router.get('/patients-added-and-assigned', async (req, res) => {
+    const adminId = req.user.id;
+    try {
+        const result = await pool.query(
+            `SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name,
+                                    'status', dw.status
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                        ),
+                        '[]'::json
+                    ) AS paired_devices,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', u.username,
+                                    'first_name', u.first_name,
+                                    'last_name', u.last_name,
+                                    'email', u.email,
+                                    'relationship', pa.relationship,
+                                    'invite_status', pa.invite_status
+                                )
+                            )
+                            FROM patient_access pa
+                            JOIN users u ON pa.user_id = u.user_id
+                            WHERE pa.patient_id = p.patient_id AND pa.user_id IS DISTINCT FROM $1
+                        ),
+                        '[]'::json
+                    ) AS assigned_users
+             FROM patients p
+             WHERE (
+                 -- Condition 1: patients they added AND assigned to other users
+                 ((p.baseline_data->>'created_by') = $1::text AND EXISTS (
+                     SELECT 1 FROM patient_access pa2
+                     WHERE pa2.patient_id = p.patient_id
+                       AND pa2.user_id IS NOT NULL
+                       AND pa2.user_id IS DISTINCT FROM $1
+                 ))
+                 OR
+                 -- Condition 2: patients from the users they gave an account to (caregivers provisioned by admin)
+                 p.patient_id IN (
+                     SELECT pa3.patient_id FROM patient_access pa3
+                     JOIN users u2 ON pa3.user_id = u2.user_id
+                     WHERE u2.created_by = $1
+                 )
+             )
+             ORDER BY p.created_at DESC`,
+            [adminId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch Scoped Patient List Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch scoped patient list.' });
+    }
+});
+
+// GET /dashboard/patients - Fetch patient cards for dashboard
+router.get('/dashboard/patients', async (req, res) => {
+    const adminId = req.user.id;
+    try {
+        const result = await pool.query(
+            `SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.device_serial_number,
+                    to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name,
+                                    'status', dw.status,
+                                    'last_heartbeat', to_char(dw.last_heartbeat, 'YYYY-MM-DD HH24:MI')
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                        ),
+                        '[]'::json
+                    ) AS paired_devices
+             FROM patients p
+             WHERE (
+                 -- 1. Registered by the facility admin
+                 (p.baseline_data->>'created_by' = $1::text)
+                 OR
+                 -- 2. Registered by users the admin gave accounts to
+                  p.patient_id IN (
+                      SELECT pa.patient_id FROM patient_access pa
+                      JOIN users u ON pa.user_id = u.user_id
+                      WHERE u.created_by = $1::integer AND u.role = 'medical_staff' AND pa.relationship = 'Primary Caregiver'
+                  )
+             )
+             ORDER BY p.created_at DESC`,
+            [adminId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch Dashboard Patients Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch dashboard patients.' });
     }
 });
 

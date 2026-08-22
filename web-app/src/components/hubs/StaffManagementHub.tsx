@@ -3,13 +3,17 @@ import { Navigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Contact, Link2 } from 'lucide-react';
+import { Contact, Link2, Activity, Cpu } from 'lucide-react';
 
 import WardStaffManagement from '../facility-admin/WardStaffManagement';
 import PatientCaregiverAssignment from '../facility-admin/PatientCaregiverAssignment';
 import { AssignmentTracker } from '../AssignmentTracker';
 import ParentCareTeamManagement from '../ParentCareTeamManagement';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
+import FacilityAdminAssignmentCommandCenter from '../facility-admin/FacilityAdminAssignmentCommandCenter';
+import SystemAdminAssignmentCommandCenter from '../sysadmin/SystemAdminAssignmentCommandCenter';
+import SystemAdminDeviceAssignment from '../sysadmin/SystemAdminDeviceAssignment';
+import SystemAdminUserList from '../sysadmin/SystemAdminUserList';
 
 export default function StaffManagementHub() {
     const { user, permissions, isSysAdmin } = useAuth();
@@ -41,12 +45,15 @@ export default function StaffManagementHub() {
     const canSeeWardStaff        = hasPermission('ward-staff',          isFacilityAdmin || isAdminTier);
     const canSeeAssignmentsAdmin = hasPermission('patient-assignments',  isFacilityAdmin || isAdminTier);
     const canSeeMyAssignments    = hasPermission('patient-assignments',  isClinical);
+    const canSeeCommandCenter    = isFacilityAdmin;
+    const canSeeSysCommandCenter = isAdminTier;
 
-    const tabCount = [canSeeWardStaff, canSeeAssignmentsAdmin, canSeeMyAssignments].filter(Boolean).length;
+    const tabCount = [canSeeWardStaff, canSeeAssignmentsAdmin, canSeeMyAssignments, canSeeCommandCenter, canSeeSysCommandCenter].filter(Boolean).length;
     
     let defaultTab = 'ward-staff';
     if (!canSeeWardStaff && canSeeMyAssignments) defaultTab = 'my-assignments';
     else if (!canSeeWardStaff && canSeeAssignmentsAdmin) defaultTab = 'admin-assignments';
+    else if (!canSeeWardStaff && !canSeeAssignmentsAdmin && canSeeCommandCenter) defaultTab = 'assignment-command-center';
 
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
@@ -67,16 +74,64 @@ export default function StaffManagementHub() {
                                             value="ward-staff" 
                                             className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
                                         >
-                                            <Contact className="w-4 h-4" /> Department Staff
+                                            <Contact className="w-4 h-4" /> {canSeeSysCommandCenter ? 'User List' : 'Department Staff'}
                                         </TabsTrigger>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Manage medical personnel, unlock accounts, and reset passwords.</p>
+                                        <p className="text-xs">{canSeeSysCommandCenter ? 'Manage all registered system users, overrides, lockouts, and sessions.' : 'Manage medical personnel, unlock accounts, and reset passwords.'}</p>
                                     </TooltipContent>
                                 </Tooltip>
                             )}
 
-                            {(canSeeAssignmentsAdmin || canSeeMyAssignments) && (
+                            {canSeeCommandCenter && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <TabsTrigger 
+                                            value="assignment-command-center" 
+                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                        >
+                                            <Activity className="w-4 h-4" /> Assignment Command Center
+                                        </TabsTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
+                                        <p className="text-xs">Monitor and manage pending invitations, active assignments, and staff accounts you created.</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+
+                            {canSeeSysCommandCenter && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <TabsTrigger 
+                                            value="sys-assignment-command-center" 
+                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                        >
+                                            <Activity className="w-4 h-4" /> System Assignment Command Center
+                                        </TabsTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
+                                        <p className="text-xs">Monitor and manage pending invitations, active assignments, and caregiver accounts globally across the system.</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+
+                            {canSeeSysCommandCenter && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <TabsTrigger 
+                                            value="sys-device-assignment"
+                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-amber-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                        >
+                                            <Cpu className="w-4 h-4" /> Device Assignment
+                                        </TabsTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
+                                        <p className="text-xs">Manage device linkages and assignments across patients.</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+
+                            {((canSeeAssignmentsAdmin || canSeeMyAssignments) && !canSeeSysCommandCenter) && (
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <TabsTrigger 
@@ -98,11 +153,29 @@ export default function StaffManagementHub() {
 
                 {canSeeWardStaff && (
                     <TabsContent value="ward-staff" className="mt-0 flex-1 min-h-[500px] outline-none">
-                        <WardStaffManagement />
+                        {canSeeSysCommandCenter ? <SystemAdminUserList /> : <WardStaffManagement />}
                     </TabsContent>
                 )}
 
-                {(canSeeAssignmentsAdmin || canSeeMyAssignments) && (
+                {canSeeCommandCenter && (
+                    <TabsContent value="assignment-command-center" className="mt-0 flex-1 min-h-[500px] outline-none">
+                        <FacilityAdminAssignmentCommandCenter />
+                    </TabsContent>
+                )}
+
+                {canSeeSysCommandCenter && (
+                    <TabsContent value="sys-assignment-command-center" className="mt-0 flex-1 min-h-[500px] outline-none">
+                        <SystemAdminAssignmentCommandCenter />
+                    </TabsContent>
+                )}
+
+                {canSeeSysCommandCenter && (
+                    <TabsContent value="sys-device-assignment" className="mt-0 flex-1 min-h-[500px] outline-none">
+                        <SystemAdminDeviceAssignment />
+                    </TabsContent>
+                )}
+
+                {((canSeeAssignmentsAdmin || canSeeMyAssignments) && !canSeeSysCommandCenter) && (
                     <TabsContent value={canSeeMyAssignments ? "my-assignments" : "admin-assignments"} className="mt-0 flex-1 min-h-[500px] outline-none">
                         <BreakGlassWrapper targetHub="Staff Management - Assignments">
                             {canSeeMyAssignments 

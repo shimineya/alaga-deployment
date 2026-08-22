@@ -207,10 +207,11 @@ router.get('/users', requirePermission('user_management'), async (req, res) => {
             `SELECT u.user_id, u.username, u.email, u.role,
                     u.account_status, u.is_locked,
                     u.facility_id, f.facility_name,
-                    to_char(u.created_at, 'YYYY-MM-DD HH24:MI') as joined_at
+                    to_char(u.created_at, 'YYYY-MM-DD HH24:MI') as joined_at,
+                    u.last_activity_at,
+                    CASE WHEN u.last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
              FROM users u
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
-             WHERE u.role NOT IN ('system_admin', 'admin')
              ORDER BY u.created_at DESC`
         );
         res.json({ success: true, data: result.rows });
@@ -230,7 +231,7 @@ router.post('/users/:id/lock', requirePermission('user_management'), async (req,
         );
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, $2, $3, 'CRITICAL')`,
+             VALUES ($1, $2, $3, 'WARNING')`,
             [req.user.id, lock ? 'USER_LOCK' : 'USER_UNLOCK', `Target User ID: ${id}`]
         );
         res.json({ success: true, message: `User ${lock ? 'locked' : 'unlocked'}.` });
@@ -239,18 +240,19 @@ router.post('/users/:id/lock', requirePermission('user_management'), async (req,
     }
 });
 
-// Update user profile and role
+// Update user profile, role and facility
 router.put('/users/:id', requirePermission('user_management'), async (req, res) => {
     const { id } = req.params;
-    const { username, email, role } = req.body;
+    const { username, email, role, facility_id } = req.body;
     try {
         await pool.query(
             `UPDATE users
              SET username = COALESCE($1, username),
                  email = COALESCE($2, email),
-                 role = COALESCE($3, role)
-             WHERE user_id = $4`,
-            [username, email, role, id]
+                 role = COALESCE($3, role),
+                 facility_id = $4
+             WHERE user_id = $5`,
+            [username, email, role, facility_id || null, id]
         );
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected)
@@ -260,6 +262,22 @@ router.put('/users/:id', requirePermission('user_management'), async (req, res) 
         res.json({ success: true, message: 'User updated.' });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Update failed.' });
+    }
+});
+
+// Delete user account
+router.delete('/users/:id', requirePermission('user_management'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM users WHERE user_id = $1', [id]);
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'USER_DELETE', $2, 'CRITICAL')`,
+            [req.user.id, `Deleted User ID ${id}`]
+        );
+        res.json({ success: true, message: 'User deleted successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to delete user.' });
     }
 });
 
@@ -716,6 +734,263 @@ router.post('/maintenance', requirePermission('system_maintenance'), async (req,
         res.json({ success: true, message: `Maintenance Mode ${enabled ? 'ENABLED' : 'DISABLED'}` });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to toggle maintenance mode.' });
+    }
+});
+
+// =================================================================
+// MODULE G: SYSTEM-WIDE ASSIGNMENT COMMAND CENTER
+// =================================================================
+
+// 1. GET ALL SYSTEM-WIDE ASSIGNMENTS (Active and Pending)
+router.get('/assignments', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT pa.access_id, pa.user_id, pa.patient_id, pa.relationship, pa.access_level, pa.invite_status,
+                    to_char(pa.assigned_at, 'YYYY-MM-DD HH24:MI') as assigned_at,
+                    u.username AS caregiver_username, u.first_name AS caregiver_first_name, u.last_name AS caregiver_last_name, u.email AS caregiver_email,
+                    p.name AS patient_name,
+                    f.facility_name,
+                    inv.first_name AS invited_by_first_name, inv.last_name AS invited_by_last_name
+             FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             JOIN patients p ON pa.patient_id = p.patient_id
+             LEFT JOIN facilities f ON p.facility_id = f.facility_id
+             LEFT JOIN users inv ON pa.invited_by = inv.user_id
+             ORDER BY pa.assigned_at DESC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch All Assignments Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch assignments.' });
+    }
+});
+
+// 2. UPDATE ASSIGNMENT
+router.put('/assignments/:id', async (req, res) => {
+    const { relationship, access_level, invite_status } = req.body;
+    try {
+        await pool.query(
+            `UPDATE patient_access
+             SET relationship = COALESCE($1, relationship),
+                 access_level = COALESCE($2, access_level),
+                 invite_status = COALESCE($3, invite_status)
+             WHERE access_id = $4`,
+            [relationship, access_level, invite_status, req.params.id]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ASSIGNMENT_UPDATE', $2, 'WARNING')`,
+            [req.user.id, `System Admin updated Assignment ID ${req.params.id}`]
+        );
+
+        res.json({ success: true, message: 'Assignment updated successfully.' });
+    } catch (err) {
+        console.error('Update Assignment Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update assignment.' });
+    }
+});
+
+// 3. DELETE ASSIGNMENT
+router.delete('/assignments/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM patient_access WHERE access_id = $1', [req.params.id]);
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ASSIGNMENT_ARCHIVE', $2, 'CRITICAL')`,
+            [req.user.id, `System Admin deleted/archived Assignment ID ${req.params.id}`]
+        );
+
+        res.json({ success: true, message: 'Assignment archived successfully.' });
+    } catch (err) {
+        console.error('Delete Assignment Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to delete assignment.' });
+    }
+});
+
+// 4. GET ALL STAFF ACCOUNTS ACROSS ALL FACILITIES
+router.get('/staff-given-accounts', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT u.user_id, u.username, u.email, u.role, u.account_status, u.is_locked,
+                    to_char(u.created_at, 'YYYY-MM-DD') as joined_at,
+                    u.last_activity_at,
+                    f.facility_name,
+                    CASE WHEN u.last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online,
+                    creator.username AS creator_username
+             FROM users u
+             LEFT JOIN facilities f ON u.facility_id = f.facility_id
+             LEFT JOIN users creator ON u.created_by = creator.user_id
+             WHERE u.role IN ('caregiver', 'medical_staff')
+             ORDER BY u.created_at DESC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch All Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch staff accounts.' });
+    }
+});
+
+// 5. UPDATE STAFF ACCOUNT
+router.put('/staff-given-accounts/:id', async (req, res) => {
+    const { username, email, account_status, is_locked } = req.body;
+    try {
+        await pool.query(
+            `UPDATE users
+             SET username = COALESCE($1, username),
+                 email = COALESCE($2, email),
+                 account_status = COALESCE($3, account_status),
+                 is_locked = COALESCE($4, is_locked)
+             WHERE user_id = $5`,
+            [username, email, account_status, is_locked, req.params.id]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_ACCOUNT_UPDATE', $2, 'WARNING')`,
+            [req.user.id, `System Admin updated staff account ID ${req.params.id}`]
+        );
+
+        res.json({ success: true, message: 'Staff account updated successfully.' });
+    } catch (err) {
+        console.error('Update Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update staff account.' });
+    }
+});
+
+// 6. DELETE STAFF ACCOUNT
+router.delete('/staff-given-accounts/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM users WHERE user_id = $1', [req.params.id]);
+        
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'STAFF_ACCOUNT_DELETE', $2, 'CRITICAL')`,
+            [req.user.id, `System Admin deleted staff account ID ${req.params.id}`]
+        );
+        
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Staff account deleted successfully.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Delete Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to delete staff account.' });
+    } finally {
+        client.release();
+    }
+});
+
+// =================================================================
+// MODULE H: SYSTEM-WIDE DEVICE ASSIGNMENT CONTROL
+// =================================================================
+
+// 1. GET ALL SYSTEM-WIDE DEVICE ASSIGNMENTS, UNASSIGNED DEVICES, AND PATIENTS
+router.get('/device-assignments', async (req, res) => {
+    try {
+        const [assignments, unassigned, patients] = await Promise.all([
+            pool.query(
+                `SELECT dw.serial_number, dw.device_name, dw.status,
+                        p.patient_id, p.name AS patient_name,
+                        f.facility_name,
+                        u.username AS assigned_by_username
+                 FROM device_whitelist dw
+                 JOIN patients p ON dw.assigned_patient_id = p.patient_id
+                 LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                 LEFT JOIN users u ON dw.added_by = u.user_id
+                 ORDER BY p.name ASC`
+            ),
+            pool.query(
+                `SELECT dw.serial_number, dw.device_name, dw.status,
+                        f.facility_name,
+                        u.username AS added_by_username,
+                        to_char(dw.created_at, 'YYYY-MM-DD') AS created_at
+                 FROM device_whitelist dw
+                 LEFT JOIN users u ON dw.added_by = u.user_id
+                 LEFT JOIN facilities f ON u.facility_id = f.facility_id
+                 WHERE dw.assigned_patient_id IS NULL
+                 ORDER BY dw.created_at DESC`
+            ),
+            pool.query(
+                `SELECT patient_id, name, birthdate 
+                 FROM patients 
+                 WHERE is_archived IS DISTINCT FROM TRUE 
+                 ORDER BY name ASC`
+            )
+        ]);
+        res.json({
+            success: true,
+            data: {
+                assignments: assignments.rows,
+                unassigned: unassigned.rows,
+                patients: patients.rows
+            }
+        });
+    } catch (err) {
+        console.error('Fetch Device Assignments Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch device assignments.' });
+    }
+});
+
+// 2. LINK / PAIR DEVICE TO PATIENT
+router.post('/devices/link', async (req, res) => {
+    const { patient_id, serial_number } = req.body;
+    if (!patient_id || !serial_number) {
+        return res.status(400).json({ success: false, message: 'Patient ID and Serial Number are required.' });
+    }
+    try {
+        await pool.query(
+            `UPDATE device_whitelist
+             SET assigned_patient_id = $1, status = 'ACTIVE'
+             WHERE serial_number = $2`,
+            [patient_id, serial_number]
+        );
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'DEVICE_ASSIGNMENT_LINK', $2, 'WARNING')`,
+            [req.user.id, `Linked device ${serial_number} to Patient ID ${patient_id}`]
+        );
+        res.json({ success: true, message: 'Device linked to patient successfully.' });
+    } catch (err) {
+        console.error('Link Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to link device.' });
+    }
+});
+
+// 3. UNLINK / UNASSIGN DEVICE FROM PATIENT
+router.post('/devices/unlink', async (req, res) => {
+    const { serial_number } = req.body;
+    if (!serial_number) {
+        return res.status(400).json({ success: false, message: 'Serial number is required.' });
+    }
+    try {
+        await pool.query(
+            `UPDATE device_whitelist
+             SET assigned_patient_id = NULL, status = 'AVAILABLE'
+             WHERE serial_number = $1`,
+            [serial_number]
+        );
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'DEVICE_ASSIGNMENT_UNLINK', $2, 'CRITICAL')`,
+            [req.user.id, `Unlinked device ${serial_number}`]
+        );
+        res.json({ success: true, message: 'Device unassigned successfully.' });
+    } catch (err) {
+        console.error('Unlink Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to unassign device.' });
+    }
+});
+
+// GET /facilities - Fetch all facilities in the system
+router.get('/facilities', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT facility_id, facility_name FROM facilities ORDER BY facility_name ASC');
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch facilities.' });
     }
 });
 

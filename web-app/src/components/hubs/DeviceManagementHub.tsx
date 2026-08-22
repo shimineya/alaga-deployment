@@ -33,16 +33,18 @@ export default function DeviceManagementHub() {
     };
 
     // Visibilities — module IDs match UserRBACManager MODULE_REGISTRY exactly
-    const canSeeMyDevices      = hasPermission('device-status',  isClinical || isAdminTier);
+    const canSeeMyDevices      = hasPermission('device-status',  isClinical || isFacilityAdmin || isAdminTier);
     const canSeeAddDevice      = hasPermission('add-device',     isClinical || isFacilityAdmin || isAdminTier);
     const canSeeDiagnostics    = hasPermission('diagnostics',    isFacilityAdmin || isAdminTier);
     const canSeeTopologyAndOTA = hasPermission('topology',       isAdminTier);
 
-    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, isFacilityAdmin].filter(Boolean).length;
+    const canSeeAssignDevice = isFacilityAdmin || isAdminTier;
+
+    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, canSeeAssignDevice].filter(Boolean).length;
     
     let defaultTab = 'my-devices';
     if (!canSeeMyDevices) {
-        if (isFacilityAdmin) defaultTab = 'assign-device';
+        if (canSeeAssignDevice) defaultTab = 'assign-device';
         else if (canSeeDiagnostics) defaultTab = 'diagnostics';
         else if (canSeeTopologyAndOTA) defaultTab = 'topology';
     }
@@ -59,7 +61,7 @@ export default function DeviceManagementHub() {
                 <div className="border-b border-slate-200 mb-6 shrink-0">
                     <TooltipProvider delayDuration={300}>
                         <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
-                            {isFacilityAdmin && (
+                            {canSeeAssignDevice && (
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <TabsTrigger 
@@ -171,7 +173,7 @@ export default function DeviceManagementHub() {
                     </TabsContent>
                 )}
 
-                {isFacilityAdmin && (
+                {canSeeAssignDevice && (
                     <TabsContent value="assign-device" className="mt-0 flex-1 min-h-[500px] outline-none">
                         <AssignDeviceToPatient />
                     </TabsContent>

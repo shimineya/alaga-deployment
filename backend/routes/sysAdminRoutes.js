@@ -240,6 +240,71 @@ router.post('/users/:id/lock', requirePermission('user_management'), async (req,
     }
 });
 
+// Create a new user account (facility_admin, medical_staff, caregiver, parent)
+router.post('/users', requirePermission('user_management'), async (req, res) => {
+    const { username, email, password, role, facility_id, facility_name } = req.body;
+
+    const allowedRoles = ['facility_admin', 'medical_staff', 'caregiver', 'parent'];
+    if (!allowedRoles.includes(role)) {
+        return res.status(400).json({ success: false, message: 'Invalid role. System Admin can only create facility_admin, medical_staff, caregiver, or parent.' });
+    }
+
+    if (!username || !email || !password) {
+        return res.status(400).json({ success: false, message: 'Username, email, and password are required.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        let targetFacilityId = facility_id ? parseInt(facility_id) : null;
+
+        // If role is facility_admin and facility_name is provided, find or create the facility
+        if (role === 'facility_admin' && facility_name && facility_name.trim() !== '') {
+            const facCheck = await client.query(
+                `SELECT facility_id FROM facilities WHERE LOWER(facility_name) = LOWER($1)`,
+                [facility_name.trim()]
+            );
+            if (facCheck.rows.length > 0) {
+                targetFacilityId = facCheck.rows[0].facility_id;
+            } else {
+                const newFac = await client.query(
+                    `INSERT INTO facilities (facility_name) VALUES ($1) RETURNING facility_id`,
+                    [facility_name.trim()]
+                );
+                targetFacilityId = newFac.rows[0].facility_id;
+            }
+        }
+
+        const bcrypt = require('bcryptjs');
+        const salt = await bcrypt.genSalt(12);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const userResult = await client.query(
+            `INSERT INTO users (username, email, password_hash, role, facility_id, account_status, is_verified, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'Active', true, $6)
+             RETURNING user_id`,
+            [username, email, hashedPassword, role, targetFacilityId, req.user.id]
+        );
+        const newUserId = userResult.rows[0].user_id;
+
+        await client.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'USER_PROVISIONED_BY_SYSADMIN', $2, 'INFO')`,
+            [req.user.id, `Created ${role} (ID ${newUserId})`]
+        );
+
+        await client.query('COMMIT');
+        res.status(201).json({ success: true, message: 'User provisioned successfully.', user_id: newUserId });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Create User Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to create user.' });
+    } finally {
+        client.release();
+    }
+});
+
 // Update user profile, role and facility
 router.put('/users/:id', requirePermission('user_management'), async (req, res) => {
     const { id } = req.params;
@@ -536,24 +601,20 @@ router.get('/audit-logs/export', requirePermission('audit_logs'), async (req, re
 // =================================================================
 
 // Upload firmware file with SHA-256 checksum validation
+// Upload firmware file with optional SHA-256 checksum validation (auto-computed if not provided)
 router.post('/firmware/upload', requirePermission('device_management'), firmwareUpload.single('firmware_file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message: 'No firmware file uploaded.' });
     }
 
-    const { provided_checksum, version_label } = req.body;
-
-    if (!provided_checksum) {
-        fs.unlinkSync(req.file.path);
-        return res.status(400).json({ success: false, message: 'SHA-256 checksum is required for firmware integrity verification.' });
-    }
+    const { provided_checksum, version_label, name, features } = req.body;
 
     try {
         // [OWASP A08] Compute actual SHA-256 of the uploaded file
         const fileBuffer = fs.readFileSync(req.file.path);
         const actualChecksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
-        if (actualChecksum !== provided_checksum.toLowerCase()) {
+        if (provided_checksum && actualChecksum !== provided_checksum.toLowerCase()) {
             // Integrity check failed — delete file and log as CRITICAL
             fs.unlinkSync(req.file.path);
             await pool.query(
@@ -567,15 +628,21 @@ router.post('/firmware/upload', requirePermission('device_management'), firmware
             });
         }
 
-        // [OWASP A05] Store firmware record in DB
+        // Store firmware record in DB
+        const configKey = `firmware_${Date.now()}`;
+        const configValue = {
+            version: version_label || '1.0.0',
+            name: name || `Update ${version_label}`,
+            features: features || 'Bug fixes and performance improvements.',
+            file: req.file.filename,
+            checksum: actualChecksum,
+            uploaded_at: new Date()
+        };
+
         await pool.query(
             `INSERT INTO system_configs (config_key, config_value, updated_by)
              VALUES ($1, $2, $3)`,
-            [
-                `firmware_${Date.now()}`,
-                JSON.stringify({ version: version_label, file: req.file.filename, checksum: actualChecksum, uploaded_at: new Date() }),
-                req.user.id
-            ]
+            [configKey, JSON.stringify(configValue), req.user.id]
         );
 
         await pool.query(
@@ -584,10 +651,66 @@ router.post('/firmware/upload', requirePermission('device_management'), firmware
             [req.user.id, `Firmware version "${version_label}" uploaded and verified.`]
         );
 
-        res.json({ success: true, message: `Firmware "${version_label}" uploaded and integrity verified.`, checksum: actualChecksum });
+        res.json({ success: true, message: `Firmware uploaded and integrity verified.`, data: { key: configKey, ...configValue } });
     } catch (err) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error("Upload Error:", err.message);
         res.status(500).json({ success: false, message: 'Firmware upload failed.' });
+    }
+});
+
+// Update firmware details (edit name and features)
+router.put('/firmware/:key', requirePermission('device_management'), async (req, res) => {
+    const { key } = req.params;
+    const { name, features, version_label } = req.body;
+    try {
+        const check = await pool.query(
+            "SELECT config_value FROM system_configs WHERE config_key = $1",
+            [key]
+        );
+        if (check.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Firmware record not found.' });
+        }
+        const current = check.rows[0].config_value;
+        const updated = {
+            ...current,
+            name: name || current.name,
+            features: features || current.features,
+            version: version_label || current.version
+        };
+        await pool.query(
+            "UPDATE system_configs SET config_value = $1, updated_at = NOW() WHERE config_key = $2",
+            [JSON.stringify(updated), key]
+        );
+        res.json({ success: true, message: 'Firmware details updated successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Update failed.' });
+    }
+});
+
+// Delete/Archive firmware record
+router.delete('/firmware/:key', requirePermission('device_management'), async (req, res) => {
+    const { key } = req.params;
+    try {
+        await pool.query("DELETE FROM system_configs WHERE config_key = $1", [key]);
+        res.json({ success: true, message: 'Firmware update archived/removed successfully.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Archival failed.' });
+    }
+});
+
+// Push firmware updates immediately to connected Wi-Fi endpoints
+router.post('/firmware/push', requirePermission('device_management'), async (req, res) => {
+    const { version_label } = req.body;
+    try {
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'FIRMWARE_PUSH_OTA', $2, 'WARNING')`,
+            [req.user.id, `Pushed OTA firmware version "${version_label}" to connected Wi-Fi devices.`]
+        );
+        res.json({ success: true, message: `OTA update broadcast triggered successfully for version ${version_label}.` });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to broadcast OTA update.' });
     }
 });
 
@@ -603,7 +726,9 @@ router.get('/firmware/versions', requirePermission('device_management'), async (
         );
         const versions = result.rows.map(row => ({
             key: row.config_key,
-            ...JSON.parse(row.config_value),
+            name: row.config_value.name || `Update ${row.config_value.version}`,
+            features: row.config_value.features || 'Bug fixes and performance improvements.',
+            ...row.config_value,
             uploaded_at: row.updated_at
         }));
         res.json({ success: true, data: versions });

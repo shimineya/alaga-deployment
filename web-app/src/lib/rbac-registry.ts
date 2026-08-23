@@ -23,7 +23,7 @@ export const MODULE_REGISTRY: { group: string; modules: { id: string; label: str
     {
         group: 'Device Management Hub',
         modules: [
-            { id: 'device-status', label: 'My Devices', description: 'View sensors assigned to this user\'s patients.' },
+            { id: 'device-status', label: "Patients' Devices", description: 'View sensors assigned to this user\'s patients.' },
             { id: 'add-device', label: 'Add New Device', description: 'Pair a new ESP32 sensor to the system.' },
             { id: 'diagnostics', label: 'Ward Diagnostics', description: 'Network stability and battery health matrix.' },
             { id: 'topology', label: 'Network Topology', description: 'Build and manage facility hardware topology.' },

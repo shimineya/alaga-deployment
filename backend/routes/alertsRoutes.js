@@ -472,4 +472,245 @@ router.put('/schedules/:id/acknowledge', async (req, res) => {
     }
 });
 
+// ==========================================
+// 6. GET /unified - Fetch Unified Notifications (Clinical, Hardware, and Broadcasts)
+// ==========================================
+router.get('/unified', async (req, res) => {
+    try {
+        const { role, id: userId } = req.user;
+        
+        // 1. Fetch clinical alerts
+        let clinicalQuery;
+        let clinicalParams = [];
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
+            clinicalQuery = `
+                SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at as timestamp, 
+                       p.name as patient_name
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                JOIN patients p ON e.patient_id = p.patient_id
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                ORDER BY a.sent_at DESC LIMIT 50
+            `;
+        } else if (role === 'facility_admin') {
+            clinicalQuery = `
+                SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at as timestamp, 
+                       p.name as patient_name
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                JOIN patients p ON e.patient_id = p.patient_id
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND p.patient_id IN (
+                      SELECT pa.patient_id FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE u.created_by = $1
+                      UNION
+                      SELECT pa2.patient_id FROM patient_access pa2 WHERE pa2.invited_by = $1
+                      UNION
+                      SELECT p2.patient_id FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text
+                  )
+                ORDER BY a.sent_at DESC LIMIT 50
+            `;
+            clinicalParams = [userId];
+        } else {
+            clinicalQuery = `
+                SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at as timestamp, 
+                       p.name as patient_name
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                JOIN patients p ON e.patient_id = p.patient_id
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND p.patient_id IN (
+                      SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1
+                      UNION
+                      SELECT dw.assigned_patient_id FROM device_whitelist dw WHERE dw.assigned_patient_id IS NOT NULL AND dw.added_by = $1
+                  )
+                ORDER BY a.sent_at DESC LIMIT 50
+            `;
+            clinicalParams = [userId];
+        }
+        
+        // 2. Fetch system hardware alerts
+        let systemQuery;
+        let systemParams = [];
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
+            systemQuery = `
+                SELECT h.sys_alert_id, h.severity, h.status, h.description as message, h.triggered_at as timestamp,
+                       p.name as patient_name
+                FROM hardware_system_alerts h
+                LEFT JOIN patients p ON h.patient_id = p.patient_id
+                WHERE h.status IS DISTINCT FROM 'Archived'
+                ORDER BY h.triggered_at DESC LIMIT 50
+            `;
+        } else if (role === 'facility_admin') {
+            systemQuery = `
+                SELECT DISTINCT h.sys_alert_id, h.severity, h.status, h.description as message, h.triggered_at as timestamp,
+                       p.name as patient_name
+                FROM hardware_system_alerts h
+                LEFT JOIN patients p ON h.patient_id = p.patient_id
+                WHERE h.status IS DISTINCT FROM 'Archived'
+                  AND (
+                      p.patient_id IN (
+                          SELECT pa.patient_id FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE u.created_by = $1
+                          UNION
+                          SELECT pa2.patient_id FROM patient_access pa2 WHERE pa2.invited_by = $1
+                          UNION
+                          SELECT p2.patient_id FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text
+                      )
+                      OR
+                      h.device_mac_address IN (
+                          SELECT serial_number FROM device_whitelist 
+                          WHERE added_by = $1 OR added_by IN (SELECT user_id FROM users WHERE created_by = $1)
+                      )
+                  )
+                ORDER BY h.triggered_at DESC LIMIT 50
+            `;
+            systemParams = [userId];
+        } else {
+            systemQuery = `
+                SELECT DISTINCT h.sys_alert_id, h.severity, h.status, h.description as message, h.triggered_at as timestamp,
+                       p.name as patient_name
+                FROM hardware_system_alerts h
+                LEFT JOIN patients p ON h.patient_id = p.patient_id
+                LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
+                LEFT JOIN device_whitelist dw ON LOWER(h.device_mac_address) = LOWER(dw.serial_number)
+                WHERE h.status IS DISTINCT FROM 'Archived'
+                  AND (pa.user_id = $1 OR dw.added_by = $1)
+                ORDER BY h.triggered_at DESC LIMIT 50
+            `;
+            systemParams = [userId];
+        }
+
+        // 3. Fetch Broadcast Announcements
+        let announcementsQuery;
+        let announcementsParams = [];
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
+            announcementsQuery = `
+                SELECT a.id as announcement_id, a.title, a.message, a.created_at as timestamp,
+                       'announcement' as alert_category
+                FROM announcements a
+                ORDER BY a.created_at DESC LIMIT 100
+            `;
+            announcementsParams = [];
+        } else {
+            announcementsQuery = `
+                SELECT a.id as announcement_id, a.title, a.message, a.created_at as timestamp,
+                       'announcement' as alert_category
+                FROM announcements a
+                LEFT JOIN users u ON a.created_by = u.user_id
+                WHERE 
+                    -- Rule 1: System Admin announcements are global
+                    u.role IN ('system_admin', 'sysadmin', 'admin')
+                    
+                    -- Rule 2: Announcement creator is the user themselves
+                    OR a.created_by = $1
+                    
+                    -- Rule 3: Announcement creator is the user's provisioner (Facility Admin created this caregiver/medstaff/parent)
+                    OR a.created_by = (SELECT created_by FROM users WHERE user_id = $1)
+                    
+                    -- Rule 4: User is a staff member (caregiver/medstaff) sharing the same non-null facility as the announcement creator
+                    OR (
+                        (SELECT role FROM users WHERE user_id = $1) IN ('caregiver', 'medical_staff')
+                        AND u.facility_id IS NOT NULL 
+                        AND u.facility_id = (SELECT facility_id FROM users WHERE user_id = $1)
+                    )
+                    
+                    -- Rule 5: User has clinical access to patients registered by the creator or in their facility
+                    OR $1 IN (
+                        SELECT pa.user_id 
+                        FROM patient_access pa 
+                        JOIN patients p ON pa.patient_id = p.patient_id 
+                        WHERE p.baseline_data->>'created_by' = a.created_by::text
+                           OR (p.facility_id IS NOT NULL AND p.facility_id = u.facility_id)
+                    )
+                ORDER BY a.created_at DESC LIMIT 50
+            `;
+            announcementsParams = [userId];
+        }
+
+        const [clinicalRes, systemRes, announcementsRes] = await Promise.all([
+            pool.query(clinicalQuery, clinicalParams),
+            pool.query(systemQuery, systemParams),
+            pool.query(announcementsQuery, announcementsParams)
+        ]);
+
+        // Format & Merge
+        const notifications = [
+            ...clinicalRes.rows.map(r => ({
+                id: `clinical_${r.alert_id}`,
+                type: 'clinical',
+                title: `${r.alert_category} Alert`,
+                message: r.message,
+                severity: r.severity.toLowerCase(),
+                timestamp: r.timestamp,
+                status: r.status,
+                patientName: r.patient_name
+            })),
+            ...systemRes.rows.map(r => ({
+                id: `system_${r.sys_alert_id}`,
+                type: 'system',
+                title: `Device Issue`,
+                message: r.message,
+                severity: r.severity.toLowerCase(),
+                timestamp: r.timestamp,
+                status: r.status,
+                patientName: r.patient_name
+            })),
+            ...announcementsRes.rows.map(r => ({
+                id: `announcement_${r.announcement_id}`,
+                type: 'announcement',
+                title: r.title,
+                message: r.message,
+                severity: 'normal',
+                timestamp: r.timestamp,
+                status: 'Sent',
+                patientName: null
+            }))
+        ];
+
+        // Sort latest to oldest
+        notifications.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        res.json({ success: true, data: notifications });
+    } catch (err) {
+        console.error("Unified Notifications Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch unified notifications' });
+    }
+});
+
+// ==========================================
+// 7. PUT /archive-unified-bulk - Archive one or many unified alerts
+// ==========================================
+router.put('/archive-unified-bulk', async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, message: 'An array of ids is required.' });
+        }
+
+        const clinicalIds = [];
+        const systemIds = [];
+        
+        for (const combinedId of ids) {
+            if (combinedId.startsWith('clinical_')) {
+                clinicalIds.push(parseInt(combinedId.replace('clinical_', '')));
+            } else if (combinedId.startsWith('system_')) {
+                systemIds.push(parseInt(combinedId.replace('system_', '')));
+            }
+        }
+
+        const queries = [];
+        if (clinicalIds.length > 0) {
+            queries.push(pool.query(`UPDATE alert_notifications SET status = 'Archived' WHERE alert_id = ANY($1)`, [clinicalIds]));
+        }
+        if (systemIds.length > 0) {
+            queries.push(pool.query(`UPDATE hardware_system_alerts SET status = 'Archived' WHERE sys_alert_id = ANY($1)`, [systemIds]));
+        }
+
+        await Promise.all(queries);
+        res.json({ success: true, message: 'Notifications archived successfully.' });
+    } catch (err) {
+        console.error("Archive Unified Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive notifications.' });
+    }
+});
+
 module.exports = router;

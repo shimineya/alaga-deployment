@@ -30,11 +30,31 @@ export default function SystemSettings() {
     const [maintenanceMode, setMaintenanceMode] = useState(false);
 
     // 2. Legal CMS
-    const [privacyPolicy, setPrivacyPolicy] = useState({ content: "", version: "v1.0" });
+    const [privacyPolicy, setPrivacyPolicy] = useState({
+        content: `ALAGA HEALTH CARE MONITORING SYSTEM - DATA PRIVACY & LEGAL BASELINES
+
+1. DATA PROCESSING PRINCIPLES (RA 10173 § 11)
+Patient vital signs telemetry (SpO2, heart rate, temperature) and caregiver access trails are processed strictly for clinical monitoring and emergency response. All telemetry is encrypted in transit and at rest.
+
+2. GDPR COMPLIANT DATA RETENTION
+Under GDPR Article 17, soft-deleted patient records are retained in an archival state for exactly 1 year to prevent accidental loss, after which they are permanently purged.
+
+3. DPA PROPORTIONALITY LIMITS
+Emergency "break-glass" access overrides must be justified. User audits store only access events to mitigate secondary risk vectors.`,
+        version: "v1.2"
+    });
 
     // 3. Broadcasts
     const [announcements, setAnnouncements] = useState<any[]>([]);
     const [newAnnouncement, setNewAnnouncement] = useState({ title: "", message: "" });
+
+    // 4. Security Overrides (New)
+    const [securityOverrides, setSecurityOverrides] = useState({
+        session_timeout: 15,
+        max_login_attempts: 5,
+        password_expiry: 90,
+        mfa_enforced: false
+    });
 
     // 4. Email Config (New)
     const [smtp, setSmtp] = useState({ host: "smtp.gmail.com", port: 587, user: "", pass: "" });
@@ -73,6 +93,14 @@ export default function SystemSettings() {
                     }
                     if (confData.data.maintenance_mode) {
                         setMaintenanceMode(confData.data.maintenance_mode.enabled || false);
+                    }
+                    if (confData.data.security_overrides) {
+                        setSecurityOverrides({
+                            session_timeout: confData.data.security_overrides.session_timeout || 15,
+                            max_login_attempts: confData.data.security_overrides.max_login_attempts || 5,
+                            password_expiry: confData.data.security_overrides.password_expiry || 90,
+                            mfa_enforced: !!confData.data.security_overrides.mfa_enforced
+                        });
                     }
                 }
 
@@ -123,6 +151,52 @@ export default function SystemSettings() {
             toast.success("System Thresholds Updated");
         } catch (err) {
             toast.error("Failed to update config");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 2. Save Security Overrides
+    const saveSecurityOverrides = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/system-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ config_key: 'security_overrides', config_value: securityOverrides })
+            });
+            toast.success("Security Overrides Updated");
+        } catch (err) {
+            toast.error("Failed to update security overrides");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 3. Save Privacy Policy
+    const savePrivacyPolicy = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/legal-docs`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                    doc_type: 'PRIVACY_POLICY',
+                    title: 'Data Privacy Policy',
+                    content: privacyPolicy.content,
+                    version: privacyPolicy.version
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success("Data Privacy Policy Published");
+            } else {
+                toast.error(data.message || "Failed to publish policy");
+            }
+        } catch {
+            toast.error("Failed to publish policy");
         } finally {
             setLoading(false);
         }
@@ -270,17 +344,10 @@ const deleteAnnouncement = async (id: number) => {
                     >
                         <Megaphone className="w-4 h-4 mr-2" /> Broadcast
                     </TabsTrigger>
-
-                    <TabsTrigger
-                        value="email"
-                        className="flex-1 min-w-[140px] data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-purple-700"
-                    >
-                        <Mail className="w-4 h-4 mr-2" /> Email
-                    </TabsTrigger>
                 </TabsList>
 
                 {/* --- TAB 1: THRESHOLDS --- */}
-                <TabsContent value="thresholds">
+                <TabsContent value="thresholds" className="space-y-6">
                     <Card>
                         <CardHeader><CardTitle>Vital Sign Parameters</CardTitle></CardHeader>
                         <CardContent className="space-y-6">
@@ -293,6 +360,54 @@ const deleteAnnouncement = async (id: number) => {
                             </Button>
                         </CardContent>
                     </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>System Overrides &amp; Security Baselines</CardTitle>
+                            <CardDescription>Configure security timeout parameters and authentication rules.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Session Idle Timeout (Minutes)</Label>
+                                    <Input
+                                        type="number"
+                                        value={securityOverrides.session_timeout}
+                                        onChange={(e) => setSecurityOverrides({ ...securityOverrides, session_timeout: parseInt(e.target.value) })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Max Failed Login Attempts</Label>
+                                    <Input
+                                        type="number"
+                                        value={securityOverrides.max_login_attempts}
+                                        onChange={(e) => setSecurityOverrides({ ...securityOverrides, max_login_attempts: parseInt(e.target.value) })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Password Expiry Period (Days)</Label>
+                                    <Input
+                                        type="number"
+                                        value={securityOverrides.password_expiry}
+                                        onChange={(e) => setSecurityOverrides({ ...securityOverrides, password_expiry: parseInt(e.target.value) })}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                    <div>
+                                        <Label className="font-semibold block">Enforce Staff MFA</Label>
+                                        <span className="text-[9px] text-slate-400">Require multi-factor token login.</span>
+                                    </div>
+                                    <Switch
+                                        checked={securityOverrides.mfa_enforced}
+                                        onCheckedChange={(val) => setSecurityOverrides({ ...securityOverrides, mfa_enforced: val })}
+                                    />
+                                </div>
+                            </div>
+                            <Button onClick={saveSecurityOverrides} disabled={loading} className="bg-teal-600 hover:bg-teal-700">
+                                <Save className="w-4 h-4 mr-2" /> Save Overrides
+                            </Button>
+                        </CardContent>
+                    </Card>
                 </TabsContent>
 
                 {/* --- TAB 2: LEGAL CMS --- */}
@@ -301,10 +416,21 @@ const deleteAnnouncement = async (id: number) => {
                         <CardHeader><CardTitle>Data Privacy Policy (CMS)</CardTitle></CardHeader>
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
+                                <Label>Policy Version Label</Label>
+                                <Input
+                                    value={privacyPolicy.version}
+                                    onChange={(e) => setPrivacyPolicy({ ...privacyPolicy, version: e.target.value })}
+                                    placeholder="e.g. v1.2"
+                                    className="w-32"
+                                />
+                            </div>
+                            <div className="space-y-2">
                                 <Label>Content</Label>
                                 <Textarea value={privacyPolicy.content} onChange={(e) => setPrivacyPolicy({ ...privacyPolicy, content: e.target.value })} className="h-64" />
                             </div>
-                            <Button variant="default">Update Policy</Button>
+                            <Button onClick={savePrivacyPolicy} disabled={loading} className="bg-teal-600 hover:bg-teal-700">
+                                <Save className="w-4 h-4 mr-2" /> Publish Privacy Policy
+                            </Button>
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -421,56 +547,6 @@ const deleteAnnouncement = async (id: number) => {
                         </Card>
                     </div>
                 </TabsContent>
-
-                {/* --- TAB 5: EMAIL (NEW) --- */}
-                <TabsContent value="email">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>SMTP Configuration</CardTitle>
-                            <CardDescription>Configure email gateway for critical system alerts.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>SMTP Host</Label>
-                                    <Input value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} placeholder="smtp.gmail.com" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Port</Label>
-                                    <Input type="number" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: parseInt(e.target.value) })} placeholder="587" />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Email User</Label>
-                                    <Input value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} placeholder="admin@alaga.com" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Email Password (App Password)</Label>
-                                    <Input type="password" value={smtp.pass} onChange={(e) => setSmtp({ ...smtp, pass: e.target.value })} placeholder="••••••••" />
-                                </div>
-                            </div>
-
-                            <div className="pt-4 border-t">
-                                <h4 className="text-sm font-semibold mb-3">Test Connection</h4>
-                                <div className="flex gap-4">
-                                    <Input
-                                        placeholder="Recipient Email (e.g. your-email@gmail.com)"
-                                        value={testEmail}
-                                        onChange={(e) => setTestEmail(e.target.value)}
-                                    />
-                                    <Button onClick={handleTestEmail} variant="secondary">
-                                        <Send className="w-4 h-4 mr-2" /> Send Test
-                                    </Button>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-2">
-                                    Note: If using Gmail, you must enable "App Passwords" in your Google Account Security settings.
-                                </p>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
             </Tabs>
         </div>
     );

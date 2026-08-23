@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { UserPlus, Cpu, RotateCcw, Search, RefreshCw } from 'lucide-react';
 import { Badge } from '../ui/badge';
+import { useAuth } from '@/lib/auth-context';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
@@ -36,6 +37,10 @@ interface ScopedPatient {
 }
 
 export default function PatientOnboarding() {
+    const { user, isSysAdmin } = useAuth();
+    const role = user?.role?.toLowerCase() || '';
+    const isSystemAdmin = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
+
     // Patient form state
     const [form, setForm] = useState({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '' });
     const [consentConfirmed, setConsentConfirmed] = useState(false);
@@ -57,6 +62,91 @@ export default function PatientOnboarding() {
     const [searchQuery, setSearchQuery] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
+    // Unassigned Patient List State
+    const [unassignedPatients, setUnassignedPatients] = useState<ScopedPatient[]>([]);
+    const [unassignedSearchQuery, setUnassignedSearchQuery] = useState('');
+    const [unassignedSuggestions, setUnassignedSuggestions] = useState<string[]>([]);
+    const [showUnassignedSuggestions, setShowUnassignedSuggestions] = useState(false);
+    const [isLoadingUnassigned, setIsLoadingUnassigned] = useState(false);
+
+    // Edit Patient Profile and Care Team Assignment states
+    const [editingPatient, setEditingPatient] = useState<ScopedPatient | null>(null);
+    const [editForm, setEditForm] = useState({ name: '', gender: 'Male', diagnosis: '' });
+
+    const startEditPatient = (pat: ScopedPatient) => {
+        setEditingPatient(pat);
+        setEditForm({
+            name: pat.name,
+            gender: pat.baseline_data?.gender || 'Male',
+            diagnosis: pat.baseline_data?.diagnosis || ''
+        });
+    };
+
+    const handleUpdatePatient = async () => {
+        if (!editingPatient) return;
+        try {
+            const res = await fetch(`${API}/patients/${editingPatient.patient_id}`, {
+                method: 'PUT',
+                headers: getAuth(),
+                body: JSON.stringify(editForm)
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+                setEditingPatient(null);
+                fetchPatients();
+                fetchUnassignedPatients();
+            } else {
+                toast.error(data.message || 'Failed to update patient.');
+            }
+        } catch {
+            toast.error('Failed to update patient.');
+        }
+    };
+
+    const handleArchivePatient = async (patientId: number) => {
+        if (!window.confirm('Are you sure you want to archive this patient? Doing so will unpair any active devices.')) {
+            return;
+        }
+        try {
+            const res = await fetch(`${API}/patients/${patientId}`, {
+                method: 'DELETE',
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+                fetchPatients();
+                fetchUnassignedPatients();
+            } else {
+                toast.error(data.message || 'Failed to archive patient.');
+            }
+        } catch {
+            toast.error('Failed to archive patient.');
+        }
+    };
+
+    const handleAssignByEmail = async (patientId: number, email: string) => {
+        if (!email) return toast.error('Email address is required.');
+        try {
+            const res = await fetch(`${API}/patients/${patientId}/assign-staff-by-email`, {
+                method: 'POST',
+                headers: getAuth(),
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+                fetchPatients();
+                fetchUnassignedPatients();
+            } else {
+                toast.error(data.message || 'Assignment failed.');
+            }
+        } catch {
+            toast.error('Failed to assign staff.');
+        }
+    };
+
     const fetchPatients = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -76,9 +166,29 @@ export default function PatientOnboarding() {
         }
     }, []);
 
+    const fetchUnassignedPatients = useCallback(async () => {
+        setIsLoadingUnassigned(true);
+        try {
+            const res = await fetch(`${API}/unassigned-patients`, {
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success) {
+                setUnassignedPatients(data.data || []);
+            } else {
+                toast.error(data.message || 'Failed to fetch unassigned patient list.');
+            }
+        } catch {
+            toast.error('Failed to load unassigned patient list.');
+        } finally {
+            setIsLoadingUnassigned(false);
+        }
+    }, []);
+
     useEffect(() => {
         fetchPatients();
-    }, [fetchPatients]);
+        fetchUnassignedPatients();
+    }, [fetchPatients, fetchUnassignedPatients]);
 
     const handleRegister = async () => {
         if (!form.first_name || !form.last_name || !form.age || !form.diagnosis) {
@@ -100,6 +210,7 @@ export default function PatientOnboarding() {
                 setForm({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '' });
                 setConsentConfirmed(false);
                 fetchPatients();
+                fetchUnassignedPatients();
             } else toast.error(data.message);
         } catch { toast.error('Registration failed.'); }
         finally { setSubmitting(false); }
@@ -146,6 +257,7 @@ export default function PatientOnboarding() {
             setDiaperSN('');
             setVitalSN('');
             fetchPatients();
+            fetchUnassignedPatients();
         } catch (err: any) {
             toast.error(err.message || 'Device pairing failed.');
         }
@@ -166,13 +278,33 @@ export default function PatientOnboarding() {
         } else toast.error(data.message);
     };
 
-    // Filter logic
+    // Filter patients
     const filteredPatients = patients.filter(p => {
         const query = searchQuery.toLowerCase();
         return p.name.toLowerCase().includes(query) ||
-               (p.baseline_data?.diagnosis || '').toLowerCase().includes(query) ||
-               p.patient_id.toString().includes(query);
+            p.patient_id.toString().includes(query) ||
+            (p.baseline_data?.diagnosis || '').toLowerCase().includes(query);
     });
+
+    // Filter unassigned patients
+    const filteredUnassignedPatients = unassignedPatients.filter(p => {
+        const query = unassignedSearchQuery.toLowerCase();
+        return p.name.toLowerCase().includes(query) ||
+            p.patient_id.toString().includes(query) ||
+            (p.baseline_data?.diagnosis || '').toLowerCase().includes(query);
+    });
+
+    // Handle unassigned suggestions
+    useEffect(() => {
+        if (unassignedSearchQuery.trim().length > 0) {
+            const matches = unassignedPatients
+                .map(p => p.name)
+                .filter(name => name.toLowerCase().includes(unassignedSearchQuery.toLowerCase()));
+            setUnassignedSuggestions(Array.from(new Set(matches)).slice(0, 5));
+        } else {
+            setUnassignedSuggestions([]);
+        }
+    }, [unassignedSearchQuery, unassignedPatients]);
 
     return (
         <div className="space-y-6 flex flex-col min-h-0">
@@ -305,8 +437,10 @@ export default function PatientOnboarding() {
                 </div>
             </div>
 
-            {/* Scoped Patient List Table */}
-            <Card className="border-slate-200 shadow-sm flex-1 flex flex-col min-h-0">
+            {!isSystemAdmin && (
+                <>
+                    {/* Scoped Patient List Table */}
+                    <Card className="border-slate-200 shadow-sm flex-1 flex flex-col min-h-0">
                 <CardHeader className="py-4 px-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                     <div>
                         <CardTitle className="text-sm font-bold text-slate-800">
@@ -343,6 +477,7 @@ export default function PatientOnboarding() {
                                         <th className="p-3">Paired Device(s)</th>
                                         <th className="p-3">Assigned Caregivers / Staff</th>
                                         <th className="p-3">Created At</th>
+                                        <th className="p-3 text-center">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -388,6 +523,16 @@ export default function PatientOnboarding() {
                                                 )}
                                             </td>
                                             <td className="p-3 text-slate-400 font-mono text-[10px]">{pat.created_at}</td>
+                                            <td className="p-3 text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    <Button variant="outline" size="sm" onClick={() => startEditPatient(pat)} className="h-7 px-2 text-[10px] border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">
+                                                        Edit
+                                                    </Button>
+                                                    <Button variant="outline" size="sm" onClick={() => handleArchivePatient(pat.patient_id)} className="h-7 px-2 text-[10px] border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">
+                                                        Archive
+                                                    </Button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -396,6 +541,189 @@ export default function PatientOnboarding() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Unassigned Patients Table */}
+            <Card className="border-slate-200 shadow-sm flex-1 flex flex-col min-h-0 mt-6">
+                <CardHeader className="py-4 px-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+                    <div>
+                        <CardTitle className="text-sm font-bold text-slate-800">
+                            Unassigned Patients
+                        </CardTitle>
+                        <CardDescription className="text-[10px] text-slate-400">
+                            Patients registered in the system with no caregivers or medical staff assigned.
+                        </CardDescription>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                        <Input
+                            placeholder="Search unassigned patients..."
+                            value={unassignedSearchQuery}
+                            onChange={(e) => {
+                                setUnassignedSearchQuery(e.target.value);
+                                setShowUnassignedSuggestions(true);
+                            }}
+                            onFocus={() => setShowUnassignedSuggestions(unassignedSuggestions.length > 0)}
+                            onBlur={() => setTimeout(() => setShowUnassignedSuggestions(false), 200)}
+                            className="pl-8 h-8 text-xs bg-slate-50 border-slate-200 rounded-lg"
+                        />
+                        {showUnassignedSuggestions && unassignedSuggestions.length > 0 && (
+                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                {unassignedSuggestions.map(s => (
+                                    <button
+                                        key={s}
+                                        onMouseDown={() => {
+                                            setUnassignedSearchQuery(s);
+                                            setShowUnassignedSuggestions(false);
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 hover:text-teal-700 text-slate-700 transition-colors border-b last:border-b-0 cursor-pointer"
+                                    >
+                                        {s}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </CardHeader>
+                <CardContent className="p-0 flex-1 overflow-auto min-h-0 bg-slate-50/20">
+                    {filteredUnassignedPatients.length === 0 ? (
+                        <div className="text-center py-12 italic text-slate-400 text-xs">
+                            {isLoadingUnassigned ? 'Loading unassigned patient list...' : 'No unassigned patients found.'}
+                        </div>
+                    ) : (
+                        <div className="w-full overflow-x-auto">
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                                        <th className="p-3">Patient ID</th>
+                                        <th className="p-3">Name</th>
+                                        <th className="p-3">Gender</th>
+                                        <th className="p-3">Diagnosis</th>
+                                        <th className="p-3">Paired Device(s)</th>
+                                        <th className="p-3">Created At</th>
+                                        <th className="p-3">Assign Caregiver / Staff</th>
+                                        <th className="p-3 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredUnassignedPatients.map((pat) => (
+                                        <tr key={pat.patient_id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors bg-white">
+                                            <td className="p-3 font-mono font-semibold text-slate-700">#{pat.patient_id}</td>
+                                            <td className="p-3 font-bold text-slate-800">{pat.name}</td>
+                                            <td className="p-3 text-slate-600">{pat.baseline_data?.gender || 'N/A'}</td>
+                                            <td className="p-3 text-slate-600 max-w-xs truncate" title={pat.baseline_data?.diagnosis || ''}>
+                                                {pat.baseline_data?.diagnosis || 'N/A'}
+                                            </td>
+                                            <td className="p-3">
+                                                {pat.paired_devices.length === 0 ? (
+                                                    <span className="text-[10px] text-slate-400 italic">None</span>
+                                                ) : (
+                                                    <div className="flex flex-col gap-1">
+                                                        {pat.paired_devices.map(dev => (
+                                                            <div key={dev.serial_number} className="flex items-center gap-1.5">
+                                                                <Badge className="bg-teal-50 text-teal-700 border-none font-normal text-[8px] hover:bg-teal-100 px-1 py-0 h-4">
+                                                                    {dev.serial_number}
+                                                                </Badge>
+                                                                <span className="text-[9px] text-slate-400">({dev.device_name || 'Device'})</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="p-3 text-slate-400 font-mono text-[10px]">{pat.created_at}</td>
+                                            <td className="p-3">
+                                                <form
+                                                    onSubmit={(e) => {
+                                                        e.preventDefault();
+                                                        const formEl = e.currentTarget;
+                                                        const emailInput = formEl.elements.namedItem('assignEmail') as HTMLInputElement;
+                                                        handleAssignByEmail(pat.patient_id, emailInput.value);
+                                                        emailInput.value = '';
+                                                    }}
+                                                    className="flex items-center gap-1"
+                                                >
+                                                    <Input
+                                                        name="assignEmail"
+                                                        type="email"
+                                                        placeholder="Staff email..."
+                                                        required
+                                                        className="h-7 text-[10px] w-40 bg-white border-slate-200 rounded"
+                                                    />
+                                                    <Button type="submit" size="sm" className="h-7 text-[10px] bg-teal-600 hover:bg-teal-700 text-white cursor-pointer px-2 rounded">
+                                                        Assign
+                                                    </Button>
+                                                </form>
+                                            </td>
+                                            <td className="p-3 text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    <Button variant="outline" size="sm" onClick={() => startEditPatient(pat)} className="h-7 px-2 text-[10px] border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">
+                                                        Edit
+                                                    </Button>
+                                                    <Button variant="outline" size="sm" onClick={() => handleArchivePatient(pat.patient_id)} className="h-7 px-2 text-[10px] border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">
+                                                        Archive
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+            {/* Edit Patient Dialog Modal */}
+            {editingPatient && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
+                    <Card className="w-full max-w-md bg-white border border-slate-200 shadow-2xl p-6">
+                        <CardHeader className="p-0 pb-4 border-b border-slate-100 mb-4">
+                            <CardTitle className="text-sm font-bold text-slate-800">Edit Patient Profile</CardTitle>
+                            <CardDescription className="text-[10px] text-slate-400">Update medical record details for patient #{editingPatient.patient_id}.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0 space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Patient Name</label>
+                                <Input
+                                    value={editForm.name}
+                                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                                    className="h-8 text-xs bg-slate-50 border-slate-200"
+                                    placeholder="Enter full name..."
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gender</label>
+                                <select
+                                    value={editForm.gender}
+                                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
+                                    className="w-full h-8 rounded-lg border border-slate-200 text-xs px-2 bg-slate-50 text-slate-600 focus:outline-none"
+                                >
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Diagnosis</label>
+                                <Input
+                                    value={editForm.diagnosis}
+                                    onChange={(e) => setEditForm({ ...editForm, diagnosis: e.target.value })}
+                                    className="h-8 text-xs bg-slate-50 border-slate-200"
+                                    placeholder="Enter primary medical condition..."
+                                />
+                            </div>
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                <Button variant="outline" size="sm" onClick={() => setEditingPatient(null)} className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer">
+                                    Cancel
+                                </Button>
+                                <Button size="sm" onClick={handleUpdatePatient} className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white cursor-pointer">
+                                    Save Changes
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+                </>
+            )}
         </div>
     );
 }

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { User, Mail, Phone, Lock, Camera, Save, Edit3, X } from 'lucide-react';
+import { User, Mail, Phone, Lock, Camera, Save, Edit3, X, Building } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
@@ -18,7 +18,8 @@ export default function UserProfile() {
         first_name: user?.name || '',
         last_name: '',
         role: user?.role || '',
-        profile_picture_url: ''
+        profile_picture_url: '',
+        facility_name: ''
     });
     
     const [password, setPassword] = useState('');
@@ -51,7 +52,8 @@ export default function UserProfile() {
                     first_name: data.profile.first_name || '',
                     last_name: data.profile.last_name || '',
                     role: data.profile.role || '',
-                    profile_picture_url: data.profile.profile_picture_url || ''
+                    profile_picture_url: data.profile.profile_picture_url || '',
+                    facility_name: data.profile.facility_name || ''
                 });
             } else {
                 toast.error(data.message || 'Failed to load profile');
@@ -264,6 +266,14 @@ export default function UserProfile() {
                                         <p className="text-sm font-medium text-slate-800">{profile.mobile_number || t('Not set', 'Hindi nakatakda')}</p>
                                     )}
                                 </div>
+                                {(profile.role?.toLowerCase() === 'facility_admin' || profile.role?.toLowerCase() === 'medical_staff') && (
+                                    <div className="space-y-1.5 sm:col-span-2">
+                                        <Label className="text-xs text-slate-500 flex items-center gap-1.5">
+                                            <Building className="w-3.5 h-3.5 text-slate-400" /> {t('Facility', 'Pasilidad')}
+                                        </Label>
+                                        <p className="text-sm font-medium text-slate-800">{profile.facility_name || t('Not Assigned', 'Walang Pasilidad')}</p>
+                                    </div>
+                                )}
                             </div>
 
                             {isEditing && (

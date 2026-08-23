@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Contact, Link2, Activity, Cpu } from 'lucide-react';
+import { Contact, Link2, Activity, Cpu, Database } from 'lucide-react';
 
 import WardStaffManagement from '../facility-admin/WardStaffManagement';
 import PatientCaregiverAssignment from '../facility-admin/PatientCaregiverAssignment';
@@ -12,7 +12,7 @@ import ParentCareTeamManagement from '../ParentCareTeamManagement';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 import FacilityAdminAssignmentCommandCenter from '../facility-admin/FacilityAdminAssignmentCommandCenter';
 import SystemAdminAssignmentCommandCenter from '../sysadmin/SystemAdminAssignmentCommandCenter';
-import SystemAdminDeviceAssignment from '../sysadmin/SystemAdminDeviceAssignment';
+import FacilityTopologyBuilder from '../sysadmin/FacilityTopologyBuilder';
 import SystemAdminUserList from '../sysadmin/SystemAdminUserList';
 
 export default function StaffManagementHub() {
@@ -119,14 +119,14 @@ export default function StaffManagementHub() {
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <TabsTrigger 
-                                            value="sys-device-assignment"
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-amber-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                            value="sys-network-topology"
+                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
                                         >
-                                            <Cpu className="w-4 h-4" /> Device Assignment
+                                            <Database className="w-4 h-4" /> Network Topology
                                         </TabsTrigger>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Manage device linkages and assignments across patients.</p>
+                                        <p className="text-xs">Build and align the facility's logical hardware structure.</p>
                                     </TooltipContent>
                                 </Tooltip>
                             )}
@@ -170,8 +170,8 @@ export default function StaffManagementHub() {
                 )}
 
                 {canSeeSysCommandCenter && (
-                    <TabsContent value="sys-device-assignment" className="mt-0 flex-1 min-h-[500px] outline-none">
-                        <SystemAdminDeviceAssignment />
+                    <TabsContent value="sys-network-topology" className="mt-0 flex-1 min-h-[500px] outline-none">
+                        <FacilityTopologyBuilder />
                     </TabsContent>
                 )}
 

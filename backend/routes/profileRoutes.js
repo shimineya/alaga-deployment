@@ -59,9 +59,11 @@ router.get('/', verifyToken, async (req, res) => {
                 u.first_name,
                 u.last_name,
                 u.role,
+                f.facility_name,
                 pc.notification_preferences
              FROM users u
              LEFT JOIN profiles_caregivers pc ON pc.user_id = u.user_id
+             LEFT JOIN facilities f ON u.facility_id = f.facility_id
              WHERE u.user_id = $1`,
             [userId]
         );

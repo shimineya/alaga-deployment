@@ -2,12 +2,13 @@ import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Users, UserPlus } from 'lucide-react';
+import { Users, UserPlus, UserCheck } from 'lucide-react';
 
 import PatientOnboarding from '../facility-admin/PatientOnboarding';
 import { AddNewPatient } from '../AddNewPatient';
 import { CaregiverDashboardNew } from '../CaregiverDashboardNew';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
+import SystemAdminPatientDirectory from '../sysadmin/SystemAdminPatientDirectory';
 
 export default function PatientRecordsHub() {
     const { user, permissions, isSysAdmin } = useAuth();
@@ -16,14 +17,9 @@ export default function PatientRecordsHub() {
     // Authorization
     const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
-    // isParent is kept separate from isClinical so the assignment guard
-    // still distinguishes between staff (who see assignment tracker) and
-    // parents (who see the same tracker but from the guardian perspective).
     const isParent     = role === 'parent';
     const isClinical   = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
-    // [OWASP A01 / RBAC] Override-aware visibility helper — checks DB overrides first.
     const hasPermission = (moduleId: string, roleDefault: boolean): boolean => {
         if (isAdminTier) return true;
         if (Object.prototype.hasOwnProperty.call(permissions, moduleId)) {
@@ -32,17 +28,14 @@ export default function PatientRecordsHub() {
         return roleDefault;
     };
 
-    // Visibility — module IDs match UserRBACManager MODULE_REGISTRY exactly
-    const canSeeRoster      = hasPermission('my-patients',  isClinical || isAdminTier);
-    // [OWASP A01] Parent can register their own child as a patient.
-    // Backend guard: caregiverRoutes.js POST /patients/new allows admin | medical_staff | parent.
-    // Facility Admin sees this to onboard ward patients; Parent sees it to enroll their child.
+    // Hide roster for System Admin
+    const canSeeRoster      = !isAdminTier && hasPermission('my-patients',  isClinical || isAdminTier);
     const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isParent || isAdminTier);
 
-    const tabCount = [canSeeRoster, canSeeOnboarding].filter(Boolean).length;
+    const tabCount = [canSeeRoster, canSeeOnboarding, isAdminTier].filter(Boolean).length;
     
     let defaultTab = 'roster';
-    if (!canSeeRoster && canSeeOnboarding) defaultTab = 'onboarding';
+    if (!canSeeRoster && (canSeeOnboarding || isAdminTier)) defaultTab = 'onboarding';
 
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
@@ -89,6 +82,38 @@ export default function PatientRecordsHub() {
                                         </TooltipContent>
                                     </Tooltip>
                                 )}
+
+                                {isAdminTier && (
+                                    <>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <TabsTrigger 
+                                                    value="sys-assigned" 
+                                                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                                >
+                                                    <Users className="w-4 h-4" /> Patients Registered and Assigned
+                                                </TabsTrigger>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl">
+                                                <p className="text-xs">View and manage all registered patients.</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <TabsTrigger 
+                                                    value="sys-unassigned" 
+                                                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                                >
+                                                    <UserCheck className="w-4 h-4" /> Unassigned Patients
+                                                </TabsTrigger>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl">
+                                                <p className="text-xs">Manage patients without caregiver assignments.</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </>
+                                )}
                             </TabsList>
                         </TooltipProvider>
                     </div>
@@ -102,16 +127,23 @@ export default function PatientRecordsHub() {
 
                     {canSeeOnboarding && (
                         <TabsContent value="onboarding" className="mt-0 flex-1 min-h-[500px] outline-none">
-                            {/* [OWASP A01] Route to the correct component by role.
-                                Parent calls /api/caregiver/patients (permitted by backend).
-                                FacilityAdmin calls /api/facility-admin/patients.
-                                Sending a parent token to the facility-admin endpoint would
-                                return HTTP 403 — so we split the component here at the UI layer. */}
                             {isParent
                                 ? <AddNewPatient onSuccess={() => {}} onCancel={() => {}} />
                                 : <PatientOnboarding />
                             }
                         </TabsContent>
+                    )}
+
+                    {isAdminTier && (
+                        <>
+                            <TabsContent value="sys-assigned" className="mt-0 flex-1 min-h-[500px] outline-none">
+                                <SystemAdminPatientDirectory mode="assigned" />
+                            </TabsContent>
+
+                            <TabsContent value="sys-unassigned" className="mt-0 flex-1 min-h-[500px] outline-none">
+                                <SystemAdminPatientDirectory mode="unassigned" />
+                            </TabsContent>
+                        </>
                     )}
                 </Tabs>
             </BreakGlassWrapper>

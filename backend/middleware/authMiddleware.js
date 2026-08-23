@@ -36,7 +36,11 @@ const verifyToken = async (req, res, next) => {
             });
         }
 
-        req.user = verified;
+        req.user = { ...verified };
+        if (req.user.role === 'system_admin' || req.user.role === 'sysadmin') {
+            req.user.is_sysadmin = true;
+            req.user.role = 'admin'; // Internal mapping to legacy admin to automatically bypass role-based data filters
+        }
 
         // [OWASP A07] Check if account is locked (prevents use of stolen tokens)
         const lockCheck = await pool.query(
@@ -243,7 +247,9 @@ const requireRole = (allowedRoles) => {
         if (!req.user || !req.user.role) {
             return res.status(401).json({ success: false, message: 'Access Denied: Identity Unknown' });
         }
-        if (!allowedRoles.includes(req.user.role)) {
+        const hasMatchingRole = allowedRoles.includes(req.user.role) || 
+            (req.user.is_sysadmin && (allowedRoles.includes('system_admin') || allowedRoles.includes('sysadmin')));
+        if (!hasMatchingRole) {
             return res.status(403).json({ success: false, message: 'Access Forbidden: Insufficient Role' });
         }
         next();

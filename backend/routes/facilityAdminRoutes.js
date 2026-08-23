@@ -1078,62 +1078,113 @@ router.delete('/staff-given-accounts/:id', async (req, res) => {
 // 7. GET /patients-added-and-assigned - Scoped Patient Onboarding list
 router.get('/patients-added-and-assigned', async (req, res) => {
     const adminId = req.user.id;
+    const isSysAdmin = req.user.is_sys_admin_override;
     try {
-        const result = await pool.query(
-            `SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'serial_number', dw.serial_number,
-                                    'device_name', dw.device_name,
-                                    'status', dw.status
-                                )
-                            )
-                            FROM device_whitelist dw
-                            WHERE dw.assigned_patient_id = p.patient_id
-                        ),
-                        '[]'::json
-                    ) AS paired_devices,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'user_id', u.user_id,
-                                    'username', u.username,
-                                    'first_name', u.first_name,
-                                    'last_name', u.last_name,
-                                    'email', u.email,
-                                    'relationship', pa.relationship,
-                                    'invite_status', pa.invite_status
-                                )
-                            )
-                            FROM patient_access pa
-                            JOIN users u ON pa.user_id = u.user_id
-                            WHERE pa.patient_id = p.patient_id AND pa.user_id IS DISTINCT FROM $1
-                        ),
-                        '[]'::json
-                    ) AS assigned_users
-             FROM patients p
-             WHERE (
-                 -- Condition 1: patients they added AND assigned to other users
-                 ((p.baseline_data->>'created_by') = $1::text AND EXISTS (
-                     SELECT 1 FROM patient_access pa2
-                     WHERE pa2.patient_id = p.patient_id
-                       AND pa2.user_id IS NOT NULL
-                       AND pa2.user_id IS DISTINCT FROM $1
-                 ))
-                 OR
-                 -- Condition 2: patients from the users they gave an account to (caregivers provisioned by admin)
-                 p.patient_id IN (
-                     SELECT pa3.patient_id FROM patient_access pa3
-                     JOIN users u2 ON pa3.user_id = u2.user_id
-                     WHERE u2.created_by = $1
-                 )
-             )
-             ORDER BY p.created_at DESC`,
-            [adminId]
-        );
+        let query;
+        let params = [];
+        if (isSysAdmin) {
+            query = `
+                SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                       f.facility_name,
+                       COALESCE(
+                           (
+                               SELECT json_agg(
+                                   json_build_object(
+                                       'serial_number', dw.serial_number,
+                                       'device_name', dw.device_name,
+                                       'status', dw.status
+                                   )
+                               )
+                               FROM device_whitelist dw
+                               WHERE dw.assigned_patient_id = p.patient_id
+                           ),
+                           '[]'::json
+                       ) AS paired_devices,
+                       COALESCE(
+                           (
+                               SELECT json_agg(
+                                   json_build_object(
+                                       'user_id', u.user_id,
+                                       'username', u.username,
+                                       'first_name', u.first_name,
+                                       'last_name', u.last_name,
+                                       'email', u.email,
+                                       'relationship', pa.relationship,
+                                       'invite_status', pa.invite_status
+                                   )
+                               )
+                               FROM patient_access pa
+                               JOIN users u ON pa.user_id = u.user_id
+                               WHERE pa.patient_id = p.patient_id
+                           ),
+                           '[]'::json
+                       ) AS assigned_users
+                FROM patients p
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                WHERE p.is_archived IS DISTINCT FROM TRUE
+                ORDER BY p.created_at DESC
+            `;
+            params = [];
+        } else {
+            query = `
+                SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                       f.facility_name,
+                       COALESCE(
+                           (
+                               SELECT json_agg(
+                                   json_build_object(
+                                       'serial_number', dw.serial_number,
+                                       'device_name', dw.device_name,
+                                       'status', dw.status
+                                   )
+                               )
+                               FROM device_whitelist dw
+                               WHERE dw.assigned_patient_id = p.patient_id
+                           ),
+                           '[]'::json
+                       ) AS paired_devices,
+                       COALESCE(
+                           (
+                               SELECT json_agg(
+                                   json_build_object(
+                                       'user_id', u.user_id,
+                                       'username', u.username,
+                                       'first_name', u.first_name,
+                                       'last_name', u.last_name,
+                                       'email', u.email,
+                                       'relationship', pa.relationship,
+                                       'invite_status', pa.invite_status
+                                   )
+                               )
+                               FROM patient_access pa
+                               JOIN users u ON pa.user_id = u.user_id
+                               WHERE pa.patient_id = p.patient_id AND pa.user_id IS DISTINCT FROM $1
+                           ),
+                           '[]'::json
+                       ) AS assigned_users
+                FROM patients p
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                WHERE (
+                    -- Condition 1: patients they added AND assigned to other users
+                    ((p.baseline_data->>'created_by') = $1::text AND EXISTS (
+                        SELECT 1 FROM patient_access pa2
+                        WHERE pa2.patient_id = p.patient_id
+                          AND pa2.user_id IS NOT NULL
+                          AND pa2.user_id IS DISTINCT FROM $1
+                    ))
+                    OR
+                    -- Condition 2: patients from the users they gave an account to (caregivers provisioned by admin)
+                    p.patient_id IN (
+                        SELECT pa3.patient_id FROM patient_access pa3
+                        JOIN users u2 ON pa3.user_id = u2.user_id
+                        WHERE u2.created_by = $1
+                    )
+                ) AND p.is_archived IS DISTINCT FROM TRUE
+                ORDER BY p.created_at DESC
+            `;
+            params = [adminId];
+        }
+        const result = await pool.query(query, params);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('Fetch Scoped Patient List Error:', err.message);
@@ -1141,43 +1192,351 @@ router.get('/patients-added-and-assigned', async (req, res) => {
     }
 });
 
+// GET /unassigned-patients - Fetch patients with no caregiver/medical staff assignments
+router.get('/unassigned-patients', async (req, res) => {
+    const adminId = req.user.id;
+    const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override;
+    try {
+        let query;
+        let params = [];
+        if (isSysAdmin) {
+            query = `
+                SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                       f.facility_name,
+                       COALESCE(
+                           (
+                               SELECT json_agg(
+                                   json_build_object(
+                                       'serial_number', dw.serial_number,
+                                       'device_name', dw.device_name,
+                                       'status', dw.status
+                                   )
+                               )
+                               FROM device_whitelist dw
+                               WHERE dw.assigned_patient_id = p.patient_id
+                           ),
+                           '[]'::json
+                       ) AS paired_devices
+                FROM patients p
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                WHERE p.is_archived IS DISTINCT FROM TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM patient_access pa
+                      JOIN users u ON pa.user_id = u.user_id
+                      WHERE pa.patient_id = p.patient_id AND u.role IN ('caregiver', 'medical_staff')
+                  )
+                ORDER BY p.created_at DESC
+            `;
+            params = [];
+        } else {
+            query = `
+                SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                       f.facility_name,
+                       COALESCE(
+                           (
+                               SELECT json_agg(
+                                   json_build_object(
+                                       'serial_number', dw.serial_number,
+                                       'device_name', dw.device_name,
+                                       'status', dw.status
+                                   )
+                               )
+                               FROM device_whitelist dw
+                               WHERE dw.assigned_patient_id = p.patient_id
+                           ),
+                           '[]'::json
+                       ) AS paired_devices
+                FROM patients p
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                WHERE p.is_archived IS DISTINCT FROM TRUE
+                  AND (p.baseline_data->>'created_by' = $1::text OR p.facility_id = $2)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM patient_access pa
+                      JOIN users u ON pa.user_id = u.user_id
+                      WHERE pa.patient_id = p.patient_id AND u.role IN ('caregiver', 'medical_staff')
+                  )
+                ORDER BY p.created_at DESC
+            `;
+            params = [adminId, facilityId];
+        }
+        const result = await pool.query(query, params);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch Unassigned Patients Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch unassigned patients.' });
+    }
+});
+
+// POST /patients/:patientId/assign-staff-by-email - Assign staff using their email address
+router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const { email } = req.body;
+    const isSysAdmin = req.user.is_sys_admin_override;
+
+    if (!email) {
+        return res.status(400).json({ success: false, message: 'Email address is required.' });
+    }
+
+    try {
+        const userRes = await pool.query(
+            'SELECT user_id, role, facility_id FROM users WHERE LOWER(email) = LOWER($1)',
+            [email.trim()]
+        );
+        if (userRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User with this email address not found.' });
+        }
+        const userToAssign = userRes.rows[0];
+
+        if (userToAssign.role !== 'caregiver' && userToAssign.role !== 'medical_staff') {
+            return res.status(400).json({ success: false, message: 'User is not a caregiver or medical staff member.' });
+        }
+
+        if (!isSysAdmin && userToAssign.facility_id !== facilityId) {
+            return res.status(403).json({ success: false, message: 'Staff member does not belong to your facility.' });
+        }
+
+        if (!isSysAdmin) {
+            const patientCheck = await pool.query(
+                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+                [patientId, facilityId]
+            );
+            if (patientCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+            }
+        }
+
+        const existingCheck = await pool.query(
+            `SELECT access_id FROM patient_access
+             WHERE user_id = $1 AND patient_id = $2`,
+            [userToAssign.user_id, patientId]
+        );
+        if (existingCheck.rows.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'This patient is already assigned to this staff member.'
+            });
+        }
+
+        await pool.query(
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+             VALUES ($1, $2, $3, 'Full', 'Pending', $4)`,
+            [
+                userToAssign.user_id,
+                patientId,
+                userToAssign.role === 'medical_staff' ? 'Medical Staff' : 'Primary Caregiver',
+                req.user.id
+            ]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected)
+             VALUES ($1, 'PATIENT_STAFF_ASSIGN_EMAIL', $2)`,
+            [req.user.id, `Assigned ${userToAssign.role} (${userToAssign.user_id}) by email to Patient ${patientId}`]
+        );
+
+        res.json({ success: true, message: 'Staff member assigned successfully.' });
+    } catch (err) {
+        console.error('Assignment by email error:', err.message);
+        res.status(500).json({ success: false, message: 'Assignment failed.' });
+    }
+});
+
+// PUT /patients/:patientId - Edit patient name, gender, diagnosis
+router.put('/patients/:patientId', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const { name, gender, diagnosis } = req.body;
+    const isSysAdmin = req.user.is_sys_admin_override;
+
+    try {
+        if (!isSysAdmin) {
+            const patientCheck = await pool.query(
+                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+                [patientId, facilityId]
+            );
+            if (patientCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+            }
+        }
+
+        const currentPatient = await pool.query(
+            'SELECT name, baseline_data FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+        if (currentPatient.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const updatedName = name || currentPatient.rows[0].name;
+        const newBaseline = {
+            ...currentPatient.rows[0].baseline_data,
+            gender: gender || currentPatient.rows[0].baseline_data?.gender,
+            diagnosis: diagnosis || currentPatient.rows[0].baseline_data?.diagnosis
+        };
+
+        await pool.query(
+            `UPDATE patients
+             SET name = $1, baseline_data = $2
+             WHERE patient_id = $3`,
+            [updatedName, newBaseline, patientId]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected)
+             VALUES ($1, 'PATIENT_UPDATE', $2)`,
+            [req.user.id, `Updated patient ID ${patientId}`]
+        );
+
+        res.json({ success: true, message: 'Patient updated successfully.' });
+    } catch (err) {
+        console.error('Update Patient Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update patient.' });
+    }
+});
+
+// DELETE /patients/:patientId - Archive patient
+router.delete('/patients/:patientId', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const isSysAdmin = req.user.is_sys_admin_override;
+
+    try {
+        if (!isSysAdmin) {
+            const patientCheck = await pool.query(
+                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+                [patientId, facilityId]
+            );
+            if (patientCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+            }
+        }
+
+        await pool.query(
+            `UPDATE patients
+             SET is_archived = TRUE
+             WHERE patient_id = $1`,
+            [patientId]
+        );
+
+        await pool.query(
+            `UPDATE device_whitelist
+             SET assigned_patient_id = NULL, status = 'AVAILABLE'
+             WHERE assigned_patient_id = $1`,
+            [patientId]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'PATIENT_ARCHIVE', $2, 'WARNING')`,
+            [req.user.id, `Archived patient ID ${patientId}`]
+        );
+
+        res.json({ success: true, message: 'Patient archived successfully.' });
+    } catch (err) {
+        console.error('Archive Patient Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive patient.' });
+    }
+});
+
 // GET /dashboard/patients - Fetch patient cards for dashboard
 router.get('/dashboard/patients', async (req, res) => {
     const adminId = req.user.id;
+    const { facilityId } = req.query;
+    const isSysAdmin = req.user.is_sys_admin_override;
     try {
-        const result = await pool.query(
-            `SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.device_serial_number,
-                    to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'serial_number', dw.serial_number,
-                                    'device_name', dw.device_name,
-                                    'status', dw.status,
-                                    'last_heartbeat', to_char(dw.last_heartbeat, 'YYYY-MM-DD HH24:MI')
+        let result;
+        if (isSysAdmin && facilityId) {
+            // Fetch patients for the selected facility
+            result = await pool.query(
+                `SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.device_serial_number,
+                        to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                        COALESCE(
+                            (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'serial_number', dw.serial_number,
+                                        'device_name', dw.device_name,
+                                        'status', dw.status,
+                                        'last_heartbeat', to_char(dw.last_heartbeat, 'YYYY-MM-DD HH24:MI')
+                                    )
                                 )
-                            )
-                            FROM device_whitelist dw
-                            WHERE dw.assigned_patient_id = p.patient_id
-                        ),
-                        '[]'::json
-                    ) AS paired_devices
-             FROM patients p
-             WHERE (
-                 -- 1. Registered by the facility admin
-                 (p.baseline_data->>'created_by' = $1::text)
-                 OR
-                 -- 2. Registered by users the admin gave accounts to
-                  p.patient_id IN (
-                      SELECT pa.patient_id FROM patient_access pa
-                      JOIN users u ON pa.user_id = u.user_id
-                      WHERE u.created_by = $1::integer AND u.role = 'medical_staff' AND pa.relationship = 'Primary Caregiver'
-                  )
-             )
-             ORDER BY p.created_at DESC`,
-            [adminId]
-        );
+                                FROM device_whitelist dw
+                                WHERE dw.assigned_patient_id = p.patient_id
+                            ),
+                            '[]'::json
+                        ) AS paired_devices,
+                        COALESCE(
+                            (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'username', u.username,
+                                        'name', CONCAT(u.first_name, ' ', u.last_name),
+                                        'role', u.role
+                                    )
+                                )
+                                FROM patient_access pa
+                                JOIN users u ON pa.user_id = u.user_id
+                                WHERE pa.patient_id = p.patient_id
+                            ),
+                            '[]'::json
+                        ) AS assigned_staff
+                 FROM patients p
+                 WHERE p.facility_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
+                 ORDER BY p.created_at DESC`,
+                [parseInt(facilityId)]
+            );
+        } else {
+            result = await pool.query(
+                `SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.device_serial_number,
+                        to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                        COALESCE(
+                            (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'serial_number', dw.serial_number,
+                                        'device_name', dw.device_name,
+                                        'status', dw.status,
+                                        'last_heartbeat', to_char(dw.last_heartbeat, 'YYYY-MM-DD HH24:MI')
+                                    )
+                                )
+                                FROM device_whitelist dw
+                                WHERE dw.assigned_patient_id = p.patient_id
+                            ),
+                            '[]'::json
+                        ) AS paired_devices,
+                        COALESCE(
+                            (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'username', u.username,
+                                        'name', CONCAT(u.first_name, ' ', u.last_name),
+                                        'role', u.role
+                                    )
+                                )
+                                FROM patient_access pa
+                                JOIN users u ON pa.user_id = u.user_id
+                                WHERE pa.patient_id = p.patient_id
+                            ),
+                            '[]'::json
+                        ) AS assigned_staff
+                 FROM patients p
+                 WHERE (
+                     -- 1. Registered by the facility admin
+                     (p.baseline_data->>'created_by' = $1::text)
+                     OR
+                     -- 2. Registered by users the admin gave accounts to
+                      p.patient_id IN (
+                          SELECT pa.patient_id FROM patient_access pa
+                          JOIN users u ON pa.user_id = u.user_id
+                          WHERE u.created_by = $1::integer AND u.role = 'medical_staff' AND pa.relationship = 'Primary Caregiver'
+                      )
+                 ) AND p.is_archived IS DISTINCT FROM TRUE
+                 ORDER BY p.created_at DESC`,
+                [adminId]
+            );
+        }
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('Fetch Dashboard Patients Error:', err.message);

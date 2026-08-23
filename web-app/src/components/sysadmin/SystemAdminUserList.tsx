@@ -28,7 +28,8 @@ import {
     Clock,
     X,
     UserCheck,
-    Mail
+    Mail,
+    UserPlus
 } from 'lucide-react';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
@@ -74,6 +75,62 @@ export default function SystemAdminUserList() {
     const [overrides, setOverrides] = useState<Record<string, boolean>>({});
     const [overrideReason, setOverrideReason] = useState('');
     const [isSavingRbac, setIsSavingRbac] = useState(false);
+
+    // Modal state for Add User
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [addUsername, setAddUsername] = useState('');
+    const [addEmail, setAddEmail] = useState('');
+    const [addPassword, setAddPassword] = useState('');
+    const [addRole, setAddRole] = useState('facility_admin');
+    const [addFacilityId, setAddFacilityId] = useState('');
+    const [addFacilityName, setAddFacilityName] = useState('');
+    const [isAdding, setIsAdding] = useState(false);
+
+    const handleCreateUser = async () => {
+        if (!addUsername.trim() || !addEmail.trim() || !addPassword.trim() || !addRole.trim()) {
+            toast.error('All fields (username, email, password, and role) are required.');
+            return;
+        }
+
+        if (addRole === 'facility_admin' && !addFacilityName.trim()) {
+            toast.error('Facility Name is required for Facility Admin role.');
+            return;
+        }
+
+        setIsAdding(true);
+        try {
+            const res = await fetch(`${API}/users`, {
+                method: 'POST',
+                headers: getAuth(),
+                body: JSON.stringify({
+                    username: addUsername.trim(),
+                    email: addEmail.trim(),
+                    password: addPassword,
+                    role: addRole,
+                    facility_id: (addRole !== 'facility_admin' && addFacilityId !== '') ? parseInt(addFacilityId) : null,
+                    facility_name: addRole === 'facility_admin' ? addFacilityName.trim() : null
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('User account created and immediately activated.');
+                setIsAddModalOpen(false);
+                setAddUsername('');
+                setAddEmail('');
+                setAddPassword('');
+                setAddRole('facility_admin');
+                setAddFacilityId('');
+                setAddFacilityName('');
+                fetchData();
+            } else {
+                toast.error(data.message || 'Failed to create user.');
+            }
+        } catch {
+            toast.error('Server error creating user.');
+        } finally {
+            setIsAdding(false);
+        }
+    };
 
     const fetchData = useCallback(async () => {
         if (!token) return;
@@ -342,6 +399,10 @@ export default function SystemAdminUserList() {
                         <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
                         Refresh
                     </Button>
+                    <Button size="sm" onClick={() => setIsAddModalOpen(true)} className="h-8 gap-1 bg-teal-600 hover:bg-teal-700 text-white font-semibold cursor-pointer shrink-0">
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Add User
+                    </Button>
                 </div>
             </div>
 
@@ -590,6 +651,108 @@ export default function SystemAdminUserList() {
 
                         <div className="pt-2 border-t flex justify-end gap-2 shrink-0">
                             <Button variant="outline" size="sm" onClick={() => setRbacUser(null)} className="h-8 text-xs">Close Override Panel</Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
+
+            {/* ADD USER DIALOG */}
+            {isAddModalOpen && (
+                <Dialog open={true} onOpenChange={() => setIsAddModalOpen(false)}>
+                    <DialogContent className="bg-white">
+                        <DialogHeader>
+                            <DialogTitle className="text-slate-800 flex items-center gap-2">
+                                <UserPlus className="w-5 h-5 text-teal-600" />
+                                Provision New User Account
+                            </DialogTitle>
+                            <DialogDescription className="text-xs">
+                                Create an immediately working and usable account. System roles automatically receive their respective dashboard view and feature access.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2 text-xs">
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">Username</label>
+                                <Input 
+                                    placeholder="Enter username"
+                                    value={addUsername} 
+                                    onChange={(e) => setAddUsername(e.target.value)}
+                                    className="h-9 text-xs"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">Email Address</label>
+                                <Input 
+                                    type="email"
+                                    placeholder="Enter email address"
+                                    value={addEmail} 
+                                    onChange={(e) => setAddEmail(e.target.value)}
+                                    className="h-9 text-xs"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">Password</label>
+                                <Input 
+                                    type="password"
+                                    placeholder="Enter secure password"
+                                    value={addPassword} 
+                                    onChange={(e) => setAddPassword(e.target.value)}
+                                    className="h-9 text-xs"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">System Role</label>
+                                <select 
+                                    value={addRole} 
+                                    onChange={(e) => setAddRole(e.target.value)}
+                                    className="w-full h-9 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                >
+                                    <option value="facility_admin">Facility Administrator</option>
+                                    <option value="medical_staff">Medical Staff / Clinical Nurse</option>
+                                    <option value="caregiver">Caregiver / Attendant</option>
+                                    <option value="parent">Parent / Guardian</option>
+                                </select>
+                            </div>
+
+                            {addRole === 'facility_admin' && (
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-700 mb-1">Facility Name</label>
+                                    <Input 
+                                        placeholder="Enter the name of the facility to create or link"
+                                        value={addFacilityName} 
+                                        onChange={(e) => setAddFacilityName(e.target.value)}
+                                        className="h-9 text-xs"
+                                    />
+                                    <p className="text-[9px] text-slate-400 mt-1 italic">
+                                        If the facility name doesn't exist, a new facility record will be dynamically generated.
+                                    </p>
+                                </div>
+                            )}
+
+                            {(addRole === 'medical_staff' || addRole === 'caregiver') && (
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-700 mb-1">Select Facility Association</label>
+                                    <select 
+                                        value={addFacilityId} 
+                                        onChange={(e) => setAddFacilityId(e.target.value)}
+                                        className="w-full h-9 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                    >
+                                        <option value="">No Facility Assigned (Global)</option>
+                                        {facilities.map(f => (
+                                            <option key={f.facility_id} value={f.facility_id}>{f.facility_name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div className="pt-2 border-t flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setIsAddModalOpen(false)} className="h-8 text-xs">Cancel</Button>
+                                <Button onClick={handleCreateUser} disabled={isAdding} className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white font-semibold">
+                                    {isAdding ? 'Adding User...' : 'Add User Account'}
+                                </Button>
+                            </div>
                         </div>
                     </DialogContent>
                 </Dialog>

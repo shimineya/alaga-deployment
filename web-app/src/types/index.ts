@@ -27,6 +27,20 @@ export interface Patient {
   accessLevel?: 'View' | 'Edit' | 'Admin'; // [NEW] Current user's access level for this patient
   illness?: string;
   emergencyContact?: any;
+  baseline_data?: {
+    gender?: string;
+    diagnosis?: string;
+    ward?: string;
+    room?: string;
+    bed?: string;
+  };
+  active_devices?: string[];
+  latest_telemetry?: {
+    heart_rate?: number;
+    temperature?: number;
+    spo2?: number;
+    moisture?: number;
+  };
 }
 
 

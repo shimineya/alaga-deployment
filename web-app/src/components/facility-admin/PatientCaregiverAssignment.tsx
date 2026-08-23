@@ -144,7 +144,7 @@ export default function PatientCaregiverAssignment() {
                             }}
                             className="bg-teal-600 hover:bg-teal-700 text-white text-xs h-8"
                         >
-                            <UserPlus className="w-3.5 h-3.5 mr-1" /> Invite Caregiver
+                            <UserPlus className="w-3.5 h-3.5 mr-1" /> Invite Caregiver/Medical Staff
                         </Button>
                     </div>
                     <div className="relative w-full">

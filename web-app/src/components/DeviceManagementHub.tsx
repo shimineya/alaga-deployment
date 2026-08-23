@@ -22,7 +22,13 @@ interface Device {
     device_name: string;
     status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
     last_heartbeat: string;
-    battery_level?: number; // Technical Debt: To be implemented in ESP32 firmware
+    battery_level?: number;
+    assigned_patient_name?: string;
+    assigned_patient_baseline?: {
+        ward?: string;
+        room?: string;
+        bed?: string;
+    };
 }
 
 export const DeviceManagementHub: React.FC = () => {
@@ -37,7 +43,13 @@ export const DeviceManagementHub: React.FC = () => {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
-            if (data.success) setDevices(data.data);
+            if (data.success) {
+                const mapped = data.data.map((d: any) => ({
+                    ...d,
+                    assigned_patient_baseline: d.assigned_patient_baseline || null
+                }));
+                setDevices(mapped);
+            }
         } catch (err) {
             toast.error("Failed to sync device inventory.");
         } finally {
@@ -128,7 +140,21 @@ export const DeviceManagementHub: React.FC = () => {
                                             <td className="px-6 py-4">
                                                 <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700">Excellent</Badge>
                                             </td>
-                                            <td className="px-6 py-4 text-xs text-slate-500 italic">Unassigned</td>
+                                            <td className="px-6 py-4 text-xs text-slate-700">
+                                                {device.assigned_patient_name ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="font-semibold text-slate-800">{device.assigned_patient_name}</span>
+                                                        {device.assigned_patient_baseline && (
+                                                            <span className="text-[10px] text-teal-600 font-medium mt-0.5">
+                                                                {device.assigned_patient_baseline.ward ? `${device.assigned_patient_baseline.ward} - ` : ''}
+                                                                {device.assigned_patient_baseline.room} (Bed {device.assigned_patient_baseline.bed})
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400 italic">Unassigned</span>
+                                                )}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>

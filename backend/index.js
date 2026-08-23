@@ -103,7 +103,16 @@ const registerValidation = [
     // which confuses users even though Gmail treats them as the same inbox.
     body('email').isEmail().withMessage('Please enter a valid email').normalizeEmail({ gmail_remove_dots: false }),
     body('username').optional({ checkFalsy: true }).trim().escape(),
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
+    body('password').custom((value) => {
+        const hasSmall = /[a-z]/.test(value);
+        const hasCap = /[A-Z]/.test(value);
+        const hasNum = /[0-9]/.test(value);
+        const hasSym = /[^A-Za-z0-9]/.test(value);
+        if (value.length < 12 || !hasSmall || !hasCap || !hasNum || !hasSym) {
+            throw new Error('Password must be at least 12 characters long and contain at least 1 lowercase letter, 1 uppercase letter, 1 number, and 1 symbol.');
+        }
+        return true;
+    }),
     // [OWASP A01] Added facility_admin, system_admin, and parent to the allowed role list
     body('role').isIn(['caregiver', 'medical_staff', 'admin', 'facility_admin', 'system_admin', 'parent']).withMessage('Invalid role selected')
 ];

@@ -31,11 +31,12 @@ export default function PatientRecordsHub() {
     // Hide roster for System Admin
     const canSeeRoster      = !isAdminTier && hasPermission('my-patients',  isClinical || isAdminTier);
     const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isParent || isAdminTier);
+    const showRegistryTabs  = isAdminTier || isFacilityAdmin;
 
-    const tabCount = [canSeeRoster, canSeeOnboarding, isAdminTier].filter(Boolean).length;
+    const tabCount = [canSeeRoster, canSeeOnboarding, showRegistryTabs].filter(Boolean).length;
     
     let defaultTab = 'roster';
-    if (!canSeeRoster && (canSeeOnboarding || isAdminTier)) defaultTab = 'onboarding';
+    if (!canSeeRoster && (canSeeOnboarding || showRegistryTabs)) defaultTab = 'onboarding';
 
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
@@ -83,7 +84,7 @@ export default function PatientRecordsHub() {
                                     </Tooltip>
                                 )}
 
-                                {isAdminTier && (
+                                {showRegistryTabs && (
                                     <>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
@@ -134,7 +135,7 @@ export default function PatientRecordsHub() {
                         </TabsContent>
                     )}
 
-                    {isAdminTier && (
+                    {showRegistryTabs && (
                         <>
                             <TabsContent value="sys-assigned" className="mt-0 flex-1 min-h-[500px] outline-none">
                                 <SystemAdminPatientDirectory mode="assigned" />

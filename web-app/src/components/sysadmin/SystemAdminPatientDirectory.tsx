@@ -14,6 +14,9 @@ interface ScopedPatient {
     baseline_data: {
         gender?: string;
         diagnosis?: string;
+        ward?: string;
+        room?: string;
+        bed?: string;
     };
     created_at: string;
     facility_name: string | null;
@@ -62,7 +65,7 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
 
     // Edit Patient Profile modal state
     const [editingPatient, setEditingPatient] = useState<ScopedPatient | null>(null);
-    const [editForm, setEditForm] = useState({ name: '', gender: 'Male', diagnosis: '' });
+    const [editForm, setEditForm] = useState({ name: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
 
     // Assign staff by email state
     const [assigningEmails, setAssigningEmails] = useState<{ [patientId: number]: string }>({});
@@ -156,13 +159,17 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
         setEditForm({
             name: patient.name,
             gender: patient.baseline_data?.gender || 'Male',
-            diagnosis: patient.baseline_data?.diagnosis || ''
+            diagnosis: patient.baseline_data?.diagnosis || '',
+            ward: patient.baseline_data?.ward || '',
+            room: patient.baseline_data?.room || '',
+            bed: patient.baseline_data?.bed || ''
         });
     };
 
     const handleUpdatePatient = async () => {
         if (!editingPatient) return;
         if (!editForm.name.trim()) return toast.error("Name is required");
+        if (!editForm.room.trim() || !editForm.bed.trim()) return toast.error("Room name and Bed name are required");
 
         try {
             const res = await fetch(`${API_BASE}/patients/${editingPatient.patient_id}`, {
@@ -310,6 +317,7 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                     <th className="px-4 py-3">Name</th>
                                                     <th className="px-4 py-3">Gender</th>
                                                     <th className="px-4 py-3">Diagnosis</th>
+                                                    <th className="px-4 py-3">Location (Ward/Room/Bed)</th>
                                                     <th className="px-4 py-3">Paired Device(s)</th>
                                                     <th className="px-4 py-3">Assigned Caregivers</th>
                                                     <th className="px-4 py-3">Created At</th>
@@ -335,6 +343,16 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                         </td>
                                                         <td className="px-4 py-3 max-w-[150px] truncate" title={p.baseline_data?.diagnosis}>
                                                             {p.baseline_data?.diagnosis || 'N/A'}
+                                                        </td>
+                                                        <td className="px-4 py-3 font-semibold">
+                                                            {p.baseline_data?.room ? (
+                                                                <span>
+                                                                    {p.baseline_data.ward ? `${p.baseline_data.ward} - ` : ''}
+                                                                    {p.baseline_data.room} (Bed {p.baseline_data.bed})
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400 italic">None</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <div className="flex flex-col gap-1">
@@ -458,6 +476,7 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                     <th className="px-4 py-3">Name</th>
                                                     <th className="px-4 py-3">Gender</th>
                                                     <th className="px-4 py-3">Diagnosis</th>
+                                                    <th className="px-4 py-3">Location (Ward/Room/Bed)</th>
                                                     <th className="px-4 py-3">Paired Device(s)</th>
                                                     <th className="px-4 py-3 min-w-[200px]">Assign Caregiver / Staff</th>
                                                     <th className="px-4 py-3">Created At</th>
@@ -483,6 +502,16 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                         </td>
                                                         <td className="px-4 py-3 max-w-[150px] truncate" title={p.baseline_data?.diagnosis}>
                                                             {p.baseline_data?.diagnosis || 'N/A'}
+                                                        </td>
+                                                        <td className="px-4 py-3 font-semibold">
+                                                            {p.baseline_data?.room ? (
+                                                                <span>
+                                                                    {p.baseline_data.ward ? `${p.baseline_data.ward} - ` : ''}
+                                                                    {p.baseline_data.room} (Bed {p.baseline_data.bed})
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400 italic">None</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <div className="flex flex-col gap-1">
@@ -588,9 +617,38 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                 <Input
                                     value={editForm.diagnosis}
                                     onChange={(e) => setEditForm({ ...editForm, diagnosis: e.target.value })}
-                                    className="h-8 text-xs bg-slate-50 border-slate-200"
+                                    className="h-8 text-xs bg-slate-50/50 border-slate-200"
                                     placeholder="Enter primary medical condition..."
                                 />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ward Name (Optional)</label>
+                                <Input
+                                    value={editForm.ward}
+                                    onChange={(e) => setEditForm({ ...editForm, ward: e.target.value })}
+                                    className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                    placeholder="e.g. Ward A (Optional)"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Room Name</label>
+                                    <Input
+                                        value={editForm.room}
+                                        onChange={(e) => setEditForm({ ...editForm, room: e.target.value })}
+                                        className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                        placeholder="e.g. Room 101"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bed Name</label>
+                                    <Input
+                                        value={editForm.bed}
+                                        onChange={(e) => setEditForm({ ...editForm, bed: e.target.value })}
+                                        className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                        placeholder="e.g. Bed A"
+                                    />
+                                </div>
                             </div>
                             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                                 <Button variant="outline" size="sm" onClick={() => setEditingPatient(null)} className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer">

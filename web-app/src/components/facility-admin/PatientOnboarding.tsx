@@ -42,7 +42,7 @@ export default function PatientOnboarding() {
     const isSystemAdmin = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
 
     // Patient form state
-    const [form, setForm] = useState({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '' });
+    const [form, setForm] = useState({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
     const [consentConfirmed, setConsentConfirmed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);
@@ -191,7 +191,7 @@ export default function PatientOnboarding() {
     }, [fetchPatients, fetchUnassignedPatients]);
 
     const handleRegister = async () => {
-        if (!form.first_name || !form.last_name || !form.age || !form.diagnosis) {
+        if (!form.first_name || !form.last_name || !form.age || !form.diagnosis || !form.room || !form.bed) {
             return toast.error('All fields are required.');
         }
         if (!consentConfirmed) {
@@ -207,7 +207,7 @@ export default function PatientOnboarding() {
             if (data.success) {
                 toast.success(data.message);
                 setLastCreatedId(data.patient_id);
-                setForm({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '' });
+                setForm({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
                 setConsentConfirmed(false);
                 fetchPatients();
                 fetchUnassignedPatients();
@@ -356,6 +356,27 @@ export default function PatientOnboarding() {
                             <label className="block text-[10px] font-semibold text-slate-600 mb-1">Diagnosis / Reason for Monitoring</label>
                             <Input value={form.diagnosis} onChange={e => setForm(f => ({ ...f, diagnosis: e.target.value }))} className="h-8 text-xs bg-slate-50/50" />
                         </div>
+                        <div className="border-t border-slate-100 pt-2.5 mt-2.5">
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location Assignment</span>
+                            <div className="space-y-2">
+                                <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                        Ward Name <span className="text-slate-400 font-normal"> (Optional)</span>
+                                    </label>
+                                    <Input value={form.ward} onChange={e => setForm(f => ({ ...f, ward: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Ward A (Optional)" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Room Name</label>
+                                        <Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Room 101" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Bed Name</label>
+                                        <Input value={form.bed} onChange={e => setForm(f => ({ ...f, bed: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Bed 1" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         {/* [DPA] Visible consent checkbox */}
                         <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                             <input type="checkbox" id="consent" checked={consentConfirmed} onChange={e => setConsentConfirmed(e.target.checked)}
@@ -437,293 +458,7 @@ export default function PatientOnboarding() {
                 </div>
             </div>
 
-            {!isSystemAdmin && (
-                <>
-                    {/* Scoped Patient List Table */}
-                    <Card className="border-slate-200 shadow-sm flex-1 flex flex-col min-h-0">
-                <CardHeader className="py-4 px-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
-                    <div>
-                        <CardTitle className="text-sm font-bold text-slate-800">
-                            Patients Registered and Assigned
-                        </CardTitle>
-                        <CardDescription className="text-[10px] text-slate-400">
-                            Patients you added that are assigned to caregivers, or patients assigned to users you gave accounts to.
-                        </CardDescription>
-                    </div>
-                    <div className="relative w-full sm:w-64">
-                        <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <Input
-                            placeholder="Search patients..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-8 h-8 text-xs bg-slate-50 border-slate-200 rounded-lg"
-                        />
-                    </div>
-                </CardHeader>
-                <CardContent className="p-0 flex-1 overflow-auto min-h-0">
-                    {filteredPatients.length === 0 ? (
-                        <div className="text-center py-12 italic text-slate-400 text-xs">
-                            {isLoading ? 'Loading patient list...' : 'No scoped patients found.'}
-                        </div>
-                    ) : (
-                        <div className="w-full overflow-x-auto">
-                            <table className="w-full text-left border-collapse text-xs">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
-                                        <th className="p-3">Patient ID</th>
-                                        <th className="p-3">Name</th>
-                                        <th className="p-3">Gender</th>
-                                        <th className="p-3">Diagnosis</th>
-                                        <th className="p-3">Paired Device(s)</th>
-                                        <th className="p-3">Assigned Caregivers / Staff</th>
-                                        <th className="p-3">Created At</th>
-                                        <th className="p-3 text-center">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredPatients.map((pat) => (
-                                        <tr key={pat.patient_id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                                            <td className="p-3 font-mono font-semibold text-slate-700">#{pat.patient_id}</td>
-                                            <td className="p-3 font-bold text-slate-800">{pat.name}</td>
-                                            <td className="p-3 text-slate-600">{pat.baseline_data?.gender || 'N/A'}</td>
-                                            <td className="p-3 text-slate-600 max-w-xs truncate" title={pat.baseline_data?.diagnosis || ''}>
-                                                {pat.baseline_data?.diagnosis || 'N/A'}
-                                            </td>
-                                            <td className="p-3">
-                                                {pat.paired_devices.length === 0 ? (
-                                                    <span className="text-[10px] text-slate-400 italic">None</span>
-                                                ) : (
-                                                    <div className="flex flex-col gap-1">
-                                                        {pat.paired_devices.map(dev => (
-                                                            <div key={dev.serial_number} className="flex items-center gap-1.5">
-                                                                <Badge className="bg-teal-50 text-teal-700 border-none font-normal text-[8px] hover:bg-teal-100 px-1 py-0 h-4">
-                                                                    {dev.serial_number}
-                                                                </Badge>
-                                                                <span className="text-[9px] text-slate-400">({dev.device_name || 'Device'})</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="p-3">
-                                                {pat.assigned_users.length === 0 ? (
-                                                    <span className="text-[10px] text-slate-400 italic">None</span>
-                                                ) : (
-                                                    <div className="flex flex-wrap gap-1.5 max-w-sm">
-                                                        {pat.assigned_users.map(u => (
-                                                            <Badge key={u.user_id} className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[9px] py-0 h-5 flex items-center gap-1 px-1.5">
-                                                                <span>{u.first_name} {u.last_name}</span>
-                                                                <span className="text-slate-400">({u.relationship})</span>
-                                                                {u.invite_status === 'Pending' && (
-                                                                    <span className="text-amber-600 font-bold ml-1 text-[8px] animate-pulse">Pending</span>
-                                                                )}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="p-3 text-slate-400 font-mono text-[10px]">{pat.created_at}</td>
-                                            <td className="p-3 text-center">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                    <Button variant="outline" size="sm" onClick={() => startEditPatient(pat)} className="h-7 px-2 text-[10px] border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">
-                                                        Edit
-                                                    </Button>
-                                                    <Button variant="outline" size="sm" onClick={() => handleArchivePatient(pat.patient_id)} className="h-7 px-2 text-[10px] border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">
-                                                        Archive
-                                                    </Button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
 
-            {/* Unassigned Patients Table */}
-            <Card className="border-slate-200 shadow-sm flex-1 flex flex-col min-h-0 mt-6">
-                <CardHeader className="py-4 px-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
-                    <div>
-                        <CardTitle className="text-sm font-bold text-slate-800">
-                            Unassigned Patients
-                        </CardTitle>
-                        <CardDescription className="text-[10px] text-slate-400">
-                            Patients registered in the system with no caregivers or medical staff assigned.
-                        </CardDescription>
-                    </div>
-                    <div className="relative w-full sm:w-64">
-                        <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <Input
-                            placeholder="Search unassigned patients..."
-                            value={unassignedSearchQuery}
-                            onChange={(e) => {
-                                setUnassignedSearchQuery(e.target.value);
-                                setShowUnassignedSuggestions(true);
-                            }}
-                            onFocus={() => setShowUnassignedSuggestions(unassignedSuggestions.length > 0)}
-                            onBlur={() => setTimeout(() => setShowUnassignedSuggestions(false), 200)}
-                            className="pl-8 h-8 text-xs bg-slate-50 border-slate-200 rounded-lg"
-                        />
-                        {showUnassignedSuggestions && unassignedSuggestions.length > 0 && (
-                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
-                                {unassignedSuggestions.map(s => (
-                                    <button
-                                        key={s}
-                                        onMouseDown={() => {
-                                            setUnassignedSearchQuery(s);
-                                            setShowUnassignedSuggestions(false);
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 hover:text-teal-700 text-slate-700 transition-colors border-b last:border-b-0 cursor-pointer"
-                                    >
-                                        {s}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </CardHeader>
-                <CardContent className="p-0 flex-1 overflow-auto min-h-0 bg-slate-50/20">
-                    {filteredUnassignedPatients.length === 0 ? (
-                        <div className="text-center py-12 italic text-slate-400 text-xs">
-                            {isLoadingUnassigned ? 'Loading unassigned patient list...' : 'No unassigned patients found.'}
-                        </div>
-                    ) : (
-                        <div className="w-full overflow-x-auto">
-                            <table className="w-full text-left border-collapse text-xs">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
-                                        <th className="p-3">Patient ID</th>
-                                        <th className="p-3">Name</th>
-                                        <th className="p-3">Gender</th>
-                                        <th className="p-3">Diagnosis</th>
-                                        <th className="p-3">Paired Device(s)</th>
-                                        <th className="p-3">Created At</th>
-                                        <th className="p-3">Assign Caregiver / Staff</th>
-                                        <th className="p-3 text-center">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredUnassignedPatients.map((pat) => (
-                                        <tr key={pat.patient_id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors bg-white">
-                                            <td className="p-3 font-mono font-semibold text-slate-700">#{pat.patient_id}</td>
-                                            <td className="p-3 font-bold text-slate-800">{pat.name}</td>
-                                            <td className="p-3 text-slate-600">{pat.baseline_data?.gender || 'N/A'}</td>
-                                            <td className="p-3 text-slate-600 max-w-xs truncate" title={pat.baseline_data?.diagnosis || ''}>
-                                                {pat.baseline_data?.diagnosis || 'N/A'}
-                                            </td>
-                                            <td className="p-3">
-                                                {pat.paired_devices.length === 0 ? (
-                                                    <span className="text-[10px] text-slate-400 italic">None</span>
-                                                ) : (
-                                                    <div className="flex flex-col gap-1">
-                                                        {pat.paired_devices.map(dev => (
-                                                            <div key={dev.serial_number} className="flex items-center gap-1.5">
-                                                                <Badge className="bg-teal-50 text-teal-700 border-none font-normal text-[8px] hover:bg-teal-100 px-1 py-0 h-4">
-                                                                    {dev.serial_number}
-                                                                </Badge>
-                                                                <span className="text-[9px] text-slate-400">({dev.device_name || 'Device'})</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="p-3 text-slate-400 font-mono text-[10px]">{pat.created_at}</td>
-                                            <td className="p-3">
-                                                <form
-                                                    onSubmit={(e) => {
-                                                        e.preventDefault();
-                                                        const formEl = e.currentTarget;
-                                                        const emailInput = formEl.elements.namedItem('assignEmail') as HTMLInputElement;
-                                                        handleAssignByEmail(pat.patient_id, emailInput.value);
-                                                        emailInput.value = '';
-                                                    }}
-                                                    className="flex items-center gap-1"
-                                                >
-                                                    <Input
-                                                        name="assignEmail"
-                                                        type="email"
-                                                        placeholder="Staff email..."
-                                                        required
-                                                        className="h-7 text-[10px] w-40 bg-white border-slate-200 rounded"
-                                                    />
-                                                    <Button type="submit" size="sm" className="h-7 text-[10px] bg-teal-600 hover:bg-teal-700 text-white cursor-pointer px-2 rounded">
-                                                        Assign
-                                                    </Button>
-                                                </form>
-                                            </td>
-                                            <td className="p-3 text-center">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                    <Button variant="outline" size="sm" onClick={() => startEditPatient(pat)} className="h-7 px-2 text-[10px] border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer">
-                                                        Edit
-                                                    </Button>
-                                                    <Button variant="outline" size="sm" onClick={() => handleArchivePatient(pat.patient_id)} className="h-7 px-2 text-[10px] border-red-200 text-red-600 hover:bg-red-50 cursor-pointer">
-                                                        Archive
-                                                    </Button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-            {/* Edit Patient Dialog Modal */}
-            {editingPatient && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-                    <Card className="w-full max-w-md bg-white border border-slate-200 shadow-2xl p-6">
-                        <CardHeader className="p-0 pb-4 border-b border-slate-100 mb-4">
-                            <CardTitle className="text-sm font-bold text-slate-800">Edit Patient Profile</CardTitle>
-                            <CardDescription className="text-[10px] text-slate-400">Update medical record details for patient #{editingPatient.patient_id}.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="p-0 space-y-4">
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Patient Name</label>
-                                <Input
-                                    value={editForm.name}
-                                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                                    className="h-8 text-xs bg-slate-50 border-slate-200"
-                                    placeholder="Enter full name..."
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gender</label>
-                                <select
-                                    value={editForm.gender}
-                                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
-                                    className="w-full h-8 rounded-lg border border-slate-200 text-xs px-2 bg-slate-50 text-slate-600 focus:outline-none"
-                                >
-                                    <option value="Male">Male</option>
-                                    <option value="Female">Female</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Diagnosis</label>
-                                <Input
-                                    value={editForm.diagnosis}
-                                    onChange={(e) => setEditForm({ ...editForm, diagnosis: e.target.value })}
-                                    className="h-8 text-xs bg-slate-50 border-slate-200"
-                                    placeholder="Enter primary medical condition..."
-                                />
-                            </div>
-                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                                <Button variant="outline" size="sm" onClick={() => setEditingPatient(null)} className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer">
-                                    Cancel
-                                </Button>
-                                <Button size="sm" onClick={handleUpdatePatient} className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white cursor-pointer">
-                                    Save Changes
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
-                </>
-            )}
         </div>
     );
 }

@@ -53,7 +53,10 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         sdDeviceId: '',
         assignedCaregiverId: '',
         assignedCaregiverEmail: '',
-        assignedCaregiverName: ''
+        assignedCaregiverName: '',
+        ward: '',
+        room: '',
+        bed: ''
     });
 
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -133,6 +136,8 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                 newErrors.dateOfBirth = "Cannot be in the future";
             }
         }
+        if (!formData.room) newErrors.room = "Required";
+        if (!formData.bed) newErrors.bed = "Required";
         return newErrors;
     };
 
@@ -165,7 +170,10 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                     emergencyContact: formData.emergencyContact || null,
                     assignedCaregiverEmail: formData.assignedCaregiverEmail || null,
                     vitalDeviceNo: formData.vsDeviceId,
-                    diaperDeviceNo: formData.sdDeviceId
+                    diaperDeviceNo: formData.sdDeviceId,
+                    ward: formData.ward || null,
+                    room: formData.room,
+                    bed: formData.bed
                 })
             });
 
@@ -345,6 +353,41 @@ const handleSearchCaregiver = async (query: string) => {
                                         className="h-9 text-sm"
                                     />
                                 </div>
+
+                                <div className="border-t border-slate-100 pt-3 mt-3">
+                                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location Assignment</h4>
+                                    <div className="space-y-3">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-slate-600">Ward Name</Label>
+                                            <Input
+                                                placeholder="e.g. Pediatrics (Optional)"
+                                                value={formData.ward}
+                                                onChange={e => setFormData({ ...formData, ward: e.target.value })}
+                                                className="h-9 text-sm"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-semibold text-slate-600">Room Name <span className="text-red-500">*</span></Label>
+                                                <Input
+                                                    placeholder="e.g. Room 101"
+                                                    value={formData.room}
+                                                    onChange={e => setFormData({ ...formData, room: e.target.value })}
+                                                    className={`h-9 text-sm ${errors.room ? "border-red-500" : ""}`}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-semibold text-slate-600">Bed Name <span className="text-red-500">*</span></Label>
+                                                <Input
+                                                    placeholder="e.g. Bed A"
+                                                    value={formData.bed}
+                                                    onChange={e => setFormData({ ...formData, bed: e.target.value })}
+                                                    className={`h-9 text-sm ${errors.bed ? "border-red-500" : ""}`}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -357,14 +400,14 @@ const handleSearchCaregiver = async (query: string) => {
                                     <Stethoscope className="w-3.5 h-3.5 text-blue-600" />
                                 </div>
                                 <div className="space-y-0.5">
-                                    <p className="text-xs font-semibold text-blue-800">Invite Caregiver</p>
+                                    <p className="text-xs font-semibold text-blue-800">Invite Caregiver/Medical Staff</p>
                                     <p className="text-[10px] text-blue-600 leading-tight">Optional. Enter the email address of the caregiver/medical staff you want to invite to this patient's care team.</p>
                                 </div>
                             </div>
 
                             <div className="space-y-3 mt-0">
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Caregiver Email Address</Label>
+                                    <Label className="text-xs font-semibold text-slate-600">Caregiver/Medical Staff Email Address</Label>
                                     <div className="relative">
                                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                                         <Input

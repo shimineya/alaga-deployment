@@ -97,7 +97,7 @@ const handleRevoke = async (caregiverId: string, caregiverName: string) => {
                 </div>
                 {canManage && (
                     <Button onClick={() => setIsInviteOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                        <Mail className="w-4 h-4 mr-2" /> Invite Caregiver
+                        <Mail className="w-4 h-4 mr-2" /> Invite Caregiver/Medical Staff
                     </Button>
                 )}
             </CardHeader>

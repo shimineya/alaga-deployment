@@ -20,6 +20,66 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 export const CaregiverSettings: React.FC = () => {
   const { language, setLanguage, t } = useCaregiverLanguage();
 
+  const [isOtaChecking, setIsOtaChecking] = useState(false);
+
+  const handleCheckOtaUpdates = async () => {
+    setIsOtaChecking(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/caregiver/firmware/check`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setIsOtaChecking(false);
+
+      if (data.success && data.update) {
+        const update = data.update;
+        const confirmUpdate = window.confirm(
+          `${t(
+            'New firmware update found: version',
+            'May bagong firmware update: version'
+          )} ${update.version} (${update.name}).\n\n${t(
+            'Features:',
+            'Mga Feature:'
+          )} ${update.features}\n\n${t(
+            'Would you like to update your connected devices?',
+            'Gusto mo bang i-update ang iyong mga nakakonektang device?'
+          )}`
+        );
+
+        if (confirmUpdate) {
+          toast.loading(t('Initiating OTA update on your connected devices...', 'Sinisimulan ang OTA update sa iyong mga device...'));
+          const updateRes = await fetch(`${API_BASE}/api/caregiver/firmware/update`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}` 
+            }
+          });
+          const updateData = await updateRes.json();
+          if (updateData.success) {
+            toast.dismiss();
+            alert(
+              t(
+                `OTA Update successful! Updated ${updateData.updatedCount || 0} device(s) to version ${update.version}.`,
+                `Matagumpay ang OTA Update! Na-update ang ${updateData.updatedCount || 0} device(s) sa bersyong ${update.version}.`
+              )
+            );
+          } else {
+            toast.dismiss();
+            alert(updateData.message || t('Failed to run OTA update.', 'Hindi ma-run ang OTA update.'));
+          }
+        }
+      } else {
+        alert(t('No firmware updates found in database. All your devices are up to date.', 'Walang nahanap na firmware update sa database. Ang iyong mga device ay up to date.'));
+      }
+    } catch (err) {
+      setIsOtaChecking(false);
+      console.error(err);
+      alert(t('Error searching for firmware updates.', 'Error sa paghahanap ng firmware update.'));
+    }
+  };
+
   // Alert preferences
   const [alertTone, setAlertTone] = useState<'gentle' | 'high'>('gentle');
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
@@ -211,6 +271,25 @@ export const CaregiverSettings: React.FC = () => {
               </button>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* 5. Firmware OTA Update */}
+      <Card className="shadow-sm border-slate-100">
+        <CardHeader className="py-2 px-4 border-b border-slate-50">
+          <CardTitle className="text-xs flex items-center gap-2">
+            <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
+            {t('Firmware Update (OTA)', 'Firmware Update (OTA)')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-3 space-y-3">
+          <p className="text-[11px] text-slate-500">
+            {t('Search the database for new OTA firmware upgrades for your assigned patient devices.', 'Maghanap sa database ng mga bagong firmware upgrade para sa mga device ng iyong pasyente.')}
+          </p>
+          <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white text-xs" onClick={handleCheckOtaUpdates} disabled={isOtaChecking}>
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isOtaChecking ? 'animate-spin' : ''}`} />
+            {isOtaChecking ? t('Checking...', 'Naghahanap...') : t('Check for Updates', 'Maghanap ng Update')}
+          </Button>
         </CardContent>
       </Card>
     </div>

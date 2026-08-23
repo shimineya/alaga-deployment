@@ -23,7 +23,8 @@ router.get('/devices', async (req, res) => {
             // Full inventory for admin / medical staff
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
-                        d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name
+                        d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name,
+                        p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  ORDER BY d.created_at DESC`
@@ -37,7 +38,7 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT d.serial_number, d.device_name, d.status, d.last_heartbeat,
                         d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
-                        p.name as assigned_patient_name
+                        p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  WHERE (
@@ -65,7 +66,7 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT d.serial_number, d.device_name, d.status, d.last_heartbeat,
                         d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
-                        p.name as assigned_patient_name
+                        p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
@@ -281,10 +282,14 @@ router.post('/patients', async (req, res) => {
         });
     }
 
+    const { name, birthdate, medicalCondition, assignedCaregiverEmail, ward, room, bed } = req.body;
+
+    if (!room || !room.trim() || !bed || !bed.trim()) {
+        return res.status(400).json({ success: false, message: 'Room name and Bed name are required.' });
+    }
+
     const client = await pool.connect();
     try {
-        const { name, birthdate, medicalCondition, assignedCaregiverEmail } = req.body;
-
         await client.query('BEGIN');
 
         let resolvedCaregiverId = null;
@@ -303,12 +308,20 @@ router.post('/patients', async (req, res) => {
             resolvedCaregiverId = caregiverRes.rows[0].user_id;
         }
 
+        const baselineData = {
+            condition: medicalCondition,
+            created_by: req.user.id,
+            ward: ward ? ward.trim() : null,
+            room: room.trim(),
+            bed: bed.trim()
+        };
+
         // 1. Insert Patient
         const patientRes = await client.query(
             `INSERT INTO patients (name, birthdate, baseline_data, created_at)
              VALUES ($1, $2, $3, NOW())
              RETURNING patient_id`,
-            [name, birthdate, JSON.stringify({ condition: medicalCondition })]
+            [name, birthdate, JSON.stringify(baselineData)]
         );
 
         const newPatientId = patientRes.rows[0].patient_id;
@@ -391,20 +404,44 @@ router.put('/patients/:id', async (req, res) => {
             }
         }
 
-        const { name, birthdate, medicalCondition } = req.body;
+        const { name, birthdate, medicalCondition, ward, room, bed } = req.body;
+
+        if (room !== undefined && (!room || !room.trim())) {
+            return res.status(400).json({ success: false, message: 'Room name cannot be empty.' });
+        }
+        if (bed !== undefined && (!bed || !bed.trim())) {
+            return res.status(400).json({ success: false, message: 'Bed name cannot be empty.' });
+        }
+
+        const currentPatient = await client.query(
+            'SELECT name, baseline_data FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+        if (currentPatient.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const newBaseline = {
+            ...currentPatient.rows[0].baseline_data,
+            condition: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
+            diagnosis: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
+            ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
+            room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
+            bed: bed !== undefined ? bed.trim() : currentPatient.rows[0].baseline_data?.bed
+        };
 
         // [OWASP A05] Parameterized query — no string concatenation.
         await client.query(
             `UPDATE patients
              SET name = COALESCE($1, name),
                  birthdate = COALESCE($2, birthdate),
-                 baseline_data = COALESCE($3::jsonb, baseline_data),
+                 baseline_data = $3,
                  updated_at = NOW()
              WHERE patient_id = $4`,
             [
                 name || null,
                 birthdate || null,
-                medicalCondition ? JSON.stringify({ condition: medicalCondition }) : null,
+                JSON.stringify(newBaseline),
                 patientId
             ]
         );
@@ -1576,5 +1613,113 @@ router.post('/devices/assign', async (req, res) => {
     }
 });
 
+// ==========================================
+// FIRMWARE CHECK AND OTA UPDATE FOR SETTINGS SCREEN
+// Searches database system_configs for firmware versions.
+// If yes is clicked, updates all connected devices to the user to the latest version.
+// ==========================================
+router.get('/firmware/check', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT config_value FROM system_configs 
+             WHERE config_key LIKE 'firmware_%' 
+             AND config_key != 'firmware_versions' 
+             ORDER BY config_key DESC LIMIT 1`
+        );
+        if (result.rows.length === 0) {
+            return res.json({ success: true, update: null });
+        }
+        const configVal = typeof result.rows[0].config_value === 'string' 
+            ? JSON.parse(result.rows[0].config_value) 
+            : result.rows[0].config_value;
+        res.json({ success: true, update: configVal });
+    } catch (err) {
+        console.error('Check Firmware Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to search for firmware updates.' });
+    }
+});
+
+router.post('/firmware/update', async (req, res) => {
+    const { role, id: userId } = req.user;
+    try {
+        // 1. Get latest firmware version
+        const fwRes = await pool.query(
+            `SELECT config_value FROM system_configs 
+             WHERE config_key LIKE 'firmware_%' 
+             AND config_key != 'firmware_versions' 
+             ORDER BY config_key DESC LIMIT 1`
+        );
+        if (fwRes.rows.length === 0) {
+            return res.status(400).json({ success: false, message: 'No firmware update available.' });
+        }
+        const configVal = typeof fwRes.rows[0].config_value === 'string'
+            ? JSON.parse(fwRes.rows[0].config_value)
+            : fwRes.rows[0].config_value;
+        const latestVersion = configVal.version;
+
+        // 2. Perform UPDATE query based on role
+        let updateQuery;
+        let params;
+
+        if (role === 'admin' || role === 'medical_staff') {
+            updateQuery = `
+                UPDATE device_whitelist
+                SET firmware_version = $1
+                RETURNING serial_number
+            `;
+            params = [latestVersion];
+        } else if (role === 'facility_admin') {
+            updateQuery = `
+                UPDATE device_whitelist
+                SET firmware_version = $1
+                WHERE (
+                    added_by = $2
+                    OR added_by IN (
+                        SELECT user_id FROM users WHERE created_by = $2
+                    )
+                    OR assigned_patient_id IN (
+                        SELECT patient_id FROM patient_access WHERE invited_by = $2
+                    )
+                    OR assigned_patient_id IN (
+                        SELECT patient_id FROM patient_access WHERE user_id IN (
+                            SELECT user_id FROM users WHERE created_by = $2
+                        )
+                    )
+                )
+                RETURNING serial_number
+            `;
+            params = [latestVersion, userId];
+        } else {
+            // Caregiver / parent
+            updateQuery = `
+                UPDATE device_whitelist
+                SET firmware_version = $1
+                WHERE serial_number IN (
+                    SELECT DISTINCT d.serial_number
+                    FROM device_whitelist d
+                    LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
+                    WHERE (
+                        d.added_by = $2
+                        OR pa.user_id = $2
+                    )
+                )
+                RETURNING serial_number
+            `;
+            params = [latestVersion, userId];
+        }
+
+        const result = await pool.query(updateQuery, params);
+        res.json({ 
+            success: true, 
+            message: `Successfully updated connected devices to firmware version ${latestVersion}.`,
+            updatedCount: result.rows.length
+        });
+    } catch (err) {
+        console.error('Update Firmware Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update connected devices.' });
+    }
+});
+
 module.exports = router;
+
 

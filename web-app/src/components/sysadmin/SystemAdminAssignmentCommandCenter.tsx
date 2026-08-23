@@ -79,6 +79,16 @@ export default function SystemAdminAssignmentCommandCenter() {
     const [accountStatus, setAccountStatus] = useState('');
     const [isLocked, setIsLocked] = useState(false);
 
+    // Invite Modal States
+    const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [invitePatientId, setInvitePatientId] = useState('');
+    const [inviteRelationship, setInviteRelationship] = useState('Assigned Caregiver');
+    const [inviteAccessLevel, setInviteAccessLevel] = useState('View');
+    const [inviteInviteStatus, setInviteInviteStatus] = useState('Active');
+    const [isInviting, setIsInviting] = useState(false);
+    const [patientsList, setPatientsList] = useState<{ patient_id: number; name: string; facility_name: string | null }[]>([]);
+
     const fetchData = useCallback(async () => {
         if (!token) return;
         setIsLoading(true);
@@ -96,6 +106,13 @@ export default function SystemAdminAssignmentCommandCenter() {
             if (staffData.success) {
                 setStaffList(staffData.data || []);
             }
+
+            // 3. Fetch patients list for dropdown
+            const patRes = await fetch(`${API}/patients-list`, { headers: getAuth() });
+            const patData = await patRes.json();
+            if (patData.success) {
+                setPatientsList(patData.data || []);
+            }
         } catch {
             toast.error('Failed to load system-wide command center data.');
         } finally {
@@ -112,6 +129,42 @@ export default function SystemAdminAssignmentCommandCenter() {
         setRelationship(assign.relationship);
         setAccessLevel(assign.access_level);
         setInviteStatus(assign.invite_status);
+    };
+
+    const handleInviteSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!inviteEmail.trim() || !invitePatientId) {
+            toast.error('Please fill all required fields.');
+            return;
+        }
+        setIsInviting(true);
+        try {
+            const res = await fetch(`${API}/assignments/invite`, {
+                method: 'POST',
+                headers: getAuth(),
+                body: JSON.stringify({
+                    patient_id: parseInt(invitePatientId),
+                    caregiver_email: inviteEmail.trim(),
+                    relationship: inviteRelationship,
+                    access_level: inviteAccessLevel,
+                    invite_status: inviteInviteStatus
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('Caregiver assigned system-wide successfully.');
+                setIsInviteModalOpen(false);
+                setInviteEmail('');
+                setInvitePatientId('');
+                fetchData();
+            } else {
+                toast.error(data.message || 'Failed to invite/assign caregiver.');
+            }
+        } catch {
+            toast.error('Server error creating assignment.');
+        } finally {
+            setIsInviting(false);
+        }
     };
 
     const handleSaveAssignment = async () => {
@@ -274,6 +327,13 @@ export default function SystemAdminAssignmentCommandCenter() {
                             </CardTitle>
                             <CardDescription className="text-[9px] text-slate-400">All care assignments and invitations registered globally in Alaga.</CardDescription>
                         </div>
+                        <Button 
+                            size="sm" 
+                            className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold gap-1 h-8 rounded-lg cursor-pointer"
+                            onClick={() => setIsInviteModalOpen(true)}
+                        >
+                            Invite/Assign Caregiver/Medical Staff
+                        </Button>
                     </CardHeader>
                     <CardContent className="p-0 flex-1 overflow-auto">
                         {filteredAssignments.length === 0 ? (
@@ -522,6 +582,97 @@ export default function SystemAdminAssignmentCommandCenter() {
                                 </Button>
                             </div>
                         </div>
+                    </DialogContent>
+                </Dialog>
+            )}
+
+            {/* INVITE/ASSIGN CAREGIVER DIALOG */}
+            {isInviteModalOpen && (
+                <Dialog open={true} onOpenChange={() => setIsInviteModalOpen(false)}>
+                    <DialogContent className="bg-white">
+                        <DialogHeader>
+                            <DialogTitle className="text-slate-800">Invite &amp; Assign Caregiver/Medical Staff</DialogTitle>
+                            <DialogDescription className="text-xs">
+                                Create a system-wide caregiver/medical staff patient access mapping.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleInviteSubmit} className="space-y-4 py-2 text-xs">
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">Caregiver/Medical Staff Email *</label>
+                                <Input
+                                    type="email"
+                                    required
+                                    value={inviteEmail}
+                                    onChange={(e) => setInviteEmail(e.target.value)}
+                                    placeholder="e.g. caregiver@alaga.com or staff@alaga.com"
+                                    className="w-full h-8 text-xs border border-slate-200 rounded px-2"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">Target Patient *</label>
+                                <select
+                                    required
+                                    value={invitePatientId}
+                                    onChange={(e) => setInvitePatientId(e.target.value)}
+                                    className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                >
+                                    <option value="">Select a patient...</option>
+                                    {patientsList.map((p) => (
+                                        <option key={p.patient_id} value={p.patient_id}>
+                                            {p.name} {p.facility_name ? `(${p.facility_name})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-700 mb-1">Relationship</label>
+                                    <select
+                                        value={inviteRelationship}
+                                        onChange={(e) => setInviteRelationship(e.target.value)}
+                                        className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                    >
+                                        <option value="Assigned Caregiver">Assigned Caregiver</option>
+                                        <option value="Primary Caregiver">Primary Caregiver</option>
+                                        <option value="Medical Staff">Medical Staff</option>
+                                        <option value="Parent/Guardian">Parent/Guardian</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-700 mb-1">Access Level</label>
+                                    <select
+                                        value={inviteAccessLevel}
+                                        onChange={(e) => setInviteAccessLevel(e.target.value)}
+                                        className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                    >
+                                        <option value="View">View Only</option>
+                                        <option value="Edit">Edit Details</option>
+                                        <option value="Admin">Admin Control</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-700 mb-1">Invite Status</label>
+                                <select
+                                    value={inviteInviteStatus}
+                                    onChange={(e) => setInviteInviteStatus(e.target.value)}
+                                    className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700"
+                                >
+                                    <option value="Active">Active (Instant Link)</option>
+                                    <option value="Pending">Pending (Requires Approval)</option>
+                                </select>
+                            </div>
+
+                            <div className="pt-2 border-t flex justify-end gap-2">
+                                <Button type="button" variant="outline" size="sm" onClick={() => setIsInviteModalOpen(false)} className="h-8 text-xs">Cancel</Button>
+                                <Button type="submit" disabled={isInviting} className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white font-semibold">
+                                    {isInviting ? 'Inviting...' : 'Send Invitation'}
+                                </Button>
+                            </div>
+                        </form>
                     </DialogContent>
                 </Dialog>
             )}

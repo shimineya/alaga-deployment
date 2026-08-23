@@ -92,7 +92,8 @@ export const MyDevices: React.FC = () => {
                     status: (d.status || 'INACTIVE').toUpperCase(), // Normalize case
                     battery_level: d.battery_level ?? 92, // Default mock value if missing
                     assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
-                    firmware_version: d.firmware_version || 'v1.0.0'
+                    firmware_version: d.firmware_version || 'v1.0.0',
+                    assigned_patient_baseline: d.assigned_patient_baseline || null
                 }));
                 setDevices(mappedDevices);
             }
@@ -272,7 +273,7 @@ export const MyDevices: React.FC = () => {
                                 <TableHead className="w-[250px] text-center">Device Name</TableHead>
                                 <TableHead className="text-center">Status</TableHead>
                                 <TableHead className="text-center">Battery & Signal</TableHead>
-                                <TableHead className="text-center">Location / Room</TableHead>
+                                <TableHead className="text-center">Location (Ward/Room/Bed)</TableHead>
                                 <TableHead className="text-center">Firmware</TableHead>
                                 <TableHead className="text-center">Actions</TableHead>
                             </TableRow>
@@ -324,10 +325,13 @@ export const MyDevices: React.FC = () => {
                                         </TableCell>
                                         <TableCell className="text-center">
                                             <span className="text-sm text-slate-600">
-                                                {device.assigned_room === 'Unassigned' ? (
-                                                    <span className="text-slate-400 italic">Unassigned</span>
+                                                {device.assigned_patient_baseline ? (
+                                                    <span className="font-medium text-teal-600">
+                                                        {device.assigned_patient_baseline.ward ? `${device.assigned_patient_baseline.ward} - ` : ''}
+                                                        {device.assigned_patient_baseline.room} (Bed {device.assigned_patient_baseline.bed})
+                                                    </span>
                                                 ) : (
-                                                    <span className="font-medium text-teal-600">{device.assigned_room}</span>
+                                                    <span className="text-slate-400 italic">Unassigned</span>
                                                 )}
                                             </span>
                                         </TableCell>

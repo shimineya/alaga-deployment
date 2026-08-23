@@ -527,7 +527,11 @@ export const MedicalStaffDashboard: React.FC = () => {
                     <div className="flex-1">
                       <CardTitle className="text-sm" style={{ color: '#2C3E50' }}>{patient.name}</CardTitle>
                       <CardDescription className="text-xs">
-                        {patient.age} yrs • Room {patient.roomNumber || 'N/A'}
+                        {patient.age} yrs • Location: {patient.baseline_data?.room ? (
+                          `${patient.baseline_data.ward ? `${patient.baseline_data.ward} - ` : ''}${patient.baseline_data.room} (Bed ${patient.baseline_data.bed})`
+                        ) : (
+                          'N/A'
+                        )}
                       </CardDescription>
                     </div>
                   </div>

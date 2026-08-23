@@ -141,9 +141,16 @@ router.put('/', verifyToken, upload.single('profile_picture'), async (req, res) 
             // [HIPAA] This constitutes a PHI access-control boundary — a failed check is
             // treated as an unauthorized modification attempt.
             if (password && password.trim() !== '') {
-                if (password.length < 8) {
+                const hasSmall = /[a-z]/.test(password);
+                const hasCap = /[A-Z]/.test(password);
+                const hasNum = /[0-9]/.test(password);
+                const hasSym = /[^A-Za-z0-9]/.test(password);
+                if (password.length < 12 || !hasSmall || !hasCap || !hasNum || !hasSym) {
                     await client.query('ROLLBACK');
-                    return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Password must be at least 12 characters and contain at least 1 lowercase letter, 1 uppercase letter, 1 number, and 1 symbol.'
+                    });
                 }
 
                 const { current_password } = req.body;

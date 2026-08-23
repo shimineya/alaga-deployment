@@ -197,26 +197,35 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
 
             if (data.success && Array.isArray(data.data)) {
-                const mappedPatients: Patient[] = data.data.map((p: any) => ({
-                    id: p.patient_id?.toString() || Math.random().toString(),
-                    name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown',
-                    age: p.birthdate ? new Date().getFullYear() - new Date(p.birthdate).getFullYear() : 0,
-                    gender: p.gender || 'Unknown',
-                    roomNumber: 'Home',
-                    condition: p.baseline_data?.condition || 'Stable',
-                    status: 'Stable',
-                    medicalConditions: p.baseline_data?.medicalConditions || p.medical_history || [],
-                    illness: p.baseline_data?.illness || p.illness || 'N/A',
-                    emergencyContact: p.baseline_data?.emergencyContact || p.emergencyContact || null,
-                    allergies: p.allergies || [],
-                    medications: p.medications || [],
-                    doctorsOrders: [],
-                    baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
-                    deviceConnected: !!p.device_serial_number,
-                    assignedCaregiverName: p.assigned_caregiver_name,
-                    deleted: false,
-                    archived: false
-                } as any));
+                const mappedPatients: Patient[] = data.data.map((p: any) => {
+                    const vitalSn = p.vital_device_sn || null;
+                    const diaperSn = p.diaper_device_sn || null;
+                    const activeDevicesList = [vitalSn, diaperSn].filter(Boolean);
+
+                    return {
+                        id: p.patient_id?.toString() || Math.random().toString(),
+                        name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown',
+                        age: p.birthdate ? new Date().getFullYear() - new Date(p.birthdate).getFullYear() : 0,
+                        gender: p.baseline_data?.gender || 'Unknown',
+                        roomNumber: p.baseline_data?.room || 'Home',
+                        condition: p.baseline_data?.condition || p.baseline_data?.diagnosis || 'Stable',
+                        status: 'Stable',
+                        medicalConditions: p.baseline_data?.medicalConditions || p.medical_history || [],
+                        illness: p.baseline_data?.illness || p.baseline_data?.diagnosis || p.illness || 'N/A',
+                        emergencyContact: p.baseline_data?.emergencyContact || p.emergencyContact || null,
+                        allergies: p.allergies || [],
+                        medications: p.medications || [],
+                        doctorsOrders: [],
+                        baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
+                        deviceConnected: activeDevicesList.length > 0,
+                        assignedCaregiverName: p.assigned_caregiver_name,
+                        deleted: false,
+                        archived: false,
+                        baseline_data: p.baseline_data || null,
+                        active_devices: activeDevicesList,
+                        latest_telemetry: p.latest_telemetry || null
+                    } as any;
+                });
                 setPatients(mappedPatients);
             }
         } catch (err) {

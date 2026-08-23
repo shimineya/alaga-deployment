@@ -253,6 +253,17 @@ router.post('/users', requirePermission('user_management'), async (req, res) => 
         return res.status(400).json({ success: false, message: 'Username, email, and password are required.' });
     }
 
+    const hasSmall = /[a-z]/.test(password);
+    const hasCap = /[A-Z]/.test(password);
+    const hasNum = /[0-9]/.test(password);
+    const hasSym = /[^A-Za-z0-9]/.test(password);
+    if (password.length < 12 || !hasSmall || !hasCap || !hasNum || !hasSym) {
+        return res.status(400).json({
+            success: false,
+            message: 'Password must be at least 12 characters and contain at least 1 lowercase letter, 1 uppercase letter, 1 number, and 1 symbol.'
+        });
+    }
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -866,6 +877,23 @@ router.post('/maintenance', requirePermission('system_maintenance'), async (req,
 // MODULE G: SYSTEM-WIDE ASSIGNMENT COMMAND CENTER
 // =================================================================
 
+// GET SIMPLE LIST OF ACTIVE PATIENTS FOR SELECTION dropdown
+router.get('/patients-list', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT p.patient_id, p.name, f.facility_name
+             FROM patients p
+             LEFT JOIN facilities f ON p.facility_id = f.facility_id
+             WHERE p.is_archived IS DISTINCT FROM TRUE
+             ORDER BY p.name ASC`
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch Patients List Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch patient list.' });
+    }
+});
+
 // 1. GET ALL SYSTEM-WIDE ASSIGNMENTS (Active and Pending)
 router.get('/assignments', async (req, res) => {
     try {
@@ -887,6 +915,69 @@ router.get('/assignments', async (req, res) => {
     } catch (err) {
         console.error('Fetch All Assignments Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch assignments.' });
+    }
+});
+
+// 1.5. INVITE / ASSIGN CAREGIVER SYSTEM-WIDE
+router.post('/assignments/invite', async (req, res) => {
+    const { patient_id, caregiver_email, relationship, access_level, invite_status } = req.body;
+    try {
+        if (!patient_id || !caregiver_email || !relationship || !access_level) {
+            return res.status(400).json({ success: false, message: 'All fields are required.' });
+        }
+
+        // Find target user
+        const userRes = await pool.query(
+            `SELECT user_id, role FROM users WHERE LOWER(email) = LOWER($1)`,
+            [caregiver_email.trim()]
+        );
+        if (userRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User with this email not found.' });
+        }
+        const targetUserId = userRes.rows[0].user_id;
+
+        // Find patient
+        const patientRes = await pool.query(
+            `SELECT name FROM patients WHERE patient_id = $1`,
+            [patient_id]
+        );
+        if (patientRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        // Check if already assigned
+        const exists = await pool.query(
+            `SELECT access_id FROM patient_access WHERE user_id = $1 AND patient_id = $2`,
+            [targetUserId, patient_id]
+        );
+        if (exists.rows.length > 0) {
+            return res.status(400).json({ success: false, message: 'This caregiver is already assigned to this patient.' });
+        }
+
+        // Insert assignment (direct or pending)
+        await pool.query(
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+                targetUserId, 
+                patient_id, 
+                relationship || 'Assigned Caregiver', 
+                access_level || 'View', 
+                invite_status || 'Active', 
+                req.user.id
+            ]
+        );
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'ASSIGNMENT_CREATE', $2, 'WARNING')`,
+            [req.user.id, `System Admin invited/assigned caregiver ${caregiver_email} to Patient ID ${patient_id}`]
+        );
+
+        res.json({ success: true, message: 'Caregiver assigned system-wide successfully.' });
+    } catch (err) {
+        console.error('Invite Caregiver Admin Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to invite/assign caregiver.' });
     }
 });
 
@@ -1112,10 +1203,57 @@ router.post('/devices/unlink', async (req, res) => {
 // GET /facilities - Fetch all facilities in the system
 router.get('/facilities', async (req, res) => {
     try {
-        const result = await pool.query('SELECT facility_id, facility_name FROM facilities ORDER BY facility_name ASC');
+        const result = await pool.query('SELECT facility_id, facility_name, address, topology, created_at FROM facilities ORDER BY facility_name ASC');
         res.json({ success: true, data: result.rows });
     } catch (err) {
+        console.error('Fetch Facilities Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch facilities.' });
+    }
+});
+
+// PUT /facilities/:id - Update facility info
+router.put('/facilities/:id', async (req, res) => {
+    const { id } = req.params;
+    const { facility_name, address } = req.body;
+    try {
+        await pool.query(
+            'UPDATE facilities SET facility_name = $1, address = $2 WHERE facility_id = $3',
+            [facility_name, address, id]
+        );
+        res.json({ success: true, message: 'Facility updated successfully.' });
+    } catch (err) {
+        console.error('Update Facility Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update facility.' });
+    }
+});
+
+// PUT /facilities/:id/topology - Update facility topology (wards, rooms, beds)
+router.put('/facilities/:id/topology', async (req, res) => {
+    const { id } = req.params;
+    const { topology } = req.body;
+    try {
+        await pool.query(
+            'UPDATE facilities SET topology = $1 WHERE facility_id = $2',
+            [JSON.stringify(topology), id]
+        );
+        res.json({ success: true, message: 'Facility topology updated successfully.' });
+    } catch (err) {
+        console.error('Update Facility Topology Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update facility topology.' });
+    }
+});
+
+// DELETE /facilities/:id - Delete facility
+router.delete('/facilities/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('UPDATE users SET facility_id = NULL WHERE facility_id = $1', [id]);
+        await pool.query('UPDATE patients SET facility_id = NULL WHERE facility_id = $1', [id]);
+        await pool.query('DELETE FROM facilities WHERE facility_id = $1', [id]);
+        res.json({ success: true, message: 'Facility deleted successfully.' });
+    } catch (err) {
+        console.error('Delete Facility Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to delete facility.' });
     }
 });
 

@@ -158,6 +158,17 @@ router.post('/staff', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Username, email, and password are required.' });
     }
 
+    const hasSmall = /[a-z]/.test(password);
+    const hasCap = /[A-Z]/.test(password);
+    const hasNum = /[0-9]/.test(password);
+    const hasSym = /[^A-Za-z0-9]/.test(password);
+    if (password.length < 12 || !hasSmall || !hasCap || !hasNum || !hasSym) {
+        return res.status(400).json({
+            success: false,
+            message: 'Password must be at least 12 characters and contain at least 1 lowercase letter, 1 uppercase letter, 1 number, and 1 symbol.'
+        });
+    }
+
     try {
         const salt = await bcrypt.genSalt(12);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -565,13 +576,20 @@ router.get('/patients', async (req, res) => {
 // Create new patient with consent verification
 router.post('/patients', async (req, res) => {
     const facilityId = req.user.facility_id;
-    const { first_name, last_name, age, gender, diagnosis, consent_confirmed } = req.body;
+    const { first_name, last_name, age, gender, diagnosis, consent_confirmed, ward, room, bed } = req.body;
 
     // [DPA 2012 § 13] Informed consent is mandatory before creating a health record
     if (!consent_confirmed) {
         return res.status(400).json({
             success: false,
             message: 'Informed consent must be confirmed before patient registration can proceed. (DPA § 13)'
+        });
+    }
+
+    if (!room || !room.trim() || !bed || !bed.trim()) {
+        return res.status(400).json({
+            success: false,
+            message: 'Room name and Bed name are required.'
         });
     }
 
@@ -584,7 +602,10 @@ router.post('/patients', async (req, res) => {
             gender,
             diagnosis,
             created_by: req.user.id,
-            condition: diagnosis
+            condition: diagnosis,
+            ward: ward ? ward.trim() : null,
+            room: room.trim(),
+            bed: bed.trim()
         };
 
         // [OWASP A05] Parameterized insert
@@ -1343,12 +1364,19 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
     }
 });
 
-// PUT /patients/:patientId - Edit patient name, gender, diagnosis
+// PUT /patients/:patientId - Edit patient name, gender, diagnosis, ward, room, bed
 router.put('/patients/:patientId', async (req, res) => {
     const facilityId = req.user.facility_id;
     const { patientId } = req.params;
-    const { name, gender, diagnosis } = req.body;
+    const { name, gender, diagnosis, ward, room, bed } = req.body;
     const isSysAdmin = req.user.is_sys_admin_override;
+
+    if (room !== undefined && (!room || !room.trim())) {
+        return res.status(400).json({ success: false, message: 'Room name cannot be empty.' });
+    }
+    if (bed !== undefined && (!bed || !bed.trim())) {
+        return res.status(400).json({ success: false, message: 'Bed name cannot be empty.' });
+    }
 
     try {
         if (!isSysAdmin) {
@@ -1372,8 +1400,11 @@ router.put('/patients/:patientId', async (req, res) => {
         const updatedName = name || currentPatient.rows[0].name;
         const newBaseline = {
             ...currentPatient.rows[0].baseline_data,
-            gender: gender || currentPatient.rows[0].baseline_data?.gender,
-            diagnosis: diagnosis || currentPatient.rows[0].baseline_data?.diagnosis
+            gender: gender !== undefined ? gender : currentPatient.rows[0].baseline_data?.gender,
+            diagnosis: diagnosis !== undefined ? diagnosis : currentPatient.rows[0].baseline_data?.diagnosis,
+            ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
+            room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
+            bed: bed !== undefined ? bed.trim() : currentPatient.rows[0].baseline_data?.bed
         };
 
         await pool.query(

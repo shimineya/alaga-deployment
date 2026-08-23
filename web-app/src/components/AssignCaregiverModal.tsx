@@ -83,7 +83,7 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-slate-800">
                         <UserPlus className="w-5 h-5 text-teal-600" />
-                        Invite Member
+                        Invite Caregiver/Medical Staff
                     </DialogTitle>
                     <DialogDescription>
                         Send an invitation to join the patient's care team (caregiver, medical staff, or other parent guardian).
@@ -92,7 +92,7 @@ export const AssignCaregiverModal: React.FC<AssignCaregiverModalProps> = ({
 
                 <form onSubmit={handleSendInvitation} className="space-y-4 py-2">
                     <div className="space-y-1.5">
-                        <Label htmlFor="caregiverEmail">Member Email Address</Label>
+                        <Label htmlFor="caregiverEmail">Caregiver/Medical Staff Email Address</Label>
                         <div className="relative">
                             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input

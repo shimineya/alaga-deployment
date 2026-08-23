@@ -109,7 +109,7 @@ export const CaregiverUserManagement: React.FC<CaregiverUserManagementProps> = (
                         onClick={() => setIsInviteOpen(true)}
                     >
                         <UserPlus className="w-3.5 h-3.5 mr-2" />
-                        Invite Caregiver
+                        Invite Caregiver/Medical Staff
                     </Button>
                 </div>
             </div>

@@ -58,6 +58,9 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
     const [editName, setEditName] = useState('');
     const [editBirthdate, setEditBirthdate] = useState('');
     const [editNotes, setEditNotes] = useState('');
+    const [editWard, setEditWard] = useState('');
+    const [editRoom, setEditRoom] = useState('');
+    const [editBed, setEditBed] = useState('');
     const [isEditLoading, setIsEditLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -109,12 +112,19 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
             // medicalConditions is an array; join for display in the textarea.
             patient.medicalConditions?.join(', ') || ''
         );
+        setEditWard(patient.baseline_data?.ward || '');
+        setEditRoom(patient.baseline_data?.room || '');
+        setEditBed(patient.baseline_data?.bed || '');
     };
 
     // ---- SUBMIT EDIT ----
     const handleEditSubmit = async () => {
         if (!editTarget || !editName.trim()) {
             toast.error('Patient name is required.');
+            return;
+        }
+        if (!editRoom.trim() || !editBed.trim()) {
+            toast.error('Room name and Bed name are required.');
             return;
         }
         setIsEditLoading(true);
@@ -134,6 +144,9 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
                         birthdate: editBirthdate || undefined,
                         // [DPA] Medical notes are PHI — send only if the user explicitly changed them.
                         medicalCondition: editNotes.trim() || undefined,
+                        ward: editWard.trim() || null,
+                        room: editRoom.trim(),
+                        bed: editBed.trim()
                     }),
                 }
             );
@@ -328,21 +341,56 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
                             <Label className="text-xs font-semibold text-slate-600">
                                 Medical Notes
                             </Label>
-                            {/*
-                                [DPA Proportionality] Only record what is clinically necessary.
-                                Tooltip suggestion for UI: "Enter a brief summary of the patient's
-                                known conditions or diagnoses. Avoid unnecessary personal details."
-                            */}
                             <Textarea
                                 id="edit-patient-notes"
                                 value={editNotes}
                                 onChange={(e) => setEditNotes(e.target.value)}
                                 placeholder="Brief medical notes or conditions..."
-                                className="min-h-[90px] resize-none text-sm"
+                                className="min-h-[60px] resize-none text-sm"
                             />
                             <p className="text-[10px] text-slate-400">
                                 Enter only what is clinically necessary. Avoid unnecessary personal details.
                             </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-slate-600">
+                                Ward Name (Optional)
+                            </Label>
+                            <Input
+                                id="edit-patient-ward"
+                                value={editWard}
+                                onChange={(e) => setEditWard(e.target.value)}
+                                placeholder="e.g. Ward A (Optional)"
+                                className="h-9 text-sm"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-600">
+                                    Room Name <span className="text-red-500">*</span>
+                                </Label>
+                                <Input
+                                    id="edit-patient-room"
+                                    value={editRoom}
+                                    onChange={(e) => setEditRoom(e.target.value)}
+                                    placeholder="e.g. Room 101"
+                                    className="h-9 text-sm"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-600">
+                                    Bed Name <span className="text-red-500">*</span>
+                                </Label>
+                                <Input
+                                    id="edit-patient-bed"
+                                    value={editBed}
+                                    onChange={(e) => setEditBed(e.target.value)}
+                                    placeholder="e.g. Bed A"
+                                    className="h-9 text-sm"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -447,8 +495,10 @@ const PatientTable: React.FC<PatientTableProps> = ({
                     <TableHeader>
                         {/* [MODIFIED] Removed old "Actions" column. Replaced with "Manage" for clarity. */}
                         <TableRow className="bg-slate-50 hover:bg-slate-50">
-                            <TableHead className="w-[250px]">Patient Name</TableHead>
-                            <TableHead>Location</TableHead>
+                            <TableHead className="w-[220px]">Patient Name</TableHead>
+                            <TableHead>Location (Ward/Room/Bed)</TableHead>
+                            <TableHead>Active Device(s)</TableHead>
+                            <TableHead>Wetness Status</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-center">Heart Rate</TableHead>
                             <TableHead className="text-center">Temp</TableHead>
@@ -491,7 +541,43 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                             <span className="text-xs text-slate-500">ID: {patient.id}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell>Room {patient.roomNumber || 'N/A'}</TableCell>
+                                    <TableCell className="font-semibold text-xs text-slate-700">
+                                        {patient.baseline_data?.room ? (
+                                            <span>
+                                                {patient.baseline_data.ward ? `${patient.baseline_data.ward} - ` : ''}
+                                                {patient.baseline_data.room} (Bed {patient.baseline_data.bed})
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-400 italic">None</span>
+                                        )}
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col gap-1">
+                                            {patient.active_devices && patient.active_devices.length > 0 ? (
+                                                patient.active_devices.map((sn: string, idx: number) => (
+                                                    <Badge key={idx} className="bg-teal-50 text-teal-700 border-none font-semibold font-mono text-[9px] w-max">
+                                                        {sn}
+                                                    </Badge>
+                                                ))
+                                            ) : (
+                                                <span className="text-[10px] text-slate-400 italic">None</span>
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        {patient.latest_telemetry ? (
+                                            <Badge variant="outline" className={`
+                                                ${patient.latest_telemetry.moisture >= 70 
+                                                    ? 'bg-red-50 text-red-700 border-red-200 font-bold animate-pulse' 
+                                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                                                }
+                                            `}>
+                                                {patient.latest_telemetry.moisture >= 70 ? 'WET' : 'DRY'} ({patient.latest_telemetry.moisture}%)
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-xs text-slate-400 italic">--</span>
+                                        )}
+                                    </TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className={`${statusColor} border`}>
                                             {statusText}

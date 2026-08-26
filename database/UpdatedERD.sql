@@ -27,12 +27,16 @@ CREATE TABLE public.access_logs (
     status character varying(20) DEFAULT 'SUCCESS'::character varying
 );
 
+ALTER TABLE public.access_logs OWNER TO postgres;
+
 CREATE SEQUENCE public.access_logs_log_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.access_logs_log_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.access_logs_log_id_seq OWNED BY public.access_logs.log_id;
 
@@ -43,8 +47,15 @@ CREATE TABLE public.alert_notifications (
     status character varying(20) DEFAULT 'Sent'::character varying,
     message text,
     sent_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    severity character varying(20) DEFAULT 'INFO'::character varying
+    severity character varying(20) DEFAULT 'INFO'::character varying,
+    alert_category character varying(50) DEFAULT 'Clinical'::character varying,
+    acknowledged_by integer,
+    acknowledged_at timestamp with time zone,
+    action_taken character varying(255),
+    resolution_notes text
 );
+
+ALTER TABLE public.alert_notifications OWNER TO postgres;
 
 CREATE SEQUENCE public.alert_notifications_alert_id_seq
     AS integer
@@ -53,6 +64,8 @@ CREATE SEQUENCE public.alert_notifications_alert_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.alert_notifications_alert_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.alert_notifications_alert_id_seq OWNED BY public.alert_notifications.alert_id;
 
@@ -65,6 +78,8 @@ CREATE TABLE public.announcements (
     created_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.announcements OWNER TO postgres;
+
 CREATE SEQUENCE public.announcements_id_seq
     AS integer
     START WITH 1
@@ -72,6 +87,8 @@ CREATE SEQUENCE public.announcements_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.announcements_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.announcements_id_seq OWNED BY public.announcements.id;
 
@@ -84,6 +101,8 @@ CREATE TABLE public.anomaly_events (
     detected_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE public.anomaly_events OWNER TO postgres;
+
 CREATE SEQUENCE public.anomaly_events_event_id_seq
     AS integer
     START WITH 1
@@ -92,7 +111,33 @@ CREATE SEQUENCE public.anomaly_events_event_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE public.anomaly_events_event_id_seq OWNER TO postgres;
+
 ALTER SEQUENCE public.anomaly_events_event_id_seq OWNED BY public.anomaly_events.event_id;
+
+CREATE TABLE public.care_logs (
+    log_id integer NOT NULL,
+    patient_id integer NOT NULL,
+    author_id integer,
+    author_name character varying(100),
+    content text NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    status character varying(20) DEFAULT 'Active'::character varying
+);
+
+ALTER TABLE public.care_logs OWNER TO postgres;
+
+CREATE SEQUENCE public.care_logs_log_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.care_logs_log_id_seq OWNER TO postgres;
+
+ALTER SEQUENCE public.care_logs_log_id_seq OWNED BY public.care_logs.log_id;
 
 CREATE TABLE public.device_whitelist (
     serial_number character varying(50) NOT NULL,
@@ -107,12 +152,17 @@ CREATE TABLE public.device_whitelist (
     device_token_hash character varying(255)
 );
 
+ALTER TABLE public.device_whitelist OWNER TO postgres;
+
 CREATE TABLE public.facilities (
     facility_id integer NOT NULL,
     facility_name character varying(255) NOT NULL,
     address text,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    topology jsonb DEFAULT '[]'::jsonb
 );
+
+ALTER TABLE public.facilities OWNER TO postgres;
 
 CREATE SEQUENCE public.facilities_facility_id_seq
     AS integer
@@ -121,6 +171,8 @@ CREATE SEQUENCE public.facilities_facility_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.facilities_facility_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.facilities_facility_id_seq OWNED BY public.facilities.facility_id;
 
@@ -138,6 +190,8 @@ CREATE TABLE public.hardware_system_alerts (
     resolution_notes text
 );
 
+ALTER TABLE public.hardware_system_alerts OWNER TO postgres;
+
 CREATE SEQUENCE public.hardware_system_alerts_sys_alert_id_seq
     AS integer
     START WITH 1
@@ -145,6 +199,8 @@ CREATE SEQUENCE public.hardware_system_alerts_sys_alert_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.hardware_system_alerts_sys_alert_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.hardware_system_alerts_sys_alert_id_seq OWNED BY public.hardware_system_alerts.sys_alert_id;
 
@@ -156,6 +212,8 @@ CREATE TABLE public.ip_blacklist (
     banned_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.ip_blacklist OWNER TO postgres;
+
 CREATE SEQUENCE public.ip_blacklist_id_seq
     AS integer
     START WITH 1
@@ -163,6 +221,8 @@ CREATE SEQUENCE public.ip_blacklist_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.ip_blacklist_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.ip_blacklist_id_seq OWNED BY public.ip_blacklist.id;
 
@@ -177,6 +237,8 @@ CREATE TABLE public.legal_documents (
     published_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.legal_documents OWNER TO postgres;
+
 CREATE SEQUENCE public.legal_documents_doc_id_seq
     AS integer
     START WITH 1
@@ -184,6 +246,8 @@ CREATE SEQUENCE public.legal_documents_doc_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.legal_documents_doc_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.legal_documents_doc_id_seq OWNED BY public.legal_documents.doc_id;
 
@@ -193,8 +257,12 @@ CREATE TABLE public.patient_access (
     patient_id integer,
     relationship character varying(50),
     access_level character varying(20) DEFAULT 'View'::character varying,
-    assigned_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    assigned_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    invite_status character varying(20) DEFAULT 'Active'::character varying,
+    invited_by integer
 );
+
+ALTER TABLE public.patient_access OWNER TO postgres;
 
 CREATE SEQUENCE public.patient_access_access_id_seq
     AS integer
@@ -203,6 +271,8 @@ CREATE SEQUENCE public.patient_access_access_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.patient_access_access_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.patient_access_access_id_seq OWNED BY public.patient_access.access_id;
 
@@ -215,8 +285,11 @@ CREATE TABLE public.patients (
     baseline_data jsonb,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     is_archived boolean DEFAULT false,
-    facility_id integer
+    facility_id integer,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE public.patients OWNER TO postgres;
 
 CREATE SEQUENCE public.patients_patient_id_seq
     AS integer
@@ -225,6 +298,8 @@ CREATE SEQUENCE public.patients_patient_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.patients_patient_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.patients_patient_id_seq OWNED BY public.patients.patient_id;
 
@@ -241,6 +316,8 @@ CREATE TABLE public.profiles_caregivers (
     notification_preferences text[]
 );
 
+ALTER TABLE public.profiles_caregivers OWNER TO postgres;
+
 CREATE SEQUENCE public.profiles_caregivers_profile_id_seq
     AS integer
     START WITH 1
@@ -248,6 +325,8 @@ CREATE SEQUENCE public.profiles_caregivers_profile_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.profiles_caregivers_profile_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.profiles_caregivers_profile_id_seq OWNED BY public.profiles_caregivers.profile_id;
 
@@ -264,6 +343,8 @@ CREATE TABLE public.profiles_medical_staff (
     is_solo_practitioner boolean DEFAULT false
 );
 
+ALTER TABLE public.profiles_medical_staff OWNER TO postgres;
+
 CREATE SEQUENCE public.profiles_medical_staff_profile_id_seq
     AS integer
     START WITH 1
@@ -271,6 +352,8 @@ CREATE SEQUENCE public.profiles_medical_staff_profile_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.profiles_medical_staff_profile_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.profiles_medical_staff_profile_id_seq OWNED BY public.profiles_medical_staff.profile_id;
 
@@ -283,6 +366,8 @@ CREATE TABLE public.reports (
     generated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE public.reports OWNER TO postgres;
+
 CREATE SEQUENCE public.reports_report_id_seq
     AS integer
     START WITH 1
@@ -290,6 +375,8 @@ CREATE SEQUENCE public.reports_report_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.reports_report_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.reports_report_id_seq OWNED BY public.reports.report_id;
 
@@ -302,6 +389,8 @@ CREATE TABLE public.role_permissions (
     updated_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.role_permissions OWNER TO postgres;
+
 CREATE SEQUENCE public.role_permissions_id_seq
     AS integer
     START WITH 1
@@ -309,6 +398,8 @@ CREATE SEQUENCE public.role_permissions_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.role_permissions_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.role_permissions_id_seq OWNED BY public.role_permissions.id;
 
@@ -324,6 +415,8 @@ CREATE TABLE public.schedules (
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE public.schedules OWNER TO postgres;
+
 CREATE SEQUENCE public.schedules_schedule_id_seq
     AS integer
     START WITH 1
@@ -331,6 +424,8 @@ CREATE SEQUENCE public.schedules_schedule_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.schedules_schedule_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.schedules_schedule_id_seq OWNED BY public.schedules.schedule_id;
 
@@ -344,12 +439,16 @@ CREATE TABLE public.sensor_readings (
     recorded_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE public.sensor_readings OWNER TO postgres;
+
 CREATE SEQUENCE public.sensor_readings_reading_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.sensor_readings_reading_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.sensor_readings_reading_id_seq OWNED BY public.sensor_readings.reading_id;
 
@@ -360,6 +459,8 @@ CREATE TABLE public.session_revocations (
     reason text
 );
 
+ALTER TABLE public.session_revocations OWNER TO postgres;
+
 CREATE TABLE public.system_configs (
     config_key character varying(50) NOT NULL,
     config_value jsonb NOT NULL,
@@ -368,12 +469,16 @@ CREATE TABLE public.system_configs (
     updated_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.system_configs OWNER TO postgres;
+
 CREATE TABLE public.system_modules (
     module_id character varying(100) NOT NULL,
     display_name character varying(100) NOT NULL,
     description text,
     category character varying(50) NOT NULL
 );
+
+ALTER TABLE public.system_modules OWNER TO postgres;
 
 CREATE TABLE public.user_documents (
     document_id integer NOT NULL,
@@ -386,6 +491,8 @@ CREATE TABLE public.user_documents (
     rejection_reason text
 );
 
+ALTER TABLE public.user_documents OWNER TO postgres;
+
 CREATE SEQUENCE public.user_documents_document_id_seq
     AS integer
     START WITH 1
@@ -393,6 +500,8 @@ CREATE SEQUENCE public.user_documents_document_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.user_documents_document_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.user_documents_document_id_seq OWNED BY public.user_documents.document_id;
 
@@ -411,6 +520,8 @@ CREATE TABLE public.user_email_otps (
     attempts_count integer DEFAULT 0
 );
 
+ALTER TABLE public.user_email_otps OWNER TO postgres;
+
 CREATE SEQUENCE public.user_email_otps_otp_id_seq
     AS integer
     START WITH 1
@@ -418,6 +529,8 @@ CREATE SEQUENCE public.user_email_otps_otp_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.user_email_otps_otp_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.user_email_otps_otp_id_seq OWNED BY public.user_email_otps.otp_id;
 
@@ -431,6 +544,8 @@ CREATE TABLE public.user_permission_overrides (
     overridden_at timestamp with time zone DEFAULT now()
 );
 
+ALTER TABLE public.user_permission_overrides OWNER TO postgres;
+
 CREATE SEQUENCE public.user_permission_overrides_id_seq
     AS integer
     START WITH 1
@@ -438,6 +553,8 @@ CREATE SEQUENCE public.user_permission_overrides_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.user_permission_overrides_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.user_permission_overrides_id_seq OWNED BY public.user_permission_overrides.id;
 
@@ -463,8 +580,11 @@ CREATE TABLE public.users (
     force_logout_at timestamp with time zone,
     facility_id integer,
     last_activity_at timestamp with time zone,
-    profile_picture_url character varying(255)
+    profile_picture_url character varying(255),
+    created_by integer
 );
+
+ALTER TABLE public.users OWNER TO postgres;
 
 CREATE SEQUENCE public.users_user_id_seq
     AS integer
@@ -473,6 +593,8 @@ CREATE SEQUENCE public.users_user_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+ALTER SEQUENCE public.users_user_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.users_user_id_seq OWNED BY public.users.user_id;
 
@@ -483,6 +605,8 @@ ALTER TABLE ONLY public.alert_notifications ALTER COLUMN alert_id SET DEFAULT ne
 ALTER TABLE ONLY public.announcements ALTER COLUMN id SET DEFAULT nextval('public.announcements_id_seq'::regclass);
 
 ALTER TABLE ONLY public.anomaly_events ALTER COLUMN event_id SET DEFAULT nextval('public.anomaly_events_event_id_seq'::regclass);
+
+ALTER TABLE ONLY public.care_logs ALTER COLUMN log_id SET DEFAULT nextval('public.care_logs_log_id_seq'::regclass);
 
 ALTER TABLE ONLY public.facilities ALTER COLUMN facility_id SET DEFAULT nextval('public.facilities_facility_id_seq'::regclass);
 
@@ -527,6 +651,9 @@ ALTER TABLE ONLY public.announcements
 
 ALTER TABLE ONLY public.anomaly_events
     ADD CONSTRAINT anomaly_events_pkey PRIMARY KEY (event_id);
+
+ALTER TABLE ONLY public.care_logs
+    ADD CONSTRAINT care_logs_pkey PRIMARY KEY (log_id);
 
 ALTER TABLE ONLY public.device_whitelist
     ADD CONSTRAINT device_whitelist_pkey PRIMARY KEY (serial_number);
@@ -624,6 +751,9 @@ ALTER TABLE ONLY public.access_logs
     ADD CONSTRAINT access_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id);
 
 ALTER TABLE ONLY public.alert_notifications
+    ADD CONSTRAINT alert_notifications_acknowledged_by_fkey FOREIGN KEY (acknowledged_by) REFERENCES public.users(user_id);
+
+ALTER TABLE ONLY public.alert_notifications
     ADD CONSTRAINT alert_notifications_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.anomaly_events(event_id);
 
 ALTER TABLE ONLY public.alert_notifications
@@ -637,6 +767,12 @@ ALTER TABLE ONLY public.anomaly_events
 
 ALTER TABLE ONLY public.anomaly_events
     ADD CONSTRAINT anomaly_events_reading_id_fkey FOREIGN KEY (reading_id) REFERENCES public.sensor_readings(reading_id);
+
+ALTER TABLE ONLY public.care_logs
+    ADD CONSTRAINT care_logs_author_id_fkey FOREIGN KEY (author_id) REFERENCES public.users(user_id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.care_logs
+    ADD CONSTRAINT care_logs_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.patients(patient_id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.device_whitelist
     ADD CONSTRAINT device_whitelist_added_by_fkey FOREIGN KEY (added_by) REFERENCES public.users(user_id);
@@ -690,6 +826,9 @@ ALTER TABLE ONLY public.sensor_readings
     ADD CONSTRAINT sensor_readings_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.patients(patient_id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.session_revocations
+    ADD CONSTRAINT session_revocations_revoked_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.users(user_id); -- Note: adjusted to match actual column structure if needed, or preserved as original
+
+ALTER TABLE ONLY public.session_revocations
     ADD CONSTRAINT session_revocations_revoked_by_fkey FOREIGN KEY (revoked_by) REFERENCES public.users(user_id);
 
 ALTER TABLE ONLY public.session_revocations
@@ -709,6 +848,9 @@ ALTER TABLE ONLY public.user_permission_overrides
 
 ALTER TABLE ONLY public.user_permission_overrides
     ADD CONSTRAINT user_permission_overrides_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(user_id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(facility_id);

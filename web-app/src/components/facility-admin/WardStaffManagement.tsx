@@ -12,6 +12,23 @@ import { MODULE_REGISTRY, computeRoleDefaults } from '@/lib/rbac-registry';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
+ 
+const ALLOWED_MODULES = [
+    'caregiver-dashboard',
+    'my-patients',
+    'add-patient',
+    'device-status',
+    'add-device',
+    'assign-device',
+    'patient-assignments',
+    'alerts',
+    'alert-config',
+    'reports',
+    'settings_profile',
+    'settings_preferences'
+];
+ 
+
 
 interface StaffMember {
     user_id: number; username: string; email: string; role: string;
@@ -335,8 +352,9 @@ export default function WardStaffManagement() {
                         <DialogDescription className="text-xs text-slate-500">Toggle specialized feature permissions for {selectedUser?.username}. Overrides apply locally.</DialogDescription>
                     </div>
                     
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {MODULE_REGISTRY.map(group => {
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">                        {MODULE_REGISTRY.map(group => {
+                            const filteredModules = group.modules.filter(mod => ALLOWED_MODULES.includes(mod.id));
+                            if (filteredModules.length === 0) return null;
                             const expanded = expandedGroups.includes(group.group);
                             return (
                                 <Card key={group.group} className="border border-slate-200 shadow-sm overflow-hidden">
@@ -346,12 +364,12 @@ export default function WardStaffManagement() {
                                     </button>
                                     {expanded && (
                                         <CardContent className="p-0 divide-y divide-slate-100 bg-white">
-                                            {group.modules.map(mod => {
+                                            {filteredModules.map(mod => {
                                                 const ov = overrides.hasOwnProperty(mod.id) ? overrides[mod.id] : null;
                                                 const def = roleDefaults[mod.id] || false;
                                                 const effective = ov !== null ? ov : def;
                                                 const isBusy = savingOverride === mod.id;
-
+ 
                                                 return (
                                                     <div key={mod.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 gap-4">
                                                         <div className="flex-1 min-w-0">

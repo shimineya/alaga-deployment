@@ -264,11 +264,33 @@ router.delete('/caregiver/revoke', async (req, res) => {
             return res.status(400).json({ success: false, message: 'To remove yourself, use the self-remove option on your assignment card.' });
         }
 
+        const accessCheck = await client.query(
+            `SELECT pa.access_id, p.facility_id, u.username, p.name AS patient_name 
+             FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             JOIN patients p ON pa.patient_id = p.patient_id
+             WHERE pa.user_id = $1 AND pa.patient_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE`,
+            [target_user_id, patient_id]
+        );
+
+        if (accessCheck.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Care assignment not found.' });
+        }
+        const access = accessCheck.rows[0];
+
         await client.query('BEGIN');
 
         await client.query(
-            "DELETE FROM patient_access WHERE user_id = $1 AND patient_id = $2",
+            "UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE user_id = $1 AND patient_id = $2",
             [target_user_id, patient_id]
+        );
+
+        // Record entry in the archives table
+        await client.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Assignment', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [access.access_id.toString(), `Assignment: Caregiver ${access.username} to Patient ${access.patient_name}`, req.user.id, access.facility_id]
         );
 
         // [HIPAA] Audit trail

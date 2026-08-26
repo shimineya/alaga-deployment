@@ -1,0 +1,26 @@
+--- tables ---
+care_logs
+schedules
+user_permission_overrides
+anomaly_events
+sensor_readings
+patients
+users
+facilities
+system_modules
+user_email_otps
+access_logs
+hardware_system_alerts
+alert_notifications
+announcements
+ip_blacklist
+device_whitelist
+reports
+system_configs
+patient_access
+legal_documents
+profiles_caregivers
+profiles_medical_staff
+role_permissions
+session_revocations
+user_documents

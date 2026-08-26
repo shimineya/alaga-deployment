@@ -91,22 +91,52 @@ export const CaregiverSettings: React.FC = () => {
   const [tempMin, setTempMin] = useState(36.0);
   const [tempMax, setTempMax] = useState(37.5);
 
+  const token = localStorage.getItem('token');
+
   // Load saved preferences from localStorage / API
   useEffect(() => {
-    try {
-      const prefs = localStorage.getItem('alaga_caregiver_prefs');
-      if (prefs) {
-        const p = JSON.parse(prefs);
-        if (p.alertTone) setAlertTone(p.alertTone);
-        if (typeof p.vibrationEnabled === 'boolean') setVibrationEnabled(p.vibrationEnabled);
-        if (p.spo2Min != null) setSpo2Min(p.spo2Min);
-        if (p.heartRateMin != null) setHeartRateMin(p.heartRateMin);
-        if (p.heartRateMax != null) setHeartRateMax(p.heartRateMax);
-        if (p.tempMin != null) setTempMin(p.tempMin);
-        if (p.tempMax != null) setTempMax(p.tempMax);
+    const loadPreferences = async () => {
+      // 1. Render localStorage immediately
+      try {
+        const prefs = localStorage.getItem('alaga_caregiver_prefs');
+        if (prefs) {
+          const p = JSON.parse(prefs);
+          if (p.alertTone) setAlertTone(p.alertTone);
+          if (typeof p.vibrationEnabled === 'boolean') setVibrationEnabled(p.vibrationEnabled);
+          if (p.spo2Min != null) setSpo2Min(p.spo2Min);
+          if (p.heartRateMin != null) setHeartRateMin(p.heartRateMin);
+          if (p.heartRateMax != null) setHeartRateMax(p.heartRateMax);
+          if (p.tempMin != null) setTempMin(p.tempMin);
+          if (p.tempMax != null) setTempMax(p.tempMax);
+        }
+      } catch {}
+
+      // 2. Fetch from DB for authority sync
+      if (!token) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/user/profile/preferences`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.preferences) {
+          const p = data.preferences;
+          if (p.alertTone) setAlertTone(p.alertTone);
+          if (typeof p.vibrationEnabled === 'boolean') setVibrationEnabled(p.vibrationEnabled);
+          if (p.spo2Min != null) setSpo2Min(p.spo2Min);
+          if (p.heartRateMin != null) setHeartRateMin(p.heartRateMin);
+          if (p.heartRateMax != null) setHeartRateMax(p.heartRateMax);
+          if (p.tempMin != null) setTempMin(p.tempMin);
+          if (p.tempMax != null) setTempMax(p.tempMax);
+          
+          localStorage.setItem('alaga_caregiver_prefs', JSON.stringify(p));
+        }
+      } catch (err) {
+        console.error("Failed to sync preferences with database:", err);
       }
-    } catch {}
-  }, []);
+    };
+
+    loadPreferences();
+  }, [token]);
 
   const savePrefs = () => {
     try {
@@ -127,7 +157,35 @@ export const CaregiverSettings: React.FC = () => {
 
   useEffect(() => {
     savePrefs();
-  }, [alertTone, vibrationEnabled, spo2Min, heartRateMin, heartRateMax, tempMin, tempMax]);
+
+    if (!token) return;
+    const delayDebounceId = setTimeout(async () => {
+      try {
+        await fetch(`${API_BASE}/api/user/profile/preferences`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            preferences: {
+              alertTone,
+              vibrationEnabled,
+              spo2Min,
+              heartRateMin,
+              heartRateMax,
+              tempMin,
+              tempMax,
+            }
+          })
+        });
+      } catch (err) {
+        console.error("Failed to write preferences to database:", err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceId);
+  }, [alertTone, vibrationEnabled, spo2Min, heartRateMin, heartRateMax, tempMin, tempMax, token]);
 
   const handleResetBaseline = async () => {
     try {

@@ -43,7 +43,8 @@ async function authenticateDevice(serialNumber, providedToken) {
          FROM device_whitelist
          WHERE serial_number = $1
            AND device_token_hash = $2
-           AND status = 'ACTIVE'`,
+           AND status = 'ACTIVE'
+           AND is_archived IS DISTINCT FROM TRUE`,
         [serialNumber, tokenHash]
     );
 
@@ -350,6 +351,12 @@ router.get(
         const userId    = req.user.id;
         const patientId = parseInt(req.params.patient_id, 10);
 
+        // Check if patient is archived
+        const patientCheck = await pool.query('SELECT is_archived FROM patients WHERE patient_id = $1', [patientId]);
+        if (patientCheck.rows.length === 0 || patientCheck.rows[0].is_archived) {
+            return res.status(403).json({ success: false, message: 'Access denied. This patient record has been archived.' });
+        }
+
         const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
         let hasAccess = accessRoles.includes(req.user.role);
 
@@ -473,6 +480,12 @@ router.get(
         const userId    = req.user.id;
         const patientId = parseInt(req.params.patient_id, 10);
         const clientIp  = req.ip || req.connection.remoteAddress;
+
+        // Check if patient is archived
+        const patientCheck = await pool.query('SELECT is_archived FROM patients WHERE patient_id = $1', [patientId]);
+        if (patientCheck.rows.length === 0 || patientCheck.rows[0].is_archived) {
+            return res.status(403).json({ success: false, message: 'Access denied. This patient record has been archived.' });
+        }
 
         const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
         let hasAccess = accessRoles.includes(req.user.role);

@@ -42,17 +42,20 @@ const verifyToken = async (req, res, next) => {
             req.user.role = 'admin'; // Internal mapping to legacy admin to automatically bypass role-based data filters
         }
 
-        // [OWASP A07] Check if account is locked (prevents use of stolen tokens)
-        const lockCheck = await pool.query(
-            'SELECT is_locked FROM users WHERE user_id = $1',
+        // [OWASP A07] Check if account is locked or archived
+        const statusCheck = await pool.query(
+            'SELECT is_locked, is_archived, facility_id FROM users WHERE user_id = $1',
             [verified.id]
         );
-        if (lockCheck.rows[0]?.is_locked) {
+        const userRow = statusCheck.rows[0];
+        if (!userRow || userRow.is_locked || userRow.is_archived) {
             return res.status(401).json({
                 success: false,
-                message: 'Your session has been terminated by an administrator. Please log in again.'
+                message: 'Your session has been terminated or account archived. Please contact an administrator.'
             });
         }
+
+        req.user.facility_id = userRow.facility_id;
 
         // [Activity Tracking] Update last_activity_at (throttled to once per 60s)
         const now = Date.now();
@@ -192,21 +195,40 @@ const verifyFacilityAdmin = async (req, res, next) => {
 // [Operational Control] Check if Maintenance Mode is Active
 const checkMaintenance = async (req, res, next) => {
     try {
-        // 1. Allow Admins to bypass maintenance
-        // (We assume verifyToken runs BEFORE this, so req.user is set)
-        if (req.user && req.user.role === 'admin') {
+        // 1. Bypass check for login/auth routes
+        const path = req.path.toLowerCase();
+        if (path === '/login' || path === '/api/auth/login') {
+            return next();
+        }
+ 
+        // 2. Allow Admins to bypass maintenance
+        if (req.user && (req.user.role === 'admin' || req.user.role === 'system_admin' || req.user.role === 'sysadmin')) {
             return next();
         }
 
-        // 2. Check DB for global config
+        const authHeader = req.headers.authorization || req.header('Authorization');
+        if (authHeader) {
+            const cleanToken = authHeader.replace('Bearer ', '');
+            try {
+                const decoded = jwt.verify(cleanToken, JWT_SECRET);
+                const role = (decoded.role || '').toLowerCase();
+                if (role === 'admin' || role === 'system_admin' || role === 'sysadmin') {
+                    return next();
+                }
+            } catch (err) {
+                // Ignore decoding errors
+            }
+        }
+ 
+        // 3. Check DB for global config
         const config = await pool.query(
             "SELECT config_value FROM system_configs WHERE config_key = 'maintenance_mode'"
         );
-
+ 
         if (config.rows.length > 0) {
             const mode = config.rows[0].config_value;
-            // config_value is JSONB, so it comes out as an object
-            if (mode && mode.enabled === true) {
+            const val = typeof mode === 'string' ? JSON.parse(mode) : mode;
+            if (val && val.enabled === true) {
                 return res.status(503).json({
                     success: false,
                     message: 'System is currently under maintenance. Please try again later.'
@@ -256,6 +278,43 @@ const requireRole = (allowedRoles) => {
     };
 };
 
+function computeRoleDefaults(role) {
+    const r = (role || '').toLowerCase();
+    const isParent        = r === 'parent';
+    const isClinical      = r === 'caregiver' || r === 'medical_staff' || isParent;
+    const isFacilityAdmin = r === 'facility_admin';
+    const isAdminTier     = r === 'system_admin' || r === 'admin' || r === 'sysadmin';
+
+    return {
+        'dashboard':               isAdminTier,
+        'facility-dashboard':      isFacilityAdmin || isAdminTier,
+        'caregiver-dashboard':     isClinical || isAdminTier,
+        'my-patients':             isClinical || isAdminTier,
+        'add-patient':             isFacilityAdmin || isParent || isClinical || isAdminTier,
+        'patients-registered-assigned': isFacilityAdmin || isAdminTier,
+        'unassigned-patients':     isFacilityAdmin || isAdminTier,
+        'device-status':           isClinical || isFacilityAdmin || isAdminTier,
+        'add-device':              isClinical || isFacilityAdmin || isAdminTier,
+        'assign-device':           isFacilityAdmin || isAdminTier,
+        'sys-device-assignment':   isAdminTier,
+        'diagnostics':             isFacilityAdmin || isAdminTier,
+        'topology':                isAdminTier,
+        'firmware-ota':            isAdminTier,
+        'ward-staff':              isFacilityAdmin || isAdminTier,
+        'patient-assignments':     isFacilityAdmin || isClinical || isAdminTier,
+        'security-operations':     isAdminTier,
+        'audit-logs':              isAdminTier,
+        'rbac_management':         isAdminTier,
+        'alerts':                  isFacilityAdmin || isClinical || isAdminTier,
+        'alert-config':            isFacilityAdmin || isAdminTier,
+        'reports':                 isClinical || isAdminTier,
+        'settings_profile':        true,
+        'settings_preferences':    true,
+        'system-settings':         isAdminTier,
+        'compliance':              isFacilityAdmin || isAdminTier,
+    };
+}
+
 // [OWASP A01] Database-driven Permission Middleware (HIPAA Minimum Necessary)
 const requirePermission = (moduleId) => {
     return async (req, res, next) => {
@@ -289,8 +348,16 @@ const requirePermission = (moduleId) => {
                 [req.user.role, moduleId]
             );
             
-            if (roleQuery.rows.length > 0 && roleQuery.rows[0].is_enabled) {
-                return next();
+            if (roleQuery.rows.length > 0) {
+                if (roleQuery.rows[0].is_enabled) {
+                    return next();
+                }
+            } else {
+                // Fallback to computed role defaults if no DB configurations are found
+                const defaults = computeRoleDefaults(req.user.role);
+                if (defaults[moduleId]) {
+                    return next();
+                }
             }
             
             // [OWASP A09] Log failed authorization attempt
@@ -328,4 +395,4 @@ const enforceBreakGlassForSysAdmin = (req, res, next) => {
 };
 
 // [OWASP A01] Export all middleware
-module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan, requireRole, requirePermission, enforceBreakGlassForSysAdmin };
+module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan, requireRole, requirePermission, enforceBreakGlassForSysAdmin, computeRoleDefaults };

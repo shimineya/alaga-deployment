@@ -57,6 +57,11 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(express.json());
+ 
+// Mount Firewall & Maintenance checks
+const { checkMaintenance, checkIpBan } = require('./middleware/authMiddleware');
+app.use(checkIpBan);
+app.use(checkMaintenance);
 
 // [NOTE] JSON parse error handler moved to AFTER all route registrations
 // (Express error-handling middleware requires 4 params and must be placed after routes).
@@ -650,7 +655,7 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
         // the user visits the Profile tab.
         const result = await pool.query(
             `SELECT user_id, username, email, role, first_name,
-                    account_status, is_locked, is_verified,
+                    account_status, is_locked, is_verified, is_archived,
                     password_hash, profile_picture_url
              FROM users WHERE email = $1 OR username = $1`,
             [searchKey]
@@ -664,9 +669,33 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 
         const user = result.rows[0];
 
+        if (user.is_archived) {
+            console.log("Login failed: User is archived");
+            return res.status(403).json({ success: false, message: "Account has been archived. Access denied." });
+        }
+ 
         // [OWASP A07] Check if account is locked
         if (user.is_locked) {
             return res.status(403).json({ success: false, message: "Account is locked. Contact Admin." });
+        }
+ 
+        // Check if Maintenance Mode is active and block non-admins
+        const configQuery = await pool.query(
+            "SELECT config_value FROM system_configs WHERE config_key = 'maintenance_mode'"
+        );
+        if (configQuery.rows.length > 0) {
+            const mode = configQuery.rows[0].config_value;
+            const val = typeof mode === 'string' ? JSON.parse(mode) : mode;
+            if (val && val.enabled === true) {
+                const userRole = (user.role || '').toLowerCase();
+                const isAdmin = ['admin', 'system_admin', 'sysadmin'].includes(userRole);
+                if (!isAdmin) {
+                    return res.status(503).json({
+                        success: false,
+                        message: 'System is currently under maintenance. Only administrators are allowed to log in.'
+                    });
+                }
+            }
         }
 
         if (!user.is_verified) {
@@ -723,7 +752,7 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
 // ==========================================
 // ROUTE 2B: LOGOUT (clears online status)
 // ==========================================
-const { verifyToken } = require('./middleware/authMiddleware');
+const { verifyToken, computeRoleDefaults } = require('./middleware/authMiddleware');
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
     try {
         // Clear activity timestamp so the user immediately appears Offline
@@ -885,9 +914,15 @@ app.get('/api/auth/my-permissions', verifyToken, async (req, res) => {
         // [OWASP A05] Both queries above use parameterized inputs — no injection risk.
         const permissions = {};
 
-        roleResult.rows.forEach(row => {
-            permissions[row.module_id] = row.is_enabled;
-        });
+        if (roleResult.rows.length > 0) {
+            roleResult.rows.forEach(row => {
+                permissions[row.module_id] = row.is_enabled;
+            });
+        } else {
+            // Fallback to computed baseline defaults
+            const defaults = computeRoleDefaults(role);
+            Object.assign(permissions, defaults);
+        }
 
         overrideResult.rows.forEach(row => {
             // Override explicitly sets the value, regardless of role default
@@ -1006,7 +1041,7 @@ app.post('/api/device/data', async (req, res) => {
     try {
         // 1. Verify the device identity in your database
         const deviceCheck = await pool.query(
-            'SELECT assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND status = $2', 
+            'SELECT assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND status = $2 AND is_archived IS DISTINCT FROM TRUE', 
             [device_id, 'ACTIVE']
         );
 
@@ -1063,6 +1098,8 @@ const profileRoutes = require('./routes/profileRoutes');
 app.use('/api/user/profile', profileRoutes);
 
 app.use('/api/schedules', scheduleRoutes);
+const archiveRoutes = require('./routes/archiveRoutes');
+app.use('/api/archives', archiveRoutes);
 // Alerts, Audit, and Triage Routes
 const alertsRoutes = require('./routes/alertsRoutes');
 app.use('/api/alerts', alertsRoutes);

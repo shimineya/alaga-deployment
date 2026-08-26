@@ -257,6 +257,9 @@ export const CareCalendarWidget: React.FC = () => {
             toast.error("Invalid schedule identifier");
             return;
         }
+        if (!window.confirm("Are you sure you want to delete this care schedule?")) {
+            return;
+        }
         try {
             await axios.delete(`/api/schedules/${targetId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }

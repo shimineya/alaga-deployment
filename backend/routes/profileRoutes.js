@@ -225,4 +225,45 @@ router.put('/', verifyToken, upload.single('profile_picture'), async (req, res) 
     }
 });
 
+// GET /api/user/profile/preferences - Retrieve user preferences
+router.get('/preferences', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT preferences FROM users WHERE user_id = $1',
+            [req.user.id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+        res.json({ success: true, preferences: result.rows[0].preferences || {} });
+    } catch (err) {
+        console.error('Error fetching preferences:', err);
+        res.status(500).json({ success: false, message: 'Failed to retrieve preferences.' });
+    }
+});
+
+// POST /api/user/profile/preferences - Save user preferences
+router.post('/preferences', verifyToken, async (req, res) => {
+    try {
+        const { preferences } = req.body;
+        if (!preferences || typeof preferences !== 'object') {
+            return res.status(400).json({ success: false, message: 'Invalid preferences format.' });
+        }
+
+        const result = await pool.query(
+            'UPDATE users SET preferences = $1 WHERE user_id = $2 RETURNING preferences',
+            [JSON.stringify(preferences), req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        res.json({ success: true, message: 'Preferences updated successfully.', preferences: result.rows[0].preferences });
+    } catch (err) {
+        console.error('Error saving preferences:', err);
+        res.status(500).json({ success: false, message: 'Failed to save preferences.' });
+    }
+});
+
 module.exports = router;

@@ -97,6 +97,19 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+    const patientSearchRef = useRef<HTMLDivElement>(null);
+    const [showPatientSuggestions, setShowPatientSuggestions] = useState(false);
+ 
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (patientSearchRef.current && !patientSearchRef.current.contains(event.target as Node)) {
+                setShowPatientSuggestions(false);
+            }
+        };
+        document.onmousedown = handleClickOutside as any;
+        return () => { document.onmousedown = null; };
+    }, []);
+ 
     const [reportPatientId, setReportPatientId] = useState('');
     const itemsPerPage = 8;
 
@@ -503,6 +516,9 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             toast.error("Invalid schedule identifier");
             return;
         }
+        if (!window.confirm("Are you sure you want to delete this care schedule?")) {
+            return;
+        }
         try {
             await axios.delete(`/api/schedules/${targetId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -727,7 +743,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
 
             <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
                     <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Users className="w-4 h-4 text-teal-600" />
                         Patients
@@ -735,6 +751,58 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                             ({filteredPatients.length} total)
                         </span>
                     </h3>
+
+                    {/* Patient Search with Autosuggestion */}
+                    <div className="relative w-full md:w-64" ref={patientSearchRef}>
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="Search patients..."
+                                value={searchQuery}
+                                onChange={(e) => {
+                                    setSearchQuery(e.target.value);
+                                    setShowPatientSuggestions(true);
+                                    setCurrentPage(1);
+                                }}
+                                onFocus={() => setShowPatientSuggestions(true)}
+                                className="w-full text-xs pl-8 pr-3 py-2 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 focus:border-teal-500 outline-none bg-white"
+                            />
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => { setSearchQuery(''); setShowPatientSuggestions(false); }}
+                                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Autosuggestions Dropdown */}
+                        {showPatientSuggestions && searchQuery && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-100 rounded-xl shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-50">
+                                {patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                                    <div className="p-3 text-xs text-slate-400 italic">No matches found</div>
+                                ) : (
+                                    patients
+                                        .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                        .map(patient => (
+                                            <button
+                                                key={patient.id}
+                                                onClick={() => {
+                                                    setSearchQuery(patient.name);
+                                                    setShowPatientSuggestions(false);
+                                                }}
+                                                className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 text-slate-700 hover:text-teal-900 transition-colors font-medium flex items-center justify-between"
+                                            >
+                                                <span>{patient.name}</span>
+                                                <span className="text-[10px] text-slate-400 font-normal">Room {(patient as any).roomNumber || 'Home'}</span>
+                                            </button>
+                                        ))
+                                )}
+                            </div>
+                        )}
+                    </div>
                     {totalPages > 1 && (
                         <div className="flex items-center gap-2">
                             <Button

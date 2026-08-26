@@ -43,14 +43,32 @@ const firmwareUpload = multer({
 // =================================================================
 router.get('/stats', requirePermission('dashboard_overview'), async (req, res) => {
     try {
-        const [patientCount, alertCount, deviceCount, userCount, facilityCount] = await Promise.all([
+        const [
+            patientCount,
+            alertCount,
+            deviceCount,
+            userCount,
+            facilityCount,
+            activeOverrides,
+            pendingErasure,
+            dbSize,
+            dbConnections,
+            totalDevices,
+            offlineDevices
+        ] = await Promise.all([
             pool.query("SELECT COUNT(*) FROM patients WHERE is_archived = FALSE"),
-            pool.query("SELECT COUNT(*) FROM alert_notifications WHERE severity = 'critical' AND status = 'unread'"),
-            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE status = 'ACTIVE'"),
-            pool.query("SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review'"),
-            pool.query("SELECT COUNT(*) FROM facilities")
+            pool.query("SELECT COUNT(*) FROM alert_notifications WHERE severity = 'CRITICAL' AND status = 'Sent'"),
+            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE status = 'ACTIVE' AND is_archived IS DISTINCT FROM TRUE"),
+            pool.query("SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review' AND is_archived IS DISTINCT FROM TRUE"),
+            pool.query("SELECT COUNT(*) FROM facilities"),
+            pool.query("SELECT COUNT(*) FROM access_logs WHERE action = 'BREAK_GLASS_ACCESS' AND timestamp >= NOW() - INTERVAL '15 minutes'"),
+            pool.query("SELECT COUNT(*) FROM archives"),
+            pool.query("SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size"),
+            pool.query("SELECT count(*) FROM pg_stat_activity"),
+            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE is_archived IS DISTINCT FROM TRUE"),
+            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE status = 'INACTIVE' AND is_archived IS DISTINCT FROM TRUE")
         ]);
-
+ 
         res.json({
             success: true,
             data: {
@@ -59,12 +77,64 @@ router.get('/stats', requirePermission('dashboard_overview'), async (req, res) =
                 online_devices: parseInt(deviceCount.rows[0].count),
                 pending_users: parseInt(userCount.rows[0].count),
                 total_facilities: parseInt(facilityCount.rows[0].count),
+                active_overrides: parseInt(activeOverrides.rows[0].count),
+                pending_erasure: parseInt(pendingErasure.rows[0].count),
+                db_size: dbSize.rows[0].db_size,
+                db_connections: parseInt(dbConnections.rows[0].count),
+                total_devices: parseInt(totalDevices.rows[0].count),
+                offline_devices: parseInt(offlineDevices.rows[0].count),
                 system_status: 'OPERATIONAL',
                 uptime: process.uptime()
             }
         });
     } catch (err) {
+        console.error('Stats fetch error:', err);
         res.status(500).json({ success: false, message: 'Failed to fetch system stats.' });
+    }
+});
+
+// GET /stats/security - Real-time security operations metrics
+router.get('/stats/security', requirePermission('security_controls'), async (req, res) => {
+    try {
+        const [
+            blockedIPs,
+            suspendedAccounts,
+            unauthorizedAttempts,
+            activeOverrides,
+            maintMode
+        ] = await Promise.all([
+            pool.query("SELECT COUNT(*) FROM ip_blacklist WHERE is_archived IS DISTINCT FROM TRUE"),
+            pool.query("SELECT COUNT(*) FROM users WHERE is_locked = TRUE OR account_status = 'Suspended'"),
+            pool.query("SELECT COUNT(*) FROM access_logs WHERE (action = 'UNAUTHORIZED_ACCESS' OR status = 'FAILURE') AND timestamp >= NOW() - INTERVAL '24 hours'"),
+            pool.query("SELECT COUNT(*) FROM access_logs WHERE action = 'BREAK_GLASS_ACCESS' AND timestamp >= NOW() - INTERVAL '15 minutes'"),
+            pool.query("SELECT config_value FROM system_configs WHERE config_key = 'maintenance_mode'")
+        ]);
+ 
+        let isLockdown = false;
+        if (maintMode.rows.length > 0) {
+            try {
+                const val = typeof maintMode.rows[0].config_value === 'string' 
+                    ? JSON.parse(maintMode.rows[0].config_value) 
+                    : maintMode.rows[0].config_value;
+                isLockdown = val.enabled || false;
+            } catch (e) {
+                // Ignore
+            }
+        }
+ 
+        res.json({
+            success: true,
+            data: {
+                blocked_ips: parseInt(blockedIPs.rows[0].count),
+                suspended_accounts: parseInt(suspendedAccounts.rows[0].count),
+                unauthorized_attempts: parseInt(unauthorizedAttempts.rows[0].count),
+                active_overrides: parseInt(activeOverrides.rows[0].count),
+                global_lockdown: isLockdown
+            }
+        });
+    } catch (err) {
+        console.error('Security stats fetch error:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch security stats.' });
     }
 });
 
@@ -212,6 +282,7 @@ router.get('/users', requirePermission('user_management'), async (req, res) => {
                     CASE WHEN u.last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
              FROM users u
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
+             WHERE u.is_archived IS DISTINCT FROM TRUE
              ORDER BY u.created_at DESC`
         );
         res.json({ success: true, data: result.rows });
@@ -341,19 +412,33 @@ router.put('/users/:id', requirePermission('user_management'), async (req, res) 
     }
 });
 
-// Delete user account
+// Delete user account (changed to archive)
 router.delete('/users/:id', requirePermission('user_management'), async (req, res) => {
     const { id } = req.params;
     try {
-        await pool.query('DELETE FROM users WHERE user_id = $1', [id]);
+        const userCheck = await pool.query('SELECT username, facility_id FROM users WHERE user_id = $1', [id]);
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+        const user = userCheck.rows[0];
+
+        await pool.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [id]);
+
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [id.toString(), user.username, req.user.id, user.facility_id]
+        );
+
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, 'USER_DELETE', $2, 'CRITICAL')`,
-            [req.user.id, `Deleted User ID ${id}`]
+             VALUES ($1, 'USER_ARCHIVE', $2, 'CRITICAL')`,
+            [req.user.id, `Archived User ID ${id}`]
         );
-        res.json({ success: true, message: 'User deleted successfully.' });
+        res.json({ success: true, message: 'User archived successfully.' });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Failed to delete user.' });
+        console.error("Archive user error:", err);
+        res.status(500).json({ success: false, message: 'Failed to archive user.' });
     }
 });
 
@@ -703,8 +788,13 @@ router.put('/firmware/:key', requirePermission('device_management'), async (req,
 router.delete('/firmware/:key', requirePermission('device_management'), async (req, res) => {
     const { key } = req.params;
     try {
-        await pool.query("DELETE FROM system_configs WHERE config_key = $1", [key]);
-        res.json({ success: true, message: 'Firmware update archived/removed successfully.' });
+        await pool.query("UPDATE system_configs SET is_archived = true WHERE config_key = $1", [key]);
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status)
+             VALUES ('Firmware', $1, $2, $3, NOW(), 'Archived')`,
+            [key, `Firmware Update: ${key}`, req.user.id]
+        );
+        res.json({ success: true, message: 'Firmware update archived successfully.' });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Archival failed.' });
     }
@@ -795,7 +885,7 @@ router.get('/security/policies', requirePermission('security_controls'), async (
 // IP whitelist management
 router.get('/security/ip-whitelist', requirePermission('security_controls'), async (req, res) => {
     try {
-        const result = await pool.query("SELECT * FROM ip_blacklist ORDER BY banned_at DESC");
+        const result = await pool.query("SELECT * FROM ip_blacklist WHERE is_archived IS DISTINCT FROM TRUE ORDER BY banned_at DESC");
         res.json({ success: true, data: result.rows });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to fetch IP list.' });
@@ -817,8 +907,19 @@ router.post('/security/ip-ban', requirePermission('security_controls'), async (r
 
 router.delete('/security/ip-ban/:id', requirePermission('security_controls'), async (req, res) => {
     try {
-        await pool.query("DELETE FROM ip_blacklist WHERE id = $1", [req.params.id]);
-        res.json({ success: true, message: 'IP unbanned.' });
+        const check = await pool.query("SELECT ip_address FROM ip_blacklist WHERE id = $1", [req.params.id]);
+        if (check.rows.length > 0) {
+            const ip = check.rows[0].ip_address;
+            await pool.query("UPDATE ip_blacklist SET is_archived = true WHERE id = $1", [req.params.id]);
+            await pool.query(
+                `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status)
+                 VALUES ('IP Ban', $1, $2, $3, NOW(), 'Archived')`,
+                [req.params.id.toString(), `Banned IP: ${ip}`, req.user.id]
+            );
+        } else {
+            return res.status(404).json({ success: false, message: 'Banned IP record not found.' });
+        }
+        res.json({ success: true, message: 'IP unbanned/archived.' });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to unban IP.' });
     }
@@ -1007,21 +1108,39 @@ router.put('/assignments/:id', async (req, res) => {
     }
 });
 
-// 3. DELETE ASSIGNMENT
+// 3. DELETE ASSIGNMENT (changed to archive)
 router.delete('/assignments/:id', async (req, res) => {
     try {
-        await pool.query('DELETE FROM patient_access WHERE access_id = $1', [req.params.id]);
+        const check = await pool.query(
+            `SELECT pa.user_id, u.username, p.name AS patient_name, pa.facility_id
+             FROM patient_access pa
+             JOIN users u ON pa.user_id = u.user_id
+             JOIN patients p ON pa.patient_id = p.patient_id
+             WHERE pa.access_id = $1`,
+            [req.params.id]
+        );
+        if (check.rows.length > 0) {
+            const row = check.rows[0];
+            await pool.query("UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE access_id = $1", [req.params.id]);
+            await pool.query(
+                `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+                 VALUES ('Assignment', $1, $2, $3, NOW(), 'Archived', $4)`,
+                [req.params.id.toString(), `Assignment: Caregiver ${row.username} to Patient ${row.patient_name}`, req.user.id, row.facility_id]
+            );
+        } else {
+            return res.status(404).json({ success: false, message: 'Assignment record not found.' });
+        }
 
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'ASSIGNMENT_ARCHIVE', $2, 'CRITICAL')`,
-            [req.user.id, `System Admin deleted/archived Assignment ID ${req.params.id}`]
+            [req.user.id, `System Admin archived Assignment ID ${req.params.id}`]
         );
 
         res.json({ success: true, message: 'Assignment archived successfully.' });
     } catch (err) {
         console.error('Delete Assignment Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to delete assignment.' });
+        res.status(500).json({ success: false, message: 'Failed to archive assignment.' });
     }
 });
 
@@ -1039,6 +1158,7 @@ router.get('/staff-given-accounts', async (req, res) => {
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
              LEFT JOIN users creator ON u.created_by = creator.user_id
              WHERE u.role IN ('caregiver', 'medical_staff')
+               AND u.is_archived IS DISTINCT FROM TRUE
              ORDER BY u.created_at DESC`
         );
         res.json({ success: true, data: result.rows });
@@ -1075,25 +1195,38 @@ router.put('/staff-given-accounts/:id', async (req, res) => {
     }
 });
 
-// 6. DELETE STAFF ACCOUNT
+// 6. DELETE STAFF ACCOUNT (changed to archive)
 router.delete('/staff-given-accounts/:id', async (req, res) => {
     const client = await pool.connect();
     try {
+        const check = await client.query('SELECT username, facility_id FROM users WHERE user_id = $1', [req.params.id]);
+        if (check.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Staff user not found.' });
+        }
+        const user = check.rows[0];
+
         await client.query('BEGIN');
-        await client.query('DELETE FROM users WHERE user_id = $1', [req.params.id]);
+        await client.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [req.params.id]);
         
         await client.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [req.params.id.toString(), user.username, req.user.id, user.facility_id]
+        );
+
+        await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, 'STAFF_ACCOUNT_DELETE', $2, 'CRITICAL')`,
-            [req.user.id, `System Admin deleted staff account ID ${req.params.id}`]
+             VALUES ($1, 'STAFF_ACCOUNT_ARCHIVE', $2, 'CRITICAL')`,
+            [req.user.id, `System Admin archived staff account ID ${req.params.id}`]
         );
         
         await client.query('COMMIT');
-        res.json({ success: true, message: 'Staff account deleted successfully.' });
+        res.json({ success: true, message: 'Staff account archived successfully.' });
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('Delete Staff Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to delete staff account.' });
+        res.status(500).json({ success: false, message: 'Failed to archive staff account.' });
     } finally {
         client.release();
     }
@@ -1116,6 +1249,8 @@ router.get('/device-assignments', async (req, res) => {
                  JOIN patients p ON dw.assigned_patient_id = p.patient_id
                  LEFT JOIN facilities f ON p.facility_id = f.facility_id
                  LEFT JOIN users u ON dw.added_by = u.user_id
+                 WHERE dw.is_archived IS DISTINCT FROM TRUE
+                   AND p.is_archived IS DISTINCT FROM TRUE
                  ORDER BY p.name ASC`
             ),
             pool.query(
@@ -1127,6 +1262,7 @@ router.get('/device-assignments', async (req, res) => {
                  LEFT JOIN users u ON dw.added_by = u.user_id
                  LEFT JOIN facilities f ON u.facility_id = f.facility_id
                  WHERE dw.assigned_patient_id IS NULL
+                   AND dw.is_archived IS DISTINCT FROM TRUE
                  ORDER BY dw.created_at DESC`
             ),
             pool.query(
@@ -1203,7 +1339,7 @@ router.post('/devices/unlink', async (req, res) => {
 // GET /facilities - Fetch all facilities in the system
 router.get('/facilities', async (req, res) => {
     try {
-        const result = await pool.query('SELECT facility_id, facility_name, address, topology, created_at FROM facilities ORDER BY facility_name ASC');
+        const result = await pool.query('SELECT facility_id, facility_name, address, topology, created_at FROM facilities WHERE is_archived IS DISTINCT FROM TRUE ORDER BY facility_name ASC');
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error('Fetch Facilities Error:', err.message);
@@ -1243,17 +1379,28 @@ router.put('/facilities/:id/topology', async (req, res) => {
     }
 });
 
-// DELETE /facilities/:id - Delete facility
+// DELETE /facilities/:id - Delete facility (changed to archive)
 router.delete('/facilities/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        await pool.query('UPDATE users SET facility_id = NULL WHERE facility_id = $1', [id]);
-        await pool.query('UPDATE patients SET facility_id = NULL WHERE facility_id = $1', [id]);
-        await pool.query('DELETE FROM facilities WHERE facility_id = $1', [id]);
-        res.json({ success: true, message: 'Facility deleted successfully.' });
+        const facCheck = await pool.query('SELECT facility_name FROM facilities WHERE facility_id = $1', [id]);
+        if (facCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Facility not found.' });
+        }
+        const facilityName = facCheck.rows[0].facility_name;
+
+        await pool.query('UPDATE facilities SET is_archived = true WHERE facility_id = $1', [id]);
+
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Facility', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [id.toString(), facilityName, req.user.id, parseInt(id, 10)]
+        );
+
+        res.json({ success: true, message: 'Facility archived successfully.' });
     } catch (err) {
         console.error('Delete Facility Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to delete facility.' });
+        res.status(500).json({ success: false, message: 'Failed to archive facility.' });
     }
 });
 

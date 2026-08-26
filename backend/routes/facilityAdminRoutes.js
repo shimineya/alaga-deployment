@@ -196,7 +196,7 @@ router.post('/staff', async (req, res) => {
     }
 });
 
-// Remove staff member from facility
+// Remove staff member from facility (changed to archive)
 router.delete('/staff/:id', async (req, res) => {
     const facilityId = req.user.facility_id;
     const targetUserId = parseInt(req.params.id);
@@ -210,17 +210,24 @@ router.delete('/staff/:id', async (req, res) => {
             return res.status(403).json({ success: false, message: 'User does not belong to your facility.' });
         }
 
-        await pool.query('DELETE FROM users WHERE user_id = $1', [targetUserId]);
+        await pool.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [targetUserId.toString(), ownerCheck.rows[0].username, req.user.id, facilityId]
+        );
 
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, 'STAFF_DELETED', $2, 'CRITICAL')`,
-            [req.user.id, `Deleted staff member: ${ownerCheck.rows[0].username} (ID ${targetUserId})`]
+             VALUES ($1, 'STAFF_ARCHIVED', $2, 'CRITICAL')`,
+            [req.user.id, `Archived staff member: ${ownerCheck.rows[0].username} (ID ${targetUserId})`]
         );
 
-        res.json({ success: true, message: 'Staff member removed successfully.' });
+        res.json({ success: true, message: 'Staff member archived successfully.' });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Failed to remove staff member.' });
+        console.error("Archive staff error:", err);
+        res.status(500).json({ success: false, message: 'Failed to archive staff member.' });
     }
 });
 
@@ -1057,7 +1064,7 @@ router.put('/staff-given-accounts/:id', async (req, res) => {
     }
 });
 
-// 6. DELETE /staff-given-accounts/:id - Delete/Archive staff account created by this admin
+// 6. DELETE /staff-given-accounts/:id - Archive staff account created by this admin
 router.delete('/staff-given-accounts/:id', async (req, res) => {
     const adminId = req.user.id;
     const targetUserId = parseInt(req.params.id);
@@ -1065,7 +1072,7 @@ router.delete('/staff-given-accounts/:id', async (req, res) => {
     try {
         // Verify scoping
         const check = await client.query(
-            'SELECT user_id, username FROM users WHERE user_id = $1 AND created_by = $2',
+            'SELECT user_id, username, facility_id FROM users WHERE user_id = $1 AND created_by = $2',
             [targetUserId, adminId]
         );
         if (check.rows.length === 0) {
@@ -1073,24 +1080,33 @@ router.delete('/staff-given-accounts/:id', async (req, res) => {
             return res.status(403).json({ success: false, message: 'Unauthorized: User account not found or not created by you.' });
         }
         
-        const username = check.rows[0].username;
+        const user = check.rows[0];
+        const username = user.username;
+        const facilityId = user.facility_id;
 
         await client.query('BEGIN');
-        await client.query('DELETE FROM users WHERE user_id = $1', [targetUserId]);
+        await client.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [targetUserId]);
         
+        // Record entry in the archives table
+        await client.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [targetUserId.toString(), username, adminId, facilityId]
+        );
+
         // Audit log
         await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, 'STAFF_ACCOUNT_DELETE', $2, 'CRITICAL')`,
-            [adminId, `Deleted provisioned staff member ${username} (ID ${targetUserId}).`]
+             VALUES ($1, 'STAFF_ACCOUNT_ARCHIVE', $2, 'CRITICAL')`,
+            [adminId, `Archived provisioned staff member ${username} (ID ${targetUserId}).`]
         );
         
         await client.query('COMMIT');
-        res.json({ success: true, message: 'User account deleted successfully.' });
+        res.json({ success: true, message: 'User account archived successfully.' });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Delete Scoped Staff Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to delete user account.' });
+        console.error('Archive Scoped Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive user account.' });
     } finally {
         client.release();
     }
@@ -1434,14 +1450,24 @@ router.delete('/patients/:patientId', async (req, res) => {
     const isSysAdmin = req.user.is_sys_admin_override;
 
     try {
-        if (!isSysAdmin) {
-            const patientCheck = await pool.query(
-                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
-                [patientId, facilityId]
-            );
-            if (patientCheck.rows.length === 0) {
-                return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
-            }
+        let patientName = '';
+        let finalFacilityId = facilityId;
+
+        const patientCheck = await pool.query(
+            'SELECT patient_id, name, facility_id FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+
+        if (patientCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const patient = patientCheck.rows[0];
+        patientName = patient.name;
+        finalFacilityId = patient.facility_id;
+
+        if (!isSysAdmin && finalFacilityId !== facilityId) {
+            return res.status(403).json({ success: false, message: 'Unauthorized: Patient not found in your facility.' });
         }
 
         await pool.query(
@@ -1456,6 +1482,13 @@ router.delete('/patients/:patientId', async (req, res) => {
              SET assigned_patient_id = NULL, status = 'AVAILABLE'
              WHERE assigned_patient_id = $1`,
             [patientId]
+        );
+
+        // Record entry in the archives table
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Patient', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [patientId.toString(), patientName, req.user.id, finalFacilityId]
         );
 
         await pool.query(

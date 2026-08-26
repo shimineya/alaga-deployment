@@ -5,7 +5,7 @@ import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
-import { MODULE_REGISTRY } from '@/lib/rbac-registry';
+import { MODULE_REGISTRY, computeRoleDefaults } from '@/lib/rbac-registry';
 import { 
     Dialog, 
     DialogContent, 
@@ -29,7 +29,12 @@ import {
     X,
     UserCheck,
     Mail,
-    UserPlus
+    UserPlus,
+    ToggleRight,
+    ToggleLeft,
+    ChevronRight,
+    ChevronDown,
+    ShieldCheck
 } from 'lucide-react';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
@@ -73,8 +78,11 @@ export default function SystemAdminUserList() {
     // Modal state for Advanced Access Control
     const [rbacUser, setRbacUser] = useState<RegisteredUser | null>(null);
     const [overrides, setOverrides] = useState<Record<string, boolean>>({});
-    const [overrideReason, setOverrideReason] = useState('');
-    const [isSavingRbac, setIsSavingRbac] = useState(false);
+    const [roleDefaults, setRoleDefaults] = useState<Record<string, boolean>>({});
+    const [expandedGroups, setExpandedGroups] = useState<string[]>(MODULE_REGISTRY.map(g => g.group));
+    const [savingOverride, setSavingOverride] = useState<string | null>(null);
+ 
+    const toggleGroup = (g: string) => setExpandedGroups(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]);
 
     // Modal state for Add User
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -267,7 +275,7 @@ export default function SystemAdminUserList() {
 
     const handleOpenRbacModal = async (targetUser: RegisteredUser) => {
         setRbacUser(targetUser);
-        setOverrideReason('');
+        setRoleDefaults(computeRoleDefaults(targetUser.role));
         
         // Fetch explicit overrides
         try {
@@ -285,81 +293,66 @@ export default function SystemAdminUserList() {
         }
     };
 
-    const handleToggleOverride = async (moduleId: string, currentGranted: boolean | undefined) => {
+    const handleToggleOverride = async (moduleId: string, currentValue: boolean | undefined, def: boolean) => {
         if (!rbacUser) return;
-
-        // Toggle state: If currently defined, delete the override (so it follows default). If undefined/default, set override.
-        if (currentGranted !== undefined) {
-            // Delete override
-            try {
-                const res = await fetch(`${API}/rbac/users/${rbacUser.user_id}/overrides/${moduleId}`, {
-                    method: 'DELETE',
-                    headers: getAuth()
-                });
-                const data = await res.json();
-                if (data.success) {
-                    toast.success('Override removed. User follows role defaults.');
-                    setOverrides(prev => {
-                        const next = { ...prev };
-                        delete next[moduleId];
-                        return next;
-                    });
-                }
-            } catch {
-                toast.error('Failed to remove override.');
-            }
-        } else {
-            // Ask for reason and toggle (Default is grant = true)
-            const reason = window.prompt(`Enter justification reason to override module "${moduleId}":`);
-            if (!reason || reason.trim() === '') {
-                toast.error('A reason is required to apply module overrides.');
-                return;
-            }
-            try {
-                const res = await fetch(`${API}/rbac/users/${rbacUser.user_id}/overrides`, {
-                    method: 'POST',
-                    headers: getAuth(),
-                    body: JSON.stringify({
-                        module_id: moduleId,
-                        is_granted: true,
-                        override_reason: reason
-                    })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    toast.success('Permission override saved.');
-                    setOverrides(prev => ({ ...prev, [moduleId]: true }));
-                }
-            } catch {
-                toast.error('Failed to save override.');
-            }
-        }
-    };
-
-    const handleToggleDenyOverride = async (moduleId: string) => {
-        if (!rbacUser) return;
-        const reason = window.prompt(`Enter justification reason to DENY module "${moduleId}":`);
+        const effective = currentValue !== undefined ? currentValue : def;
+        const newValue = !effective;
+ 
+        const reason = window.prompt(`Enter justification reason to ${newValue ? 'GRANT' : 'DENY'} access to "${moduleId}":`);
         if (!reason || reason.trim() === '') {
-            toast.error('A reason is required to deny module access.');
+            toast.error('A reason is required to save permission overrides.');
             return;
         }
+ 
+        setSavingOverride(moduleId);
         try {
             const res = await fetch(`${API}/rbac/users/${rbacUser.user_id}/overrides`, {
                 method: 'POST',
                 headers: getAuth(),
                 body: JSON.stringify({
                     module_id: moduleId,
-                    is_granted: false,
-                    override_reason: reason
+                    is_granted: newValue,
+                    override_reason: reason.trim()
                 })
             });
             const data = await res.json();
             if (data.success) {
-                toast.success('Permission override (DENY) saved.');
-                setOverrides(prev => ({ ...prev, [moduleId]: false }));
+                toast.success(`Permission override saved: ${newValue ? 'GRANTED' : 'DENIED'}.`);
+                setOverrides(prev => ({ ...prev, [moduleId]: newValue }));
+            } else {
+                toast.error(data.message || 'Failed to save override.');
             }
         } catch {
-            toast.error('Failed to deny permission.');
+            toast.error('Failed to save override.');
+        } finally {
+            setSavingOverride(null);
+        }
+    };
+ 
+    const handleResetOverride = async (moduleId: string, label: string) => {
+        if (!rbacUser) return;
+        if (!window.confirm(`Reset "${label}" to standard default for ${rbacUser.username}?`)) return;
+        setSavingOverride(moduleId);
+        try {
+            const res = await fetch(`${API}/rbac/users/${rbacUser.user_id}/overrides/${moduleId}`, {
+                method: 'DELETE',
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('Reset to default successful.');
+                setOverrides(prev => {
+                    const next = { ...prev };
+                    delete next[moduleId];
+                    return next;
+                });
+            } else {
+                toast.error(data.message || 'Failed to remove override.');
+            }
+        } catch {
+            toast.error('Failed to remove override.');
+        } finally {
+            setSavingOverride(null);
         }
     };
 
@@ -580,77 +573,74 @@ export default function SystemAdminUserList() {
                 </Dialog>
             )}
 
-            {/* ADVANCED ACCESS CONTROL OVERRIDE DIALOG */}
+            {/* ADVANCED ACCESS CONTROL DIALOG */}
             {rbacUser && (
                 <Dialog open={true} onOpenChange={() => setRbacUser(null)}>
-                    <DialogContent className="max-w-2xl bg-white max-h-[85vh] flex flex-col">
-                        <DialogHeader className="shrink-0">
-                            <DialogTitle className="text-slate-800 flex items-center gap-2">
-                                <Sliders className="w-5 h-5 text-indigo-600" />
-                                Advanced Access Control Overrides
+                    <DialogContent className="sm:max-w-xl max-h-[85vh] flex flex-col p-0 overflow-hidden bg-slate-50">
+                        <div className="p-4 border-b border-slate-200 bg-white">
+                            <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                                Advanced Access Control
                             </DialogTitle>
-                            <DialogDescription className="text-xs">
-                                Configure specialized system permission overrides for <strong className="font-bold text-slate-700">{rbacUser.username}</strong> ({rbacUser.role.toUpperCase()}).
+                            <DialogDescription className="text-xs text-slate-500 mt-1">
+                                Toggle specialized feature permissions for {rbacUser.username}. Overrides apply globally.
                             </DialogDescription>
-                        </DialogHeader>
-                        
-                        <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-4 my-2 text-xs">
-                            {MODULE_REGISTRY.map((group) => (
-                                <div key={group.group} className="space-y-2">
-                                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 py-1 px-2 rounded">{group.group}</h4>
-                                    <div className="divide-y divide-slate-100">
-                                        {group.modules.map((mod) => {
-                                            const overrideState = overrides[mod.id]; // true = granted, false = denied, undefined = follows defaults
-                                            return (
-                                                <div key={mod.id} className="flex items-center justify-between py-2 px-2 hover:bg-slate-50/50 rounded transition-colors">
-                                                    <div>
-                                                        <span className="font-semibold text-slate-700 block">{mod.label}</span>
-                                                        <span className="text-[9px] text-slate-400 block leading-tight">{mod.description}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {/* Status Label */}
-                                                        <span className="text-[9px] font-mono mr-2">
-                                                            {overrideState === true ? (
-                                                                <span className="text-emerald-600 font-bold">OVERRIDDEN: GRANT</span>
-                                                            ) : overrideState === false ? (
-                                                                <span className="text-rose-600 font-bold">OVERRIDDEN: DENY</span>
-                                                            ) : (
-                                                                <span className="text-slate-400 italic">Follows Defaults</span>
-                                                            )}
-                                                        </span>
-
-                                                        {/* Grant/Reset Override */}
-                                                        <Button 
-                                                            variant="outline" 
-                                                            size="sm" 
-                                                            onClick={() => handleToggleOverride(mod.id, overrideState)}
-                                                            className={`h-7 text-[9px] cursor-pointer ${overrideState === true ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200' : ''}`}
-                                                        >
-                                                            {overrideState === true ? 'Reset to Default' : 'Grant Override'}
-                                                        </Button>
-
-                                                        {/* Deny Override */}
-                                                        {overrideState !== false && (
-                                                            <Button 
-                                                                variant="outline" 
-                                                                size="sm" 
-                                                                onClick={() => handleToggleDenyOverride(mod.id)}
-                                                                className="h-7 text-[9px] text-rose-700 hover:bg-rose-50 cursor-pointer"
-                                                            >
-                                                                Deny Module
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            ))}
                         </div>
-
-                        <div className="pt-2 border-t flex justify-end gap-2 shrink-0">
-                            <Button variant="outline" size="sm" onClick={() => setRbacUser(null)} className="h-8 text-xs">Close Override Panel</Button>
+                        
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            {MODULE_REGISTRY.map(group => {
+                                const expanded = expandedGroups.includes(group.group);
+                                return (
+                                    <Card key={group.group} className="border border-slate-200 shadow-sm overflow-hidden bg-white">
+                                        <button onClick={() => toggleGroup(group.group)} className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-100 hover:bg-slate-200 transition-colors text-left">
+                                            <span className="text-xs font-bold text-slate-700">{group.group}</span>
+                                            {expanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                                        </button>
+                                        {expanded && (
+                                            <CardContent className="p-0 divide-y divide-slate-100 bg-white">
+                                                {group.modules
+                                                    .filter(mod => {
+                                                        const targetRole = rbacUser.role.toLowerCase();
+                                                        const isTargetSysAdmin = ['system_admin', 'admin', 'sysadmin'].includes(targetRole);
+                                                        if (!isTargetSysAdmin && ['dashboard', 'topology', 'firmware-ota', 'security-operations', 'audit-logs', 'rbac_management', 'system-settings', 'sys-device-assignment'].includes(mod.id)) {
+                                                            return false;
+                                                        }
+                                                        return true;
+                                                    })
+                                                    .map(mod => {
+                                                        const ov = overrides.hasOwnProperty(mod.id) ? overrides[mod.id] : undefined;
+                                                    const def = roleDefaults[mod.id] || false;
+                                                    const effective = ov !== undefined ? ov : def;
+                                                    const isBusy = savingOverride === mod.id;
+ 
+                                                    return (
+                                                        <div key={mod.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 gap-4 text-xs">
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-xs font-semibold text-slate-800">{mod.label}</p>
+                                                                    {ov !== undefined && (
+                                                                        <Badge className={`text-[9px] px-1.5 py-0 border font-medium cursor-pointer ${effective ? 'bg-teal-100 text-teal-700 border-teal-200' : 'bg-red-100 text-red-700 border-red-200'}`} onClick={() => handleResetOverride(mod.id, mod.label)}>
+                                                                            {effective ? 'Override: Granted' : 'Override: Denied'} (Reset)
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">{mod.description}</p>
+                                                            </div>
+                                                            <button onClick={() => handleToggleOverride(mod.id, ov, def)} disabled={isBusy} className={`shrink-0 transition-opacity ${isBusy ? 'opacity-50' : 'hover:opacity-80'}`}>
+                                                                {effective ? <ToggleRight className="w-8 h-8 text-teal-500" /> : <ToggleLeft className="w-8 h-8 text-slate-300" />}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </CardContent>
+                                        )}
+                                    </Card>
+                                );
+                            })}
+                        </div>
+ 
+                        <div className="p-4 border-t flex justify-end gap-2 shrink-0 bg-white">
+                            <Button variant="outline" size="sm" onClick={() => setRbacUser(null)} className="h-8 text-xs">Close Access Panel</Button>
                         </div>
                     </DialogContent>
                 </Dialog>

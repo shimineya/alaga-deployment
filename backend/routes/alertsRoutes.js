@@ -70,6 +70,7 @@ router.get('/clinical', async (req, res) => {
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
                 WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND p.is_archived IS DISTINCT FROM TRUE
             `;
             if (patientId) {
                 query += ` AND p.patient_id = $1`;
@@ -87,6 +88,7 @@ router.get('/clinical', async (req, res) => {
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
                 WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND p.is_archived IS DISTINCT FROM TRUE
                   AND (
                       p.patient_id IN (
                           -- Patients assigned to users they gave an account to
@@ -128,6 +130,7 @@ router.get('/clinical', async (req, res) => {
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
                 WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND p.is_archived IS DISTINCT FROM TRUE
                   AND p.patient_id IN (
                     SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1
                     UNION
@@ -160,12 +163,32 @@ router.put('/clinical/archive-bulk', async (req, res) => {
             return res.status(400).json({ success: false, message: 'An array of alertIds is required.' });
         }
 
+        const actorId = req.user ? req.user.id : null;
+
+        // Fetch alert details to log them in archives table
+        const detailsRes = await pool.query(
+            `SELECT a.alert_id, a.alert_category, a.message, p.facility_id, p.name as patient_name
+             FROM alert_notifications a
+             LEFT JOIN anomaly_events e ON a.event_id = e.event_id
+             LEFT JOIN patients p ON e.patient_id = p.patient_id
+             WHERE a.alert_id = ANY($1)`,
+            [alertIds]
+        );
+
         await pool.query(
             `UPDATE alert_notifications 
              SET status = 'Archived'
              WHERE alert_id = ANY($1)`,
             [alertIds]
         );
+
+        for (const row of detailsRes.rows) {
+            await pool.query(
+                `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+                 VALUES ('Clinical Alert', $1, $2, $3, NOW(), 'Archived', $4)`,
+                [row.alert_id.toString(), `${row.patient_name || 'System'} - ${row.alert_category || 'Clinical Alert'}: ${row.message || ''}`.substring(0, 255), actorId, row.facility_id]
+            );
+        }
 
         res.json({ success: true, message: 'Alerts archived successfully.' });
     } catch (err) {
@@ -626,11 +649,72 @@ router.get('/unified', async (req, res) => {
             announcementsParams = [userId];
         }
 
-        const [clinicalRes, systemRes, announcementsRes] = await Promise.all([
+        // 4. Fetch Care Schedules
+        let schedulesQuery;
+        let schedulesParams = [];
+        if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
+            schedulesQuery = `
+                SELECT s.schedule_id, s.patient_name, s.event_type, s.custom_event_name, s.scheduled_at as timestamp, s.status
+                FROM schedules s
+                WHERE s.status IS DISTINCT FROM 'Archived'
+                ORDER BY s.scheduled_at DESC LIMIT 50
+            `;
+        } else if (role === 'facility_admin') {
+            schedulesQuery = `
+                SELECT s.schedule_id, s.patient_name, s.event_type, s.custom_event_name, s.scheduled_at as timestamp, s.status
+                FROM schedules s
+                JOIN patients p ON LOWER(p.name) = LOWER(s.patient_name)
+                WHERE s.status IS DISTINCT FROM 'Archived'
+                  AND p.is_archived IS DISTINCT FROM TRUE
+                  AND p.patient_id IN (
+                      SELECT pa.patient_id FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE u.created_by = $1
+                      UNION
+                      SELECT pa2.patient_id FROM patient_access pa2 WHERE pa2.invited_by = $1
+                      UNION
+                      SELECT p2.patient_id FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text
+                  )
+                ORDER BY s.scheduled_at DESC LIMIT 50
+            `;
+            schedulesParams = [userId];
+        } else {
+            schedulesQuery = `
+                SELECT s.schedule_id, s.patient_name, s.event_type, s.custom_event_name, s.scheduled_at as timestamp, s.status
+                FROM schedules s
+                JOIN patients p ON LOWER(p.name) = LOWER(s.patient_name)
+                WHERE s.status IS DISTINCT FROM 'Archived'
+                  AND p.is_archived IS DISTINCT FROM TRUE
+                  AND p.patient_id IN (
+                      SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1
+                      UNION
+                      SELECT dw.assigned_patient_id FROM device_whitelist dw WHERE dw.assigned_patient_id IS NOT NULL AND dw.added_by = $1
+                  )
+                ORDER BY s.scheduled_at DESC LIMIT 50
+            `;
+            schedulesParams = [userId];
+        }
+
+        const [clinicalRes, systemRes, announcementsRes, schedulesRes] = await Promise.all([
             pool.query(clinicalQuery, clinicalParams),
             pool.query(systemQuery, systemParams),
-            pool.query(announcementsQuery, announcementsParams)
+            pool.query(announcementsQuery, announcementsParams),
+            pool.query(schedulesQuery, schedulesParams)
         ]);
+
+        // Retrieve latest firmware files to match with update announcements
+        const latestFirmwares = await pool.query(
+            `SELECT config_key, config_value FROM system_configs 
+             WHERE config_key LIKE 'firmware_%' 
+             ORDER BY config_key DESC`
+        );
+        const firmwareMap = {};
+        latestFirmwares.rows.forEach(fw => {
+            try {
+                const val = typeof fw.config_value === 'string' ? JSON.parse(fw.config_value) : fw.config_value;
+                if (val && val.version) {
+                    firmwareMap[val.version] = val;
+                }
+            } catch (e) { /* ignore parse error */ }
+        });
 
         // Format & Merge
         const notifications = [
@@ -654,16 +738,51 @@ router.get('/unified', async (req, res) => {
                 status: r.status,
                 patientName: r.patient_name
             })),
-            ...announcementsRes.rows.map(r => ({
-                id: `announcement_${r.announcement_id}`,
-                type: 'announcement',
-                title: r.title,
-                message: r.message,
+            ...schedulesRes.rows.map(r => ({
+                id: `schedule_${r.schedule_id}`,
+                type: 'schedule',
+                title: `Care Task Scheduled`,
+                message: `${r.event_type}${r.custom_event_name ? ` - ${r.custom_event_name}` : ''} for ${r.patient_name}`,
                 severity: 'normal',
                 timestamp: r.timestamp,
-                status: 'Sent',
-                patientName: null
-            }))
+                status: r.status,
+                patientName: r.patient_name
+            })),
+            ...announcementsRes.rows.map(r => {
+                const isFirmwareUpdate = r.title.toLowerCase().includes('firmware') || r.message.toLowerCase().includes('firmware') || r.title.toLowerCase().includes('ota') || r.message.toLowerCase().includes('ota');
+                
+                // Try to find matching version in the title or message
+                let matchedFile = null;
+                let matchedVersion = null;
+                if (isFirmwareUpdate) {
+                    const versionMatch = r.title.match(/(\d+\.\d+\.\d+)/) || r.message.match(/(\d+\.\d+\.\d+)/);
+                    if (versionMatch && firmwareMap[versionMatch[1]]) {
+                        matchedFile = firmwareMap[versionMatch[1]].file;
+                        matchedVersion = firmwareMap[versionMatch[1]].version;
+                    } else {
+                        // Fallback to latest uploaded firmware
+                        const latestKey = Object.keys(firmwareMap)[0];
+                        if (latestKey && firmwareMap[latestKey]) {
+                            matchedFile = firmwareMap[latestKey].file;
+                            matchedVersion = firmwareMap[latestKey].version;
+                        }
+                    }
+                }
+
+                return {
+                    id: `announcement_${r.announcement_id}`,
+                    type: 'announcement',
+                    title: r.title,
+                    message: r.message,
+                    severity: 'normal',
+                    timestamp: r.timestamp,
+                    status: 'Sent',
+                    patientName: null,
+                    isFirmwareUpdate,
+                    downloadUrl: isFirmwareUpdate && matchedFile ? `/uploads/firmware/${matchedFile}` : null,
+                    firmwareVersion: isFirmwareUpdate ? matchedVersion : null
+                };
+            })
         ];
 
         // Sort latest to oldest
@@ -688,23 +807,77 @@ router.put('/archive-unified-bulk', async (req, res) => {
 
         const clinicalIds = [];
         const systemIds = [];
+        const scheduleIds = [];
         
         for (const combinedId of ids) {
             if (combinedId.startsWith('clinical_')) {
                 clinicalIds.push(parseInt(combinedId.replace('clinical_', '')));
             } else if (combinedId.startsWith('system_')) {
                 systemIds.push(parseInt(combinedId.replace('system_', '')));
+            } else if (combinedId.startsWith('schedule_')) {
+                scheduleIds.push(parseInt(combinedId.replace('schedule_', '')));
+            }
+        }
+ 
+        const actorId = req.user ? req.user.id : null;
+        const queries = [];
+
+        if (clinicalIds.length > 0) {
+            const detailsRes = await pool.query(
+                `SELECT a.alert_id, a.alert_category, a.message, p.facility_id, p.name as patient_name
+                 FROM alert_notifications a
+                 LEFT JOIN anomaly_events e ON a.event_id = e.event_id
+                 LEFT JOIN patients p ON e.patient_id = p.patient_id
+                 WHERE a.alert_id = ANY($1)`,
+                [clinicalIds]
+            );
+            queries.push(pool.query(`UPDATE alert_notifications SET status = 'Archived' WHERE alert_id = ANY($1)`, [clinicalIds]));
+            for (const row of detailsRes.rows) {
+                queries.push(pool.query(
+                    `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+                     VALUES ('Clinical Alert', $1, $2, $3, NOW(), 'Archived', $4)`,
+                    [row.alert_id.toString(), `${row.patient_name || 'System'} - ${row.alert_category || 'Clinical Alert'}: ${row.message || ''}`.substring(0, 255), actorId, row.facility_id]
+                ));
             }
         }
 
-        const queries = [];
-        if (clinicalIds.length > 0) {
-            queries.push(pool.query(`UPDATE alert_notifications SET status = 'Archived' WHERE alert_id = ANY($1)`, [clinicalIds]));
-        }
         if (systemIds.length > 0) {
+            const detailsRes = await pool.query(
+                `SELECT h.sys_alert_id, h.description, p.facility_id, p.name as patient_name
+                 FROM hardware_system_alerts h
+                 LEFT JOIN patients p ON h.patient_id = p.patient_id
+                 WHERE h.sys_alert_id = ANY($1)`,
+                [systemIds]
+            );
             queries.push(pool.query(`UPDATE hardware_system_alerts SET status = 'Archived' WHERE sys_alert_id = ANY($1)`, [systemIds]));
+            for (const row of detailsRes.rows) {
+                queries.push(pool.query(
+                    `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+                     VALUES ('System Alert', $1, $2, $3, NOW(), 'Archived', $4)`,
+                    [row.sys_alert_id.toString(), `${row.patient_name || 'System'} - Hardware: ${row.description || ''}`.substring(0, 255), actorId, row.facility_id]
+                ));
+            }
         }
 
+        if (scheduleIds.length > 0) {
+            const detailsRes = await pool.query(
+                `SELECT s.schedule_id, s.patient_name, s.event_type
+                 FROM schedules s
+                 WHERE s.schedule_id = ANY($1)`,
+                [scheduleIds]
+            );
+            queries.push(pool.query(`UPDATE schedules SET status = 'Archived' WHERE schedule_id = ANY($1)`, [scheduleIds]));
+            for (const row of detailsRes.rows) {
+                const patientCheck = await pool.query('SELECT facility_id FROM patients WHERE LOWER(name) = LOWER($1) LIMIT 1', [row.patient_name]);
+                const schedFacilityId = patientCheck.rows[0]?.facility_id || null;
+                queries.push(pool.query(
+                    `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+                     VALUES ('Schedule', $1, $2, $3, NOW(), 'Archived', $4)`,
+                    [row.schedule_id.toString(), `${row.patient_name} - ${row.event_type}`, actorId, schedFacilityId]
+                ));
+            }
+        }
+ 
         await Promise.all(queries);
         res.json({ success: true, message: 'Notifications archived successfully.' });
     } catch (err) {
@@ -712,5 +885,5 @@ router.put('/archive-unified-bulk', async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to archive notifications.' });
     }
 });
-
+ 
 module.exports = router;

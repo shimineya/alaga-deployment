@@ -36,6 +36,17 @@ import { AddNewDeviceModal } from './AddNewDevice';
 import { ManageCareTeamModal } from './ManageCareTeamModal';
 
 // --- TYPES ---
+interface CaregiverObj {
+    user_id: number;
+    username: string;
+    invite_status: string;
+}
+
+interface DeviceObj {
+    serial_number: string;
+    device_name: string;
+}
+
 interface PatientDB {
     patient_id: number;
     name: string;
@@ -44,6 +55,8 @@ interface PatientDB {
     diaper_device_sn: string | null;
     assigned_caregiver_id: number | null;
     caregiver_name?: string;
+    caregivers?: CaregiverObj[];
+    devices?: DeviceObj[];
 }
 
 interface UnassignedDevice {
@@ -56,6 +69,132 @@ interface UnassignedDevice {
 interface AssignmentTrackerProps {
     onRefresh?: () => void;
 }
+
+// Expandable device list renderer component
+const RenderLinkedDevices = ({ patient }: { patient: PatientDB }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const devicesList = patient.devices || [];
+
+    let displayDevices = [...devicesList];
+    if (displayDevices.length === 0) {
+        if (patient.vital_device_sn) {
+            displayDevices.push({ serial_number: patient.vital_device_sn, device_name: 'Vital Sign Monitor' });
+        }
+        if (patient.diaper_device_sn) {
+            displayDevices.push({ serial_number: patient.diaper_device_sn, device_name: 'Smart Diaper Module' });
+        }
+    }
+
+    if (displayDevices.length === 0) {
+        return <span className="text-[10px] text-slate-400 italic">No Devices Linked</span>;
+    }
+
+    const firstDevice = displayDevices[0];
+    const restDevices = displayDevices.slice(1);
+
+    const renderDeviceBadge = (d: DeviceObj) => {
+        const isDiaper = d.device_name.toLowerCase().includes('diaper') || d.serial_number.startsWith('SD');
+        const badgeBg = isDiaper ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-rose-50 text-rose-700 border-rose-100';
+        return (
+            <Badge key={d.serial_number} variant="secondary" className={`w-fit font-mono text-[10px] ${badgeBg}`}>
+                <Smartphone className="w-3 h-3 mr-1" />
+                {d.serial_number}
+            </Badge>
+        );
+    };
+
+    return (
+        <div className="flex flex-col gap-1">
+            {renderDeviceBadge(firstDevice)}
+            {restDevices.length > 0 && (
+                <>
+                    {isExpanded && (
+                        <div className="flex flex-col gap-1 mt-1 animate-in fade-in duration-200">
+                            {restDevices.map(renderDeviceBadge)}
+                        </div>
+                    )}
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="text-[10px] text-teal-600 hover:text-teal-800 font-semibold w-fit mt-0.5 cursor-pointer focus:outline-none bg-transparent border-none p-0"
+                    >
+                        {isExpanded ? 'Show less' : `+ ${restDevices.length} more`}
+                    </button>
+                </>
+            )}
+        </div>
+    );
+};
+
+// Expandable caregiver list renderer component
+const RenderCaregiver = ({ patient, openAssignCaregiver }: { patient: PatientDB, openAssignCaregiver: (pId: number, pName: string) => void }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const caregiversList = patient.caregivers || [];
+
+    let displayCaregivers = [...caregiversList];
+    if (displayCaregivers.length === 0 && patient.assigned_caregiver_id) {
+        displayCaregivers.push({
+            user_id: patient.assigned_caregiver_id,
+            username: patient.caregiver_name || `ID: ${patient.assigned_caregiver_id}`,
+            invite_status: 'Active'
+        });
+    }
+
+    if (displayCaregivers.length === 0) {
+        return (
+            <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs text-slate-400 hover:text-teal-600 hover:bg-teal-50"
+                onClick={() => openAssignCaregiver(patient.patient_id, patient.name)}
+            >
+                <UserPlus className="w-3 h-3 mr-1" /> Assign
+            </Button>
+        );
+    }
+
+    const firstCaregiver = displayCaregivers[0];
+    const restCaregivers = displayCaregivers.slice(1);
+
+    const renderCaregiverRow = (c: CaregiverObj) => {
+        let badgeBg = "bg-emerald-100 text-emerald-700";
+        if (c.invite_status === 'Pending') {
+            badgeBg = "bg-amber-100 text-amber-700";
+        } else if (c.invite_status === 'Declined') {
+            badgeBg = "bg-red-100 text-red-700";
+        }
+        return (
+            <div key={c.user_id} className="flex items-center gap-1.5 text-slate-600 text-xs">
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${badgeBg}`}>
+                    C
+                </div>
+                <span>
+                    {c.username}{c.invite_status === 'Pending' && ' (Pending)'}{c.invite_status === 'Declined' && ' (Declined)'}
+                </span>
+            </div>
+        );
+    };
+
+    return (
+        <div className="flex flex-col gap-1.5">
+            {renderCaregiverRow(firstCaregiver)}
+            {restCaregivers.length > 0 && (
+                <>
+                    {isExpanded && (
+                        <div className="flex flex-col gap-1.5 mt-1 animate-in fade-in duration-200">
+                            {restCaregivers.map(renderCaregiverRow)}
+                        </div>
+                    )}
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="text-[10px] text-teal-600 hover:text-teal-800 font-semibold w-fit mt-0.5 cursor-pointer focus:outline-none bg-transparent border-none p-0"
+                    >
+                        {isExpanded ? 'Show less' : `+ ${restCaregivers.length} more`}
+                    </button>
+                </>
+            )}
+        </div>
+    );
+};
 
 export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh }) => {
     const { token } = useAuth();
@@ -121,50 +260,50 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
 
     // --- ACTIONS ---
 
-const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') => {
-    try {
-        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-device`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ type })
-        });
+    const handleUnlinkDevice = async (patientId: number, type: 'vital' | 'diaper') => {
+        try {
+            const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-device`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ type })
+            });
 
-        const data = await response.json();
-        if (data.success) {
-            toast.success("Device unlinked successfully");
-            fetchData();
-            if (onRefresh) onRefresh();
-        } else {
-            toast.error(data.message || "Failed to unlink device");
+            const data = await response.json();
+            if (data.success) {
+                toast.success("Device unlinked successfully");
+                fetchData();
+                if (onRefresh) onRefresh();
+            } else {
+                toast.error(data.message || "Failed to unlink device");
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("Network error during unlink");
         }
-    } catch (error) {
-        console.error(error);
-        toast.error("Network error during unlink");
-    }
-};
+    };
 
-const handleUnlinkCaregiver = async (patientId: number) => {
-    try {
-        const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-caregiver`, {
-            method: 'PUT',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+    const handleUnlinkCaregiver = async (patientId: number) => {
+        try {
+            const response = await fetch(`${API_URL}/api/caregiver/patients/${patientId}/unlink-caregiver`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
 
-        const data = await response.json();
-        if (data.success) {
-            toast.success("Caregiver removed from patient");
-            fetchData();
-            if (onRefresh) onRefresh();
-        } else {
-            toast.error("Failed to remove caregiver");
+            const data = await response.json();
+            if (data.success) {
+                toast.success("Caregiver removed from patient");
+                fetchData();
+                if (onRefresh) onRefresh();
+            } else {
+                toast.error("Failed to remove caregiver");
+            }
+        } catch (error) {
+            toast.error("Network error");
         }
-    } catch (error) {
-        toast.error("Network error");
-    }
-};
+    };
 
     const openAssignDevice = (pId: number, pName: string) => {
         setSelectedPatientId(pId);
@@ -219,8 +358,8 @@ const handleUnlinkCaregiver = async (patientId: number) => {
                         <LinkIcon className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800 leading-tight">Assignment Command Center</h2>
-                        <p className="text-xs text-slate-500">Manage patient-device pairings</p>
+                        <h2 className="text-lg font-bold text-slate-800 leading-tight">Device and User Assignments</h2>
+                        <p className="text-xs text-slate-500">Manage patient-device pairings and patient-caregiver/medical staff assignments.</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -280,47 +419,10 @@ const handleUnlinkCaregiver = async (patientId: number) => {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3">
-                                                <div className="flex flex-col gap-1.5">
-                                                    {row.vital_device_sn ? (
-                                                        <Badge variant="secondary" className="w-fit font-mono text-[10px] bg-rose-50 text-rose-700 border-rose-100">
-                                                            <Smartphone className="w-3 h-3 mr-1" />
-                                                            {row.vital_device_sn}
-                                                        </Badge>
-                                                    ) : (
-                                                        <span className="text-[10px] text-slate-400 italic">No Vital Monitor</span>
-                                                    )}
-
-                                                    {row.diaper_device_sn ? (
-                                                        <Badge variant="secondary" className="w-fit font-mono text-[10px] bg-blue-50 text-blue-700 border-blue-100">
-                                                            <Smartphone className="w-3 h-3 mr-1" />
-                                                            {row.diaper_device_sn}
-                                                        </Badge>
-                                                    ) : (
-                                                        <span className="text-[10px] text-slate-400 italic">No Smart Diaper</span>
-                                                    )}
-                                                </div>
+                                                <RenderLinkedDevices patient={row} />
                                             </td>
                                             <td className="px-4 py-3">
-                                                {row.assigned_caregiver_id ? (
-                                                    <div className="flex items-center gap-1.5 text-slate-600">
-                                                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-700">
-                                                            C
-                                                        </div>
-                                                        <span className="text-xs">
-                                                            {/* @ts-ignore - DB returns assigned_caregiver_name */}
-                                                            {row.assigned_caregiver_name || `ID: ${row.assigned_caregiver_id}`}
-                                                        </span>
-                                                    </div>
-                                                ) : (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-6 text-xs text-slate-400 hover:text-teal-600 hover:bg-teal-50"
-                                                        onClick={() => openAssignCaregiver(row.patient_id, row.name)}
-                                                    >
-                                                        <UserPlus className="w-3 h-3 mr-1" /> Assign
-                                                    </Button>
-                                                )}
+                                                <RenderCaregiver patient={row} openAssignCaregiver={openAssignCaregiver} />
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 <DropdownMenu>

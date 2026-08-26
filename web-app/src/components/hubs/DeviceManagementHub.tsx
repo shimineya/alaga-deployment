@@ -39,14 +39,15 @@ export default function DeviceManagementHub() {
     const canSeeAddDevice      = hasPermission('add-device',     isClinical || isFacilityAdmin || isAdminTier) && !['caregiver', 'medical_staff', 'parent'].includes(role);
     const canSeeDiagnostics    = hasPermission('diagnostics',    isFacilityAdmin || isAdminTier);
     const canSeeTopologyAndOTA = hasPermission('topology',       isAdminTier);
-
-    const canSeeAssignDevice = isFacilityAdmin || isAdminTier;
-
-    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, canSeeAssignDevice].filter(Boolean).length;
+    const canSeeAssignDevice   = hasPermission('assign-device',  isFacilityAdmin || isAdminTier);
+    const canSeeSysAssignment  = hasPermission('sys-device-assignment', isAdminTier);
+ 
+    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, canSeeAssignDevice, canSeeSysAssignment].filter(Boolean).length;
     
     let defaultTab = 'my-devices';
     if (!canSeeMyDevices) {
         if (canSeeAssignDevice) defaultTab = 'assign-device';
+        else if (canSeeSysAssignment) defaultTab = 'sys-device-assignment';
         else if (canSeeDiagnostics) defaultTab = 'diagnostics';
         else if (canSeeTopologyAndOTA) defaultTab = 'topology';
     }
@@ -159,7 +160,7 @@ export default function DeviceManagementHub() {
                                 </Tooltip>
                             )}
 
-                            {isSystemAdmin && (
+                            {canSeeSysAssignment && (
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <TabsTrigger 
@@ -215,7 +216,7 @@ export default function DeviceManagementHub() {
                     </TabsContent>
                 )}
 
-                {isSystemAdmin && (
+                {canSeeSysAssignment && (
                     <TabsContent value="sys-device-assignment" className="mt-0 flex-1 min-h-[500px] outline-none">
                         <SystemAdminDeviceAssignment />
                     </TabsContent>

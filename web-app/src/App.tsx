@@ -22,6 +22,7 @@ import AlertsHub from './components/hubs/AlertsHub';
 import ReportsHub from './components/hubs/ReportsHub';
 import SettingsHub from './components/hubs/SettingsHub';
 import AssignmentCommandCenter from './components/AssignmentCommandCenter';
+import ArchiveHub from './components/hubs/ArchiveHub';
 
 // [OWASP A01] Role-Based Route Guard
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -107,6 +108,9 @@ function AppContent() {
 
         {/* Reports Hub: /reports — Clinical + SysAdmin */}
         <Route path="/reports" element={<ReportsHub />} />
+
+        {/* Archive Hub: /archives — SysAdmin + Facility Admin */}
+        <Route path="/archives" element={<ArchiveHub />} />
 
         {/* Settings Hub: /settings — All authenticated roles */}
         <Route path="/settings" element={<SettingsHub />} />

@@ -18,13 +18,17 @@ export const MODULE_REGISTRY: { group: string; modules: { id: string; label: str
         modules: [
             { id: 'my-patients', label: 'Patient Roster', description: 'View the list of assigned patients.' },
             { id: 'add-patient', label: 'Admission / Onboarding', description: 'Register new patients into the system.' },
+            { id: 'patients-registered-assigned', label: 'Patients Registered and Assigned', description: 'View and manage all registered patients.' },
+            { id: 'unassigned-patients', label: 'Unassigned Patients', description: 'Manage patients without caregiver assignments.' },
         ]
     },
     {
         group: 'Device Management Hub',
         modules: [
             { id: 'device-status', label: "Patients' Devices", description: 'View sensors assigned to this user\'s patients.' },
-            { id: 'add-device', label: 'Add New Device', description: 'Pair a new ESP32 sensor to the system.' },
+            { id: 'add-device', label: 'Add New Device', description: 'Pair a new ESP32 sensor to the system whitelists.' },
+            { id: 'assign-device', label: 'Assign Device to Patient', description: 'Pair Smart Diaper or Vital Signs devices to a patient.' },
+            { id: 'sys-device-assignment', label: 'System-wide Device Assignment', description: 'Manage device linkages and assignments across all patients.' },
             { id: 'diagnostics', label: 'Ward Diagnostics', description: 'Network stability and battery health matrix.' },
             { id: 'topology', label: 'Network Topology', description: 'Build and manage facility hardware topology.' },
             { id: 'firmware-ota', label: 'Firmware OTA Updates', description: 'Push over-the-air updates to ESP32 devices.' },
@@ -99,7 +103,7 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
 
     return {
         // --- Dashboard (Overview Hub) ---
-        'dashboard':               true,
+        'dashboard':               isAdminTier,
         'facility-dashboard':      isFacilityAdmin || isAdminTier,
         'caregiver-dashboard':     isClinical || isAdminTier,
 
@@ -110,6 +114,8 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         // Backend guard: caregiverRoutes.js /patients/new allows admin | medical_staff | parent.
         'my-patients':             isClinical || isAdminTier,
         'add-patient':             isFacilityAdmin || isParent || isClinical || isAdminTier,
+        'patients-registered-assigned': isFacilityAdmin || isAdminTier,
+        'unassigned-patients':     isFacilityAdmin || isAdminTier,
 
         // --- Device Management Hub ---
         // DeviceManagementHub: canSeeMyDevices   = isClinical || isFacilityAdmin || isAdminTier
@@ -119,6 +125,8 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         //                      canSeeOTA         = isAdminTier (same flag as topology)
         'device-status':           isClinical || isFacilityAdmin || isAdminTier,
         'add-device':              isClinical || isFacilityAdmin || isAdminTier,
+        'assign-device':           isFacilityAdmin || isAdminTier,
+        'sys-device-assignment':   isAdminTier,
         'diagnostics':             isFacilityAdmin || isAdminTier,
         'topology':                isAdminTier,
         'firmware-ota':            isAdminTier,

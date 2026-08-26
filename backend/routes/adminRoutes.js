@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { verifyToken, verifyAdmin } = require('../middleware/authMiddleware');
+const { verifyToken, verifyAdmin, verifySuperAdmin } = require('../middleware/authMiddleware');
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
 
@@ -484,7 +484,7 @@ router.get('/patients/active', async (req, res) => {
 // =================================================================
 
 // 1. Generate Full System Backup (JSON Snapshot)
-router.get('/backup', async (req, res) => {
+router.get('/backup', verifySuperAdmin, async (req, res) => {
     try {
         // Fetch data from all critical tables in parallel
         const [users, patients, devices, logs, configs] = await Promise.all([
@@ -527,7 +527,7 @@ router.get('/backup', async (req, res) => {
 });
 
 // 2. Toggle Maintenance Mode
-router.post('/maintenance', async (req, res) => {
+router.post('/maintenance', verifySuperAdmin, async (req, res) => {
     try {
         const { enabled } = req.body; // true or false
 
@@ -611,10 +611,26 @@ router.post('/announcements', async (req, res) => {
 });
 
 router.delete('/announcements/:id', async (req, res) => {
+    const { id } = req.params;
+    const actorId = req.user ? req.user.id : null;
     try {
-        await pool.query("DELETE FROM announcements WHERE id = $1", [req.params.id]);
-        res.json({ success: true, message: "Announcement Deleted" });
+        const check = await pool.query('SELECT title FROM announcements WHERE id = $1', [id]);
+        if (check.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Announcement not found' });
+        }
+        const announcement = check.rows[0];
+
+        await pool.query("UPDATE announcements SET is_archived = true, is_active = false WHERE id = $1", [id]);
+
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Announcement', $1, $2, $3, NOW(), 'Archived', NULL)`,
+            [id.toString(), announcement.title, actorId]
+        );
+
+        res.json({ success: true, message: "Announcement archived successfully" });
     } catch (err) {
+        console.error("Archive announcement error:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });

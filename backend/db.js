@@ -21,6 +21,24 @@ pool.connect((err, client, release) => {
     console.error('❌ [System Error] Error acquiring client', err.stack);
   } else {
     console.log(`✅ Connected to PostgreSQL Database (Alaga DB) via ${process.env.DATABASE_URL ? 'Cloud URL' : 'Local Credentials'}`);
+    
+    // Auto-migration: Create preferences column on users table if it does not exist
+    pool.query(`
+      ALTER TABLE public.users 
+      ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}'::jsonb
+    `).catch(err => console.error('Failed to run users preferences migration:', err));
+
+    // Auto-migration: Create details column on access_logs table if it does not exist
+    pool.query(`
+      ALTER TABLE public.access_logs 
+      ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb
+    `).catch(err => console.error('Failed to run access_logs details migration:', err));
+
+    // Auto-migration: Create details column on archives table if it does not exist
+    pool.query(`
+      ALTER TABLE public.archives 
+      ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb
+    `).catch(err => console.error('Failed to run archives details migration:', err));
   }
   if (release) release();
 });

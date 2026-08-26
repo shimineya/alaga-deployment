@@ -31,12 +31,17 @@ export default function PatientRecordsHub() {
     // Hide roster for System Admin
     const canSeeRoster      = !isAdminTier && hasPermission('my-patients',  isClinical || isAdminTier);
     const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isParent || isAdminTier);
-    const showRegistryTabs  = isAdminTier || isFacilityAdmin;
-
-    const tabCount = [canSeeRoster, canSeeOnboarding, showRegistryTabs].filter(Boolean).length;
+    const canSeeAssigned    = hasPermission('patients-registered-assigned', isFacilityAdmin || isAdminTier);
+    const canSeeUnassigned  = hasPermission('unassigned-patients', isFacilityAdmin || isAdminTier);
+ 
+    const tabCount = [canSeeRoster, canSeeOnboarding, canSeeAssigned, canSeeUnassigned].filter(Boolean).length;
     
     let defaultTab = 'roster';
-    if (!canSeeRoster && (canSeeOnboarding || showRegistryTabs)) defaultTab = 'onboarding';
+    if (!canSeeRoster) {
+        if (canSeeOnboarding) defaultTab = 'onboarding';
+        else if (canSeeAssigned) defaultTab = 'sys-assigned';
+        else if (canSeeUnassigned) defaultTab = 'sys-unassigned';
+    }
 
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
@@ -84,36 +89,36 @@ export default function PatientRecordsHub() {
                                     </Tooltip>
                                 )}
 
-                                {showRegistryTabs && (
-                                    <>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <TabsTrigger 
-                                                    value="sys-assigned" 
-                                                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                                >
-                                                    <Users className="w-4 h-4" /> Patients Registered and Assigned
-                                                </TabsTrigger>
-                                            </TooltipTrigger>
-                                            <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl">
-                                                <p className="text-xs">View and manage all registered patients.</p>
-                                            </TooltipContent>
-                                        </Tooltip>
-
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <TabsTrigger 
-                                                    value="sys-unassigned" 
-                                                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                                >
-                                                    <UserCheck className="w-4 h-4" /> Unassigned Patients
-                                                </TabsTrigger>
-                                            </TooltipTrigger>
-                                            <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl">
-                                                <p className="text-xs">Manage patients without caregiver assignments.</p>
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </>
+                                {canSeeAssigned && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <TabsTrigger 
+                                                value="sys-assigned" 
+                                                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                            >
+                                                <Users className="w-4 h-4" /> Patients Registered and Assigned
+                                            </TabsTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl">
+                                            <p className="text-xs">View and manage all registered patients.</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )}
+ 
+                                {canSeeUnassigned && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <TabsTrigger 
+                                                value="sys-unassigned" 
+                                                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                            >
+                                                <UserCheck className="w-4 h-4" /> Unassigned Patients
+                                            </TabsTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl">
+                                            <p className="text-xs">Manage patients without caregiver assignments.</p>
+                                        </TooltipContent>
+                                    </Tooltip>
                                 )}
                             </TabsList>
                         </TooltipProvider>
@@ -135,16 +140,16 @@ export default function PatientRecordsHub() {
                         </TabsContent>
                     )}
 
-                    {showRegistryTabs && (
-                        <>
-                            <TabsContent value="sys-assigned" className="mt-0 flex-1 min-h-[500px] outline-none">
-                                <SystemAdminPatientDirectory mode="assigned" />
-                            </TabsContent>
-
-                            <TabsContent value="sys-unassigned" className="mt-0 flex-1 min-h-[500px] outline-none">
-                                <SystemAdminPatientDirectory mode="unassigned" />
-                            </TabsContent>
-                        </>
+                    {canSeeAssigned && (
+                        <TabsContent value="sys-assigned" className="mt-0 flex-1 min-h-[500px] outline-none">
+                            <SystemAdminPatientDirectory mode="assigned" />
+                        </TabsContent>
+                    )}
+ 
+                    {canSeeUnassigned && (
+                        <TabsContent value="sys-unassigned" className="mt-0 flex-1 min-h-[500px] outline-none">
+                            <SystemAdminPatientDirectory mode="unassigned" />
+                        </TabsContent>
                     )}
                 </Tabs>
             </BreakGlassWrapper>

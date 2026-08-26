@@ -15,7 +15,8 @@ import {
   LogOut,
   UserCircle,
   Lock,
-  Link
+  Link,
+  Archive
 } from 'lucide-react';
 
 export default function AppSidebar() {
@@ -153,7 +154,8 @@ export default function AppSidebar() {
   const canSeeAlerts     = hasPermission('alerts')        || hasPermission('alert-config');
   const canSeeReports    = hasPermission('reports');
   const canSeeSettings   = true;
-
+  const canSeeArchives   = isAdminTier || isFacilityAdmin;
+ 
   const navItems = [
     { label: t('Dashboard', 'Dashboard'),        path: '/dashboard', icon: LayoutDashboard, visible: canSeeDashboard },
     { label: t('Assignment Command Center', 'Assignment Command Center'), path: '/assignments', icon: Link, visible: canSeeAssignmentCommandCenter, hasDot: hasPendingInvites },
@@ -163,6 +165,7 @@ export default function AppSidebar() {
     { label: t('Security & Access', 'Seguridad at Akses'),path: '/security',  icon: Lock,            visible: canSeeSecurity },
     { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts, hasDot: hasUnreadAlerts },
     { label: t('Clinical Reports', 'Mga Klinikal na Ulat'), path: '/reports',   icon: ActivitySquare,  visible: canSeeReports },
+    { label: t('Archive Hub', 'Hub ng Archive'),        path: '/archives',  icon: Archive,         visible: canSeeArchives },
     { label: t('System Settings', 'Mga Setting ng System'),  path: '/settings',  icon: Settings,        visible: canSeeSettings },
   ];
 

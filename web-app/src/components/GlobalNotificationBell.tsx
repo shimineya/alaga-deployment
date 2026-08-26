@@ -3,26 +3,40 @@ import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Bell, Droplets, Activity, Wifi, AlertTriangle, Check, X, Megaphone, Trash2 } from 'lucide-react';
+import { Bell, Droplets, Activity, Wifi, AlertTriangle, Check, X, Megaphone, Trash2, Calendar, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 interface UnifiedNotification {
   id: string;
-  type: 'clinical' | 'system' | 'announcement';
+  type: 'clinical' | 'system' | 'announcement' | 'schedule';
   title: string;
   message: string;
   severity: 'critical' | 'warning' | 'normal';
   timestamp: string;
   status: string;
   patientName?: string | null;
+  isFirmwareUpdate?: boolean;
+  downloadUrl?: string | null;
+  firmwareVersion?: string | null;
 }
 
 export function GlobalNotificationBell() {
   const { user } = useAuth();
   const { t } = useCaregiverLanguage();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [archivedBroadcasts, setArchivedBroadcasts] = useState<string[]>([]);
+
+  const handleNotificationClick = (notif: UnifiedNotification) => {
+    setIsOpen(false);
+    if (notif.type === 'clinical' || notif.type === 'system') {
+      navigate('/alerts', { state: { selectedAlertId: notif.id } });
+    } else if (notif.type === 'schedule') {
+      navigate('/dashboard');
+    }
+  };
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -89,6 +103,9 @@ export function GlobalNotificationBell() {
   });
 
   const handleArchive = async (id: string) => {
+    if (!window.confirm("Are you sure you want to archive this notification?")) {
+      return;
+    }
     if (id.startsWith('announcement_')) {
       const newArchived = [...archivedBroadcasts, id];
       setArchivedBroadcasts(newArchived);
@@ -120,6 +137,9 @@ export function GlobalNotificationBell() {
   };
 
   const handleArchiveAll = async () => {
+    if (!window.confirm("Are you sure you want to archive all notifications?")) {
+      return;
+    }
     const idsToArchiveDb: string[] = [];
     const localArchivedBroadcasts = [...archivedBroadcasts];
 
@@ -168,6 +188,8 @@ export function GlobalNotificationBell() {
         return <Megaphone className="w-4 h-4 text-blue-500" />;
       case 'system':
         return <Wifi className="w-4 h-4 text-amber-500" />;
+      case 'schedule':
+        return <Calendar className="w-4 h-4 text-indigo-500" />;
       default:
         return severity === 'critical' ? (
           <AlertTriangle className="w-4 h-4 text-rose-500 animate-pulse" />
@@ -240,7 +262,11 @@ export function GlobalNotificationBell() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {activeNotifications.map((notif) => (
-                  <div key={notif.id} className="p-3 hover:bg-slate-50/50 transition-colors flex items-start gap-2.5">
+                  <div 
+                    key={notif.id} 
+                    onClick={() => handleNotificationClick(notif)}
+                    className="p-3 hover:bg-slate-50/50 transition-colors flex items-start gap-2.5 cursor-pointer"
+                  >
                     <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 mt-0.5">
                       {getIcon(notif.type, notif.severity)}
                     </div>
@@ -255,9 +281,22 @@ export function GlobalNotificationBell() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed break-words">
+                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed break-words font-medium">
                         {notif.message}
                       </p>
+                      
+                      {notif.type === 'announcement' && notif.isFirmwareUpdate && notif.downloadUrl && (
+                        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                          <a
+                            href={`${API_BASE}${notif.downloadUrl}`}
+                            download
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold transition shadow-sm w-fit cursor-pointer"
+                          >
+                            <Download className="w-2.5 h-2.5" /> Download Update ({notif.firmwareVersion || 'Latest'})
+                          </a>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between mt-1.5">
                         <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
                           {notif.patientName && (
@@ -269,7 +308,7 @@ export function GlobalNotificationBell() {
                           <span>{formatTime(notif.timestamp)}</span>
                         </div>
                         <button
-                          onClick={() => handleArchive(notif.id)}
+                          onClick={(e) => { e.stopPropagation(); handleArchive(notif.id); }}
                           className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
                           title={t('Archive notification', 'I-archive ang notipikasyon')}
                         >

@@ -86,17 +86,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const originalFetch = window.fetch;
     window.fetch = async (...args) => {
+      const url = typeof args[0] === 'string' ? args[0] : '';
+      const isLoginRequest = url.toLowerCase().includes('/api/auth/login') || url.toLowerCase().includes('/login');
+ 
       const response = await originalFetch(...args);
-      if (response.status === 401) {
-        const cloned = response.clone();
-        try {
-          const body = await cloned.json();
-          if (body.message && body.message.toLowerCase().includes('session has been terminated')) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
-          }
-        } catch { /* non-JSON response, ignore */ }
+      if (response.status === 503 || (response.status === 401 && !isLoginRequest)) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
       }
       return response;
     };

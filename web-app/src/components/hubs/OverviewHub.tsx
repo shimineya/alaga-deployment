@@ -10,20 +10,28 @@ import { CaregiverDashboardNew } from '../CaregiverDashboardNew';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 
 export default function OverviewHub() {
-    const { user } = useAuth();
+    const { user, permissions, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
 
     // Authorization Flags
-    const isSysAdmin = ['system_admin', 'admin', 'sysadmin'].includes(role);
+    const isAdminTier = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
     // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
     // Parents land on the Caregiver Dashboard (live patient vitals for their child).
     const isClinical = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
+    const hasPermission = (moduleId: string, roleDefault: boolean): boolean => {
+        if (isAdminTier) return true;
+        if (Object.prototype.hasOwnProperty.call(permissions, moduleId)) {
+            return permissions[moduleId];
+        }
+        return roleDefault;
+    };
+
     // Visibility Logic
-    const canSeeGlobal = isSysAdmin;
-    const canSeeFacility = isFacilityAdmin || isSysAdmin;
-    const canSeeCareView = isClinical || isSysAdmin;
+    const canSeeGlobal = hasPermission('dashboard', isAdminTier);
+    const canSeeFacility = hasPermission('facility-dashboard', isFacilityAdmin || isAdminTier);
+    const canSeeCareView = hasPermission('caregiver-dashboard', isClinical || isAdminTier);
 
     // Count tabs to gracefully degrade TabsList
     const tabCount = [canSeeGlobal, canSeeFacility, canSeeCareView].filter(Boolean).length;

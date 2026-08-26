@@ -19,8 +19,10 @@ import {
     Mail,
     Send
 } from "lucide-react";
+import { useAuth } from "../../lib/auth-context";
 
 export default function SystemSettings() {
+    const { isSysAdmin } = useAuth();
     const [loading, setLoading] = useState(false);
 
     // --- States ---
@@ -59,6 +61,20 @@ Emergency "break-glass" access overrides must be justified. User audits store on
     // 4. Email Config (New)
     const [smtp, setSmtp] = useState({ host: "smtp.gmail.com", port: 587, user: "", pass: "" });
     const [testEmail, setTestEmail] = useState("");
+    const [firmwareVersions, setFirmwareVersions] = useState<any[]>([]);
+    const [selectedFirmware, setSelectedFirmware] = useState("");
+
+    const handleSelectFirmwareChange = (key: string) => {
+        setSelectedFirmware(key);
+        if (!key) return;
+        const firmware = firmwareVersions.find(f => f.key === key);
+        if (firmware) {
+            setNewAnnouncement({
+                title: `Firmware Update Available: ${firmware.name} (${firmware.version})`,
+                message: `An important software update is available for patient monitoring devices. \nFeatures included:\n- ${firmware.features}\n\nDownload file: ${firmware.file}`
+            });
+        }
+    };
 
     // --- Initial Data Fetching ---
     const fetchAnnouncements = async () => {
@@ -121,6 +137,17 @@ Emergency "break-glass" access overrides must be justified. User audits store on
 
                 // 4. Fetch Announcements
                 await fetchAnnouncements();
+
+                // 5. Fetch Firmware versions
+                try {
+                    const fwRes = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/sysadmin/firmware/versions`, { headers });
+                    const fwData = await fwRes.json();
+                    if (fwData.success && Array.isArray(fwData.data)) {
+                        setFirmwareVersions(fwData.data);
+                    }
+                } catch (fwErr) {
+                    console.error("Failed to load firmware versions:", fwErr);
+                }
 
             } catch (err) {
                 console.error(err);
@@ -256,6 +283,7 @@ Emergency "break-glass" access overrides must be justified. User audits store on
             });
             toast.success("Broadcast Sent");
             setNewAnnouncement({ title: "", message: "" });
+            setSelectedFirmware("");
             fetchAnnouncements();
         } catch (err) {
             toast.error("Failed to post announcement");
@@ -331,12 +359,14 @@ const deleteAnnouncement = async (id: number) => {
                         <FileText className="w-4 h-4 mr-2" /> Legal
                     </TabsTrigger>
 
-                    <TabsTrigger
-                        value="maintenance"
-                        className="flex-1 min-w-[140px] data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-amber-700"
-                    >
-                        <Database className="w-4 h-4 mr-2" /> Recovery
-                    </TabsTrigger>
+                    {isSysAdmin && (
+                        <TabsTrigger
+                            value="maintenance"
+                            className="flex-1 min-w-[140px] data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-amber-700"
+                        >
+                            <Database className="w-4 h-4 mr-2" /> Recovery
+                        </TabsTrigger>
+                    )}
 
                     <TabsTrigger
                         value="broadcast"
@@ -436,8 +466,9 @@ const deleteAnnouncement = async (id: number) => {
                 </TabsContent>
 
                 {/* --- TAB 3: MAINTENANCE --- */}
-                <TabsContent value="maintenance">
-                    <div className="grid gap-6">
+                {isSysAdmin && (
+                    <TabsContent value="maintenance">
+                        <div className="grid gap-6">
                         <Card className="border-l-4 border-l-blue-500">
                             <CardHeader>
                                 <CardTitle>Disaster Recovery</CardTitle>
@@ -465,6 +496,7 @@ const deleteAnnouncement = async (id: number) => {
                         </Card>
                     </div>
                 </TabsContent>
+                )}
 
                 {/* --- TAB 4: BROADCASTS (Fixed Layout) --- */}
                 <TabsContent value="broadcast">
@@ -483,6 +515,22 @@ const deleteAnnouncement = async (id: number) => {
 
                             {/* Added 'pb-8' to ensure button isn't cut off */}
                             <CardContent className="space-y-6 pb-8">
+                                <div className="space-y-2">
+                                    <Label className="font-semibold text-xs text-slate-600">Select Firmware Version to Broadcast (Optional)</Label>
+                                    <select
+                                        value={selectedFirmware}
+                                        onChange={(e) => handleSelectFirmwareChange(e.target.value)}
+                                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                                    >
+                                        <option value="">-- Custom General Announcement --</option>
+                                        {firmwareVersions.map((fw) => (
+                                            <option key={fw.key} value={fw.key}>
+                                                {fw.name} ({fw.version})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 <div className="space-y-2">
                                     <Label className="font-semibold">Announcement Title</Label>
                                     <Input

@@ -464,25 +464,19 @@ router.put('/patients/:id', async (req, res) => {
 router.patch('/patients/:id/archive', async (req, res) => {
     const client = await pool.connect();
     try {
+        // All user roles are permitted to archive data
         const patientId = req.params.id;
         const userId = req.user.id;
-        const { role } = req.user;
 
-        // [OWASP A01] Ownership check
-        if (role !== 'admin' && role !== 'medical_staff' && role !== 'parent') {
-            const accessCheck = await client.query(
-                `SELECT access_level FROM patient_access
-                 WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
-                [patientId, userId]
-            );
-            if (accessCheck.rows.length === 0) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'You do not have permission to archive this patient record.'
-                });
-            }
+        const patientCheck = await client.query('SELECT name, facility_id FROM patients WHERE patient_id = $1', [patientId]);
+        if (patientCheck.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
         }
+        const patientName = patientCheck.rows[0].name;
+        const facilityId = patientCheck.rows[0].facility_id;
 
+        await client.query('BEGIN');
         // [GDPR] Flag as archived (soft delete). The record is retained for the 1-year
         // data retention period mandated by the DPA/GDPR retention policy.
         await client.query(
@@ -490,8 +484,17 @@ router.patch('/patients/:id/archive', async (req, res) => {
             [patientId]
         );
 
+        // Record entry in the archives table
+        await client.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Patient', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [patientId.toString(), patientName, userId, facilityId]
+        );
+
+        await client.query('COMMIT');
         res.json({ success: true, message: 'Patient record archived successfully.' });
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error('Archive Patient Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to archive patient record.' });
     } finally {
@@ -555,7 +558,38 @@ router.get('/patients', async (req, res) => {
                         WHERE sr.patient_id = p.patient_id
                         ORDER BY sr.recorded_at DESC
                         LIMIT 1
-                    ) as latest_telemetry
+                    ) as latest_telemetry,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'invite_status', pa2.invite_status
+                                )
+                            )
+                            FROM patient_access pa2 
+                            JOIN users u ON pa2.user_id = u.user_id 
+                            WHERE pa2.patient_id = p.patient_id 
+                            AND pa2.is_archived IS DISTINCT FROM TRUE
+                            AND u.role IN ('caregiver', 'medical_staff')
+                        ),
+                        '[]'::json
+                    ) as caregivers,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                            AND dw.is_archived IS DISTINCT FROM TRUE
+                        ),
+                        '[]'::json
+                    ) as devices
                 FROM patients p
                 WHERE p.is_archived IS DISTINCT FROM TRUE
                 ORDER BY p.patient_id, p.created_at DESC
@@ -608,7 +642,38 @@ router.get('/patients', async (req, res) => {
                         WHERE sr.patient_id = p.patient_id
                         ORDER BY sr.recorded_at DESC
                         LIMIT 1
-                    ) as latest_telemetry
+                    ) as latest_telemetry,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'invite_status', pa2.invite_status
+                                )
+                            )
+                            FROM patient_access pa2 
+                            JOIN users u ON pa2.user_id = u.user_id 
+                            WHERE pa2.patient_id = p.patient_id 
+                            AND pa2.is_archived IS DISTINCT FROM TRUE
+                            AND u.role IN ('caregiver', 'medical_staff')
+                        ),
+                        '[]'::json
+                    ) as caregivers,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                            AND dw.is_archived IS DISTINCT FROM TRUE
+                        ),
+                        '[]'::json
+                    ) as devices
                 FROM patients p
                 JOIN patient_access pa ON p.patient_id = pa.patient_id
                 WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE AND (pa.invite_status = 'Active' OR pa.invite_status IS NULL)
@@ -1067,40 +1132,32 @@ router.delete('/patients/:id/care-team/:userId', async (req, res) => {
 // [HIPAA] Cascades device unlinking and access revocation inside a transaction.
 //          An audit entry is written to access_logs before deletion.
 // [OWASP A05] Patient ID is a parameterized path variable — never concatenated.
-// ==========================================
 router.delete('/patients/:id', async (req, res) => {
-    // [OWASP A01] Server-side role check — client-side guard is UI-only.
-    if (req.user.role !== 'admin' && req.user.role !== 'parent') {
-        return res.status(403).json({
-            success: false,
-            message: 'Only parent or administrator accounts can remove patients.'
-        });
-    }
-
     const patientId = req.params.id;
     const actorId   = req.user.id;
     const client    = await pool.connect();
 
     try {
         // Verify the patient actually exists before attempting deletion.
-        // [OWASP A05] Parameterized query — no string concatenation.
         const check = await client.query(
-            'SELECT patient_id, name FROM patients WHERE patient_id = $1',
+            'SELECT patient_id, name, facility_id FROM patients WHERE patient_id = $1',
             [patientId]
         );
         if (check.rows.length === 0) {
             client.release();
             return res.status(404).json({ success: false, message: 'Patient record not found.' });
         }
-        const patientName = check.rows[0].name;
+        const patient = check.rows[0];
+        const patientName = patient.name;
+        const facilityId = patient.facility_id;
 
         await client.query('BEGIN');
 
-        // 1. [HIPAA] Write audit trail BEFORE destructive operation.
+        // 1. [HIPAA] Write audit trail before archiving
         await client.query(
             `INSERT INTO access_logs (user_id, action, target_patient_id, resource_affected, details, "timestamp")
-             VALUES ($1, 'DELETE_PATIENT', $2, 'patient', $3::jsonb, NOW())`,
-            [actorId, patientId, JSON.stringify({ removed_patient_name: patientName, actor_id: actorId })]
+             VALUES ($1, 'ARCHIVE_PATIENT', $2, 'patient', $3::jsonb, NOW())`,
+            [actorId, patientId, JSON.stringify({ archived_patient_name: patientName, actor_id: actorId })]
         );
 
         // 2. Unlink all devices assigned to this patient — resets them to AVAILABLE.
@@ -1111,44 +1168,26 @@ router.delete('/patients/:id', async (req, res) => {
             [patientId]
         );
 
-        // 3. Clear device_serial_number on the patient row (defensive — row will be deleted).
+        // 3. Clear device_serial_number on the patient row.
         await client.query(
-            'UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1',
+            'UPDATE patients SET device_serial_number = NULL, is_archived = TRUE, updated_at = NOW() WHERE patient_id = $1',
             [patientId]
         );
 
-        // 4. Revoke all access grants for this patient.
+        // 4. Record entry in the archives table
         await client.query(
-            'DELETE FROM patient_access WHERE patient_id = $1',
-            [patientId]
-        );
-
-        // 5. Remove associated sensor history.
-        await client.query(
-            'DELETE FROM sensor_readings WHERE patient_id = $1',
-            [patientId]
-        );
-
-        // 6. Remove anomaly events tied to this patient.
-        await client.query(
-            'DELETE FROM anomaly_events WHERE patient_id = $1',
-            [patientId]
-        );
-
-        // 7. Hard-delete the patient record.
-        await client.query(
-            'DELETE FROM patients WHERE patient_id = $1',
-            [patientId]
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Patient', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [patientId.toString(), patientName, actorId, facilityId]
         );
 
         await client.query('COMMIT');
-        res.json({ success: true, message: `Patient ${patientName} has been permanently removed.` });
+        res.json({ success: true, message: `Patient ${patientName} has been archived successfully.` });
 
     } catch (err) {
         await client.query('ROLLBACK');
-        // [OWASP A10] Generic error — no internal details exposed to client.
-        console.error('Delete Patient Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to remove patient record.' });
+        console.error('Archive Patient Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive patient record.' });
     } finally {
         client.release();
     }
@@ -1159,16 +1198,7 @@ router.delete('/patients/:id', async (req, res) => {
 // [OWASP A01] Only admin/parent accounts may remove a device from the whitelist.
 // [OWASP A05] Serial number is a parameterized path variable.
 // [HIPAA] Audit entry written before deletion.
-// ==========================================
 router.delete('/devices/:serialNumber', async (req, res) => {
-    // [OWASP A01] Server-side role guard.
-    if (req.user.role !== 'admin' && req.user.role !== 'parent' && req.user.role !== 'facility_admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'Only parent, facility admin, or administrator accounts can remove devices from inventory.'
-        });
-    }
-
     const serialNumber = req.params.serialNumber;
     const actorId      = req.user.id;
     const role         = req.user.role;
@@ -1177,7 +1207,7 @@ router.delete('/devices/:serialNumber', async (req, res) => {
     try {
         // Confirm the device exists.
         const check = await client.query(
-            'SELECT serial_number, device_name, assigned_patient_id FROM device_whitelist WHERE serial_number = $1',
+            'SELECT serial_number, device_name, assigned_patient_id, added_by FROM device_whitelist WHERE serial_number = $1',
             [serialNumber]
         );
         if (check.rows.length === 0) {
@@ -1214,12 +1244,16 @@ router.delete('/devices/:serialNumber', async (req, res) => {
         const device     = check.rows[0];
         const patientId  = device.assigned_patient_id;
 
+        // Resolve facility ID for the archive table
+        const facilityCheck = await client.query('SELECT facility_id FROM users WHERE user_id = $1', [device.added_by || actorId]);
+        const devFacilityId = facilityCheck.rows[0]?.facility_id || null;
+
         await client.query('BEGIN');
 
-        // [HIPAA] Audit trail before deletion.
+        // [HIPAA] Audit trail before archiving.
         await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
-             VALUES ($1, 'DELETE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+             VALUES ($1, 'ARCHIVE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
             [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
         );
 
@@ -1231,20 +1265,26 @@ router.delete('/devices/:serialNumber', async (req, res) => {
             );
         }
 
-        // Hard-delete the device from the whitelist.
+        // Soft-delete the device from the whitelist.
         await client.query(
-            'DELETE FROM device_whitelist WHERE serial_number = $1',
+            "UPDATE device_whitelist SET is_archived = TRUE, status = 'ARCHIVED', assigned_patient_id = NULL WHERE serial_number = $1",
             [serialNumber]
         );
 
+        // Record entry in the archives table
+        await client.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id, details)
+             VALUES ('Device', $1, $2, $3, NOW(), 'Archived', $4, $5::jsonb)`,
+            [serialNumber, device.device_name || serialNumber, actorId, devFacilityId, JSON.stringify({ assigned_patient_id: patientId })]
+        );
+
         await client.query('COMMIT');
-        res.json({ success: true, message: `Device ${serialNumber} has been removed from inventory.` });
+        res.json({ success: true, message: `Device ${serialNumber} has been archived successfully.` });
 
     } catch (err) {
         await client.query('ROLLBACK');
-        // [OWASP A10] Generic error response.
-        console.error('Delete Device Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to remove device from inventory.' });
+        console.error('Archive Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive device from inventory.' });
     } finally {
         client.release();
     }
@@ -1257,16 +1297,7 @@ router.delete('/devices/:serialNumber', async (req, res) => {
 // [GDPR / DPA] Supports Right to Erasure for staff and caregiver accounts.
 // [HIPAA] Audit entry written before deletion.
 // [OWASP A05] userId is a parameterized path variable.
-// ==========================================
 router.delete('/users/:userId', async (req, res) => {
-    // [OWASP A01] Server-side role guard.
-    if (req.user.role !== 'admin' && req.user.role !== 'parent') {
-        return res.status(403).json({
-            success: false,
-            message: 'Only parent or administrator accounts can remove user accounts.'
-        });
-    }
-
     const targetUserId = parseInt(req.params.userId, 10);
     const actorId      = req.user.id;
 
@@ -1283,7 +1314,7 @@ router.delete('/users/:userId', async (req, res) => {
     try {
         // Confirm the target user exists and is not a system_admin.
         const check = await client.query(
-            `SELECT user_id, username, role FROM users WHERE user_id = $1`,
+            `SELECT user_id, username, role, facility_id FROM users WHERE user_id = $1`,
             [targetUserId]
         );
         if (check.rows.length === 0) {
@@ -1304,16 +1335,16 @@ router.delete('/users/:userId', async (req, res) => {
 
         await client.query('BEGIN');
 
-        // [HIPAA] Audit trail before deletion.
+        // [HIPAA] Audit trail before archiving.
         await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
-             VALUES ($1, 'DELETE_USER', 'users', $2::jsonb, NOW())`,
-            [actorId, JSON.stringify({ removed_user_id: targetUserId, removed_username: targetUser.username, role: targetUser.role })]
+             VALUES ($1, 'ARCHIVE_USER', 'users', $2::jsonb, NOW())`,
+            [actorId, JSON.stringify({ archived_user_id: targetUserId, archived_username: targetUser.username, role: targetUser.role })]
         );
 
-        // 1. Revoke all patient access grants for the removed user.
+        // 1. Soft-delete the user account.
         await client.query(
-            'DELETE FROM patient_access WHERE user_id = $1',
+            "UPDATE users SET is_archived = TRUE, account_status = 'Archived' WHERE user_id = $1",
             [targetUserId]
         );
 
@@ -1323,20 +1354,20 @@ router.delete('/users/:userId', async (req, res) => {
             [targetUserId]
         );
 
-        // 3. Hard-delete the user account.
+        // 3. Record entry in the archives table
         await client.query(
-            'DELETE FROM users WHERE user_id = $1',
-            [targetUserId]
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [targetUserId.toString(), targetUser.username, actorId, targetUser.facility_id]
         );
 
         await client.query('COMMIT');
-        res.json({ success: true, message: `User account ${targetUser.username} has been permanently removed.` });
+        res.json({ success: true, message: `User account ${targetUser.username} has been archived successfully.` });
 
     } catch (err) {
         await client.query('ROLLBACK');
-        // [OWASP A10] Generic error — no stack trace exposed to client.
-        console.error('Delete User Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to remove user account.' });
+        console.error('Archive User Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive user account.' });
     } finally {
         client.release();
     }
@@ -1402,12 +1433,7 @@ router.post('/devices/archive', async (req, res) => {
     const actorId = req.user.id;
     const role = req.user.role;
 
-    if (role !== 'admin' && role !== 'parent' && role !== 'facility_admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'Only facility admin, parent or administrator accounts can remove devices from inventory.'
-        });
-    }
+    // All user roles are permitted to archive data
 
     if (!serialNumber) {
         return res.status(400).json({ success: false, message: 'Serial number is required.' });
@@ -1471,10 +1497,21 @@ router.post('/devices/archive', async (req, res) => {
             );
         }
 
-        // Hard-delete the device from the whitelist.
+        // Soft-delete/Archive the device from the whitelist.
         await client.query(
-            'DELETE FROM device_whitelist WHERE serial_number = $1',
+            "UPDATE device_whitelist SET is_archived = TRUE, status = 'ARCHIVED', assigned_patient_id = NULL WHERE serial_number = $1",
             [serialNumber]
+        );
+
+        // Resolve facility ID for the archive table
+        const facilityCheck = await client.query('SELECT facility_id FROM users WHERE user_id = $1', [device.added_by || actorId]);
+        const devFacilityId = facilityCheck.rows[0]?.facility_id || null;
+
+        // Record entry in the archives table
+        await client.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id, details)
+             VALUES ('Device', $1, $2, $3, NOW(), 'Archived', $4, $5::jsonb)`,
+            [serialNumber, device.device_name, actorId, devFacilityId, JSON.stringify({ assigned_patient_id: patientId })]
         );
 
         await client.query('COMMIT');

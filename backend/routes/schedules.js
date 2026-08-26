@@ -102,12 +102,29 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
     const { id } = req.params;
+    const actorId = req.user ? req.user.id : null;
     try {
-        const result = await pool.query('DELETE FROM schedules WHERE schedule_id = $1 RETURNING *', [id]);
-        if (result.rows.length === 0) {
+        const check = await pool.query('SELECT * FROM schedules WHERE schedule_id = $1', [id]);
+        if (check.rows.length === 0) {
             return res.status(404).json({ status: 'error', message: 'Schedule not found' });
         }
-        res.json({ status: 'success', message: 'Schedule deleted successfully' });
+        const schedule = check.rows[0];
+
+        // Soft delete schedule
+        await pool.query('UPDATE schedules SET is_archived = true WHERE schedule_id = $1', [id]);
+
+        // Find facility_id of the patient
+        const patientCheck = await pool.query('SELECT facility_id FROM patients WHERE LOWER(name) = LOWER($1) LIMIT 1', [schedule.patient_name]);
+        const schedFacilityId = patientCheck.rows[0]?.facility_id || null;
+
+        // Insert into archives
+        await pool.query(
+            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
+             VALUES ('Schedule', $1, $2, $3, NOW(), 'Archived', $4)`,
+            [id.toString(), `${schedule.patient_name} - ${schedule.event_type}`, actorId, schedFacilityId]
+        );
+
+        res.json({ status: 'success', message: 'Schedule archived successfully' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ status: 'error', message: 'Server error' });

@@ -1,5 +1,16 @@
 {
+  "git": {
+    "deploymentEnabled": false
+  },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://alaga-backend.onrender.com/api/$1"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "https://alaga-backend.onrender.com/uploads/$1"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

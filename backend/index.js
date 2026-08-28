@@ -335,7 +335,14 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
 
         console.log(`[REGISTER] User committed: ${safeEmail} (user_id: ${createdUser.user_id})`);
 
-        // Respond to the Flutter client immediately -- do NOT await the email.
+        // Send OTP email before responding to prevent Render from throttling the container before completion.
+        // Resend API is extremely fast (under 300ms), so it will not cause client-side timeout issues.
+        try {
+            await sendOtpEmail({ to: safeEmail, otp, purpose: 'REGISTER_VERIFY' });
+        } catch (emailErr) {
+            console.error(`[SMTP-FAIL] OTP delivery failed for ${safeEmail} | code=${emailErr.code || 'none'} | msg=${emailErr.message}`);
+        }
+
         res.status(201).json({
             success: true,
             message: 'Account created. OTP sent to email.',
@@ -343,15 +350,6 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             otpPurpose: 'REGISTER_VERIFY',
             user_id: createdUser.user_id,
             email: createdUser.email,
-        });
-
-        // Fire-and-forget: send OTP email AFTER the response is dispatched.
-        // If Gmail is slow or fails, the user can tap "Resend Code" on the OTP screen.
-        // [OWASP A09] Log delivery failures server-side without exposing them to the client.
-        sendOtpEmail({ to: safeEmail, otp, purpose: 'REGISTER_VERIFY' }).catch((emailErr) => {
-            // Log the full error code so it appears in Render's log stream for diagnosis.
-            // Common codes: ECONNREFUSED (port blocked), EAUTH (bad App Password), ETIMEDOUT (network).
-            console.error(`[SMTP-FAIL] OTP delivery failed for ${safeEmail} | code=${emailErr.code || 'none'} | response=${emailErr.responseCode || 'none'} | msg=${emailErr.message}`);
         });
 
     } catch (err) {

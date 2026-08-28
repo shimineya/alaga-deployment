@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth-context';
 import { Smartphone, Loader2, Link as LinkIcon, Plus } from 'lucide-react';
+import { API_URL } from '../lib/config';
 
 interface Device {
     serial_number: string;
@@ -64,7 +65,6 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({
         }
     }, [isOpen, token]);
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleAssign = async () => {
     if (!selectedDevice) return;

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { FileSearch, Download, Filter, RefreshCw } from 'lucide-react';
+import { API_URL } from '@/lib/config';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
 const getAuth = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -69,7 +70,6 @@ export default function ForensicAuditTrails() {
         fetchLogs(tab);
     };
 
-   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const handleExportPdf = () => {
     window.open(`${API_URL}/api/sysadmin/audit-logs/export`, '_blank');

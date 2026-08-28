@@ -20,6 +20,7 @@ import {
     Send
 } from "lucide-react";
 import { useAuth } from "../../lib/auth-context";
+import { API_URL } from "../../lib/config";
 
 export default function SystemSettings() {
     const { isSysAdmin } = useAuth();
@@ -291,7 +292,6 @@ Emergency "break-glass" access overrides must be justified. User audits store on
     };
 
     // 5. Delete Announcement
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const deleteAnnouncement = async (id: number) => {
     if (!confirm("Delete this announcement?")) return;

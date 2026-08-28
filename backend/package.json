@@ -25,6 +25,7 @@
     "nodemailer": "^8.0.5",
     "pdfkit": "^0.17.2",
     "pg": "^8.16.3",
-    "python-shell": "^5.0.0"
+    "python-shell": "^5.0.0",
+    "resend": "^6.24.0"
   }
 }

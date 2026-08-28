@@ -27,6 +27,9 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
 const adminRoutes = require('./routes/adminRoutes');
@@ -199,16 +202,37 @@ const loadSmtpConfig = async () => {
 
 const sendOtpEmail = async ({ to, otp, purpose }) => {
   try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER || process.env.SMTP_USER,
-      to,
-      subject: 'Your OTP Code',
-      html: `<p>Your verification code is: <strong>${otp}</strong></p>`
-    });
-
-    console.log('Email sent successfully:', info.messageId);
+    if (process.env.RESEND_API_KEY) {
+      const fromEmail = process.env.RESEND_FROM || 'Alaga Support <onboarding@resend.dev>';
+      const data = await resend.emails.send({
+        from: fromEmail,
+        to: [to],
+        subject: 'Your Alaga Verification Code',
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #0f766e; font-family: 'Outfit', 'Inter', sans-serif;">Alaga Security Verification</h2>
+            <p style="color: #475569; font-size: 16px;">Use the following One-Time Password (OTP) to complete your verification:</p>
+            <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+              <h1 style="color: #0f766e; letter-spacing: 6px; font-family: monospace; font-size: 32px; margin: 0;">${otp}</h1>
+            </div>
+            <p style="color: #64748b; font-size: 14px;">This code will expire in 10 minutes.</p>
+          </div>
+        `
+      });
+      console.log('Email sent successfully via Resend:', data);
+      return data;
+    } else {
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_USER || process.env.SMTP_USER,
+        to,
+        subject: 'Your OTP Code',
+        html: `<p>Your verification code is: <strong>${otp}</strong></p>`
+      });
+      console.log('Email sent successfully via Nodemailer/Gmail:', info.messageId);
+      return info;
+    }
   } catch (error) {
-    console.error('Failed to send email via Gmail:', error);
+    console.error('Failed to send OTP email:', error);
     throw error;
   }
 };

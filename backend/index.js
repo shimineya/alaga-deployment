@@ -42,11 +42,22 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:3000',
     'https://alaga01.netlify.app',
+    'https://alaga-deployment.vercel.app',
     process.env.FRONTEND_URL // Must be set in Render Dashboard (e.g., 'https://alaga-app.netlify.app')
 ].filter(Boolean); // Removes undefined values when running locally to prevent mapping errors
 
 app.use(cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, curl, or postman)
+        if (!origin) return callback(null, true);
+        
+        const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
+        if (isAllowed) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], // [OWASP A02] Added PATCH — used by ApiService.patch()
     credentials: true
 }));

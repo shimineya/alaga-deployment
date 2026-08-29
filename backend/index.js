@@ -28,7 +28,7 @@ const transporter = nodemailer.createTransport({
 });
 
 const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -202,7 +202,7 @@ const loadSmtpConfig = async () => {
 
 const sendOtpEmail = async ({ to, otp, purpose }) => {
   try {
-    if (process.env.RESEND_API_KEY) {
+    if (resend) {
       const fromEmail = process.env.RESEND_FROM || 'Alaga Support <onboarding@resend.dev>';
       const data = await resend.emails.send({
         from: fromEmail,

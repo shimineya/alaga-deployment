@@ -236,6 +236,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         archived: false,
                         baseline_data: p.baseline_data || null,
                         active_devices: activeDevicesList,
+                        caregivers: p.caregivers || [],
                         latest_telemetry: p.latest_telemetry || null
                     } as any;
                 });

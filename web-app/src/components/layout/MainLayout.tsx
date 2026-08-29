@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import { GlobalNotificationBell } from '../GlobalNotificationBell';
 
 export default function MainLayout() {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   return (
     <div className="flex h-screen bg-slate-50/50">
-      {/* Sidebar - fixed width */}
-      <div className="w-64 h-full shrink-0 shadow-lg z-20">
-        <AppSidebar />
+      {/* Sidebar - collapsible */}
+      <div className={`${isCollapsed ? 'w-16' : 'w-64'} h-full shrink-0 shadow-lg z-20 transition-all duration-300`}>
+        <AppSidebar collapsed={isCollapsed} onToggle={() => setIsCollapsed(!isCollapsed)} />
       </div>
 
       {/* Main Content Area */}

@@ -237,8 +237,8 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
                             </div>
                         )}
                     </div>
-                    {/* CREATE — Add Patient button (hidden for caregivers) */}
-                    {role !== 'caregiver' && (
+                    {/* CREATE — Add Patient button (Admins, Medical Staff, Parents/Guardians) */}
+                    {(isSysAdmin || ['system_admin', 'admin', 'sysadmin', 'facility_admin', 'medical_staff', 'parent'].includes(role) || role !== 'caregiver') && (
                         <Button
                             onClick={() => setIsAddPatientOpen(true)}
                             className="bg-teal-600 hover:bg-teal-700 text-white"
@@ -464,6 +464,41 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
     );
 };
 
+// Inline Expandable helper for one-line cells with multiple values
+const ExpandableList: React.FC<{ items: React.ReactNode[]; emptyLabel?: string }> = ({ items, emptyLabel = 'None' }) => {
+    const [expanded, setExpanded] = useState(false);
+    if (!items || items.length === 0) {
+        return <span className="text-[10px] text-slate-400 italic">{emptyLabel}</span>;
+    }
+    if (items.length === 1) {
+        return <div className="truncate">{items[0]}</div>;
+    }
+    return (
+        <div className="flex flex-col gap-1 items-start">
+            <div className="flex items-center gap-1.5 max-w-full">
+                <span className="truncate">{items[0]}</span>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setExpanded(!expanded);
+                    }}
+                    className="text-[10px] font-semibold text-teal-600 hover:text-teal-800 bg-teal-50 px-1 py-0.5 rounded shrink-0 border border-teal-200"
+                >
+                    {expanded ? 'Hide' : `+${items.length - 1} more`}
+                </button>
+            </div>
+            {expanded && (
+                <div className="flex flex-col gap-1 mt-1 pl-1 border-l-2 border-teal-200">
+                    {items.slice(1).map((item, idx) => (
+                        <div key={idx} className="truncate">{item}</div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // =================== PATIENT TABLE COMPONENT ===================
 interface PatientTableProps {
     patients: Patient[];
@@ -495,8 +530,9 @@ const PatientTable: React.FC<PatientTableProps> = ({
                     <TableHeader>
                         {/* [MODIFIED] Removed old "Actions" column. Replaced with "Manage" for clarity. */}
                         <TableRow className="bg-slate-50 hover:bg-slate-50">
-                            <TableHead className="w-[220px]">Patient Name</TableHead>
+                            <TableHead className="w-[200px]">Patient Name</TableHead>
                             <TableHead>Location (Ward/Room/Bed)</TableHead>
+                            <TableHead>Assigned Caregivers</TableHead>
                             <TableHead>Active Device(s)</TableHead>
                             <TableHead>Wetness Status</TableHead>
                             <TableHead>Status</TableHead>
@@ -537,7 +573,7 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                 >
                                     <TableCell className="font-medium">
                                         <div className="flex flex-col">
-                                            <span className="text-slate-900">{patient.name}</span>
+                                            <span className="text-slate-900 font-semibold">{patient.name}</span>
                                             <span className="text-xs text-slate-500">ID: {patient.id}</span>
                                         </div>
                                     </TableCell>
@@ -552,17 +588,26 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                         )}
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex flex-col gap-1">
-                                            {patient.active_devices && patient.active_devices.length > 0 ? (
-                                                patient.active_devices.map((sn: string, idx: number) => (
-                                                    <Badge key={idx} className="bg-teal-50 text-teal-700 border-none font-semibold font-mono text-[9px] w-max">
-                                                        {sn}
+                                        <ExpandableList
+                                            items={((patient as any).caregivers || [])
+                                                .filter((c: any) => c.invite_status === 'Active' || !c.invite_status)
+                                                .map((c: any, i: number) => (
+                                                    <Badge key={i} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] font-medium">
+                                                        {c.username || c.name || `User #${c.user_id}`}
                                                     </Badge>
-                                                ))
-                                            ) : (
-                                                <span className="text-[10px] text-slate-400 italic">None</span>
-                                            )}
-                                        </div>
+                                                ))}
+                                            emptyLabel="Unassigned"
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <ExpandableList
+                                            items={(patient.active_devices || []).map((sn: string, idx: number) => (
+                                                <Badge key={idx} className="bg-teal-50 text-teal-700 border-none font-semibold font-mono text-[9px]">
+                                                    {sn}
+                                                </Badge>
+                                            ))}
+                                            emptyLabel="None"
+                                        />
                                     </TableCell>
                                     <TableCell>
                                         {patient.latest_telemetry ? (

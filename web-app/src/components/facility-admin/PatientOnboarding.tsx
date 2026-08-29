@@ -42,7 +42,7 @@ export default function PatientOnboarding() {
     const isSystemAdmin = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
 
     // Patient form state
-    const [form, setForm] = useState({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
+    const [form, setForm] = useState({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '', patient_type: 'facility', facility_name: '' });
     const [consentConfirmed, setConsentConfirmed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);
@@ -194,6 +194,9 @@ export default function PatientOnboarding() {
         if (!form.first_name || !form.last_name || !form.age || !form.diagnosis || !form.room || !form.bed) {
             return toast.error('All fields are required.');
         }
+        if (isSystemAdmin && form.patient_type === 'facility' && !form.facility_name.trim()) {
+            return toast.error('Facility Name is required when Care Setting is Facility.');
+        }
         if (!consentConfirmed) {
             return toast.error('Informed consent must be confirmed before registering a patient. (DPA § 13)');
         }
@@ -207,7 +210,7 @@ export default function PatientOnboarding() {
             if (data.success) {
                 toast.success(data.message);
                 setLastCreatedId(data.patient_id);
-                setForm({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
+                setForm({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '', patient_type: 'facility', facility_name: '' });
                 setConsentConfirmed(false);
                 fetchPatients();
                 fetchUnassignedPatients();
@@ -356,6 +359,37 @@ export default function PatientOnboarding() {
                             <label className="block text-[10px] font-semibold text-slate-600 mb-1">Diagnosis / Reason for Monitoring</label>
                             <Input value={form.diagnosis} onChange={e => setForm(f => ({ ...f, diagnosis: e.target.value }))} className="h-8 text-xs bg-slate-50/50" />
                         </div>
+
+                        {isSystemAdmin && (
+                            <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
+                                <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">Care Setting</label>
+                                    <select
+                                        value={form.patient_type}
+                                        onChange={e => setForm(f => ({
+                                            ...f,
+                                            patient_type: e.target.value,
+                                            facility_name: e.target.value === 'at_home' ? '' : f.facility_name
+                                        }))}
+                                        className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 cursor-pointer"
+                                    >
+                                        <option value="facility">Facility</option>
+                                        <option value="at_home">At Home</option>
+                                    </select>
+                                </div>
+                                {form.patient_type === 'facility' && (
+                                    <div>
+                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Facility Name</label>
+                                        <Input
+                                            value={form.facility_name}
+                                            onChange={e => setForm(f => ({ ...f, facility_name: e.target.value }))}
+                                            placeholder="e.g. Alaga Medical Center"
+                                            className="h-8 text-xs bg-slate-50/50"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className="border-t border-slate-100 pt-2.5 mt-2.5">
                             <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location Assignment</span>
                             <div className="space-y-2">

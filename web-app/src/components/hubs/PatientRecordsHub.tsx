@@ -15,10 +15,10 @@ export default function PatientRecordsHub() {
     const role = user?.role?.toLowerCase() || '';
 
     // Authorization
-    const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
+    const isAdminTier     = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
-    const isParent     = role === 'parent';
-    const isClinical   = ['caregiver', 'medical_staff', 'parent'].includes(role);
+    const isParent        = role === 'parent';
+    const isClinical      = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     const hasPermission = (moduleId: string, roleDefault: boolean): boolean => {
         if (isAdminTier) return true;
@@ -29,8 +29,9 @@ export default function PatientRecordsHub() {
     };
 
     // Hide roster for System Admin
-    const canSeeRoster      = !isAdminTier && hasPermission('my-patients',  isClinical || isAdminTier);
-    const canSeeOnboarding  = hasPermission('add-patient',  isFacilityAdmin || isParent || isAdminTier);
+    const canSeeRoster      = !isAdminTier && hasPermission('my-patients', isClinical || isAdminTier);
+    // Remove onboarding tab from non-admin roles
+    const canSeeOnboarding  = (isAdminTier || isFacilityAdmin) && hasPermission('add-patient', true);
     const canSeeAssigned    = hasPermission('patients-registered-assigned', isFacilityAdmin || isAdminTier);
     const canSeeUnassigned  = hasPermission('unassigned-patients', isFacilityAdmin || isAdminTier);
  

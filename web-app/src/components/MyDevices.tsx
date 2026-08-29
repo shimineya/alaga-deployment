@@ -270,12 +270,12 @@ export const MyDevices: React.FC = () => {
                     <Table>
                         <TableHeader>
                             <TableRow className="bg-slate-50 hover:bg-slate-50">
-                                <TableHead className="w-[250px] text-center">Device Name</TableHead>
-                                <TableHead className="text-center">Status</TableHead>
-                                <TableHead className="text-center">Battery & Signal</TableHead>
-                                <TableHead className="text-center">Location (Ward/Room/Bed)</TableHead>
-                                <TableHead className="text-center">Firmware</TableHead>
-                                <TableHead className="text-center">Actions</TableHead>
+                                <TableHead className="w-[250px]">Device Name</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Battery & Signal</TableHead>
+                                <TableHead>Location (Ward/Room/Bed)</TableHead>
+                                <TableHead>Firmware</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -291,8 +291,8 @@ export const MyDevices: React.FC = () => {
                             ) : (
                                 paginatedDevices.map((device) => (
                                     <TableRow key={device.serial_number} className="hover:bg-slate-50/50 transition-colors">
-                                        <TableCell className="font-medium text-center">
-                                            <div className="flex items-center justify-center gap-3">
+                                        <TableCell className="font-medium">
+                                            <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-teal-50 rounded-lg text-teal-600">
                                                     <Smartphone className="w-4 h-4" />
                                                 </div>
@@ -302,7 +302,7 @@ export const MyDevices: React.FC = () => {
                                                 </div>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="text-center">
+                                        <TableCell>
                                             <Badge variant="outline" className={`
                                                 ${device.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                                                     device.status === 'INACTIVE' ? 'bg-slate-100 text-slate-600 border-slate-200' :
@@ -311,8 +311,8 @@ export const MyDevices: React.FC = () => {
                                                 {device.status}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-center">
-                                            <div className="flex items-center justify-center gap-4">
+                                        <TableCell>
+                                            <div className="flex items-center gap-4">
                                                 <div className="flex items-center gap-1.5 tooltip-container" title="Battery Level">
                                                     <Battery className={`w-4 h-4 ${(device.battery_level || 0) < 20 ? 'text-red-500' : 'text-emerald-500'}`} />
                                                     <span className="text-xs font-medium text-slate-700">{device.battery_level}%</span>
@@ -323,7 +323,7 @@ export const MyDevices: React.FC = () => {
                                                 </div>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="text-center">
+                                        <TableCell>
                                             <span className="text-sm text-slate-600">
                                                 {device.assigned_patient_baseline ? (
                                                     <span className="font-medium text-teal-600">
@@ -335,15 +335,15 @@ export const MyDevices: React.FC = () => {
                                                 )}
                                             </span>
                                         </TableCell>
-                                        <TableCell className="text-center">
+                                        <TableCell>
                                             <Badge variant="secondary" className="font-mono text-[10px]">
                                                 {device.firmware_version}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-center">
+                                        <TableCell className="text-right">
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-slate-100 mx-auto flex items-center justify-center">
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-slate-100 ml-auto flex items-center justify-center">
                                                         <MoreVertical className="w-4 h-4 text-slate-400" />
                                                     </Button>
                                                 </DropdownMenuTrigger>

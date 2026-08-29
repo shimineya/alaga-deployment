@@ -47,6 +47,40 @@ interface Props {
     mode?: 'assigned' | 'unassigned';
 }
 
+const ExpandableList: React.FC<{ items: React.ReactNode[]; emptyLabel?: string }> = ({ items, emptyLabel = 'None' }) => {
+    const [expanded, setExpanded] = useState(false);
+    if (!items || items.length === 0) {
+        return <span className="text-[10px] text-slate-400 italic">{emptyLabel}</span>;
+    }
+    if (items.length === 1) {
+        return <div className="truncate">{items[0]}</div>;
+    }
+    return (
+        <div className="flex flex-col gap-1 items-start">
+            <div className="flex items-center gap-1.5 max-w-full">
+                <span className="truncate">{items[0]}</span>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setExpanded(!expanded);
+                    }}
+                    className="text-[10px] font-semibold text-teal-600 hover:text-teal-800 bg-teal-50 px-1 py-0.5 rounded shrink-0 border border-teal-200"
+                >
+                    {expanded ? 'Hide' : `+${items.length - 1} more`}
+                </button>
+            </div>
+            {expanded && (
+                <div className="flex flex-col gap-1 mt-1 pl-1 border-l-2 border-teal-200">
+                    {items.slice(1).map((item, idx) => (
+                        <div key={idx} className="truncate">{item}</div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export default function SystemAdminPatientDirectory({ mode }: Props) {
     const [localActiveTab, setLocalActiveTab] = useState<'assigned' | 'unassigned'>('assigned');
     const activeTab = mode || localActiveTab;
@@ -355,31 +389,25 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                             )}
                                                         </td>
                                                         <td className="px-4 py-3">
-                                                            <div className="flex flex-col gap-1">
-                                                                {p.paired_devices && p.paired_devices.length > 0 ? (
-                                                                    p.paired_devices.map((dev, i) => (
-                                                                        <Badge key={i} className="bg-teal-50 text-teal-700 border-teal-200/50 font-semibold font-mono text-[9px] w-max">
-                                                                            {dev.serial_number}
-                                                                        </Badge>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-[10px] text-slate-400">None paired</span>
-                                                                )}
-                                                            </div>
+                                                            <ExpandableList
+                                                                items={(p.paired_devices || []).map((dev, i) => (
+                                                                    <Badge key={i} className="bg-teal-50 text-teal-700 border-teal-200/50 font-semibold font-mono text-[9px] w-max">
+                                                                        {dev.serial_number}
+                                                                    </Badge>
+                                                                ))}
+                                                                emptyLabel="None paired"
+                                                            />
                                                         </td>
                                                         <td className="px-4 py-3">
-                                                            <div className="flex flex-col gap-1 max-w-[160px]">
-                                                                {p.assigned_users && p.assigned_users.length > 0 ? (
-                                                                    p.assigned_users.map((u, i) => (
-                                                                        <div key={i} className="text-[10px] truncate">
-                                                                            <span className="font-semibold text-slate-800">{u.first_name} {u.last_name}</span>{" "}
-                                                                            <span className="text-slate-400">({u.role === 'caregiver' ? 'CG' : 'Staff'})</span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-[10px] text-slate-400">No staff assigned</span>
-                                                                )}
-                                                            </div>
+                                                            <ExpandableList
+                                                                items={(p.assigned_users || []).map((u, i) => (
+                                                                    <div key={i} className="text-[10px] truncate">
+                                                                        <span className="font-semibold text-slate-800">{u.first_name} {u.last_name}</span>{" "}
+                                                                        <span className="text-slate-400">({u.role === 'caregiver' ? 'CG' : 'Staff'})</span>
+                                                                    </div>
+                                                                ))}
+                                                                emptyLabel="No staff assigned"
+                                                            />
                                                         </td>
                                                         <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
                                                             {new Date(p.created_at).toLocaleDateString()}

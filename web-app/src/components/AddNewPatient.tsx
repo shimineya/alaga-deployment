@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { API_URL } from '../lib/config';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import {
     UserPlus,
     Smartphone,
-    QrCode,
     Search,
     Stethoscope,
     Activity,
@@ -35,7 +34,6 @@ interface PatientFormProps {
 const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCancel }) => {
     const { token } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // [UX] State for the nested "Add Device" modal
     const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
@@ -104,24 +102,6 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
     // [UX] Handler for when a new device is successfully registered via the modal
     const handleDeviceAdded = () => {
         refreshDeviceList();
-        // The modal closes automatically via the component's internal logic or we can force close here if needed
-        // But the AddNewDeviceModal handles its own close on success usually, or we pass a wrapper.
-        // In this specific implementation, we rely on the prop `onDeviceAdded` which we use to refresh data.
-    };
-
-    const handleQRUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            toast.info("Processing Caregiver QR...");
-            setTimeout(() => {
-                setFormData(prev => ({
-                    ...prev,
-                    assignedCaregiverName: "Dr. Jose Rizal",
-                    assignedCaregiverEmail: "j.rizal@hospital.com"
-                }));
-                toast.success("Caregiver Identified: Dr. Jose Rizal");
-            }, 1500);
-        }
     };
 
     const validateForm = () => {

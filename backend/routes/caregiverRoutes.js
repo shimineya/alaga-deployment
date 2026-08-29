@@ -282,7 +282,7 @@ router.post('/patients', async (req, res) => {
         });
     }
 
-    const { name, birthdate, medicalCondition, assignedCaregiverEmail, ward, room, bed } = req.body;
+    const { name, birthdate, medicalCondition, assignedCaregiverEmail, ward, room, bed, illness, conditions, emergencyContact } = req.body;
 
     if (!room || !room.trim() || !bed || !bed.trim()) {
         return res.status(400).json({ success: false, message: 'Room name and Bed name are required.' });
@@ -309,19 +309,24 @@ router.post('/patients', async (req, res) => {
         }
 
         const baselineData = {
-            condition: medicalCondition,
+            condition: medicalCondition || conditions || null,
             created_by: req.user.id,
             ward: ward ? ward.trim() : null,
             room: room.trim(),
-            bed: bed.trim()
+            bed: bed.trim(),
+            illness: illness || null,
+            medicalConditions: conditions ? (Array.isArray(conditions) ? conditions : conditions.split(',').map(c => c.trim()).filter(Boolean)) : [],
+            emergencyContact: emergencyContact || null
         };
 
         // 1. Insert Patient
+        const patientFacilityId = req.user.facility_id || null;
+        const patientType = patientFacilityId ? 'facility' : 'at_home';
         const patientRes = await client.query(
-            `INSERT INTO patients (name, birthdate, baseline_data, created_at)
-             VALUES ($1, $2, $3, NOW())
+            `INSERT INTO patients (name, birthdate, baseline_data, facility_id, patient_type, created_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
              RETURNING patient_id`,
-            [name, birthdate, JSON.stringify(baselineData)]
+            [name, birthdate, JSON.stringify(baselineData), patientFacilityId, patientType]
         );
 
         const newPatientId = patientRes.rows[0].patient_id;
@@ -512,7 +517,7 @@ router.get('/patients', async (req, res) => {
         let params;
 
         // [Admin/Recovery View] Admins & Medical Staff can see ALL patients
-        if (role === 'admin' || role === 'medical_staff') {
+        if (role === 'admin') {
             query = `
                 SELECT DISTINCT ON (p.patient_id) 
                     p.*, 
@@ -595,6 +600,89 @@ router.get('/patients', async (req, res) => {
                 ORDER BY p.patient_id, p.created_at DESC
             `;
             params = [];
+        } else if (role === 'medical_staff' && req.user.facility_id) {
+            query = `
+                SELECT DISTINCT ON (p.patient_id) 
+                    p.*, 
+                    'Medical Staff' as access_level,
+                    (
+                        SELECT u.user_id
+                        FROM patient_access pa2 
+                        JOIN users u ON pa2.user_id = u.user_id 
+                        WHERE pa2.patient_id = p.patient_id 
+                        AND pa2.relationship = 'Assigned Caregiver' 
+                        LIMIT 1
+                    ) as assigned_caregiver_id,
+                    (
+                        SELECT CONCAT(u.first_name, ' ', u.last_name) 
+                        FROM patient_access pa2 
+                        JOIN users u ON pa2.user_id = u.user_id 
+                        WHERE pa2.patient_id = p.patient_id 
+                        AND pa2.relationship = 'Assigned Caregiver' 
+                        LIMIT 1
+                    ) as assigned_caregiver_name,
+                    (
+                        SELECT serial_number 
+                        FROM device_whitelist 
+                        WHERE assigned_patient_id = p.patient_id 
+                        AND device_name ILIKE '%Vital%'
+                        LIMIT 1
+                    ) as vital_device_sn,
+                    (
+                        SELECT serial_number 
+                        FROM device_whitelist 
+                        WHERE assigned_patient_id = p.patient_id 
+                        AND device_name ILIKE '%Diaper%'
+                        LIMIT 1
+                    ) as diaper_device_sn,
+                    (
+                        SELECT json_build_object(
+                            'heart_rate', sr.heart_rate,
+                            'temperature', sr.temperature,
+                            'spo2', sr.spo2,
+                            'moisture', sr.moisture_value
+                        )
+                        FROM sensor_readings sr
+                        WHERE sr.patient_id = p.patient_id
+                        ORDER BY sr.recorded_at DESC
+                        LIMIT 1
+                    ) as latest_telemetry,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'invite_status', pa2.invite_status
+                                )
+                            )
+                            FROM patient_access pa2 
+                            JOIN users u ON pa2.user_id = u.user_id 
+                            WHERE pa2.patient_id = p.patient_id 
+                            AND pa2.is_archived IS DISTINCT FROM TRUE
+                            AND u.role IN ('caregiver', 'medical_staff')
+                        ),
+                        '[]'::json
+                    ) as caregivers,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                            AND dw.is_archived IS DISTINCT FROM TRUE
+                        ),
+                        '[]'::json
+                    ) as devices
+                FROM patients p
+                WHERE p.is_archived IS DISTINCT FROM TRUE AND p.facility_id = $1
+                ORDER BY p.patient_id, p.created_at DESC
+            `;
+            params = [req.user.facility_id];
         } else {
             // [Caregiver View] Only assigned patients
             query = `

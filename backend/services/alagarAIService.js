@@ -5,10 +5,10 @@
  * Used in the sensor reading endpoint to detect anomalies
  */
 
-const { PythonShell } = require('python-shell');
+const { execFile } = require('child_process');
 const path = require('path');
 
-// Path to the bridge script — adjust if needed
+// Path to the bridge script
 const BRIDGE_SCRIPT = path.join(__dirname, '..', 'alaga_predict.py');
 
 /**
@@ -25,7 +25,7 @@ const BRIDGE_SCRIPT = path.join(__dirname, '..', 'alaga_predict.py');
  * @returns {Promise<Object>} - { status, alerts, ocsvm_result }
  */
 async function runPrediction(data) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const input = JSON.stringify({
       action      : 'predict',
       patient_id  : data.patient_id   || 'P001',
@@ -36,10 +36,9 @@ async function runPrediction(data) {
       patient_type: data.patient_type || 'adult'
     });
 
-    PythonShell.run(BRIDGE_SCRIPT, { args: [input] }, (err, results) => {
+    execFile('python', [BRIDGE_SCRIPT, input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
       if (err) {
-        console.error('AI prediction error:', err);
-        // Return safe default instead of crashing
+        console.error('AI prediction exec error:', err.message, stderr);
         return resolve({
           status      : 'NORMAL',
           alerts      : [],
@@ -49,10 +48,21 @@ async function runPrediction(data) {
       }
 
       try {
-        const result = JSON.parse(results[0]);
-        resolve(result);
+        const trimmed = stdout.trim();
+        const jsonStart = trimmed.indexOf('{');
+        const jsonEnd = trimmed.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          const parsed = JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1));
+          return resolve(parsed);
+        }
+        resolve({
+          status      : 'NORMAL',
+          alerts      : [],
+          ocsvm_result: 'normal',
+          error       : 'Invalid JSON response'
+        });
       } catch (parseErr) {
-        console.error('AI result parse error:', parseErr);
+        console.error('AI result parse error:', parseErr, stdout);
         resolve({
           status      : 'NORMAL',
           alerts      : [],
@@ -75,7 +85,7 @@ async function runPrediction(data) {
  * @returns {Promise<string>} - Progress message
  */
 async function flagAsNormal(patientId, vital, value) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const input = JSON.stringify({
       action    : 'flag',
       patient_id: patientId,
@@ -83,15 +93,21 @@ async function flagAsNormal(patientId, vital, value) {
       value     : value
     });
 
-    PythonShell.run(BRIDGE_SCRIPT, { args: [input] }, (err, results) => {
+    execFile('python', [BRIDGE_SCRIPT, input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
       if (err) {
-        console.error('Flag error:', err);
+        console.error('Flag exec error:', err.message, stderr);
         return resolve('Flag recorded (offline mode)');
       }
 
       try {
-        const result = JSON.parse(results[0]);
-        resolve(result.message || 'Flag recorded');
+        const trimmed = stdout.trim();
+        const jsonStart = trimmed.indexOf('{');
+        const jsonEnd = trimmed.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          const result = JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1));
+          return resolve(result.message || 'Flag recorded');
+        }
+        resolve('Flag recorded');
       } catch {
         resolve('Flag recorded');
       }
@@ -99,4 +115,4 @@ async function flagAsNormal(patientId, vital, value) {
   });
 }
 
-module.exports = { runPrediction, flagAsNormal };
+module.exports = { runPrediction, flagAsNormal };

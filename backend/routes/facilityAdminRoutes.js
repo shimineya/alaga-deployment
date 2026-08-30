@@ -689,13 +689,32 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
         }
 
-        // Check device is whitelisted
+        // Check device is whitelisted and was registered/claimed by this facility
         const deviceCheck = await pool.query(
-            "SELECT serial_number FROM device_whitelist WHERE serial_number = $1 AND status IN ('AVAILABLE', 'ACTIVE') AND is_archived IS DISTINCT FROM TRUE",
+            `SELECT dw.serial_number, dw.device_name, dw.added_by, dw.assigned_patient_id, u.role as creator_role, u.facility_id as creator_facility_id
+             FROM device_whitelist dw
+             LEFT JOIN users u ON dw.added_by = u.user_id
+             WHERE dw.serial_number = $1 AND dw.status IN ('AVAILABLE', 'ACTIVE') AND dw.is_archived IS DISTINCT FROM TRUE`,
             [serial_number]
         );
         if (deviceCheck.rows.length === 0) {
-            return res.status(400).json({ success: false, message: 'Device not found or not active in whitelist. Contact System Admin.' });
+            return res.status(400).json({ success: false, message: 'Device not found in system whitelist. Only devices registered by System Admin can be used.' });
+        }
+
+        const devRow = deviceCheck.rows[0];
+        const isDeviceClaimedByFacility = devRow.added_by === req.user.id || (facilityId && devRow.creator_facility_id === facilityId);
+        if (!isDeviceClaimedByFacility) {
+            return res.status(400).json({
+                success: false,
+                message: `Device ${serial_number} has not yet been registered by your facility. Please register/add this device to your inventory before pairing it with a patient.`
+            });
+        }
+
+        if (devRow.assigned_patient_id && devRow.assigned_patient_id != patientId) {
+            return res.status(409).json({
+                success: false,
+                message: `Device ${serial_number} is already assigned to another patient (#${devRow.assigned_patient_id}).`
+            });
         }
 
         await pool.query(

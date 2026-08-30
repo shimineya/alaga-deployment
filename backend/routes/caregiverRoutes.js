@@ -2731,6 +2731,78 @@ router.post('/firmware/update', async (req, res) => {
     }
 });
 
+// ==========================================
+// PATIENT CARE LOGS ENDPOINTS
+// ==========================================
+
+// GET care logs for a patient
+router.get('/patients/:patientId/care-logs', async (req, res) => {
+    const { patientId } = req.params;
+    try {
+        const result = await pool.query(
+            `SELECT log_id, patient_id, author_id, author_name, content, created_at, status
+             FROM care_logs
+             WHERE patient_id = $1 AND (status = 'Active' OR status IS NULL)
+             ORDER BY created_at DESC`,
+            [patientId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Fetch Care Logs Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch care logs.' });
+    }
+});
+
+// POST a new care log / note
+router.post('/patients/:patientId/care-logs', async (req, res) => {
+    const { patientId } = req.params;
+    const { content } = req.body;
+    const authorId = req.user.id;
+    const authorName = req.user.name || `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.username || req.user.email || 'Caregiver';
+
+    if (!content || !content.trim()) {
+        return res.status(400).json({ success: false, message: 'Note content is required.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO care_logs (patient_id, author_id, author_name, content, created_at, status)
+             VALUES ($1, $2, $3, $4, NOW(), 'Active')
+             RETURNING log_id, patient_id, author_id, author_name, content, created_at, status`,
+            [patientId, authorId, authorName, content.trim()]
+        );
+
+        res.status(201).json({ success: true, message: 'Care note added successfully.', data: result.rows[0] });
+    } catch (err) {
+        console.error('Create Care Log Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to create care note.' });
+    }
+});
+
+// PUT archive care logs in bulk
+router.put('/patients/:patientId/care-logs/archive-bulk', async (req, res) => {
+    const { patientId } = req.params;
+    const { logIds } = req.body;
+
+    if (!Array.isArray(logIds) || logIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'No log IDs provided for archiving.' });
+    }
+
+    try {
+        await pool.query(
+            `UPDATE care_logs
+             SET status = 'Archived'
+             WHERE patient_id = $1 AND log_id = ANY($2::int[])`,
+            [patientId, logIds]
+        );
+
+        res.json({ success: true, message: 'Care logs archived successfully.' });
+    } catch (err) {
+        console.error('Archive Care Logs Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to archive care logs.' });
+    }
+});
+
 module.exports = router;
 
 

@@ -94,12 +94,15 @@ router.get('/devices', async (req, res) => {
 // Serial numbers must follow the format: VS-YYYY-NNNN or SD-YYYY-NNNN.
 // ==========================================
 router.post('/devices', async (req, res) => {
-    // [OWASP A01] Role guard: only the parent / admin accounts can register devices.
-    // A caregiver, parent or admin account can register devices.
-    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent' && req.user.role !== 'caregiver' && req.user.role !== 'facility_admin') {
+    // Role guard: allow system_admin, admin, facility_admin, medical_staff, parent, guardian, caregiver
+    const userRole = req.user.role?.toLowerCase() || '';
+    const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(userRole);
+    const allowedRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'parent', 'guardian', 'caregiver', 'facility_admin'];
+    
+    if (!allowedRoles.includes(userRole) && !isSysAdmin) {
         return res.status(403).json({
             success: false,
-            message: 'Only parent, caregiver, facility admin, or administrator accounts can register new devices.'
+            message: 'Only authorized accounts can register new devices.'
         });
     }
 
@@ -119,7 +122,6 @@ router.post('/devices', async (req, res) => {
         return res.status(400).json({ success: false, message: `Invalid serial format: ${diaperDeviceNo}. Expected SD-YYYY-NNNN.` });
     }
 
-    const isSysAdmin = ['admin', 'system_admin', 'sysadmin'].includes(req.user.role);
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -136,7 +138,7 @@ router.post('/devices', async (req, res) => {
             const exists = await client.query(
                 `SELECT dw.serial_number, dw.device_name, dw.status, dw.assigned_patient_id, dw.is_archived, dw.added_by, u.role as creator_role
                  FROM device_whitelist dw
-                 LEFT JOIN users u ON dw.added_by = u.id
+                 LEFT JOIN users u ON dw.added_by = u.user_id
                  WHERE dw.serial_number = $1`,
                 [dev.serial]
             );

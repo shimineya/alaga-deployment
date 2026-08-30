@@ -163,7 +163,7 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
                         || hasPermission('rbac_management');
   const canSeeAlerts          = hasPermission('alerts') || hasPermission('alert-config');
   const canSeeClinicalReports = isFacilityAdmin || role === 'medical_staff' || isAdminTier || hasPermission('clinical-reports');
-  const canSeeSystemReports   = isAdminTier || hasPermission('reports');
+  const canSeeSystemReports   = isAdminTier;
   const canSeeSettings        = true;
   const canSeeArchives        = isAdminTier || isFacilityAdmin;
  

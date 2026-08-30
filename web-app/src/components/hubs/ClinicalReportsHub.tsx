@@ -37,10 +37,19 @@ export default function ClinicalReportsHub() {
 
             if (data.success && Array.isArray(data.data)) {
                 const mapped: Patient[] = data.data.map((p: any) => {
-                    // In System Admin view, ensure patient name is anonymized for privacy governance
+                    // For Medical Staff and Facility Admin: full real patient identity and contact details
+                    // For System Admin: anonymized de-identified subject code for privacy governance
                     const displayName = isSysAdminUser
                         ? (p.anonymous_identifier || `Subject #${p.patient_id} (De-identified)`)
                         : (p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Patient #${p.patient_id}`);
+
+                    const emergencyContact = isSysAdminUser
+                        ? { name: 'Protected', phone: 'Protected', relation: 'Contact' }
+                        : (p.emergency_contact || p.emergencyContact || {
+                            name: p.baseline_data?.emergency_contact_name || 'N/A',
+                            phone: p.baseline_data?.emergency_contact_phone || 'N/A',
+                            relation: p.baseline_data?.emergency_contact_relation || 'Contact'
+                        });
 
                     return {
                         id: p.patient_id?.toString() || '',
@@ -64,7 +73,7 @@ export default function ClinicalReportsHub() {
                         },
                         deviceConnected: !!(p.device_serial_number || p.vital_device_sn || p.diaper_device_sn),
                         assignedCaregiverName: p.assigned_caregiver_name || 'N/A',
-                        emergencyContact: { name: 'Protected', phone: 'Protected', relation: 'Contact' },
+                        emergencyContact,
                         deleted: false,
                         archived: false,
                     };

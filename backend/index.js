@@ -40,28 +40,33 @@ const JWT_SECRET = process.env.JWT_SECRET || 'alaga_thesis_secret_key';
 const OTP_EXPIRY_MINUTES = 10;
 
 // [OWASP A02] Security Configuration: Dynamic CORS Whitelisting
-// Extracts the production Netlify URL from Render's Environment Variables
 const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://alaga01.netlify.app',
+    'https://alagamonitoringsystem.me',
+    'https://www.alagamonitoringsystem.me',
     'https://alaga-deployment.vercel.app',
-    process.env.FRONTEND_URL // Must be set in Render Dashboard (e.g., 'https://alaga-app.netlify.app')
-].filter(Boolean); // Removes undefined values when running locally to prevent mapping errors
+    'https://alaga01.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    process.env.FRONTEND_URL // Configured in Render Dashboard
+].filter(Boolean);
 
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (like mobile apps, curl, or postman)
         if (!origin) return callback(null, true);
         
-        const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
+        const isAllowed = allowedOrigins.includes(origin) || 
+                          origin.endsWith('.vercel.app') || 
+                          origin.endsWith('.alagamonitoringsystem.me') || 
+                          origin === 'https://alagamonitoringsystem.me';
+
         if (isAllowed) {
             callback(null, true);
         } else {
-            callback(new Error('Not allowed by CORS'));
+            callback(new Error('Blocked by CORS'));
         }
     },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], // [OWASP A02] Added PATCH — used by ApiService.patch()
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true
 }));
 
@@ -203,19 +208,19 @@ const loadSmtpConfig = async () => {
 const sendOtpEmail = async ({ to, otp, purpose }) => {
   try {
     if (resend) {
-      const fromEmail = process.env.RESEND_FROM || 'Alaga Support <onboarding@resend.dev>';
+      const fromEmail = process.env.RESEND_FROM || 'Alaga Support <noreply@alagamonitoringsystem.me>';
       const data = await resend.emails.send({
         from: fromEmail,
         to: [to],
         subject: 'Your Alaga Verification Code',
         html: `
-          <div style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
-            <h2 style="color: #0f766e; font-family: 'Outfit', 'Inter', sans-serif;">Alaga Security Verification</h2>
-            <p style="color: #475569; font-size: 16px;">Use the following One-Time Password (OTP) to complete your verification:</p>
+          <div style="font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #0f766e;">Alaga Account Verification</h2>
+            <p style="color: #475569; font-size: 16px;">Your one-time verification code is:</p>
             <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
               <h1 style="color: #0f766e; letter-spacing: 6px; font-family: monospace; font-size: 32px; margin: 0;">${otp}</h1>
             </div>
-            <p style="color: #64748b; font-size: 14px;">This code will expire in 10 minutes.</p>
+            <p style="color: #64748b; font-size: 14px;">This code is valid for 10 minutes. Please do not share it with anyone.</p>
           </div>
         `
       });

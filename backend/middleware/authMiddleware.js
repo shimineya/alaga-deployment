@@ -281,7 +281,8 @@ const requireRole = (allowedRoles) => {
 function computeRoleDefaults(role) {
     const r = (role || '').toLowerCase();
     const isParent        = r === 'parent';
-    const isClinical      = r === 'caregiver' || r === 'medical_staff' || isParent;
+    const isMedStaff      = r === 'medical_staff' || r === 'medstaff';
+    const isClinical      = r === 'caregiver' || isMedStaff || isParent;
     const isFacilityAdmin = r === 'facility_admin';
     const isAdminTier     = r === 'system_admin' || r === 'admin' || r === 'sysadmin';
 
@@ -307,7 +308,7 @@ function computeRoleDefaults(role) {
         'rbac_management':         isAdminTier,
         'alerts':                  isFacilityAdmin || isClinical || isAdminTier,
         'alert-config':            isFacilityAdmin || isAdminTier,
-        'reports':                 isClinical || isAdminTier,
+        'reports':                 isFacilityAdmin || isMedStaff || isAdminTier,
         'settings_profile':        true,
         'settings_preferences':    true,
         'system-settings':         isAdminTier,

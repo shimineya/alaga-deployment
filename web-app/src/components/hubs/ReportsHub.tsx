@@ -12,14 +12,12 @@ export default function ReportsHub() {
     const { token, user, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
     const isSysAdminUser = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(role);
+    const isFacilityAdmin = role === 'facility_admin';
+    const isMedStaff = role === 'medical_staff' || role === 'medstaff';
+    const [sysAdminView, setSysAdminView] = useState<'system' | 'clinical'>('system');
 
-    // If active user is System Administrator, render the dedicated System Admin Reports & Observability Hub
-    if (isSysAdminUser) {
-        return <SystemAdminReportsHub />;
-    }
-
-    const isAllowedClinicalReportsRole = role === 'facility_admin' || role === 'medical_staff';
-    if (!isAllowedClinicalReportsRole) {
+    const isAllowed = isSysAdminUser || isFacilityAdmin || isMedStaff;
+    if (!isAllowed) {
         return (
             <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-white rounded-xl border border-slate-200">
                 <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-4">
@@ -29,6 +27,38 @@ export default function ReportsHub() {
                 <p className="text-sm text-slate-500 max-w-md mt-2">
                     Clinical Reports containing Protected Health Information (PHI) are strictly restricted to <strong>Facility Administrators</strong>, <strong>Medical Staff</strong>, and <strong>System Administrators</strong>.
                 </p>
+            </div>
+        );
+    }
+
+    // If active user is System Administrator and is on system view, render System Admin Reports Hub
+    if (isSysAdminUser && sysAdminView === 'system') {
+        return (
+            <div className="w-full h-full flex flex-col space-y-4">
+                {/* System Admin Switcher Header */}
+                <div className="bg-slate-900 text-white p-3.5 rounded-xl flex items-center justify-between shadow-sm border border-slate-800">
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold uppercase tracking-widest text-teal-400">Reports Mode</span>
+                        <span className="text-xs text-slate-400">Switch between System Observability and Clinical Patient Reports</span>
+                    </div>
+                    <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
+                        <button
+                            onClick={() => setSysAdminView('system')}
+                            className="px-3 py-1 text-xs font-bold rounded-md bg-teal-500 text-white shadow-sm transition-all"
+                        >
+                            System Reports
+                        </button>
+                        <button
+                            onClick={() => setSysAdminView('clinical')}
+                            className="px-3 py-1 text-xs font-medium rounded-md text-slate-300 hover:text-white transition-all"
+                        >
+                            Clinical Reports (PHI)
+                        </button>
+                    </div>
+                </div>
+                <div className="flex-1">
+                    <SystemAdminReportsHub />
+                </div>
             </div>
         );
     }
@@ -101,6 +131,30 @@ export default function ReportsHub() {
 
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
+            {/* System Admin Switcher Header */}
+            {isSysAdminUser && (
+                <div className="bg-slate-900 text-white p-3.5 rounded-xl flex items-center justify-between shadow-sm border border-slate-800 mb-4 shrink-0">
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold uppercase tracking-widest text-teal-400">Reports Mode</span>
+                        <span className="text-xs text-slate-400">Switch between System Observability and Clinical Patient Reports</span>
+                    </div>
+                    <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
+                        <button
+                            onClick={() => setSysAdminView('system')}
+                            className="px-3 py-1 text-xs font-medium rounded-md text-slate-300 hover:text-white transition-all"
+                        >
+                            System Reports
+                        </button>
+                        <button
+                            onClick={() => setSysAdminView('clinical')}
+                            className="px-3 py-1 text-xs font-bold rounded-md bg-teal-500 text-white shadow-sm transition-all"
+                        >
+                            Clinical Reports (PHI)
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Page header */}
             <div className="mb-5 flex-shrink-0">
                 <h1 className="text-2xl font-bold text-slate-800 tracking-tight">

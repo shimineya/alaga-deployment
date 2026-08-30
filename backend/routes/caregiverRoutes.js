@@ -418,18 +418,48 @@ router.post('/patients', async (req, res) => {
 
         // 4. Assign Devices (if provided)
         const { vitalDeviceNo, diaperDeviceNo } = req.body;
+        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
 
         if (vitalDeviceNo) {
+            const devCheck = await client.query(
+                `SELECT dw.serial_number, dw.assigned_patient_id, dw.is_archived, u.role as creator_role
+                 FROM device_whitelist dw
+                 LEFT JOIN users u ON dw.added_by = u.user_id
+                 WHERE dw.serial_number = $1`,
+                [vitalDeviceNo.trim()]
+            );
+            if (devCheck.rows.length === 0 || devCheck.rows[0].is_archived) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Vital Sign device "${vitalDeviceNo}" is not registered in the system. Only devices pre-registered by a System Administrator can be used.`
+                });
+            }
+            if (!isSysAdmin && devCheck.rows[0].creator_role && !['admin', 'system_admin', 'sysadmin'].includes(devCheck.rows[0].creator_role)) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Vital Sign device "${vitalDeviceNo}" was not registered by a System Administrator.`
+                });
+            }
+            if (devCheck.rows[0].assigned_patient_id) {
+                await client.query('ROLLBACK');
+                return res.status(409).json({
+                    success: false,
+                    message: `Vital Sign device "${vitalDeviceNo}" is already assigned to another patient.`
+                });
+            }
+
             await client.query(
                 "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-                [newPatientId, vitalDeviceNo]
+                [newPatientId, vitalDeviceNo.trim()]
             );
             await client.query(
                 "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
-                [vitalDeviceNo, newPatientId]
+                [vitalDeviceNo.trim(), newPatientId]
             );
             systemReportService.recordDevicePairingReport({
-                serial_number: vitalDeviceNo,
+                serial_number: vitalDeviceNo.trim(),
                 device_name: 'Vital Signs Monitor',
                 patient_id: newPatientId,
                 patient_name: patientName,
@@ -438,12 +468,41 @@ router.post('/patients', async (req, res) => {
         }
 
         if (diaperDeviceNo) {
+            const devCheck = await client.query(
+                `SELECT dw.serial_number, dw.assigned_patient_id, dw.is_archived, u.role as creator_role
+                 FROM device_whitelist dw
+                 LEFT JOIN users u ON dw.added_by = u.user_id
+                 WHERE dw.serial_number = $1`,
+                [diaperDeviceNo.trim()]
+            );
+            if (devCheck.rows.length === 0 || devCheck.rows[0].is_archived) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Smart Diaper device "${diaperDeviceNo}" is not registered in the system. Only devices pre-registered by a System Administrator can be used.`
+                });
+            }
+            if (!isSysAdmin && devCheck.rows[0].creator_role && !['admin', 'system_admin', 'sysadmin'].includes(devCheck.rows[0].creator_role)) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Smart Diaper device "${diaperDeviceNo}" was not registered by a System Administrator.`
+                });
+            }
+            if (devCheck.rows[0].assigned_patient_id) {
+                await client.query('ROLLBACK');
+                return res.status(409).json({
+                    success: false,
+                    message: `Smart Diaper device "${diaperDeviceNo}" is already assigned to another patient.`
+                });
+            }
+
             await client.query(
                 "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-                [newPatientId, diaperDeviceNo]
+                [newPatientId, diaperDeviceNo.trim()]
             );
             systemReportService.recordDevicePairingReport({
-                serial_number: diaperDeviceNo,
+                serial_number: diaperDeviceNo.trim(),
                 device_name: 'Smart Diaper Sensor',
                 patient_id: newPatientId,
                 patient_name: patientName,
@@ -468,7 +527,7 @@ router.post('/patients', async (req, res) => {
     }
 });
 
-// Pair device endpoint for caregivers / parents / guardians
+// Pair device endpoint for caregivers / parents / guardians / facility admin
 router.post('/patients/:patientId/pair-device', async (req, res) => {
     const { patientId } = req.params;
     const { serial_number } = req.body;
@@ -480,18 +539,29 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
     try {
         // Validation: Ensure device exists in whitelist and was pre-registered by system admin
         const deviceCheck = await pool.query(
-            "SELECT * FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE",
+            `SELECT dw.*, u.role as creator_role 
+             FROM device_whitelist dw 
+             LEFT JOIN users u ON dw.added_by = u.user_id 
+             WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
             [serial_number.trim()]
         );
 
         if (deviceCheck.rows.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "This device is not registered in the system by the System Administrator. Please contact the System Admin to whitelist this device before pairing."
+                message: "This device is not registered in the master inventory. Only devices pre-registered by a System Administrator can be paired."
             });
         }
 
         const device = deviceCheck.rows[0];
+        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
+        if (!isSysAdmin && device.creator_role && !['admin', 'system_admin', 'sysadmin'].includes(device.creator_role)) {
+            return res.status(400).json({
+                success: false,
+                message: "This device was not registered by a System Administrator. Please contact a System Administrator to whitelist this device before pairing."
+            });
+        }
+
         if (device.assigned_patient_id && device.assigned_patient_id != patientId) {
             return res.status(400).json({
                 success: false,

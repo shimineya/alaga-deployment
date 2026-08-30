@@ -2630,7 +2630,7 @@ html {
 }
 
 /* ==========================================================================
-   SYSTEM-WIDE ACTIVE TAB NAME & INDICATOR HIGHLIGHTING
+   SYSTEM-WIDE ACTIVE TAB NAME HIGHLIGHTING
    ========================================================================== */
 [data-slot="tabs-trigger"][data-state="active"],
 button[role="tab"][data-state="active"] {
@@ -2659,14 +2659,4 @@ button[role="tab"][data-state="active"] {
   color: #99f6e4 !important;
 }
 
-/* Tab active badge indicator */
-[data-slot="tabs-trigger"][data-state="active"] [data-slot="tab-active-indicator"],
-button[role="tab"][data-state="active"] [data-slot="tab-active-indicator"] {
-  display: inline-flex !important;
-}
-
-[data-slot="tabs-trigger"][data-state="inactive"] [data-slot="tab-active-indicator"],
-button[role="tab"][data-state="inactive"] [data-slot="tab-active-indicator"] {
-  display: none !important;
-}
 

@@ -710,3 +710,35 @@ CREATE INDEX idx_system_reports_type ON public.system_reports USING btree (repor
 CREATE UNIQUE INDEX user_permission_overrides_user_id_module_id_key ON public.user_permission_overrides USING btree (user_id, module_id);
 CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email);
 CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username);
+
+-- ============================================================================
+-- ANONYMIZED CLINICAL VIEW (DPA 2012 & HIPAA De-identified Governance)
+-- ============================================================================
+CREATE OR REPLACE VIEW public.view_anonymized_patients AS
+SELECT 
+    p.patient_id,
+    CONCAT('Subject #', p.patient_id, ' [', SUBSTRING(MD5(COALESCE(p.name, 'Patient') || p.patient_id::text), 1, 8), ']') AS anonymous_subject_id,
+    EXTRACT(YEAR FROM AGE(NOW(), p.birthdate)) AS age_years,
+    p.baseline_data->>'gender' AS gender,
+    COALESCE(p.baseline_data->>'condition', 'Stable') AS condition_status,
+    p.facility_id,
+    f.facility_name,
+    (SELECT COUNT(*) FROM sensor_readings sr WHERE sr.patient_id = p.patient_id) AS total_readings_count,
+    (SELECT COUNT(*) FROM anomaly_events ae WHERE ae.patient_id = p.patient_id) AS total_anomalies_count,
+    (
+        SELECT json_build_object(
+            'heart_rate', sr.heart_rate,
+            'spo2', sr.spo2,
+            'temperature', sr.temperature,
+            'moisture', sr.moisture_value,
+            'recorded_at', sr.recorded_at
+        )
+        FROM sensor_readings sr 
+        WHERE sr.patient_id = p.patient_id 
+        ORDER BY sr.recorded_at DESC 
+        LIMIT 1
+    ) AS latest_vitals,
+    p.created_at
+FROM public.patients p
+LEFT JOIN public.facilities f ON p.facility_id = f.facility_id
+WHERE p.is_archived IS DISTINCT FROM TRUE;

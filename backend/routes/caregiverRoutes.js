@@ -428,8 +428,9 @@ router.post('/patients', async (req, res) => {
             }
             const dev = devCheck.rows[0];
             if (!isSysAdmin) {
-                // Must have been registered by this facility / user
-                const isClaimedByFacility = dev.added_by === req.user.id || (req.user.facility_id && dev.creator_facility_id === req.user.facility_id);
+                // Must have been registered by this facility / user (not just sitting in SysAdmin inventory)
+                const isCreatorSysAdmin = !dev.added_by || ['admin', 'system_admin', 'sysadmin'].includes(dev.creator_role);
+                const isClaimedByFacility = dev.added_by === req.user.id || (!isCreatorSysAdmin && req.user.facility_id && dev.creator_facility_id === req.user.facility_id);
                 if (!isClaimedByFacility) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({
@@ -480,8 +481,9 @@ router.post('/patients', async (req, res) => {
             }
             const dev = devCheck.rows[0];
             if (!isSysAdmin) {
-                // Must have been registered by this facility / user
-                const isClaimedByFacility = dev.added_by === req.user.id || (req.user.facility_id && dev.creator_facility_id === req.user.facility_id);
+                // Must have been registered by this facility / user (not just sitting in SysAdmin inventory)
+                const isCreatorSysAdmin = !dev.added_by || ['admin', 'system_admin', 'sysadmin'].includes(dev.creator_role);
+                const isClaimedByFacility = dev.added_by === req.user.id || (!isCreatorSysAdmin && req.user.facility_id && dev.creator_facility_id === req.user.facility_id);
                 if (!isClaimedByFacility) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({
@@ -558,8 +560,9 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
         
         if (!isSysAdmin) {
-            // Must have been claimed/registered by this facility / user first
-            const isClaimedByFacility = device.added_by === req.user.id || (req.user.facility_id && device.creator_facility_id === req.user.facility_id);
+            // Must have been claimed/registered by this facility / user first (not just sitting in SysAdmin inventory)
+            const isCreatorSysAdmin = !device.added_by || ['admin', 'system_admin', 'sysadmin'].includes(device.creator_role);
+            const isClaimedByFacility = device.added_by === req.user.id || (!isCreatorSysAdmin && req.user.facility_id && device.creator_facility_id === req.user.facility_id);
             if (!isClaimedByFacility) {
                 return res.status(400).json({
                     success: false,
@@ -2490,7 +2493,8 @@ router.post('/devices/assign', async (req, res) => {
             }
             const diaperDev = checkDiaper.rows[0];
             if (!isSysAdmin) {
-                const isClaimedByFacility = diaperDev.added_by === actorId || (req.user.facility_id && diaperDev.creator_facility_id === req.user.facility_id);
+                const isCreatorSysAdmin = !diaperDev.added_by || ['admin', 'system_admin', 'sysadmin'].includes(diaperDev.creator_role);
+                const isClaimedByFacility = diaperDev.added_by === actorId || (!isCreatorSysAdmin && req.user.facility_id && diaperDev.creator_facility_id === req.user.facility_id);
                 if (!isClaimedByFacility) {
                     client.release();
                     return res.status(400).json({
@@ -2519,7 +2523,8 @@ router.post('/devices/assign', async (req, res) => {
             }
             const vitalDev = checkVital.rows[0];
             if (!isSysAdmin) {
-                const isClaimedByFacility = vitalDev.added_by === actorId || (req.user.facility_id && vitalDev.creator_facility_id === req.user.facility_id);
+                const isCreatorSysAdmin = !vitalDev.added_by || ['admin', 'system_admin', 'sysadmin'].includes(vitalDev.creator_role);
+                const isClaimedByFacility = vitalDev.added_by === actorId || (!isCreatorSysAdmin && req.user.facility_id && vitalDev.creator_facility_id === req.user.facility_id);
                 if (!isClaimedByFacility) {
                     client.release();
                     return res.status(400).json({

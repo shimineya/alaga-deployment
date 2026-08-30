@@ -702,7 +702,8 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         }
 
         const devRow = deviceCheck.rows[0];
-        const isDeviceClaimedByFacility = devRow.added_by === req.user.id || (facilityId && devRow.creator_facility_id === facilityId);
+        const isCreatorSysAdmin = !devRow.added_by || ['admin', 'system_admin', 'sysadmin'].includes(devRow.creator_role);
+        const isDeviceClaimedByFacility = devRow.added_by === req.user.id || (!isCreatorSysAdmin && facilityId && devRow.creator_facility_id === facilityId);
         if (!isDeviceClaimedByFacility) {
             return res.status(400).json({
                 success: false,

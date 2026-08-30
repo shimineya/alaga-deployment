@@ -1,7 +1,7 @@
 -- ============================================================================
 -- ALAGA HEALTHCARE MONITORING SYSTEM
 -- FULL DATABASE SCHEMA DUMP FOR NEON POSTGRESQL (Lakebase Postgres)
--- Generated on: 2026-08-30T16:29:25.338Z
+-- Generated on: 2026-08-30T19:17:45.426Z
 -- ============================================================================
 
 -- Enable required extensions
@@ -712,33 +712,29 @@ CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email);
 CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username);
 
 -- ============================================================================
--- ANONYMIZED CLINICAL VIEW (DPA 2012 & HIPAA De-identified Governance)
+-- VIEWS (DPA & HIPAA Anonymized Telemetry)
 -- ============================================================================
 CREATE OR REPLACE VIEW public.view_anonymized_patients AS
-SELECT 
-    p.patient_id,
-    CONCAT('Subject #', p.patient_id, ' [', SUBSTRING(MD5(COALESCE(p.name, 'Patient') || p.patient_id::text), 1, 8), ']') AS anonymous_subject_id,
-    EXTRACT(YEAR FROM AGE(NOW(), p.birthdate)) AS age_years,
-    p.baseline_data->>'gender' AS gender,
-    COALESCE(p.baseline_data->>'condition', 'Stable') AS condition_status,
+SELECT p.patient_id,
+    concat('Subject #', p.patient_id, ' [', "substring"(md5(((COALESCE(p.name, 'Patient'::character varying))::text || (p.patient_id)::text)), 1, 8), ']') AS anonymous_subject_id,
+    EXTRACT(year FROM age(now(), (p.birthdate)::timestamp with time zone)) AS age_years,
+    (p.baseline_data ->> 'gender'::text) AS gender,
+    COALESCE((p.baseline_data ->> 'condition'::text), 'Stable'::text) AS condition_status,
     p.facility_id,
     f.facility_name,
-    (SELECT COUNT(*) FROM sensor_readings sr WHERE sr.patient_id = p.patient_id) AS total_readings_count,
-    (SELECT COUNT(*) FROM anomaly_events ae WHERE ae.patient_id = p.patient_id) AS total_anomalies_count,
-    (
-        SELECT json_build_object(
-            'heart_rate', sr.heart_rate,
-            'spo2', sr.spo2,
-            'temperature', sr.temperature,
-            'moisture', sr.moisture_value,
-            'recorded_at', sr.recorded_at
-        )
-        FROM sensor_readings sr 
-        WHERE sr.patient_id = p.patient_id 
-        ORDER BY sr.recorded_at DESC 
-        LIMIT 1
-    ) AS latest_vitals,
+    ( SELECT count(*) AS count
+           FROM sensor_readings sr
+          WHERE (sr.patient_id = p.patient_id)) AS total_readings_count,
+    ( SELECT count(*) AS count
+           FROM anomaly_events ae
+          WHERE (ae.patient_id = p.patient_id)) AS total_anomalies_count,
+    ( SELECT json_build_object('heart_rate', sr.heart_rate, 'spo2', sr.spo2, 'temperature', sr.temperature, 'moisture', sr.moisture_value, 'recorded_at', sr.recorded_at) AS json_build_object
+           FROM sensor_readings sr
+          WHERE (sr.patient_id = p.patient_id)
+          ORDER BY sr.recorded_at DESC
+         LIMIT 1) AS latest_vitals,
     p.created_at
-FROM public.patients p
-LEFT JOIN public.facilities f ON p.facility_id = f.facility_id
-WHERE p.is_archived IS DISTINCT FROM TRUE;
+   FROM (patients p
+     LEFT JOIN facilities f ON ((p.facility_id = f.facility_id)))
+  WHERE (p.is_archived IS DISTINCT FROM true);
+

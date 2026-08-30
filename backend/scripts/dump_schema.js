@@ -1,6 +1,7 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const pool = require('../db');
 const fs = require('fs');
-const path = require('path');
 
 async function dumpSchema() {
     try {
@@ -162,6 +163,19 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
         const indexRes = await pool.query(indexQuery);
         for (const idx of indexRes.rows) {
             sql += `${idx.indexdef};\n`;
+        }
+
+        // 6. Views
+        sql += `\n-- ============================================================================\n-- VIEWS (DPA & HIPAA Anonymized Telemetry)\n-- ============================================================================\n`;
+        const viewsQuery = `
+            SELECT table_name, view_definition
+            FROM information_schema.views
+            WHERE table_schema = 'public'
+            ORDER BY table_name;
+        `;
+        const viewsRes = await pool.query(viewsQuery);
+        for (const v of viewsRes.rows) {
+            sql += `CREATE OR REPLACE VIEW public.${v.table_name} AS\n${v.view_definition.trim().replace(/;$/, '')};\n\n`;
         }
 
         // Save to file

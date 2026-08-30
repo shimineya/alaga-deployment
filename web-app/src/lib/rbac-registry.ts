@@ -154,8 +154,8 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         'alert-config':            isFacilityAdmin || isAdminTier,
 
         // --- Reports Hub ---
-        // ReportsHub: accessible to isClinical || isAdminTier
-        'reports':                 isClinical || isAdminTier,
+        // Clinical Reports (PHI): accessible strictly to Facility Admin, Medical Staff, and System Admin
+        'reports':                 isFacilityAdmin || isMedStaff || isAdminTier,
 
         // --- Settings Hub ---
         'settings_profile':        true,

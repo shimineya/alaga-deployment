@@ -4,7 +4,7 @@ import { Patient, VitalSign, Alert } from '@/types';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 import { ClinicalReportsShell } from '../caregiver-reports/ClinicalReportsShell';
 import SystemAdminReportsHub from '../sysadmin/SystemAdminReportsHub';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { generateAlertsFromDoctorsOrders } from '@/lib/alert-generator';
 
@@ -16,6 +16,21 @@ export default function ReportsHub() {
     // If active user is System Administrator, render the dedicated System Admin Reports & Observability Hub
     if (isSysAdminUser) {
         return <SystemAdminReportsHub />;
+    }
+
+    const isAllowedClinicalReportsRole = role === 'facility_admin' || role === 'medical_staff';
+    if (!isAllowedClinicalReportsRole) {
+        return (
+            <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-white rounded-xl border border-slate-200">
+                <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-4">
+                    <Lock className="w-7 h-7" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight">Access Restricted (PHI)</h2>
+                <p className="text-sm text-slate-500 max-w-md mt-2">
+                    Clinical Reports containing Protected Health Information (PHI) are strictly restricted to <strong>Facility Administrators</strong>, <strong>Medical Staff</strong>, and <strong>System Administrators</strong>.
+                </p>
+            </div>
+        );
     }
 
     // [DPA / HIPAA] All data fetched here is Protected Health Information (PHI).

@@ -166,8 +166,8 @@ router.post('/devices', async (req, res) => {
                     inserted.push(dev.serial);
                 }
             } else {
-                // Non-System Admin (Facility Admin, Med Staff, Caregiver, Parent)
-                // Device MUST have already been registered by a System Admin
+                // Non-System Admin (Facility Admin, Med Staff, Caregiver, Parent, Guardian)
+                // Device MUST already exist in the system whitelist
                 if (exists.rows.length === 0 || exists.rows[0].is_archived) {
                     await client.query('ROLLBACK');
                     client.release();
@@ -178,26 +178,17 @@ router.post('/devices', async (req, res) => {
                 }
 
                 const row = exists.rows[0];
-                const isCreatorSysAdmin = !row.added_by || ['admin', 'system_admin', 'sysadmin'].includes(row.creator_role);
-                if (!isCreatorSysAdmin) {
-                    await client.query('ROLLBACK');
-                    client.release();
-                    return res.status(400).json({
-                        success: false,
-                        message: `Device ${dev.serial} was not registered by a System Administrator.`
-                    });
-                }
 
                 if (row.assigned_patient_id) {
                     await client.query('ROLLBACK');
                     client.release();
                     return res.status(409).json({
                         success: false,
-                        message: `Device ${dev.serial} is currently paired with an active patient.`
+                        message: `Device ${dev.serial} is currently paired with an active patient. Please unpair it first before re-registering.`
                     });
                 }
 
-                // Link / Claim the system-registered device for this facility/user
+                // Re-register / Claim the system device into this user's account inventory
                 await client.query(
                     `UPDATE device_whitelist SET added_by = $1, status = 'AVAILABLE', is_archived = FALSE WHERE serial_number = $2`,
                     [registeredBy, dev.serial]

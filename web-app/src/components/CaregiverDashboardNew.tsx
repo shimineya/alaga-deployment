@@ -234,7 +234,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         doctorsOrders: [],
                         baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
                         deviceConnected: activeDevicesList.length > 0,
-                        assignedCaregiverName: p.assigned_caregiver_name,
+                        assignedCaregiverName: p.assigned_caregiver_name || (p.caregivers && p.caregivers.length > 0 ? (p.caregivers[0].username || p.caregivers[0].name) : undefined) || (p.assigned_users && p.assigned_users.length > 0 ? (p.assigned_users[0].username || p.assigned_users[0].first_name) : undefined),
                         deleted: false,
                         archived: false,
                         baseline_data: p.baseline_data || null,

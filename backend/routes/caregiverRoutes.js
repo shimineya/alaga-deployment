@@ -824,15 +824,29 @@ router.get('/patients', async (req, res) => {
                         FROM patient_access pa2 
                         JOIN users u ON pa2.user_id = u.user_id 
                         WHERE pa2.patient_id = p.patient_id 
-                        AND pa2.relationship = 'Assigned Caregiver' 
+                        AND (
+                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                            OR pa2.relationship ILIKE '%Caregiver%'
+                            OR u.role IN ('caregiver', 'medical_staff')
+                        )
+                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                        AND pa2.is_archived IS DISTINCT FROM TRUE
+                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
                         LIMIT 1
                     ) as assigned_caregiver_id,
                     (
-                        SELECT CONCAT(u.first_name, ' ', u.last_name) 
+                        SELECT COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username, u.email)
                         FROM patient_access pa2 
                         JOIN users u ON pa2.user_id = u.user_id 
                         WHERE pa2.patient_id = p.patient_id 
-                        AND pa2.relationship = 'Assigned Caregiver' 
+                        AND (
+                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                            OR pa2.relationship ILIKE '%Caregiver%'
+                            OR u.role IN ('caregiver', 'medical_staff')
+                        )
+                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                        AND pa2.is_archived IS DISTINCT FROM TRUE
+                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
                         LIMIT 1
                     ) as assigned_caregiver_name,
                     (
@@ -946,15 +960,29 @@ router.get('/patients', async (req, res) => {
                         FROM patient_access pa2 
                         JOIN users u ON pa2.user_id = u.user_id 
                         WHERE pa2.patient_id = p.patient_id 
-                        AND pa2.relationship = 'Assigned Caregiver' 
+                        AND (
+                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                            OR pa2.relationship ILIKE '%Caregiver%'
+                            OR u.role IN ('caregiver', 'medical_staff')
+                        )
+                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                        AND pa2.is_archived IS DISTINCT FROM TRUE
+                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
                         LIMIT 1
                     ) as assigned_caregiver_id,
                     (
-                        SELECT CONCAT(u.first_name, ' ', u.last_name) 
+                        SELECT COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username, u.email)
                         FROM patient_access pa2 
                         JOIN users u ON pa2.user_id = u.user_id 
                         WHERE pa2.patient_id = p.patient_id 
-                        AND pa2.relationship = 'Assigned Caregiver' 
+                        AND (
+                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                            OR pa2.relationship ILIKE '%Caregiver%'
+                            OR u.role IN ('caregiver', 'medical_staff')
+                        )
+                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                        AND pa2.is_archived IS DISTINCT FROM TRUE
+                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
                         LIMIT 1
                     ) as assigned_caregiver_name,
                     (
@@ -988,7 +1016,7 @@ router.get('/patients', async (req, res) => {
                             SELECT json_agg(
                                 json_build_object(
                                     'user_id', u.user_id,
-                                    'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'username', COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username),
                                     'first_name', u.first_name,
                                     'last_name', u.last_name,
                                     'email', u.email,
@@ -1025,7 +1053,7 @@ router.get('/patients', async (req, res) => {
                             SELECT json_agg(
                                 json_build_object(
                                     'user_id', u.user_id,
-                                    'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'username', COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username),
                                     'invite_status', pa2.invite_status
                                 )
                             )
@@ -1069,15 +1097,29 @@ router.get('/patients', async (req, res) => {
                         FROM patient_access pa2 
                         JOIN users u ON pa2.user_id = u.user_id 
                         WHERE pa2.patient_id = p.patient_id 
-                        AND pa2.relationship = 'Assigned Caregiver' 
+                        AND (
+                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                            OR pa2.relationship ILIKE '%Caregiver%'
+                            OR u.role IN ('caregiver', 'medical_staff')
+                        )
+                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                        AND pa2.is_archived IS DISTINCT FROM TRUE
+                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
                         LIMIT 1
                     ) as assigned_caregiver_id,
                     (
-                        SELECT CONCAT(u.first_name, ' ', u.last_name) 
+                        SELECT COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username, u.email)
                         FROM patient_access pa2 
                         JOIN users u ON pa2.user_id = u.user_id 
                         WHERE pa2.patient_id = p.patient_id 
-                        AND pa2.relationship = 'Assigned Caregiver' 
+                        AND (
+                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                            OR pa2.relationship ILIKE '%Caregiver%'
+                            OR u.role IN ('caregiver', 'medical_staff')
+                        )
+                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                        AND pa2.is_archived IS DISTINCT FROM TRUE
+                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
                         LIMIT 1
                     ) as assigned_caregiver_name,
                     (

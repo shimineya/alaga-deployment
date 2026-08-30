@@ -333,10 +333,18 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                   <div>
                     <p className="text-xs text-slate-400">Assigned Caregiver</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold">
-                        {(caregiverName || 'U')[0]}
-                      </div>
-                      <p className="text-sm font-medium">{caregiverName || 'Unassigned'}</p>
+                      {(() => {
+                        const name = caregiverName || patient.assignedCaregiverName || (patient as any).assigned_caregiver_name || ((patient as any).caregivers?.[0]?.username) || ((patient as any).caregivers?.[0]?.name) || 'Unassigned';
+                        const initial = (name && name !== 'Unassigned' ? name[0] : 'U').toUpperCase();
+                        return (
+                          <>
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold">
+                              {initial}
+                            </div>
+                            <p className="text-sm font-medium">{name}</p>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </CardContent>

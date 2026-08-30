@@ -346,7 +346,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   const renderContent = () => {
     // If viewing patient profile, show it
     if (viewMode === 'profile' && selectedPatient) {
-      const caregiver = mockUsers.find(u => u.id === selectedPatient.caregiverId);
+      const caregiverName = selectedPatient.assignedCaregiverName || (selectedPatient as any).assigned_caregiver_name || (selectedPatient.careTeam && selectedPatient.careTeam.length > 0 ? (selectedPatient.careTeam[0].name || selectedPatient.careTeam[0].username) : '');
       return (
         <PatientProfile
           patient={selectedPatient}
@@ -354,7 +354,7 @@ export const MedicalStaffDashboard: React.FC = () => {
             setViewMode('dashboard');
             setSelectedPatient(null);
           }}
-          caregiverName={caregiver?.name}
+          caregiverName={caregiverName}
         />
       );
     }

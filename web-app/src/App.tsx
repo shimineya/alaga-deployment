@@ -20,6 +20,7 @@ import StaffManagementHub from './components/hubs/StaffManagementHub';
 import SecurityAccessHub from './components/hubs/SecurityAccessHub';
 import AlertsHub from './components/hubs/AlertsHub';
 import ReportsHub from './components/hubs/ReportsHub';
+import ClinicalReportsHub from './components/hubs/ClinicalReportsHub';
 import SettingsHub from './components/hubs/SettingsHub';
 import AssignmentCommandCenter from './components/AssignmentCommandCenter';
 import ArchiveHub from './components/hubs/ArchiveHub';
@@ -106,7 +107,10 @@ function AppContent() {
         {/* Alerts Hub: /alerts — Clinical + Facility Admin + SysAdmin */}
         <Route path="/alerts" element={<AlertsHub />} />
 
-        {/* Reports Hub: /reports — Clinical + SysAdmin */}
+        {/* Clinical Reports Hub: /clinical-reports — Facility Admin + Med Staff + SysAdmin */}
+        <Route path="/clinical-reports" element={<ClinicalReportsHub />} />
+
+        {/* System Reports Hub: /reports — SysAdmin */}
         <Route path="/reports" element={<ReportsHub />} />
 
         {/* Archive Hub: /archives — SysAdmin + Facility Admin */}

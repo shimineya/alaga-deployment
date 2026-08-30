@@ -161,10 +161,11 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
                         || hasPermission('security-operations')
                         || hasPermission('audit-logs')
                         || hasPermission('rbac_management');
-  const canSeeAlerts     = hasPermission('alerts')        || hasPermission('alert-config');
-  const canSeeReports    = (isAdminTier || isFacilityAdmin || role === 'medical_staff') && (isAdminTier || hasPermission('reports'));
-  const canSeeSettings   = true;
-  const canSeeArchives   = isAdminTier || isFacilityAdmin;
+  const canSeeAlerts          = hasPermission('alerts') || hasPermission('alert-config');
+  const canSeeClinicalReports = isFacilityAdmin || role === 'medical_staff' || isAdminTier || hasPermission('clinical-reports');
+  const canSeeSystemReports   = isAdminTier || hasPermission('reports');
+  const canSeeSettings        = true;
+  const canSeeArchives        = isAdminTier || isFacilityAdmin;
  
   const navItems = [
     { label: t('Dashboard', 'Dashboard'),        path: '/dashboard', icon: LayoutDashboard, visible: canSeeDashboard },
@@ -175,10 +176,16 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
     { label: t('Security & Access', 'Seguridad at Akses'),path: '/security',  icon: Lock,            visible: canSeeSecurity },
     { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts, hasDot: hasUnreadAlerts },
     { 
-      label: isAdminTier ? t('Reports Hub', 'Hub ng Ulat') : t('Clinical Reports', 'Mga Klinikal na Ulat'), 
+      label: t('Clinical Reports', 'Mga Klinikal na Ulat'), 
+      path: '/clinical-reports',   
+      icon: ActivitySquare,  
+      visible: canSeeClinicalReports 
+    },
+    { 
+      label: t('System Reports', 'Hub ng Ulat ng System'), 
       path: '/reports',   
-      icon: isAdminTier ? FileSpreadsheet : ActivitySquare,  
-      visible: canSeeReports 
+      icon: FileSpreadsheet,  
+      visible: canSeeSystemReports 
     },
     { label: t('Archive Hub', 'Hub ng Archive'),        path: '/archives',  icon: Archive,         visible: canSeeArchives },
     { label: t('System Settings', 'Mga Setting ng System'),  path: '/settings',  icon: Settings,        visible: canSeeSettings },

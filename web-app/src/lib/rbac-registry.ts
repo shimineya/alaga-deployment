@@ -59,7 +59,8 @@ export const MODULE_REGISTRY: { group: string; modules: { id: string; label: str
     {
         group: 'Reports Hub',
         modules: [
-            { id: 'reports', label: 'All Clinical Reports (PHI)', description: 'Daily summary, anomaly log, moisture tracker, weekly trends, data export.' },
+            { id: 'clinical-reports', label: 'Clinical Reports Hub (PHI)', description: 'Daily summary, anomaly log, moisture tracker, weekly trends, data export.' },
+            { id: 'reports', label: 'System Observability Reports', description: 'System ledger, security, audit trails, and infrastructure telemetry.' },
         ]
     },
     {
@@ -154,9 +155,10 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         'alerts':                  isFacilityAdmin || isClinical || isAdminTier,
         'alert-config':            isFacilityAdmin || isAdminTier,
 
-        // --- Reports Hub ---
+        // --- Reports Hubs ---
         // Clinical Reports (PHI): accessible strictly to Facility Admin, Medical Staff, and System Admin
-        'reports':                 isFacilityAdmin || isMedStaff || isAdminTier,
+        'clinical-reports':        isFacilityAdmin || isMedStaff || isAdminTier,
+        'reports':                 isAdminTier,
 
         // --- Settings Hub ---
         'settings_profile':        true,

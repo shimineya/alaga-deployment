@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, verifyFacilityAdmin } = require('../middleware/authMiddleware');
 const bcrypt = require('bcryptjs');
+const systemReportService = require('../services/systemReportService');
 
 // Apply security middleware to ALL routes in this file
 // [OWASP A01] Every route requires a valid JWT + facility_admin role
@@ -711,6 +712,16 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
              VALUES ($1, 'DEVICE_PAIR', $2)`,
             [req.user.id, `Paired device ${serial_number} to Patient ${patientId}`]
         );
+
+        // Auto-generate system report for device pairing
+        systemReportService.recordDevicePairingReport({
+            serial_number,
+            device_name: deviceCheck.rows[0]?.device_name,
+            patient_id: patientId,
+            patient_name: patientCheck.rows[0]?.name,
+            assigned_by: req.user.email || `Facility Admin #${req.user.id}`,
+            facility_id: req.user.facility_id
+        }).catch(err => console.error('Device pairing report error:', err.message));
 
         res.json({ success: true, message: 'Device paired to patient successfully.' });
     } catch (err) {

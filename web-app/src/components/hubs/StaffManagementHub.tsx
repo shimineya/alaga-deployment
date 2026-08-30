@@ -65,89 +65,52 @@ export default function StaffManagementHub() {
             <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
                 <div className="border-b border-slate-200 mb-6 shrink-0">
-                    <TooltipProvider delayDuration={300}>
-                        <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
-                            {canSeeWardStaff && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="ward-staff" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Contact className="w-4 h-4" /> {canSeeSysCommandCenter ? 'User List' : 'Department Staff'}
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">{canSeeSysCommandCenter ? 'Manage all registered system users, overrides, lockouts, and sessions.' : 'Manage medical personnel, unlock accounts, and reset passwords.'}</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                        {canSeeWardStaff && (
+                            <TabsTrigger 
+                                value="ward-staff" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Contact className="w-4 h-4" /> {canSeeSysCommandCenter ? 'User List' : 'Department Staff'}
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeCommandCenter && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="assignment-command-center" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Activity className="w-4 h-4" /> Assignment Command Center
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Monitor and manage pending invitations, active assignments, and staff accounts you created.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeCommandCenter && (
+                            <TabsTrigger 
+                                value="assignment-command-center" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Activity className="w-4 h-4" /> Assignment Command Center
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeSysCommandCenter && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="sys-assignment-command-center" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Activity className="w-4 h-4" /> System Assignment Command Center
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Monitor and manage pending invitations, active assignments, and caregiver accounts globally across the system.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeSysCommandCenter && (
+                            <TabsTrigger 
+                                value="sys-assignment-command-center" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Activity className="w-4 h-4" /> System Assignment Command Center
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeSysCommandCenter && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="sys-network-topology"
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Database className="w-4 h-4" /> Network Topology
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Build and align the facility's logical hardware structure.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeSysCommandCenter && (
+                            <TabsTrigger 
+                                value="sys-network-topology" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Database className="w-4 h-4" /> Network Topology
+                            </TabsTrigger>
+                        )}
 
-                            {((canSeeAssignmentsAdmin || canSeeMyAssignments) && !canSeeSysCommandCenter) && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value={canSeeMyAssignments ? "my-assignments" : "admin-assignments"}
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-amber-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Link2 className="w-4 h-4" /> {canSeeMyAssignments ? 'My Care Assignments (PHI)' : 'Patient Assignments (PHI)'}
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Delegate care relationships between staff and patients. <span className="font-bold text-amber-300">Contains PHI.</span></p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                        </TabsList>
-                    </TooltipProvider>
+                        {((canSeeAssignmentsAdmin || canSeeMyAssignments) && !canSeeSysCommandCenter) && (
+                            <TabsTrigger 
+                                value={canSeeMyAssignments ? "my-assignments" : "admin-assignments"}
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Link2 className="w-4 h-4" /> {canSeeMyAssignments ? 'My Care Assignments (PHI)' : 'Patient Assignments (PHI)'}
+                            </TabsTrigger>
+                        )}
+                    </TabsList>
                 </div>
                 )}
 

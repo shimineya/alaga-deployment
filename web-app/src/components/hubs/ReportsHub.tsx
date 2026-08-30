@@ -3,12 +3,20 @@ import { useAuth } from '@/lib/auth-context';
 import { Patient, VitalSign, Alert } from '@/types';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 import { ClinicalReportsShell } from '../caregiver-reports/ClinicalReportsShell';
+import SystemAdminReportsHub from '../sysadmin/SystemAdminReportsHub';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { generateAlertsFromDoctorsOrders } from '@/lib/alert-generator';
 
 export default function ReportsHub() {
-    const { token } = useAuth();
+    const { token, user, isSysAdmin } = useAuth();
+    const role = user?.role?.toLowerCase() || '';
+    const isSysAdminUser = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(role);
+
+    // If active user is System Administrator, render the dedicated System Admin Reports & Observability Hub
+    if (isSysAdminUser) {
+        return <SystemAdminReportsHub />;
+    }
 
     // [DPA / HIPAA] All data fetched here is Protected Health Information (PHI).
     // Access to this hub is gated by the BreakGlassWrapper below,

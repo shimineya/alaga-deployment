@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Search, UserPlus, Trash2, Edit, Check, ShieldAlert, Users, Layers, Mail, Calendar, UserCheck } from 'lucide-react';
 import { Badge } from '../ui/badge';
+import { useAuth } from '@/lib/auth-context';
 
 interface ScopedPatient {
     patient_id: number;
@@ -82,6 +83,13 @@ const ExpandableList: React.FC<{ items: React.ReactNode[]; emptyLabel?: string }
 };
 
 export default function SystemAdminPatientDirectory({ mode }: Props) {
+    const { user, token } = useAuth();
+    const role = user?.role?.toLowerCase() || '';
+    const isFacilityAdmin = role === 'facility_admin';
+    const isParentOrGuardian = role === 'parent' || role === 'guardian';
+    const isCaregiver = role === 'caregiver';
+    const canManage = isFacilityAdmin || isParentOrGuardian;
+
     const [localActiveTab, setLocalActiveTab] = useState<'assigned' | 'unassigned'>('assigned');
     const activeTab = mode || localActiveTab;
     const setActiveTab = setLocalActiveTab;
@@ -105,32 +113,50 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
     const [assigningEmails, setAssigningEmails] = useState<{ [patientId: number]: string }>({});
 
     const API_BASE = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
-    const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
+    const CAREGIVER_API = `${import.meta.env.VITE_API_URL || ''}/api/caregiver`;
+    const getAuth = () => ({ 'Authorization': `Bearer ${token || localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
     // Fetch Lists
     const fetchAssigned = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/patients-added-and-assigned`, { headers: getAuth() });
+            const url = isFacilityAdmin ? `${API_BASE}/patients-added-and-assigned` : `${CAREGIVER_API}/patients`;
+            const res = await fetch(url, { headers: getAuth() });
             const data = await res.json();
             if (data.success) {
-                setAssignedPatients(data.data);
+                setAssignedPatients(data.data || []);
             }
         } catch {
-            toast.error("Failed to load assigned patients");
+            toast.error("Failed to load patients");
         }
-    }, [API_BASE]);
+    }, [API_BASE, CAREGIVER_API, isFacilityAdmin, token]);
 
     const fetchUnassigned = useCallback(async () => {
+        if (!isFacilityAdmin && role !== 'medical_staff' && !isParentOrGuardian) {
+            setUnassignedPatients([]);
+            return;
+        }
         try {
-            const res = await fetch(`${API_BASE}/unassigned-patients`, { headers: getAuth() });
+            const url = isFacilityAdmin 
+                ? `${API_BASE}/unassigned-patients` 
+                : `${CAREGIVER_API}/patients`;
+            const res = await fetch(url, { headers: getAuth() });
             const data = await res.json();
             if (data.success) {
-                setUnassignedPatients(data.data);
+                if (isParentOrGuardian) {
+                    // Filter to patients created by parent that do not have an active caregiver assigned
+                    const unassignedList = (data.data || []).filter((p: ScopedPatient) => 
+                        !p.assigned_users || p.assigned_users.length === 0 || 
+                        !p.assigned_users.some(u => u.role === 'caregiver' && (u.invite_status === 'Active' || u.invite_status === 'Accepted'))
+                    );
+                    setUnassignedPatients(unassignedList);
+                } else {
+                    setUnassignedPatients(data.data || []);
+                }
             }
         } catch {
             toast.error("Failed to load unassigned patients");
         }
-    }, [API_BASE]);
+    }, [API_BASE, CAREGIVER_API, isFacilityAdmin, isParentOrGuardian, role, token]);
 
     useEffect(() => {
         fetchAssigned();
@@ -167,15 +193,16 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
         const email = assigningEmails[patientId]?.trim();
         if (!email) return toast.error("Please enter a caregiver or staff email address");
 
+        const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
         try {
-            const res = await fetch(`${API_BASE}/patients/${patientId}/assign-staff-by-email`, {
+            const res = await fetch(`${targetApi}/patients/${patientId}/assign-staff-by-email`, {
                 method: 'POST',
                 headers: getAuth(),
                 body: JSON.stringify({ email })
             });
             const data = await res.json();
             if (data.success) {
-                toast.success("Staff member assigned successfully!");
+                toast.success(data.message || "Caregiver assigned successfully!");
                 setAssigningEmails(prev => ({ ...prev, [patientId]: '' }));
                 fetchAssigned();
                 fetchUnassigned();
@@ -205,8 +232,9 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
         if (!editForm.name.trim()) return toast.error("Name is required");
         if (!editForm.room.trim() || !editForm.bed.trim()) return toast.error("Room name and Bed name are required");
 
+        const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
         try {
-            const res = await fetch(`${API_BASE}/patients/${editingPatient.patient_id}`, {
+            const res = await fetch(`${targetApi}/patients/${editingPatient.patient_id}`, {
                 method: 'PUT',
                 headers: getAuth(),
                 body: JSON.stringify(editForm)
@@ -229,8 +257,9 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
     const handleArchivePatient = async (patientId: number) => {
         if (!confirm("Are you sure you want to archive this patient? Doing so will automatically unpair all active sensors.")) return;
 
+        const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
         try {
-            const res = await fetch(`${API_BASE}/patients/${patientId}`, {
+            const res = await fetch(`${targetApi}/patients/${patientId}`, {
                 method: 'DELETE',
                 headers: getAuth()
             });
@@ -276,13 +305,13 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                         <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start">
                             <TabsTrigger 
                                 value="assigned" 
-                                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                className="data-[state=active]:bg-teal-50/90 data-[state=active]:text-teal-900 data-[state=active]:font-extrabold data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
                             >
                                 <UserCheck className="w-4 h-4" /> Patients Registered and Assigned
                             </TabsTrigger>
                             <TabsTrigger 
                                 value="unassigned" 
-                                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
+                                className="data-[state=active]:bg-teal-50/90 data-[state=active]:text-teal-900 data-[state=active]:font-extrabold data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
                             >
                                 <Users className="w-4 h-4" /> Unassigned Patients
                             </TabsTrigger>
@@ -344,7 +373,7 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                 <div className="min-w-full inline-block align-middle">
                                     <div className="overflow-hidden">
                                         <table className="min-w-full divide-y divide-slate-100 text-left">
-                                            <thead className="bg-slate-50/70 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                                             <thead className="bg-slate-50/70 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
                                                 <tr>
                                                     <th className="px-4 py-3">Facility</th>
                                                     <th className="px-4 py-3">Patient ID</th>
@@ -355,86 +384,88 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                     <th className="px-4 py-3">Paired Device(s)</th>
                                                     <th className="px-4 py-3">Assigned Caregivers</th>
                                                     <th className="px-4 py-3">Created At</th>
-                                                    <th className="px-4 py-3 text-right">Actions</th>
+                                                    {canManage && <th className="px-4 py-3 text-right">Actions</th>}
                                                 </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100 text-xs text-slate-700 bg-white">
-                                                {filteredAssigned.map((p) => (
-                                                    <tr key={p.patient_id} className="hover:bg-slate-50/50 transition-colors">
-                                                        <td className="px-4 py-3 font-semibold text-slate-800">
-                                                            {p.facility_name || <span className="text-slate-400 italic">n/a</span>}
-                                                        </td>
-                                                        <td className="px-4 py-3 font-mono font-bold text-slate-500">
-                                                            #{p.patient_id}
-                                                        </td>
-                                                        <td className="px-4 py-3 font-bold text-slate-900">
-                                                            {p.name}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <Badge className="bg-slate-100 text-slate-800 border-none font-semibold text-[10px]">
-                                                                {p.baseline_data?.gender || 'Male'}
-                                                            </Badge>
-                                                        </td>
-                                                        <td className="px-4 py-3 max-w-[150px] truncate" title={p.baseline_data?.diagnosis}>
-                                                            {p.baseline_data?.diagnosis || 'N/A'}
-                                                        </td>
-                                                        <td className="px-4 py-3 font-semibold">
-                                                            {p.baseline_data?.room ? (
-                                                                <span>
-                                                                    {p.baseline_data.ward ? `${p.baseline_data.ward} - ` : ''}
-                                                                    {p.baseline_data.room} (Bed {p.baseline_data.bed})
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-slate-400 italic">None</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <ExpandableList
-                                                                items={(p.paired_devices || []).map((dev, i) => (
-                                                                    <Badge key={i} className="bg-teal-50 text-teal-700 border-teal-200/50 font-semibold font-mono text-[9px] w-max">
-                                                                        {dev.serial_number}
-                                                                    </Badge>
-                                                                ))}
-                                                                emptyLabel="None paired"
-                                                            />
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <ExpandableList
-                                                                items={(p.assigned_users || []).map((u, i) => (
-                                                                    <div key={i} className="text-[10px] truncate">
-                                                                        <span className="font-semibold text-slate-800">{u.first_name} {u.last_name}</span>{" "}
-                                                                        <span className="text-slate-400">({u.role === 'caregiver' ? 'CG' : 'Staff'})</span>
-                                                                    </div>
-                                                                ))}
-                                                                emptyLabel="No staff assigned"
-                                                            />
-                                                        </td>
-                                                        <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
-                                                            {new Date(p.created_at).toLocaleDateString()}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            <div className="flex justify-end gap-1.5">
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="icon"
-                                                                    onClick={() => handleStartEdit(p)}
-                                                                    className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-                                                                >
-                                                                    <Edit className="w-3.5 h-3.5 text-slate-500" />
-                                                                </Button>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="icon"
-                                                                    onClick={() => handleArchivePatient(p.patient_id)}
-                                                                    className="w-7 h-7 border-slate-200 hover:border-red-300 hover:bg-red-50 cursor-pointer"
-                                                                >
-                                                                    <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" />
-                                                                </Button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
+                                             </thead>
+                                             <tbody className="divide-y divide-slate-100 text-xs text-slate-700 bg-white">
+                                                 {filteredAssigned.map((p) => (
+                                                     <tr key={p.patient_id} className="hover:bg-slate-50/50 transition-colors">
+                                                         <td className="px-4 py-3 font-semibold text-slate-800">
+                                                             {p.facility_name || <span className="text-slate-400 italic">n/a</span>}
+                                                         </td>
+                                                         <td className="px-4 py-3 font-mono font-bold text-slate-500">
+                                                             #{p.patient_id}
+                                                         </td>
+                                                         <td className="px-4 py-3 font-bold text-slate-900">
+                                                             {p.name}
+                                                         </td>
+                                                         <td className="px-4 py-3">
+                                                             <Badge className="bg-slate-100 text-slate-800 border-none font-semibold text-[10px]">
+                                                                 {p.baseline_data?.gender || 'Male'}
+                                                             </Badge>
+                                                         </td>
+                                                         <td className="px-4 py-3 max-w-[150px] truncate" title={p.baseline_data?.diagnosis}>
+                                                             {p.baseline_data?.diagnosis || 'N/A'}
+                                                         </td>
+                                                         <td className="px-4 py-3 font-semibold">
+                                                             {p.baseline_data?.room ? (
+                                                                 <span>
+                                                                     {p.baseline_data.ward ? `${p.baseline_data.ward} - ` : ''}
+                                                                     {p.baseline_data.room} (Bed {p.baseline_data.bed})
+                                                                 </span>
+                                                             ) : (
+                                                                 <span className="text-slate-400 italic">None</span>
+                                                             )}
+                                                         </td>
+                                                         <td className="px-4 py-3">
+                                                             <ExpandableList
+                                                                 items={(p.paired_devices || []).map((dev, i) => (
+                                                                     <Badge key={i} className="bg-teal-50 text-teal-700 border-teal-200/50 font-semibold font-mono text-[9px] w-max">
+                                                                         {dev.serial_number}
+                                                                     </Badge>
+                                                                 ))}
+                                                                 emptyLabel="None paired"
+                                                             />
+                                                         </td>
+                                                         <td className="px-4 py-3">
+                                                             <ExpandableList
+                                                                 items={(p.assigned_users || []).map((u, i) => (
+                                                                     <div key={i} className="text-[10px] truncate">
+                                                                         <span className="font-semibold text-slate-800">{u.first_name || u.username} {u.last_name || ''}</span>{" "}
+                                                                         <span className="text-slate-400">({u.role === 'caregiver' ? 'CG' : 'Staff'})</span>
+                                                                     </div>
+                                                                 ))}
+                                                                 emptyLabel="No staff assigned"
+                                                             />
+                                                         </td>
+                                                         <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
+                                                             {new Date(p.created_at).toLocaleDateString()}
+                                                         </td>
+                                                         {canManage && (
+                                                             <td className="px-4 py-3 text-right">
+                                                                 <div className="flex justify-end gap-1.5">
+                                                                     <Button
+                                                                         variant="outline"
+                                                                         size="icon"
+                                                                         onClick={() => handleStartEdit(p)}
+                                                                         className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                                                                     >
+                                                                         <Edit className="w-3.5 h-3.5 text-slate-500" />
+                                                                     </Button>
+                                                                     <Button
+                                                                         variant="outline"
+                                                                         size="icon"
+                                                                         onClick={() => handleArchivePatient(p.patient_id)}
+                                                                         className="w-7 h-7 border-slate-200 hover:border-red-300 hover:bg-red-50 cursor-pointer"
+                                                                     >
+                                                                         <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" />
+                                                                     </Button>
+                                                                 </div>
+                                                             </td>
+                                                         )}
+                                                     </tr>
+                                                 ))}
+                                             </tbody>
                                         </table>
                                     </div>
                                 </div>

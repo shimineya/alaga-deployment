@@ -17,7 +17,8 @@ import {
   Lock,
   Link,
   Archive,
-  Menu
+  Menu,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface AppSidebarProps {
@@ -145,12 +146,15 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
 
   // [RBAC] Hub visibility: a hub link stays visible as long as the user has
   // access to AT LEAST ONE tab inside it. The hub itself renders only allowed tabs.
+  const isCaregiverOrMedStaff = role === 'caregiver' || role === 'medical_staff';
+  const isParentOrGuardian    = role === 'parent' || role === 'guardian';
+
   const canSeeDashboard  = true;
-  const canSeePatients   = hasPermission('my-patients')   || hasPermission('add-patient');
+  // Patient Records Hub is accessible by Facility Admins, Medical Staff, Caregivers, and Parents/Guardians (restricted for SysAdmin)
+  const canSeePatients   = !isAdminTier && (isFacilityAdmin || isCaregiverOrMedStaff || isParentOrGuardian);
   const canSeeDevices    = hasPermission('device-status') || hasPermission('add-device')
                         || hasPermission('diagnostics')   || hasPermission('topology');
   // Caregivers and Medical Staff should not see User Management
-  const isCaregiverOrMedStaff = role === 'caregiver' || role === 'medical_staff';
   const canSeeStaff      = !isCaregiverOrMedStaff && (hasPermission('ward-staff') || hasPermission('patient-assignments'));
   const canSeeAssignmentCommandCenter = isCaregiverOrMedStaff;
   const canSeeSecurity   = isAdminTier
@@ -158,7 +162,7 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
                         || hasPermission('audit-logs')
                         || hasPermission('rbac_management');
   const canSeeAlerts     = hasPermission('alerts')        || hasPermission('alert-config');
-  const canSeeReports    = hasPermission('reports');
+  const canSeeReports    = isAdminTier || hasPermission('reports');
   const canSeeSettings   = true;
   const canSeeArchives   = isAdminTier || isFacilityAdmin;
  
@@ -170,7 +174,12 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
     { label: t('User Management', 'Pamamahala ng User'),  path: '/staff',     icon: Users,           visible: canSeeStaff, hasDot: hasCareTeamUpdates },
     { label: t('Security & Access', 'Seguridad at Akses'),path: '/security',  icon: Lock,            visible: canSeeSecurity },
     { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts, hasDot: hasUnreadAlerts },
-    { label: t('Clinical Reports', 'Mga Klinikal na Ulat'), path: '/reports',   icon: ActivitySquare,  visible: canSeeReports },
+    { 
+      label: isAdminTier ? t('Reports Hub', 'Hub ng Ulat') : t('Clinical Reports', 'Mga Klinikal na Ulat'), 
+      path: '/reports',   
+      icon: isAdminTier ? FileSpreadsheet : ActivitySquare,  
+      visible: canSeeReports 
+    },
     { label: t('Archive Hub', 'Hub ng Archive'),        path: '/archives',  icon: Archive,         visible: canSeeArchives },
     { label: t('System Settings', 'Mga Setting ng System'),  path: '/settings',  icon: Settings,        visible: canSeeSettings },
   ];

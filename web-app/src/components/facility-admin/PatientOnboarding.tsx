@@ -7,7 +7,6 @@ import { UserPlus, Cpu, RotateCcw, Search, RefreshCw } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
 
-const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface ScopedPatient {
@@ -40,9 +39,26 @@ export default function PatientOnboarding() {
     const { user, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
     const isSystemAdmin = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
+    const isFacilityAdmin = role === 'facility_admin';
+    const isParentOrGuardian = role === 'parent' || role === 'guardian';
+
+    const API = isFacilityAdmin 
+        ? `${import.meta.env.VITE_API_URL || ''}/api/facility-admin` 
+        : `${import.meta.env.VITE_API_URL || ''}/api/caregiver`;
 
     // Patient form state
-    const [form, setForm] = useState({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '', patient_type: 'facility', facility_name: '' });
+    const [form, setForm] = useState({ 
+        first_name: '', 
+        last_name: '', 
+        age: '', 
+        gender: 'Male', 
+        diagnosis: '', 
+        ward: '', 
+        room: isParentOrGuardian ? 'Home' : '', 
+        bed: isParentOrGuardian ? '1' : '', 
+        patient_type: isParentOrGuardian ? 'at_home' : 'facility', 
+        facility_name: '' 
+    });
     const [consentConfirmed, setConsentConfirmed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);

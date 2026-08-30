@@ -2,15 +2,17 @@ import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Cpu, PlusCircle, PenTool, Database, ActivitySquare } from 'lucide-react';
+import { Cpu, PlusCircle, PenTool, Database, ActivitySquare, Camera } from 'lucide-react';
 
 import { MyDevices } from '../MyDevices';
+import { AddNewDevice } from '../AddNewDevice';
 import { CaregiverDashboardNew } from '../CaregiverDashboardNew';
 import ReadOnlyDiagnostics from '../facility-admin/ReadOnlyDiagnostics';
 import FirmwareOTAUpdates from '../sysadmin/FirmwareOTAUpdates';
 import FacilityTopologyBuilder from '../sysadmin/FacilityTopologyBuilder';
 import AssignDeviceToPatient from '../facility-admin/AssignDeviceToPatient';
 import SystemAdminDeviceAssignment from '../sysadmin/SystemAdminDeviceAssignment';
+import DeviceSnapshotsTab from '../sysadmin/DeviceSnapshotsTab';
 
 export default function DeviceManagementHub() {
     const { user, permissions, isSysAdmin } = useAuth();
@@ -20,9 +22,6 @@ export default function DeviceManagementHub() {
     const isAdminTier  = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
     const isSystemAdmin = isAdminTier && !isFacilityAdmin;
-    // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
-    // Backend caregiverRoutes.js POST /devices/register allows admin | medical_staff | parent.
-    // Parent sees My Devices (their child's sensor) and Add Device (pair new ESP32).
     const isClinical   = ['caregiver', 'medical_staff', 'parent'].includes(role);
 
     // [OWASP A01 / RBAC] Override-aware visibility helper
@@ -41,8 +40,9 @@ export default function DeviceManagementHub() {
     const canSeeTopologyAndOTA = hasPermission('topology',       isAdminTier);
     const canSeeAssignDevice   = hasPermission('assign-device',  isFacilityAdmin || isAdminTier);
     const canSeeSysAssignment  = hasPermission('sys-device-assignment', isAdminTier);
+    const canSeeSnapshots      = isAdminTier;
  
-    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, canSeeAssignDevice, canSeeSysAssignment].filter(Boolean).length;
+    const tabCount = [canSeeMyDevices, canSeeAddDevice, canSeeDiagnostics, canSeeTopologyAndOTA, canSeeAssignDevice, canSeeSysAssignment, canSeeSnapshots].filter(Boolean).length;
     
     let defaultTab = 'my-devices';
     if (!canSeeMyDevices) {
@@ -62,121 +62,79 @@ export default function DeviceManagementHub() {
             <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
                 <div className="border-b border-slate-200 mb-6 shrink-0">
-                    <TooltipProvider delayDuration={300}>
-                        <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
-                            {canSeeAssignDevice && !isSystemAdmin && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="assign-device" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <PenTool className="w-4 h-4" /> Assign Device to Patient
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Pair Smart Diaper or Vital Signs devices to a patient.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                        {canSeeAssignDevice && !isSystemAdmin && (
+                            <TabsTrigger 
+                                value="assign-device" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <PenTool className="w-4 h-4" /> Assign Device to Patient
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeMyDevices && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="my-devices" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Cpu className="w-4 h-4" /> {isSystemAdmin ? "Patients' Devices" : "My Devices"}
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">View ESP32 sensors assigned to your patients.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeMyDevices && (
+                            <TabsTrigger 
+                                value="my-devices" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Cpu className="w-4 h-4" /> {isSystemAdmin ? "Patients' Devices" : "My Devices"}
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeAddDevice && !isSystemAdmin && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="add-device" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <PlusCircle className="w-4 h-4" /> Add Device
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Pair a new piece of hardware to the system whitelist.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeAddDevice && (
+                            <TabsTrigger 
+                                value="add-device" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <PlusCircle className="w-4 h-4" /> {isSystemAdmin ? "Register Device" : "Add Device"}
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeDiagnostics && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="diagnostics" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <ActivitySquare className="w-4 h-4" /> Ward Diagnostics
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Examine network stability and battery levels across the facility.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeDiagnostics && (
+                            <TabsTrigger 
+                                value="diagnostics" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <ActivitySquare className="w-4 h-4" /> Ward Diagnostics
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeTopologyAndOTA && !isSystemAdmin && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="topology" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Database className="w-4 h-4" /> Network Topology
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Build and align the facility's logical hardware structure.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeTopologyAndOTA && !isSystemAdmin && (
+                            <TabsTrigger 
+                                value="topology" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Database className="w-4 h-4" /> Network Topology
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeTopologyAndOTA && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="ota" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <PenTool className="w-4 h-4" /> Firmware OTA
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Push Over-The-Air security patches to ESP32 endpoints.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeTopologyAndOTA && (
+                            <TabsTrigger 
+                                value="ota" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <PenTool className="w-4 h-4" /> Firmware OTA
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeSysAssignment && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="sys-device-assignment"
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-amber-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <Cpu className="w-4 h-4" /> Device Assignment
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Manage device linkages and assignments across patients.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                        </TabsList>
-                    </TooltipProvider>
+                        {canSeeSysAssignment && (
+                            <TabsTrigger 
+                                value="sys-device-assignment"
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Cpu className="w-4 h-4" /> Device Assignment
+                            </TabsTrigger>
+                        )}
+
+                        {canSeeSnapshots && (
+                            <TabsTrigger 
+                                value="device-snapshots"
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <Camera className="w-4 h-4" /> Device Snapshots
+                            </TabsTrigger>
+                        )}
+                    </TabsList>
                 </div>
                 )}
 
@@ -186,9 +144,9 @@ export default function DeviceManagementHub() {
                     </TabsContent>
                 )}
 
-                {canSeeAddDevice && !isSystemAdmin && (
+                {canSeeAddDevice && (
                     <TabsContent value="add-device" className="mt-0 flex-1 min-h-[500px] outline-none">
-                        <CaregiverDashboardNew initialTab="add-device" hideNavigation={true} />
+                        <AddNewDevice onDeviceAdded={() => {}} onCancel={() => {}} />
                     </TabsContent>
                 )}
 
@@ -219,6 +177,12 @@ export default function DeviceManagementHub() {
                 {canSeeSysAssignment && (
                     <TabsContent value="sys-device-assignment" className="mt-0 flex-1 min-h-[500px] outline-none">
                         <SystemAdminDeviceAssignment />
+                    </TabsContent>
+                )}
+
+                {canSeeSnapshots && (
+                    <TabsContent value="device-snapshots" className="mt-0 flex-1 min-h-[500px] outline-none">
+                        <DeviceSnapshotsTab />
                     </TabsContent>
                 )}
             </Tabs>

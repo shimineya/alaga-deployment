@@ -24,14 +24,14 @@ import {
     DialogTitle,
     DialogFooter
 } from "@/components/ui/dialog";
-import { 
-    Activity, 
-    ShieldAlert, 
-    Wifi, 
-    Database, 
-    Server, 
-    Clock, 
-    AlertTriangle, 
+import {
+    Activity,
+    ShieldAlert,
+    Wifi,
+    Database,
+    Server,
+    Clock,
+    AlertTriangle,
     Trash2,
     ShieldCheck,
     RefreshCw,
@@ -75,29 +75,29 @@ interface StatsData {
 
 export default function CommandCenterDashboard() {
     const { token } = useAuth();
-    
+
     // States
     const [stats, setStats] = useState<StatsData | null>(null);
     const [siemFeed, setSiemFeed] = useState<SecurityEvent[]>([]);
     const [blacklist, setBlacklist] = useState<BannedIp[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    
+
     // IP Ban Modal State
     const [isBanDialogOpen, setIsBanDialogOpen] = useState(false);
     const [banIp, setBanIp] = useState('');
     const [banReason, setBanReason] = useState('');
     const [isBanning, setIsBanning] = useState(false);
- 
+
     // Search & Suggestions States
     const [blacklistSearchQuery, setBlacklistSearchQuery] = useState('');
     const [showBlacklistSuggestions, setShowBlacklistSuggestions] = useState(false);
     const blacklistSearchRef = React.useRef<HTMLDivElement>(null);
- 
+
     const [siemSearchQuery, setSiemSearchQuery] = useState('');
     const [showSiemSuggestions, setShowSiemSuggestions] = useState(false);
     const siemSearchRef = React.useRef<HTMLDivElement>(null);
- 
+
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (blacklistSearchRef.current && !blacklistSearchRef.current.contains(event.target as Node)) {
@@ -110,16 +110,16 @@ export default function CommandCenterDashboard() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
- 
+
     const filteredBlacklist = useMemo(() => {
-        return blacklist.filter(item => 
+        return blacklist.filter(item =>
             item.ip_address.toLowerCase().includes(blacklistSearchQuery.toLowerCase()) ||
             (item.reason || '').toLowerCase().includes(blacklistSearchQuery.toLowerCase())
         );
     }, [blacklist, blacklistSearchQuery]);
- 
+
     const filteredSiemFeed = useMemo(() => {
-        return siemFeed.filter(event => 
+        return siemFeed.filter(event =>
             (event.action || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
             (event.ip_address || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
             (event.username || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
@@ -236,14 +236,14 @@ export default function CommandCenterDashboard() {
         const s = severity?.toLowerCase();
         switch (s) {
             case 'critical':
-            case 'high': 
+            case 'high':
                 return <Badge variant="destructive">High</Badge>;
             case 'warning':
-            case 'medium': 
+            case 'medium':
                 return <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50">Medium</Badge>;
-            case 'info': 
+            case 'info':
                 return <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100">Info</Badge>;
-            default: 
+            default:
                 return <Badge variant="outline">Info</Badge>;
         }
     };
@@ -261,8 +261,8 @@ export default function CommandCenterDashboard() {
 
     const formatUptime = (seconds: number) => {
         if (!seconds) return "0s";
-        const d = Math.floor(seconds / (3600*24));
-        const h = Math.floor((seconds % (3600*24)) / 3600);
+        const d = Math.floor(seconds / (3600 * 24));
+        const h = Math.floor((seconds % (3600 * 24)) / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         if (d > 0) return `${d}d ${h}h`;
         if (h > 0) return `${h}h ${m}m`;
@@ -288,9 +288,9 @@ export default function CommandCenterDashboard() {
                         Aggregated Global Telemetry. PHI access is restricted in this zone.
                     </p>
                 </div>
-                <Button 
-                    variant="outline" 
-                    size="sm" 
+                <Button
+                    variant="outline"
+                    size="sm"
                     disabled={isRefreshing}
                     onClick={() => fetchDashboardData(true)}
                     className="h-8 text-xs font-semibold"
@@ -318,7 +318,7 @@ export default function CommandCenterDashboard() {
                 {/* Active Emergency Access */}
                 <Card className="bg-white border border-red-200 border-l-4 border-l-red-500 shadow-sm bg-red-50/50">
                     <CardHeader className="flex flex-row items-center justify-between py-2 px-4 space-y-0">
-                        <CardTitle className="text-[11px] font-medium text-red-800 uppercase tracking-wider">Active Break-Glass Overrides</CardTitle>
+                        <CardTitle className="text-[11px] font-medium text-red-800 uppercase tracking-wider">Emergencies</CardTitle>
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -471,7 +471,7 @@ export default function CommandCenterDashboard() {
                                     className="w-full text-xs pl-7 pr-6 py-1.5 border border-slate-200 rounded-lg focus:ring-1 focus:ring-rose-500 outline-none bg-white"
                                 />
                                 {blacklistSearchQuery && (
-                                    <button 
+                                    <button
                                         onClick={() => { setBlacklistSearchQuery(''); setShowBlacklistSuggestions(false); }}
                                         className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
                                     >
@@ -479,7 +479,7 @@ export default function CommandCenterDashboard() {
                                     </button>
                                 )}
                             </div>
-                            
+
                             {showBlacklistSuggestions && blacklistSearchQuery && (
                                 <div className="absolute z-50 w-full mt-1 bg-white border border-slate-100 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-50">
                                     {blacklist.filter(b => b.ip_address.includes(blacklistSearchQuery) || (b.reason || '').toLowerCase().includes(blacklistSearchQuery.toLowerCase())).length === 0 ? (
@@ -504,9 +504,9 @@ export default function CommandCenterDashboard() {
                                 </div>
                             )}
                         </div>
-                        
-                        <Button 
-                            size="sm" 
+
+                        <Button
+                            size="sm"
                             onClick={() => setIsBanDialogOpen(true)}
                             className="bg-rose-600 hover:bg-rose-700 text-white text-xs h-8 whitespace-nowrap"
                         >
@@ -540,9 +540,9 @@ export default function CommandCenterDashboard() {
                                             {new Date(item.banned_at).toLocaleString()}
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <Button 
-                                                variant="outline" 
-                                                size="sm" 
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
                                                 onClick={() => handleUnban(item.id, item.ip_address)}
                                                 className="text-xs border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 h-7 px-2"
                                             >
@@ -586,7 +586,7 @@ export default function CommandCenterDashboard() {
                                 className="w-full text-xs pl-7 pr-6 py-1.5 bg-slate-850 border border-slate-700 text-slate-100 placeholder-slate-500 rounded-lg focus:ring-1 focus:ring-amber-500 outline-none bg-slate-800"
                             />
                             {siemSearchQuery && (
-                                <button 
+                                <button
                                     onClick={() => { setSiemSearchQuery(''); setShowSiemSuggestions(false); }}
                                     className="absolute right-2 top-2 text-slate-450 hover:text-slate-200"
                                 >
@@ -597,16 +597,16 @@ export default function CommandCenterDashboard() {
 
                         {showSiemSuggestions && siemSearchQuery && (
                             <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-800">
-                                {siemFeed.filter(event => 
-                                    (event.action || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) || 
+                                {siemFeed.filter(event =>
+                                    (event.action || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
                                     (event.username || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
                                     (event.ip_address || '').toLowerCase().includes(siemSearchQuery.toLowerCase())
                                 ).length === 0 ? (
                                     <div className="p-2 text-[10px] text-slate-500 italic">No matches</div>
                                 ) : (
                                     siemFeed
-                                        .filter(event => 
-                                            (event.action || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) || 
+                                        .filter(event =>
+                                            (event.action || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
                                             (event.username || '').toLowerCase().includes(siemSearchQuery.toLowerCase()) ||
                                             (event.ip_address || '').toLowerCase().includes(siemSearchQuery.toLowerCase())
                                         )
@@ -683,7 +683,7 @@ export default function CommandCenterDashboard() {
                     <div className="space-y-4 py-2 text-xs">
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-slate-700">IP Address</label>
-                            <input 
+                            <input
                                 type="text"
                                 placeholder="e.g. 192.168.1.105"
                                 value={banIp}
@@ -693,7 +693,7 @@ export default function CommandCenterDashboard() {
                         </div>
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-slate-700">Justification Reason</label>
-                            <textarea 
+                            <textarea
                                 placeholder="e.g. Multiple failed logins detected"
                                 value={banReason}
                                 onChange={(e) => setBanReason(e.target.value)}
@@ -703,8 +703,8 @@ export default function CommandCenterDashboard() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" size="sm" onClick={() => setIsBanDialogOpen(false)}>Cancel</Button>
-                        <Button 
-                            size="sm" 
+                        <Button
+                            size="sm"
                             disabled={!banIp || isBanning}
                             onClick={handleBan}
                             className="bg-rose-600 hover:bg-rose-700 text-white"

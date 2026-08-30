@@ -51,7 +51,8 @@ interface Device {
 }
 
 export const MyDevices: React.FC = () => {
-    const { token } = useAuth();
+    const { token, user, isSysAdmin } = useAuth();
+    const isSystemAdmin = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(user?.role?.toLowerCase() || '');
     const [devices, setDevices] = useState<Device[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -273,7 +274,7 @@ export const MyDevices: React.FC = () => {
                                 <TableHead className="w-[250px]">Device Name</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Battery & Signal</TableHead>
-                                <TableHead>Location (Ward/Room/Bed)</TableHead>
+                                {!isSystemAdmin && <TableHead>Location (Ward/Room/Bed)</TableHead>}
                                 <TableHead>Firmware</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -281,7 +282,7 @@ export const MyDevices: React.FC = () => {
                         <TableBody>
                             {paginatedDevices.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-12 text-slate-500">
+                                    <TableCell colSpan={isSystemAdmin ? 5 : 6} className="text-center py-12 text-slate-500">
                                         <div className="flex flex-col items-center justify-center">
                                             <Search className="w-8 h-8 mb-2 opacity-20" />
                                             <p>No devices found matching your criteria.</p>
@@ -289,85 +290,97 @@ export const MyDevices: React.FC = () => {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                paginatedDevices.map((device) => (
-                                    <TableRow key={device.serial_number} className="hover:bg-slate-50/50 transition-colors">
-                                        <TableCell className="font-medium">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2 bg-teal-50 rounded-lg text-teal-600">
-                                                    <Smartphone className="w-4 h-4" />
+                                paginatedDevices.map((device) => {
+                                    const isUnpaired = !device.assigned_patient_baseline && !device.assigned_patient_name && (!device.assigned_room || device.assigned_room === 'Unassigned');
+                                    const isInactive = device.status === 'INACTIVE';
+                                    const canArchive = !isSystemAdmin || (isUnpaired && isInactive);
+
+                                    return (
+                                        <TableRow key={device.serial_number} className="hover:bg-slate-50/50 transition-colors">
+                                            <TableCell className="font-medium">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-teal-50 rounded-lg text-teal-600">
+                                                        <Smartphone className="w-4 h-4" />
+                                                    </div>
+                                                    <div className="flex flex-col text-left">
+                                                        <span className="text-slate-900 font-semibold">{device.device_name}</span>
+                                                        <span className="text-[10px] text-slate-500 font-mono">SN: {device.serial_number}</span>
+                                                    </div>
                                                 </div>
-                                                <div className="flex flex-col text-left">
-                                                    <span className="text-slate-900 font-semibold">{device.device_name}</span>
-                                                    <span className="text-[10px] text-slate-500 font-mono">SN: {device.serial_number}</span>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className={`
+                                                    ${device.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                        device.status === 'INACTIVE' ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                                                            'bg-amber-50 text-amber-700 border-amber-200'}
+                                                `}>
+                                                    {device.status}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="flex items-center gap-1.5 tooltip-container" title="Battery Level">
+                                                        <Battery className={`w-4 h-4 ${(device.battery_level || 0) < 20 ? 'text-red-500' : 'text-emerald-500'}`} />
+                                                        <span className="text-xs font-medium text-slate-700">{device.battery_level}%</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5" title="WiFi Signal Strength">
+                                                        <Signal className="w-3.5 h-3.5 text-blue-500" />
+                                                        <span className="text-xs text-slate-500">Good</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge variant="outline" className={`
-                                                ${device.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                    device.status === 'INACTIVE' ? 'bg-slate-100 text-slate-600 border-slate-200' :
-                                                        'bg-amber-50 text-amber-700 border-amber-200'}
-                                            `}>
-                                                {device.status}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex items-center gap-1.5 tooltip-container" title="Battery Level">
-                                                    <Battery className={`w-4 h-4 ${(device.battery_level || 0) < 20 ? 'text-red-500' : 'text-emerald-500'}`} />
-                                                    <span className="text-xs font-medium text-slate-700">{device.battery_level}%</span>
-                                                </div>
-                                                <div className="flex items-center gap-1.5" title="WiFi Signal Strength">
-                                                    <Signal className="w-3.5 h-3.5 text-blue-500" />
-                                                    <span className="text-xs text-slate-500">Good</span>
-                                                </div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span className="text-sm text-slate-600">
-                                                {device.assigned_patient_baseline ? (
-                                                    <span className="font-medium text-teal-600">
-                                                        {device.assigned_patient_baseline.ward ? `${device.assigned_patient_baseline.ward} - ` : ''}
-                                                        {device.assigned_patient_baseline.room} (Bed {device.assigned_patient_baseline.bed})
+                                            </TableCell>
+                                            {!isSystemAdmin && (
+                                                <TableCell>
+                                                    <span className="text-sm text-slate-600">
+                                                        {device.assigned_patient_baseline ? (
+                                                            <span className="font-medium text-teal-600">
+                                                                {device.assigned_patient_baseline.ward ? `${device.assigned_patient_baseline.ward} - ` : ''}
+                                                                {device.assigned_patient_baseline.room} (Bed {device.assigned_patient_baseline.bed})
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-400 italic">Unassigned</span>
+                                                        )}
                                                     </span>
-                                                ) : (
-                                                    <span className="text-slate-400 italic">Unassigned</span>
-                                                )}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge variant="secondary" className="font-mono text-[10px]">
-                                                {device.firmware_version}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-slate-100 ml-auto flex items-center justify-center">
-                                                        <MoreVertical className="w-4 h-4 text-slate-400" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" className="w-[160px]">
-                                                    <DropdownMenuItem onClick={() => handlePing(device)}>
-                                                        Ping Device
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                                                        onClick={() => handleUnpair(device)}
-                                                    >
-                                                        Unpair Device
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="text-red-600 focus:text-red-600 focus:bg-red-50 font-semibold"
-                                                        onClick={() => handleArchive(device)}
-                                                    >
-                                                        Archive Device
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
+                                                </TableCell>
+                                            )}
+                                            <TableCell>
+                                                <Badge variant="secondary" className="font-mono text-[10px]">
+                                                    {device.firmware_version}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-slate-100 ml-auto flex items-center justify-center">
+                                                            <MoreVertical className="w-4 h-4 text-slate-400" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end" className="w-[160px]">
+                                                        <DropdownMenuItem onClick={() => handlePing(device)}>
+                                                            Ping Device
+                                                        </DropdownMenuItem>
+                                                        {!isSystemAdmin && (
+                                                            <DropdownMenuItem
+                                                                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                                onClick={() => handleUnpair(device)}
+                                                            >
+                                                                Unpair Device
+                                                            </DropdownMenuItem>
+                                                        )}
+                                                        {canArchive && (
+                                                            <DropdownMenuItem
+                                                                className="text-red-600 focus:text-red-600 focus:bg-red-50 font-semibold"
+                                                                onClick={() => handleArchive(device)}
+                                                            >
+                                                                Archive Device
+                                                            </DropdownMenuItem>
+                                                        )}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })
                             )}
                         </TableBody>
                     </Table>

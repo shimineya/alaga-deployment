@@ -46,57 +46,34 @@ export default function SecurityAccessHub() {
             <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
                 <div className="border-b border-slate-200 mb-6 shrink-0">
-                    <TooltipProvider delayDuration={300}>
-                        <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
-                            {canSeeSystemSecurity && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="siem" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <ShieldAlert className="w-4 h-4" /> Security Operations
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Monitor global threat matrices and brute force attempts.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                        {canSeeSystemSecurity && (
+                            <TabsTrigger 
+                                value="siem" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <ShieldAlert className="w-4 h-4" /> Security Operations
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeAuditTrails && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="audit" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <FileJson className="w-4 h-4" /> Forensic Audit Trails
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Trace actions, break-glass events, and API invocations for HIPAA compliance.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
+                        {canSeeAuditTrails && (
+                            <TabsTrigger 
+                                value="audit" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <FileJson className="w-4 h-4" /> Forensic Audit Trails
+                            </TabsTrigger>
+                        )}
 
-                            {canSeeRBACManager && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <TabsTrigger 
-                                            value="rbac" 
-                                            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-none h-12 px-2 text-sm font-semibold text-slate-500 data-[state=active]:text-teal-700 flex items-center gap-2 transition-all hover:text-slate-700 whitespace-nowrap"
-                                        >
-                                            <SlidersHorizontal className="w-4 h-4" /> User Permissions Manager
-                                        </TabsTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="bg-slate-800 text-white border-none shadow-xl max-w-[250px]">
-                                        <p className="text-xs">Toggle which pages and features each individual user can access.</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                        </TabsList>
-                    </TooltipProvider>
+                        {canSeeRBACManager && (
+                            <TabsTrigger 
+                                value="rbac" 
+                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                            >
+                                <SlidersHorizontal className="w-4 h-4" /> User Permissions Manager
+                            </TabsTrigger>
+                        )}
+                    </TabsList>
                 </div>
                 )}
 

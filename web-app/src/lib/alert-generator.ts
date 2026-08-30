@@ -1,14 +1,19 @@
 import type { Alert, Patient, DoctorsOrdersData } from '../types';
 
 export function generateAlertsFromDoctorsOrders(patient: Patient): Alert[] {
-  if (!patient.doctorsOrders) return [];
+  if (!patient || !patient.doctorsOrders) return [];
+
+  const orders: any = Array.isArray(patient.doctorsOrders) 
+    ? (patient.doctorsOrders.length > 0 ? patient.doctorsOrders[0] : null) 
+    : patient.doctorsOrders;
+
+  if (!orders || typeof orders !== 'object') return [];
 
   const alerts: Alert[] = [];
   const now = new Date();
-  const orders = patient.doctorsOrders;
 
   // 1. Generate medication alerts from calendar events
-  orders.calendarEvents
+  (orders.calendarEvents || [])
     .filter(event => event.type === 'medication' && event.recurring)
     .forEach(event => {
       const eventTime = new Date(event.dateTime);

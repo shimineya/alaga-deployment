@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, enforceBreakGlassForSysAdmin } = require('../middleware/authMiddleware');
+const systemReportService = require('../services/systemReportService');
 
 // Apply Security Middleware
 router.use(verifyToken);
@@ -119,60 +120,99 @@ router.post('/devices', async (req, res) => {
         return res.status(400).json({ success: false, message: `Invalid serial format: ${diaperDeviceNo}. Expected SD-YYYY-NNNN.` });
     }
 
+    const isSysAdmin = ['admin', 'system_admin', 'sysadmin'].includes(req.user.role);
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
         const inserted = [];
+        const devicesToProcess = [];
+        if (vitalDeviceNo) devicesToProcess.push({ serial: vitalDeviceNo, name: 'Vital Sign Monitor' });
+        if (diaperDeviceNo) devicesToProcess.push({ serial: diaperDeviceNo, name: 'Smart Diaper Module' });
 
-        if (vitalDeviceNo) {
-            // [OWASP A05] Parameterized duplicate check before insert
+        const crypto = require('crypto');
+        const testTokenHash = crypto.createHash('sha256').update('alaga-test-token').digest('hex');
+
+        for (const dev of devicesToProcess) {
             const exists = await client.query(
-                'SELECT serial_number FROM device_whitelist WHERE serial_number = $1',
-                [vitalDeviceNo]
+                `SELECT dw.serial_number, dw.device_name, dw.status, dw.assigned_patient_id, dw.is_archived, dw.added_by, u.role as creator_role
+                 FROM device_whitelist dw
+                 LEFT JOIN users u ON dw.added_by = u.id
+                 WHERE dw.serial_number = $1`,
+                [dev.serial]
             );
-            if (exists.rows.length > 0) {
-                await client.query('ROLLBACK');
-                client.release();
-                return res.status(409).json({ success: false, message: `Device ${vitalDeviceNo} is already registered.` });
+
+            if (isSysAdmin) {
+                // System Admin Registration (Master Registry)
+                if (exists.rows.length > 0) {
+                    if (exists.rows[0].is_archived) {
+                        await client.query(
+                            `UPDATE device_whitelist SET is_archived = FALSE, status = 'AVAILABLE', added_by = $1 WHERE serial_number = $2`,
+                            [registeredBy, dev.serial]
+                        );
+                        inserted.push(dev.serial);
+                    } else {
+                        await client.query('ROLLBACK');
+                        client.release();
+                        return res.status(409).json({ success: false, message: `Device ${dev.serial} is already registered in the system.` });
+                    }
+                } else {
+                    await client.query(
+                        `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at, device_token_hash, is_archived)
+                         VALUES ($1, $2, 'AVAILABLE', $3, NOW(), $4, FALSE)`,
+                        [dev.serial, dev.name, registeredBy, testTokenHash]
+                    );
+                    inserted.push(dev.serial);
+                }
+            } else {
+                // Non-System Admin (Facility Admin, Med Staff, Caregiver, Parent)
+                // Device MUST have already been registered by a System Admin
+                if (exists.rows.length === 0 || exists.rows[0].is_archived) {
+                    await client.query('ROLLBACK');
+                    client.release();
+                    return res.status(400).json({
+                        success: false,
+                        message: `Device ${dev.serial} is not registered in the system by a System Administrator. Please contact a System Administrator to whitelist this device before registering.`
+                    });
+                }
+
+                const row = exists.rows[0];
+                const isCreatorSysAdmin = !row.added_by || ['admin', 'system_admin', 'sysadmin'].includes(row.creator_role);
+                if (!isCreatorSysAdmin) {
+                    await client.query('ROLLBACK');
+                    client.release();
+                    return res.status(400).json({
+                        success: false,
+                        message: `Device ${dev.serial} was not registered by a System Administrator.`
+                    });
+                }
+
+                if (row.assigned_patient_id) {
+                    await client.query('ROLLBACK');
+                    client.release();
+                    return res.status(409).json({
+                        success: false,
+                        message: `Device ${dev.serial} is currently paired with an active patient.`
+                    });
+                }
+
+                // Link / Claim the system-registered device for this facility/user
+                await client.query(
+                    `UPDATE device_whitelist SET added_by = $1, status = 'AVAILABLE', is_archived = FALSE WHERE serial_number = $2`,
+                    [registeredBy, dev.serial]
+                );
+                inserted.push(dev.serial);
             }
-            // [FIX] added_by now populated so ownership scoping works for GET /devices.
-            // [OWASP A07] In production, this token would be randomly generated and handed to the admin.
-            // For prototyping/testing, we inject the hash of 'alaga-test-token'.
-            const crypto = require('crypto');
-            const testTokenHash = crypto.createHash('sha256').update('alaga-test-token').digest('hex');
-
-            await client.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at, device_token_hash)
-                 VALUES ($1, 'Vital Sign Monitor', 'AVAILABLE', $2, NOW(), $3)`,
-                [vitalDeviceNo, registeredBy, testTokenHash]
-            );
-            inserted.push(vitalDeviceNo);
-        }
-
-        if (diaperDeviceNo) {
-            const exists = await client.query(
-                'SELECT serial_number FROM device_whitelist WHERE serial_number = $1',
-                [diaperDeviceNo]
-            );
-            if (exists.rows.length > 0) {
-                await client.query('ROLLBACK');
-                client.release();
-                return res.status(409).json({ success: false, message: `Device ${diaperDeviceNo} is already registered.` });
-            }
-            const crypto = require('crypto');
-            const testTokenHash = crypto.createHash('sha256').update('alaga-test-token').digest('hex');
-
-            await client.query(
-                `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, created_at, device_token_hash)
-                 VALUES ($1, 'Smart Diaper Module', 'AVAILABLE', $2, NOW(), $3)`,
-                [diaperDeviceNo, registeredBy, testTokenHash]
-            );
-            inserted.push(diaperDeviceNo);
         }
 
         await client.query('COMMIT');
-        res.status(201).json({ success: true, message: `Device(s) registered: ${inserted.join(', ')}`, registered: inserted });
+        res.status(201).json({
+            success: true,
+            message: isSysAdmin 
+                ? `Device(s) registered in system inventory: ${inserted.join(', ')}` 
+                : `Device(s) verified and registered: ${inserted.join(', ')}`,
+            registered: inserted
+        });
 
     } catch (err) {
         await client.query('ROLLBACK');
@@ -273,19 +313,42 @@ router.get('/all', async (req, res) => {
 // 2. ADD NEW PATIENT
 // [OWASP A01] Only admin / parent / medical_staff can enroll new patients.
 // ==========================================
+// 2. ADD NEW PATIENT
+// [OWASP A01] Only admin / facility_admin / parent / guardian / medical_staff can enroll new patients.
+// ==========================================
 router.post('/patients', async (req, res) => {
-    // [OWASP A01] Role guard
-    if (req.user.role !== 'admin' && req.user.role !== 'medical_staff' && req.user.role !== 'parent') {
+    // [OWASP A01] Role guard - caregivers strictly cannot enroll patients
+    const allowedRoles = ['admin', 'system_admin', 'sysadmin', 'facility_admin', 'medical_staff', 'parent', 'guardian'];
+    if (!allowedRoles.includes(req.user.role)) {
         return res.status(403).json({
             success: false,
-            message: 'Only parent or administrator accounts can enroll new patients.'
+            message: 'Only parent, guardian, medical staff, or administrator accounts can enroll new patients.'
         });
     }
 
-    const { name, birthdate, medicalCondition, assignedCaregiverEmail, ward, room, bed, illness, conditions, emergencyContact } = req.body;
+    const { 
+        name, first_name, last_name, age, gender,
+        birthdate, medicalCondition, diagnosis,
+        assignedCaregiverEmail, ward, room, bed, 
+        illness, conditions, emergencyContact, patient_type, facility_name
+    } = req.body;
+
+    const patientName = name || `${first_name || ''} ${last_name || ''}`.trim();
+    if (!patientName) {
+        return res.status(400).json({ success: false, message: 'Patient name is required.' });
+    }
 
     if (!room || !room.trim() || !bed || !bed.trim()) {
         return res.status(400).json({ success: false, message: 'Room name and Bed name are required.' });
+    }
+
+    let patientBirthdate = birthdate;
+    if (!patientBirthdate && age) {
+        const approxYear = new Date().getFullYear() - parseInt(age, 10);
+        patientBirthdate = `${approxYear}-01-01`;
+    }
+    if (!patientBirthdate) {
+        patientBirthdate = new Date().toISOString().split('T')[0];
     }
 
     const client = await pool.connect();
@@ -309,7 +372,9 @@ router.post('/patients', async (req, res) => {
         }
 
         const baselineData = {
-            condition: medicalCondition || conditions || null,
+            gender: gender || 'Male',
+            diagnosis: diagnosis || medicalCondition || illness || '',
+            condition: medicalCondition || conditions || diagnosis || null,
             created_by: req.user.id,
             ward: ward ? ward.trim() : null,
             room: room.trim(),
@@ -321,21 +386,25 @@ router.post('/patients', async (req, res) => {
 
         // 1. Insert Patient
         const patientFacilityId = req.user.facility_id || null;
-        const patientType = patientFacilityId ? 'facility' : 'at_home';
+        const patientType = patient_type || (patientFacilityId ? 'facility' : 'at_home');
         const patientRes = await client.query(
             `INSERT INTO patients (name, birthdate, baseline_data, facility_id, patient_type, created_at)
              VALUES ($1, $2, $3, $4, $5, NOW())
              RETURNING patient_id`,
-            [name, birthdate, JSON.stringify(baselineData), patientFacilityId, patientType]
+            [patientName, patientBirthdate, JSON.stringify(baselineData), patientFacilityId, patientType]
         );
 
         const newPatientId = patientRes.rows[0].patient_id;
 
-        // 2. Grant Access to the Creator (Current User)
+        // 2. Grant Access to the Creator (Parent / Guardian / Admin)
+        const creatorRelationship = (req.user.role === 'parent' || req.user.role === 'guardian')
+            ? (req.user.role === 'parent' ? 'Parent' : 'Guardian')
+            : 'Primary Caregiver';
+
         await client.query(
-            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
-             VALUES ($1, $2, 'Primary Caregiver', 'Edit')`,
-            [req.user.id, newPatientId]
+            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status)
+             VALUES ($1, $2, $3, 'Edit', 'Active')`,
+            [req.user.id, newPatientId, creatorRelationship]
         );
 
         if (resolvedCaregiverId) {
@@ -354,11 +423,17 @@ router.post('/patients', async (req, res) => {
                 "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
                 [newPatientId, vitalDeviceNo]
             );
-            // Link to patient record too
             await client.query(
                 "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
                 [vitalDeviceNo, newPatientId]
             );
+            systemReportService.recordDevicePairingReport({
+                serial_number: vitalDeviceNo,
+                device_name: 'Vital Signs Monitor',
+                patient_id: newPatientId,
+                patient_name: patientName,
+                assigned_by: req.user.email || `User #${req.user.id}`
+            }).catch(e => console.error('Device pairing report hook error:', e));
         }
 
         if (diaperDeviceNo) {
@@ -366,17 +441,159 @@ router.post('/patients', async (req, res) => {
                 "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
                 [newPatientId, diaperDeviceNo]
             );
+            systemReportService.recordDevicePairingReport({
+                serial_number: diaperDeviceNo,
+                device_name: 'Smart Diaper Sensor',
+                patient_id: newPatientId,
+                patient_name: patientName,
+                assigned_by: req.user.email || `User #${req.user.id}`
+            }).catch(e => console.error('Device pairing report hook error:', e));
         }
 
         await client.query('COMMIT');
-        res.status(201).json({ success: true, message: 'Patient enrolled successfully', patientId: newPatientId });
+        res.status(201).json({ 
+            success: true, 
+            message: 'Patient registered successfully', 
+            patient_id: newPatientId, 
+            patientId: newPatientId 
+        });
 
     } catch (err) {
         await client.query('ROLLBACK');
         console.error("Add Patient Error:", err.message);
-        res.status(500).json({ success: false, message: 'Failed to enroll patient' });
+        res.status(500).json({ success: false, message: 'Failed to enroll patient.' });
     } finally {
         client.release();
+    }
+});
+
+// Pair device endpoint for caregivers / parents / guardians
+router.post('/patients/:patientId/pair-device', async (req, res) => {
+    const { patientId } = req.params;
+    const { serial_number } = req.body;
+
+    if (!serial_number || !serial_number.trim()) {
+        return res.status(400).json({ success: false, message: 'Device serial number is required.' });
+    }
+
+    try {
+        // Validation: Ensure device exists in whitelist and was pre-registered by system admin
+        const deviceCheck = await pool.query(
+            "SELECT * FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE",
+            [serial_number.trim()]
+        );
+
+        if (deviceCheck.rows.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "This device is not registered in the system by the System Administrator. Please contact the System Admin to whitelist this device before pairing."
+            });
+        }
+
+        const device = deviceCheck.rows[0];
+        if (device.assigned_patient_id && device.assigned_patient_id != patientId) {
+            return res.status(400).json({
+                success: false,
+                message: `Device ${serial_number} is already assigned to another patient (#${device.assigned_patient_id}).`
+            });
+        }
+
+        // Get patient name
+        const patRes = await pool.query("SELECT name FROM patients WHERE patient_id = $1", [patientId]);
+        const patientName = patRes.rows[0]?.name || `Patient #${patientId}`;
+
+        // Pair device
+        await pool.query(
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
+            [patientId, serial_number.trim()]
+        );
+
+        // Record in system reports
+        systemReportService.recordDevicePairingReport({
+            serial_number: serial_number.trim(),
+            device_name: device.device_name || 'Medical Hardware Sensor',
+            patient_id: parseInt(patientId, 10),
+            patient_name: patientName,
+            assigned_by: req.user.email || `User #${req.user.id}`
+        }).catch(e => console.error('Device pairing report hook error:', e));
+
+        res.json({ success: true, message: `Device ${serial_number} paired successfully.` });
+    } catch (err) {
+        console.error("Pair Device Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to pair device.' });
+    }
+});
+
+// Assign staff / caregiver by email for parent / guardian / admin
+router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
+    const { patientId } = req.params;
+    const { email } = req.body;
+
+    if (!email || !email.trim()) {
+        return res.status(400).json({ success: false, message: 'Email address is required.' });
+    }
+
+    try {
+        // 1. Verify caller has access to this patient
+        const accessCheck = await pool.query(
+            `SELECT * FROM patient_access WHERE user_id = $1 AND patient_id = $2 AND is_archived IS DISTINCT FROM TRUE`,
+            [req.user.id, patientId]
+        );
+        const isAdmin = ['admin', 'system_admin', 'sysadmin', 'facility_admin'].includes(req.user.role?.toLowerCase());
+        if (!isAdmin && accessCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'You do not have permission to assign caregivers to this patient.' });
+        }
+
+        // 2. Lookup caregiver / medstaff
+        const userRes = await pool.query(
+            'SELECT user_id, role, first_name, last_name FROM users WHERE LOWER(email) = LOWER($1)',
+            [email.trim()]
+        );
+        if (userRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User with this email address not found.' });
+        }
+        const userToAssign = userRes.rows[0];
+        if (userToAssign.role !== 'caregiver' && userToAssign.role !== 'medical_staff') {
+            return res.status(400).json({ success: false, message: 'User is not a registered caregiver or medical staff member.' });
+        }
+
+        // 3. Upsert assignment with Pending invite_status
+        const existingCheck = await pool.query(
+            `SELECT access_id, invite_status, is_archived FROM patient_access
+             WHERE user_id = $1 AND patient_id = $2`,
+            [userToAssign.user_id, patientId]
+        );
+
+        if (existingCheck.rows.length > 0) {
+            const existing = existingCheck.rows[0];
+            if (existing.invite_status === 'Active' || existing.invite_status === 'Accepted') {
+                return res.status(409).json({
+                    success: false,
+                    message: 'This patient is already actively assigned to this caregiver.'
+                });
+            }
+            // Re-invite if previously declined or pending
+            await pool.query(
+                `UPDATE patient_access 
+                 SET invite_status = 'Pending', is_archived = FALSE, invited_by = $1, relationship = 'Assigned Caregiver'
+                 WHERE access_id = $2`,
+                [req.user.id, existing.access_id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+                 VALUES ($1, $2, 'Assigned Caregiver', 'Full', 'Pending', $3)`,
+                [userToAssign.user_id, patientId, req.user.id]
+            );
+        }
+
+        res.json({
+            success: true,
+            message: `Invitation sent to ${userToAssign.first_name || userToAssign.role} (${email}). The caregiver will see this patient once accepted.`
+        });
+    } catch (err) {
+        console.error("Assign Staff by Email Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to assign caregiver.' });
     }
 });
 
@@ -512,15 +729,15 @@ router.patch('/patients/:id/archive', async (req, res) => {
 // ==========================================
 router.get('/patients', async (req, res) => {
     try {
-        const { role, id: userId } = req.user;
+        const { role, id: userId, facility_id: userFacilityId } = req.user;
         let query;
         let params;
 
-        // [Admin/Recovery View] Admins & Medical Staff can see ALL patients
-        if (role === 'admin') {
+        if (role === 'admin' || role === 'system_admin' || role === 'sysadmin') {
             query = `
                 SELECT DISTINCT ON (p.patient_id) 
                     p.*, 
+                    f.facility_name,
                     'Admin' as access_level,
                     (
                         SELECT u.user_id
@@ -570,6 +787,43 @@ router.get('/patients', async (req, res) => {
                                 json_build_object(
                                     'user_id', u.user_id,
                                     'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'first_name', u.first_name,
+                                    'last_name', u.last_name,
+                                    'email', u.email,
+                                    'role', u.role,
+                                    'relationship', pa2.relationship,
+                                    'invite_status', pa2.invite_status
+                                )
+                            )
+                            FROM patient_access pa2 
+                            JOIN users u ON pa2.user_id = u.user_id 
+                            WHERE pa2.patient_id = p.patient_id 
+                            AND pa2.is_archived IS DISTINCT FROM TRUE
+                            AND (pa2.invite_status = 'Active' OR pa2.invite_status = 'Accepted' OR u.role NOT IN ('caregiver', 'medical_staff'))
+                        ),
+                        '[]'::json
+                    ) as assigned_users,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name,
+                                    'status', dw.status
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                            AND dw.is_archived IS DISTINCT FROM TRUE
+                        ),
+                        '[]'::json
+                    ) as paired_devices,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', CONCAT(u.first_name, ' ', u.last_name),
                                     'invite_status', pa2.invite_status
                                 )
                             )
@@ -596,14 +850,16 @@ router.get('/patients', async (req, res) => {
                         '[]'::json
                     ) as devices
                 FROM patients p
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
                 WHERE p.is_archived IS DISTINCT FROM TRUE
                 ORDER BY p.patient_id, p.created_at DESC
             `;
             params = [];
-        } else if (role === 'medical_staff' && req.user.facility_id) {
+        } else if (role === 'medical_staff' && userFacilityId) {
             query = `
                 SELECT DISTINCT ON (p.patient_id) 
                     p.*, 
+                    f.facility_name,
                     'Medical Staff' as access_level,
                     (
                         SELECT u.user_id
@@ -653,6 +909,43 @@ router.get('/patients', async (req, res) => {
                                 json_build_object(
                                     'user_id', u.user_id,
                                     'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'first_name', u.first_name,
+                                    'last_name', u.last_name,
+                                    'email', u.email,
+                                    'role', u.role,
+                                    'relationship', pa2.relationship,
+                                    'invite_status', pa2.invite_status
+                                )
+                            )
+                            FROM patient_access pa2 
+                            JOIN users u ON pa2.user_id = u.user_id 
+                            WHERE pa2.patient_id = p.patient_id 
+                            AND pa2.is_archived IS DISTINCT FROM TRUE
+                            AND (pa2.invite_status = 'Active' OR pa2.invite_status = 'Accepted' OR u.role NOT IN ('caregiver', 'medical_staff'))
+                        ),
+                        '[]'::json
+                    ) as assigned_users,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name,
+                                    'status', dw.status
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                            AND dw.is_archived IS DISTINCT FROM TRUE
+                        ),
+                        '[]'::json
+                    ) as paired_devices,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', CONCAT(u.first_name, ' ', u.last_name),
                                     'invite_status', pa2.invite_status
                                 )
                             )
@@ -679,15 +972,17 @@ router.get('/patients', async (req, res) => {
                         '[]'::json
                     ) as devices
                 FROM patients p
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
                 WHERE p.is_archived IS DISTINCT FROM TRUE AND p.facility_id = $1
                 ORDER BY p.patient_id, p.created_at DESC
             `;
-            params = [req.user.facility_id];
+            params = [userFacilityId];
         } else {
-            // [Caregiver View] Only assigned patients
+            // [Caregiver / Parent / Guardian View] Only assigned patients that they accepted
             query = `
                 SELECT DISTINCT ON (p.patient_id) 
                     p.*, 
+                    f.facility_name,
                     pa.access_level,
                     (
                         SELECT u.user_id
@@ -737,6 +1032,43 @@ router.get('/patients', async (req, res) => {
                                 json_build_object(
                                     'user_id', u.user_id,
                                     'username', CONCAT(u.first_name, ' ', u.last_name),
+                                    'first_name', u.first_name,
+                                    'last_name', u.last_name,
+                                    'email', u.email,
+                                    'role', u.role,
+                                    'relationship', pa2.relationship,
+                                    'invite_status', pa2.invite_status
+                                )
+                            )
+                            FROM patient_access pa2 
+                            JOIN users u ON pa2.user_id = u.user_id 
+                            WHERE pa2.patient_id = p.patient_id 
+                            AND pa2.is_archived IS DISTINCT FROM TRUE
+                            AND (pa2.invite_status = 'Active' OR pa2.invite_status = 'Accepted' OR u.role NOT IN ('caregiver', 'medical_staff'))
+                        ),
+                        '[]'::json
+                    ) as assigned_users,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'serial_number', dw.serial_number,
+                                    'device_name', dw.device_name,
+                                    'status', dw.status
+                                )
+                            )
+                            FROM device_whitelist dw
+                            WHERE dw.assigned_patient_id = p.patient_id
+                            AND dw.is_archived IS DISTINCT FROM TRUE
+                        ),
+                        '[]'::json
+                    ) as paired_devices,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'user_id', u.user_id,
+                                    'username', CONCAT(u.first_name, ' ', u.last_name),
                                     'invite_status', pa2.invite_status
                                 )
                             )
@@ -764,10 +1096,13 @@ router.get('/patients', async (req, res) => {
                     ) as devices
                 FROM patients p
                 JOIN patient_access pa ON p.patient_id = pa.patient_id
-                WHERE pa.user_id = $1 AND p.is_archived IS DISTINCT FROM TRUE AND (pa.invite_status = 'Active' OR pa.invite_status IS NULL)
+                LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                WHERE pa.user_id = $1 
+                  AND p.is_archived IS DISTINCT FROM TRUE 
+                  AND (pa.invite_status = 'Active' OR pa.invite_status = 'Accepted' OR (pa.invite_status IS NULL AND $2 != 'caregiver'))
                 ORDER BY p.patient_id, p.created_at DESC
             `;
-            params = [userId];
+            params = [userId, role];
         }
 
         const result = await pool.query(query, params);
@@ -804,6 +1139,15 @@ router.post('/patients/:id/assign-device', async (req, res) => {
         }
 
         await client.query('COMMIT');
+
+        // Auto-generate system report for device pairing
+        systemReportService.recordDevicePairingReport({
+            serial_number: serialNumber,
+            device_name: deviceCheck.rows[0]?.device_name,
+            patient_id: patientId,
+            assigned_by: req.user.email || `User #${req.user.id}`
+        }).catch(e => console.error('Device pairing report hook error:', e));
+
         res.json({ success: true, message: 'Device assigned successfully' });
 
     } catch (err) {
@@ -1531,7 +1875,7 @@ router.post('/devices/archive', async (req, res) => {
     try {
         // Confirm the device exists.
         const check = await client.query(
-            'SELECT serial_number, device_name, assigned_patient_id, added_by FROM device_whitelist WHERE serial_number = $1',
+            'SELECT serial_number, device_name, status, assigned_patient_id, added_by FROM device_whitelist WHERE serial_number = $1',
             [serialNumber]
         );
         if (check.rows.length === 0) {
@@ -1541,6 +1885,17 @@ router.post('/devices/archive', async (req, res) => {
 
         const device = check.rows[0];
         const patientId = device.assigned_patient_id;
+
+        // System Admin: Only allow archiving if the device is unpaired and inactive
+        if (['admin', 'system_admin', 'sysadmin'].includes(role)) {
+            if (patientId || device.status !== 'INACTIVE') {
+                client.release();
+                return res.status(400).json({
+                    success: false,
+                    message: 'System administrators can only archive devices that are both unpaired and inactive.'
+                });
+            }
+        }
 
         // Verify facility admin access
         if (role === 'facility_admin') {

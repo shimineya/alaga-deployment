@@ -17,15 +17,15 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { MetricCard } from "@/components/MetricCard";
-import { 
-    ShieldAlert, 
-    Ban, 
-    UserX, 
-    AlertTriangle, 
-    ShieldCheck, 
-    Database, 
-    Lock, 
-    Cpu, 
+import {
+    ShieldAlert,
+    Ban,
+    UserX,
+    AlertTriangle,
+    ShieldCheck,
+    Database,
+    Lock,
+    Cpu,
     Clock,
     RefreshCw,
     Search,
@@ -54,7 +54,7 @@ interface SecurityMetrics {
 
 export default function GlobalSecuritySIEM() {
     const { token } = useAuth();
-    
+
     // States
     const [metrics, setMetrics] = useState<SecurityMetrics | null>(null);
     const [incidents, setIncidents] = useState<SecurityIncident[]>([]);
@@ -119,7 +119,7 @@ export default function GlobalSecuritySIEM() {
 
     // Filter Incidents List
     const filteredIncidents = useMemo(() => {
-        return incidents.filter(incident => 
+        return incidents.filter(incident =>
             (incident.action || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
             (incident.ip_address || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
             (incident.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -132,7 +132,7 @@ export default function GlobalSecuritySIEM() {
         if (!metrics) return;
         const nextState = !metrics.global_lockdown;
 
-        const confirmationMsg = nextState 
+        const confirmationMsg = nextState
             ? "WARNING: Enabling Global Lockdown will instantly force-logout all non-administrator users, lock their accounts, and place the server in maintenance mode. Are you sure you want to proceed?"
             : "Are you sure you want to lift the global lockdown and restore normal server operations?";
 
@@ -165,14 +165,14 @@ export default function GlobalSecuritySIEM() {
         const s = severity?.toLowerCase();
         switch (s) {
             case 'critical':
-            case 'high': 
+            case 'high':
                 return <Badge variant="destructive">Critical</Badge>;
             case 'warning':
-            case 'medium': 
+            case 'medium':
                 return <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50">Warning</Badge>;
-            case 'info': 
+            case 'info':
                 return <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100">Info</Badge>;
-            default: 
+            default:
                 return <Badge variant="outline">Info</Badge>;
         }
     };
@@ -196,9 +196,9 @@ export default function GlobalSecuritySIEM() {
                         Aggregated Global Security Metrics. PHI access is restricted in this zone.
                     </p>
                 </div>
-                <Button 
-                    variant="outline" 
-                    size="sm" 
+                <Button
+                    variant="outline"
+                    size="sm"
                     disabled={isRefreshing}
                     onClick={() => fetchSecurityData(true)}
                     className="h-8 text-xs font-semibold"
@@ -214,11 +214,11 @@ export default function GlobalSecuritySIEM() {
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <div className="cursor-help">
-                                <MetricCard 
-                                    title="Blocked IP Addresses" 
-                                    value={metrics ? metrics.blocked_ips : 0} 
-                                    icon={Ban} 
-                                    statusColor="#f97316" 
+                                <MetricCard
+                                    title="Blocked IP Addresses"
+                                    value={metrics ? metrics.blocked_ips : 0}
+                                    icon={Ban}
+                                    statusColor="#f97316"
                                     className="border-l-4 border-l-orange-500 rounded-none shadow-sm bg-white"
                                 />
                             </div>
@@ -233,11 +233,11 @@ export default function GlobalSecuritySIEM() {
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <div className="cursor-help">
-                                <MetricCard 
-                                    title="Suspended Accounts" 
-                                    value={metrics ? metrics.suspended_accounts : 0} 
-                                    icon={UserX} 
-                                    statusColor="#f59e0b" 
+                                <MetricCard
+                                    title="Suspended Accounts"
+                                    value={metrics ? metrics.suspended_accounts : 0}
+                                    icon={UserX}
+                                    statusColor="#f59e0b"
                                     className="border-l-4 border-l-amber-500 rounded-none shadow-sm bg-white"
                                 />
                             </div>
@@ -252,11 +252,11 @@ export default function GlobalSecuritySIEM() {
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <div className="cursor-help">
-                                <MetricCard 
-                                    title="Unauthorized Access Attempts" 
-                                    value={metrics ? `${metrics.unauthorized_attempts} (Last 24h)` : "0 (Last 24h)"} 
-                                    icon={AlertTriangle} 
-                                    statusColor="#ef4444" 
+                                <MetricCard
+                                    title="Unauthorized Access Attempts"
+                                    value={metrics ? `${metrics.unauthorized_attempts} (Last 24h)` : "0 (Last 24h)"}
+                                    icon={AlertTriangle}
+                                    statusColor="#ef4444"
                                     className="border-l-4 border-l-red-500 rounded-none shadow-sm bg-white"
                                 />
                             </div>
@@ -268,11 +268,11 @@ export default function GlobalSecuritySIEM() {
                 </TooltipProvider>
 
                 <div className="cursor-help">
-                    <MetricCard 
-                        title="Active Break-Glass Overrides" 
-                        value={metrics ? metrics.active_overrides : 0} 
-                        icon={ShieldAlert} 
-                        statusColor="#dc2626" 
+                    <MetricCard
+                        title="Emergencies"
+                        value={metrics ? metrics.active_overrides : 0}
+                        icon={ShieldAlert}
+                        statusColor="#dc2626"
                         className="bg-red-50/50 border-red-200 border-l-4 border-l-red-600 rounded-none shadow-sm"
                     />
                 </div>
@@ -280,7 +280,7 @@ export default function GlobalSecuritySIEM() {
 
             {/* Middle Row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
+
                 {/* Section 2: Cryptographic & System Integrity (Middle Row - 1/3 width) */}
                 <div className="space-y-6">
                     <Card className="flex flex-col shadow-sm bg-white border border-slate-200">
@@ -299,7 +299,7 @@ export default function GlobalSecuritySIEM() {
                                     </div>
                                     <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-none shadow-none text-[10px]">AES-256 Active</Badge>
                                 </div>
-                                
+
                                 <div className="flex items-center justify-between border-t pt-3">
                                     <div className="flex items-center gap-2">
                                         <ShieldCheck className="w-4 h-4 text-slate-500" />
@@ -307,7 +307,7 @@ export default function GlobalSecuritySIEM() {
                                     </div>
                                     <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-none shadow-none text-[10px]">Secured</Badge>
                                 </div>
-                                
+
                                 <div className="flex items-center justify-between border-t pt-3">
                                     <div className="flex items-center gap-2">
                                         <Cpu className="w-4 h-4 text-slate-500" />
@@ -334,14 +334,14 @@ export default function GlobalSecuritySIEM() {
                             <Button
                                 disabled={isLockdownPending}
                                 onClick={handleToggleLockdown}
-                                className={`w-full text-xs font-bold py-2 ${metrics?.global_lockdown 
-                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
+                                className={`w-full text-xs font-bold py-2 ${metrics?.global_lockdown
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                                     : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-100'}`}
                             >
-                                {isLockdownPending 
-                                    ? 'Executing Operation...' 
-                                    : metrics?.global_lockdown 
-                                        ? 'Deactivate System Lockdown' 
+                                {isLockdownPending
+                                    ? 'Executing Operation...'
+                                    : metrics?.global_lockdown
+                                        ? 'Deactivate System Lockdown'
                                         : 'ACTIVATE GLOBAL LOCKDOWN'}
                             </Button>
                         </CardContent>
@@ -355,7 +355,7 @@ export default function GlobalSecuritySIEM() {
                             <ShieldAlert className="w-4 h-4 text-amber-500" />
                             Live Security Incident Feed
                         </CardTitle>
-                        
+
                         {/* Search bar inside header */}
                         <div className="relative w-full sm:w-56" ref={searchRef}>
                             <div className="relative">
@@ -372,7 +372,7 @@ export default function GlobalSecuritySIEM() {
                                     className="w-full text-xs pl-8 pr-6 py-1.5 bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-500 rounded-lg focus:ring-1 focus:ring-amber-500 outline-none"
                                 />
                                 {searchQuery && (
-                                    <button 
+                                    <button
                                         onClick={() => { setSearchQuery(''); setShowSuggestions(false); }}
                                         className="absolute right-2 top-2 text-slate-400 hover:text-slate-200"
                                     >
@@ -383,16 +383,16 @@ export default function GlobalSecuritySIEM() {
 
                             {showSuggestions && searchQuery && (
                                 <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-800">
-                                    {incidents.filter(i => 
-                                        (i.action || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                    {incidents.filter(i =>
+                                        (i.action || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
                                         (i.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
                                         (i.ip_address || '').toLowerCase().includes(searchQuery.toLowerCase())
                                     ).length === 0 ? (
                                         <div className="p-2 text-[10px] text-slate-550 italic text-slate-400">No matches</div>
                                     ) : (
                                         incidents
-                                            .filter(i => 
-                                                (i.action || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                            .filter(i =>
+                                                (i.action || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                 (i.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                 (i.ip_address || '').toLowerCase().includes(searchQuery.toLowerCase())
                                             )

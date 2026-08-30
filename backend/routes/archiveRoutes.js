@@ -217,38 +217,95 @@ router.delete('/:archiveId', async (req, res) => {
             }
         }
 
-        console.log(`Hard-deleting ${archive.entity_type} (ID/Serial: ${archive.target_id}) permanently...`);
+        console.log(`Permanently deleting and anonymizing ${archive.entity_type} (ID/Serial: ${archive.target_id})...`);
 
-        // Perform entity specific hard-deletions (cascading constraints if needed)
+        // Perform entity-specific anonymization and data preservation (ID is NEVER reused, names become null, history retained)
         switch (archive.entity_type) {
-            case 'Patient':
+            case 'Patient': {
                 const patientId = parseInt(archive.target_id, 10);
-                await client.query('DELETE FROM patient_access WHERE patient_id = $1', [patientId]);
-                await client.query('DELETE FROM sensor_readings WHERE patient_id = $1', [patientId]);
-                await client.query('DELETE FROM anomaly_events WHERE patient_id = $1', [patientId]);
-                await client.query('DELETE FROM care_logs WHERE patient_id = $1', [patientId]);
-                await client.query('DELETE FROM hardware_system_alerts WHERE patient_id = $1', [patientId]);
-                await client.query('DELETE FROM reports WHERE patient_id = $1', [patientId]);
-                await client.query('DELETE FROM patients WHERE patient_id = $1', [patientId]);
+                // Anonymize patient identity: name becomes NULL, baseline_data sanitized, but history/readings/reports retained
+                await client.query(
+                    `UPDATE patients 
+                     SET name = NULL, 
+                         device_serial_number = NULL,
+                         is_archived = TRUE, 
+                         deleted_at = NOW()
+                     WHERE patient_id = $1`,
+                    [patientId]
+                );
+                // Archive patient access links
+                await client.query('UPDATE patient_access SET is_archived = TRUE, invite_status = \'Archived\' WHERE patient_id = $1', [patientId]);
                 break;
-            case 'User':
+            }
+            case 'User': {
                 const targetUserId = parseInt(archive.target_id, 10);
-                await client.query('DELETE FROM patient_access WHERE user_id = $1', [targetUserId]);
-                await client.query('DELETE FROM profiles_caregivers WHERE user_id = $1', [targetUserId]);
-                await client.query('DELETE FROM profiles_medical_staff WHERE user_id = $1', [targetUserId]);
-                await client.query('DELETE FROM user_permission_overrides WHERE user_id = $1', [targetUserId]);
+                // Anonymize user identity: names/email become NULL, but user_id, logs, and activity records retained
+                await client.query(
+                    `UPDATE users 
+                     SET first_name = NULL, 
+                         last_name = NULL, 
+                         username = NULL, 
+                         email = NULL, 
+                         account_status = 'DELETED', 
+                         is_archived = TRUE, 
+                         deleted_at = NOW() 
+                     WHERE user_id = $1`,
+                    [targetUserId]
+                );
                 await client.query('DELETE FROM user_email_otps WHERE user_id = $1', [targetUserId]);
                 await client.query('DELETE FROM session_revocations WHERE user_id = $1', [targetUserId]);
-                await client.query('DELETE FROM user_documents WHERE user_id = $1', [targetUserId]);
-                await client.query('DELETE FROM users WHERE user_id = $1', [targetUserId]);
+                await client.query('UPDATE patient_access SET is_archived = TRUE, invite_status = \'Archived\' WHERE user_id = $1', [targetUserId]);
                 break;
-            case 'Device':
-                await client.query('DELETE FROM device_whitelist WHERE serial_number = $1', [archive.target_id]);
+            }
+            case 'Device': {
+                const serial = archive.target_id;
+                // Fetch full device record and telemetry/alert metrics for snapshot
+                const devRes = await client.query('SELECT * FROM device_whitelist WHERE serial_number = $1', [serial]);
+                const dev = devRes.rows[0];
+                if (dev) {
+                    const [telCount, alertCount, patRes, facRes] = await Promise.all([
+                        client.query('SELECT COUNT(*) FROM sensor_readings WHERE device_id = $1', [dev.device_id || dev.serial_number]),
+                        client.query('SELECT COUNT(*) FROM hardware_system_alerts WHERE device_serial = $1', [dev.serial_number]),
+                        dev.assigned_patient_id ? client.query('SELECT name FROM patients WHERE patient_id = $1', [dev.assigned_patient_id]) : Promise.resolve({ rows: [] }),
+                        dev.facility_id ? client.query('SELECT facility_name FROM facilities WHERE facility_id = $1', [dev.facility_id]) : Promise.resolve({ rows: [] })
+                    ]);
+
+                    const snapshotData = {
+                        device: dev,
+                        telemetry_samples: parseInt(telCount.rows[0]?.count || 0, 10),
+                        alerts_recorded: parseInt(alertCount.rows[0]?.count || 0, 10),
+                        archived_entry: archive,
+                        snapshot_timestamp: new Date().toISOString()
+                    };
+
+                    // Insert complete snapshot into device_snapshots table
+                    await client.query(
+                        `INSERT INTO device_snapshots (
+                            device_id, serial_number, device_name, mac_address, firmware_version,
+                            assigned_patient_id, assigned_patient_name, facility_id, facility_name,
+                            telemetry_count, alerts_count, snapshot_data, deleted_by, created_at
+                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
+                        [
+                            dev.device_id || null, dev.serial_number, dev.device_name || archive.target_name, dev.mac_address || null, dev.firmware_version || null,
+                            dev.assigned_patient_id || null, patRes.rows[0]?.name || null, dev.facility_id || null, facRes.rows[0]?.facility_name || null,
+                            parseInt(telCount.rows[0]?.count || 0, 10), parseInt(alertCount.rows[0]?.count || 0, 10), JSON.stringify(snapshotData),
+                            req.user.email || `User #${userId}`
+                        ]
+                    );
+
+                    // Anonymize in device_whitelist: name becomes null, but ID and serial remain reserved forever
+                    await client.query(
+                        "UPDATE device_whitelist SET device_name = NULL, status = 'DECOMMISSIONED', is_archived = TRUE, assigned_patient_id = NULL, deleted_at = NOW() WHERE serial_number = $1",
+                        [serial]
+                    );
+                }
                 break;
-            case 'Facility':
+            }
+            case 'Facility': {
                 const facilityId = parseInt(archive.target_id, 10);
-                await client.query('DELETE FROM facilities WHERE facility_id = $1', [facilityId]);
+                await client.query('UPDATE facilities SET facility_name = NULL, is_archived = TRUE, deleted_at = NOW() WHERE facility_id = $1', [facilityId]);
                 break;
+            }
             case 'Schedule':
                 await client.query('DELETE FROM schedules WHERE schedule_id = $1', [parseInt(archive.target_id, 10)]);
                 break;

@@ -66,10 +66,9 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     initialTab = 'dashboard',
     hideNavigation = false
 }) => {
-    const { user, logout, token } = useAuth();
+    const { user, logout, token, isSysAdmin } = useAuth();
 
-
-
+    const isSysAdminUser = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(user?.role?.toLowerCase() || '');
 
     const [patients, setPatients] = useState<Patient[]>([]);
     const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -79,8 +78,12 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
     const [activeNavItem, setActiveNavItem] = useState(initialTab);
 
-
-
+    useEffect(() => {
+        if (isSysAdminUser && viewMode === 'profile') {
+            setViewMode('dashboard');
+            setSelectedPatient(null);
+        }
+    }, [isSysAdminUser, viewMode]);
 
     useEffect(() => {
         setActiveNavItem(initialTab);
@@ -248,6 +251,48 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
         }
     }, [token]);
 
+    const [pendingInvites, setPendingInvites] = useState<any[]>([]);
+
+    const fetchPendingInvites = React.useCallback(async () => {
+        if (!token) return;
+        try {
+            const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+            const response = await fetch(`${apiBase}/api/assignments/pending-invites`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (data.success && Array.isArray(data.data)) {
+                setPendingInvites(data.data);
+            }
+        } catch (err) {
+            console.error("Failed to fetch pending invites:", err);
+        }
+    }, [token]);
+
+    const handleRespondInvite = async (accessId: number, action: 'accept' | 'decline') => {
+        try {
+            const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+            const res = await fetch(`${apiBase}/api/assignments/respond-invite`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ access_id: accessId, action })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+                fetchPendingInvites();
+                fetchPatients();
+            } else {
+                toast.error(data.message);
+            }
+        } catch (err) {
+            toast.error("Failed to respond to invitation");
+        }
+    };
+
 
 
 
@@ -371,14 +416,16 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
     useEffect(() => {
         fetchPatients();
+        fetchPendingInvites();
         fetchSchedules();
 
         const fetchInterval = setInterval(() => {
             fetchSchedules();
-        }, 5000); // Poll schedules every 5 seconds for real-time updates
+            fetchPendingInvites();
+        }, 5000); // Poll schedules & invites every 5 seconds for real-time updates
 
         return () => clearInterval(fetchInterval);
-    }, [fetchPatients, fetchSchedules]);
+    }, [fetchPatients, fetchPendingInvites, fetchSchedules]);
 
     useEffect(() => {
         let actx: AudioContext | null = null;
@@ -697,8 +744,65 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
 
 
+    const renderPendingInvitesBanner = () => {
+        if (pendingInvites.length === 0) return null;
+        return (
+            <div className="mb-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-teal-500/10 border border-amber-300 rounded-xl p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2 bg-amber-100 text-amber-800 rounded-lg shrink-0 mt-0.5">
+                            <Users className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-amber-950 flex items-center gap-2">
+                                Pending Patient Assignment{pendingInvites.length > 1 ? 's' : ''} ({pendingInvites.length})
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-200 text-amber-900 animate-pulse">Action Required</span>
+                            </h4>
+                            <p className="text-xs text-amber-800/80 mt-0.5">
+                                You have been assigned to care for the following patient{pendingInvites.length > 1 ? 's' : ''}. Accept to add them to your active patient list.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {pendingInvites.map((inv: any) => (
+                        <div key={inv.access_id} className="bg-white/90 backdrop-blur-sm border border-amber-200/80 rounded-lg p-3 flex flex-col justify-between gap-2 shadow-xs">
+                            <div>
+                                <div className="flex items-center justify-between">
+                                    <span className="font-bold text-slate-900 text-sm">{inv.patient_name}</span>
+                                    <span className="text-[10px] font-mono text-slate-400">ID #{inv.patient_id}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5">
+                                    Assigned by: <span className="font-medium text-slate-700">{inv.invited_by_first_name ? `${inv.invited_by_first_name} ${inv.invited_by_last_name || ''}` : 'Facility Admin'}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                                <Button
+                                    size="sm"
+                                    onClick={() => handleRespondInvite(inv.access_id, 'accept')}
+                                    className="flex-1 h-7 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold"
+                                >
+                                    <Check className="w-3.5 h-3.5 mr-1" /> Accept
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRespondInvite(inv.access_id, 'decline')}
+                                    className="flex-1 h-7 border-slate-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-slate-600 text-xs"
+                                >
+                                    <X className="w-3.5 h-3.5 mr-1" /> Decline
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
     const renderDashboard = () => (
         <div className="space-y-4">
+            {!isSysAdminUser && renderPendingInvitesBanner()}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
                     { label: 'Critical', value: metrics.critical, color: 'text-red-600', icon: AlertCircle, bg: 'bg-red-50' },
@@ -720,232 +824,212 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                 ))}
             </div>
 
-
-
-
-            <Card className="shadow-sm border-slate-100 bg-gradient-to-r from-teal-50/50 to-white">
-                <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2.5 rounded-xl bg-teal-100 text-teal-700">
-                            <CalendarIcon className="w-5 h-5" />
+            {!isSysAdminUser && (
+                <Card className="shadow-sm border-slate-100 bg-gradient-to-r from-teal-50/50 to-white">
+                    <CardContent className="p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 rounded-xl bg-teal-100 text-teal-700">
+                                <CalendarIcon className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-bold text-slate-800">Care Calendar & Reminders</h4>
+                                <p className="text-xs text-slate-500">Manage daily schedules, medication intake, and care tasks.</p>
+                            </div>
                         </div>
-                        <div>
-                            <h4 className="text-sm font-bold text-slate-800">Care Calendar & Reminders</h4>
-                            <p className="text-xs text-slate-500">Manage daily schedules, medication intake, and care tasks.</p>
-                        </div>
-                    </div>
-                    <Button onClick={() => setIsCalendarModalOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-sm">
-                        Open Calendar
-                    </Button>
-                </CardContent>
-            </Card>
+                        <Button onClick={() => setIsCalendarModalOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-sm">
+                            Open Calendar
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
+            {!isSysAdminUser && (
+                <div>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                        <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                            <Users className="w-4 h-4 text-teal-600" />
+                            Patients
+                            <span className="text-xs font-normal text-slate-400">
+                                ({filteredPatients.length} total)
+                            </span>
+                        </h3>
 
+                        {/* Patient Search with Autosuggestion */}
+                        <div className="relative w-full md:w-64" ref={patientSearchRef}>
+                            <div className="relative">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search patients..."
+                                    value={searchQuery}
+                                    onChange={(e) => {
+                                        setSearchQuery(e.target.value);
+                                        setShowPatientSuggestions(true);
+                                        setCurrentPage(1);
+                                    }}
+                                    onFocus={() => setShowPatientSuggestions(true)}
+                                    className="w-full text-xs pl-8 pr-3 py-2 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 focus:border-teal-500 outline-none bg-white"
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        onClick={() => { setSearchQuery(''); setShowPatientSuggestions(false); }}
+                                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
 
-
-            <div>
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-                    <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <Users className="w-4 h-4 text-teal-600" />
-                        Patients
-                        <span className="text-xs font-normal text-slate-400">
-                            ({filteredPatients.length} total)
-                        </span>
-                    </h3>
-
-                    {/* Patient Search with Autosuggestion */}
-                    <div className="relative w-full md:w-64" ref={patientSearchRef}>
-                        <div className="relative">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-                            <input
-                                type="text"
-                                placeholder="Search patients..."
-                                value={searchQuery}
-                                onChange={(e) => {
-                                    setSearchQuery(e.target.value);
-                                    setShowPatientSuggestions(true);
-                                    setCurrentPage(1);
-                                }}
-                                onFocus={() => setShowPatientSuggestions(true)}
-                                className="w-full text-xs pl-8 pr-3 py-2 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 focus:border-teal-500 outline-none bg-white"
-                            />
-                            {searchQuery && (
-                                <button 
-                                    onClick={() => { setSearchQuery(''); setShowPatientSuggestions(false); }}
-                                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
+                            {/* Autosuggestions Dropdown */}
+                            {showPatientSuggestions && searchQuery && (
+                                <div className="absolute z-50 w-full mt-1 bg-white border border-slate-100 rounded-xl shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-50">
+                                    {patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                                        <div className="p-3 text-xs text-slate-400 italic">No matches found</div>
+                                    ) : (
+                                        patients
+                                            .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                            .map(patient => (
+                                                <button
+                                                    key={patient.id}
+                                                    onClick={() => {
+                                                        setSearchQuery(patient.name);
+                                                        setShowPatientSuggestions(false);
+                                                    }}
+                                                    className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 text-slate-700 hover:text-teal-900 transition-colors font-medium flex items-center justify-between"
+                                                >
+                                                    <span>{patient.name}</span>
+                                                    <span className="text-[10px] text-slate-400 font-normal">Room {(patient as any).roomNumber || 'Home'}</span>
+                                                </button>
+                                            ))
+                                    )}
+                                </div>
                             )}
                         </div>
-
-                        {/* Autosuggestions Dropdown */}
-                        {showPatientSuggestions && searchQuery && (
-                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-100 rounded-xl shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-50">
-                                {patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-                                    <div className="p-3 text-xs text-slate-400 italic">No matches found</div>
-                                ) : (
-                                    patients
-                                        .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                                        .map(patient => (
-                                            <button
-                                                key={patient.id}
-                                                onClick={() => {
-                                                    setSearchQuery(patient.name);
-                                                    setShowPatientSuggestions(false);
-                                                }}
-                                                className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 text-slate-700 hover:text-teal-900 transition-colors font-medium flex items-center justify-between"
-                                            >
-                                                <span>{patient.name}</span>
-                                                <span className="text-[10px] text-slate-400 font-normal">Room {(patient as any).roomNumber || 'Home'}</span>
-                                            </button>
-                                        ))
-                                )}
+                        {totalPages > 1 && (
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 border-slate-200"
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                >
+                                    <ChevronLeft className="w-3.5 h-3.5" />
+                                </Button>
+                                <span className="text-xs text-slate-500 font-medium min-w-[60px] text-center">
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 border-slate-200"
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                </Button>
                             </div>
                         )}
                     </div>
-                    {totalPages > 1 && (
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 w-7 p-0 border-slate-200"
-                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                disabled={currentPage === 1}
-                            >
-                                <ChevronLeft className="w-3.5 h-3.5" />
-                            </Button>
-                            <span className="text-xs text-slate-500 font-medium min-w-[60px] text-center">
-                                Page {currentPage} of {totalPages}
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 w-7 p-0 border-slate-200"
-                                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                disabled={currentPage === totalPages}
-                            >
-                                <ChevronRight className="w-3.5 h-3.5" />
-                            </Button>
-                        </div>
-                    )}
-                </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {filteredPatients
+                            .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                            .map(patient => {
+                                const latestVital = vitalSigns.find(v => v.patientId === patient.id);
+                                const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
+                                const isCritical = activeAlerts.some(a => a.severity === 'critical');
+                                const isUnassigned = !patient.deviceConnected;
 
+                                return (
+                                    <Card
+                                        key={patient.id}
+                                        className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCritical ? 'border-red-200 bg-red-50/50' : 'border-slate-100'}`}
+                                        onClick={() => {
+                                            setSelectedPatient(patient);
+                                            setViewMode('profile');
+                                        }}
+                                    >
+                                        <CardHeader className="p-3 pb-2">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <CardTitle className="text-sm font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{patient.name}</CardTitle>
+                                                    <CardDescription className="text-[11px] text-slate-500">Room {(patient as any).roomNumber || 'Home'}</CardDescription>
+                                                    {patient.assignedCaregiverName && (
+                                                        <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-600 font-medium">
+                                                            <Users className="w-3 h-3" />
+                                                            {patient.assignedCaregiverName}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <Badge variant="outline" className={`text-[10px] h-5 ${isCritical ? 'text-red-600 border-red-200 bg-red-50' :
+                                                    isUnassigned ? 'text-slate-600 border-slate-200 bg-slate-50' :
+                                                        'text-emerald-600 border-emerald-200 bg-emerald-50'
+                                                    }`}>
+                                                    {isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
+                                                </Badge>
+                                            </div>
+                                        </CardHeader>
 
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                    {filteredPatients
-                        .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                        .map(patient => {
-                            const latestVital = vitalSigns.find(v => v.patientId === patient.id);
-                            const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
-                            const isCritical = activeAlerts.some(a => a.severity === 'critical');
-                            const isUnassigned = !patient.deviceConnected;
-
-
-
-
-                            return (
-                                <Card
-                                    key={patient.id}
-                                    className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCritical ? 'border-red-200 bg-red-50/50' : 'border-slate-100'}`}
-                                    onClick={() => { setSelectedPatient(patient); setViewMode('profile'); }}
-                                >
-                                    <CardHeader className="p-3 pb-2">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <CardTitle className="text-sm font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{patient.name}</CardTitle>
-                                                <CardDescription className="text-[11px] text-slate-500">Room {(patient as any).roomNumber || 'Home'}</CardDescription>
-                                                {patient.assignedCaregiverName && (
-                                                    <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-600 font-medium">
-                                                        <Users className="w-3 h-3" />
-                                                        {patient.assignedCaregiverName}
+                                        <CardContent className="p-3 pt-0 space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                    <div className="flex justify-center items-center gap-1 mb-0.5">
+                                                        <Heart className="w-3 h-3 text-rose-500" />
+                                                        <span className="text-[9px] text-slate-400 font-medium">PULSE</span>
                                                     </div>
-                                                )}
-                                            </div>
-                                            <Badge variant="outline" className={`text-[10px] h-5 ${isCritical ? 'text-red-600 border-red-200 bg-red-50' :
-                                                isUnassigned ? 'text-slate-600 border-slate-200 bg-slate-50' :
-                                                    'text-emerald-600 border-emerald-200 bg-emerald-50'
-                                                }`}>
-                                                {isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
-                                            </Badge>
-                                        </div>
-                                    </CardHeader>
-
-
-
-
-                                    <CardContent className="p-3 pt-0 space-y-2">
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                                                <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                    <Heart className="w-3 h-3 text-rose-500" />
-                                                    <span className="text-[9px] text-slate-400 font-medium">PULSE</span>
+                                                    <span className="text-xs font-bold text-slate-700">
+                                                        {latestVital ? Math.round(latestVital.heartRate) : '--'}
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs font-bold text-slate-700">
-                                                    {latestVital ? Math.round(latestVital.heartRate) : '--'}
-                                                </span>
-                                            </div>
 
-
-
-
-                                            <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                                                <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                    <Thermometer className="w-3 h-3 text-amber-500" />
-                                                    <span className="text-[9px] text-slate-400 font-medium">TEMP</span>
+                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                    <div className="flex justify-center items-center gap-1 mb-0.5">
+                                                        <Thermometer className="w-3 h-3 text-amber-500" />
+                                                        <span className="text-[9px] text-slate-400 font-medium">TEMP</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-700">
+                                                        {latestVital ? latestVital.temperature.toFixed(1) : '--'}
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs font-bold text-slate-700">
-                                                    {latestVital ? latestVital.temperature.toFixed(1) : '--'}
-                                                </span>
                                             </div>
-                                        </div>
 
-
-
-
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                                                <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                    <Activity className="w-3 h-3 text-blue-500" />
-                                                    <span className="text-[9px] text-slate-400 font-medium">SPO2</span>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                    <div className="flex justify-center items-center gap-1 mb-0.5">
+                                                        <Activity className="w-3 h-3 text-blue-500" />
+                                                        <span className="text-[9px] text-slate-400 font-medium">SPO2</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-700">
+                                                        {latestVital ? Math.round(latestVital.spo2) : '--'}
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs font-bold text-slate-700">
-                                                    {latestVital ? Math.round(latestVital.spo2) : '--'}
-                                                </span>
-                                            </div>
 
-
-
-
-                                            <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
-                                                <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                    <Droplets className="w-3 h-3 text-teal-500" />
-                                                    <span className="text-[9px] text-slate-400 font-medium">WETNESS</span>
+                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                    <div className="flex justify-center items-center gap-1 mb-0.5">
+                                                        <Droplets className="w-3 h-3 text-teal-500" />
+                                                        <span className="text-[9px] text-slate-400 font-medium">WETNESS</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-700">
+                                                        {latestVital ? `${Math.round(latestVital.moistureLevel)}%` : '--'}
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs font-bold text-slate-700">
-                                                    {latestVital ? `${Math.round(latestVital.moistureLevel)}%` : '--'}
-                                                </span>
                                             </div>
-                                        </div>
 
-
-
-
-                                        {activeAlerts.length > 0 && (
-                                            <Button size="sm" variant="destructive" className="w-full h-6 text-[10px] bg-red-500 hover:bg-red-600 text-white"
-                                                onClick={(e) => { e.stopPropagation(); handleAcknowledgeAlert(activeAlerts[0].id); }}
-                                            >
-                                                <Check className="w-3 h-3 mr-1" /> Acknowledge
-                                            </Button>
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            );
-                        })}
+                                            {activeAlerts.length > 0 && (
+                                                <Button size="sm" variant="destructive" className="w-full h-6 text-[10px] bg-red-500 hover:bg-red-600 text-white"
+                                                    onClick={(e) => { e.stopPropagation(); handleAcknowledgeAlert(activeAlerts[0].id); }}
+                                                >
+                                                    <Check className="w-3 h-3 mr-1" /> Acknowledge
+                                                </Button>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
+                    </div>
                 </div>
-            </div>
+            )}
 
 
 
@@ -1005,7 +1089,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
 
     const renderContent = () => {
-        if (viewMode === 'profile' && selectedPatient) {
+        if (!isSysAdminUser && viewMode === 'profile' && selectedPatient) {
             return (
                 <PatientProfile
                     patient={selectedPatient}
@@ -1019,7 +1103,12 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
         switch (activeNavItem) {
             case 'dashboard': return renderDashboard();
             case 'add-patient': return <AddNewPatient onSuccess={() => { toast.success("Added"); setActiveNavItem('dashboard'); fetchPatients(); }} onCancel={() => setActiveNavItem('dashboard')} />;
-            case 'patient-list': return <PatientList patients={patients} vitalSigns={vitalSigns} onSelectPatient={(p) => { setSelectedPatient(p); setViewMode('profile'); }} onRefresh={fetchPatients} />;
+            case 'patient-list': return (
+                <div className="space-y-4">
+                    {renderPendingInvitesBanner()}
+                    <PatientList patients={patients} vitalSigns={vitalSigns} onSelectPatient={(p) => { setSelectedPatient(p); setViewMode('profile'); }} onRefresh={fetchPatients} />
+                </div>
+            );
             case 'add-device': return <AddNewDevice onDeviceAdded={() => { setActiveNavItem('dashboard'); fetchPatients(); }} onCancel={() => setActiveNavItem('dashboard')} />;
             case 'my-devices': return <MyDevices />;
             case 'firmware-update': return <FirmwareOTA />;

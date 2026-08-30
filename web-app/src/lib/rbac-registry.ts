@@ -97,7 +97,8 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
     // Backend caregiverRoutes.js explicitly permits parent for device registration,
     // patient enrollment, and patient/device removal alongside 'admin'.
     const isParent        = r === 'parent';
-    const isClinical      = r === 'caregiver' || r === 'medical_staff' || isParent;
+    const isMedStaff      = r === 'medical_staff' || r === 'medstaff';
+    const isClinical      = r === 'caregiver' || isMedStaff || isParent;
     const isFacilityAdmin = r === 'facility_admin';
     const isAdminTier     = r === 'system_admin' || r === 'admin' || r === 'sysadmin';
 

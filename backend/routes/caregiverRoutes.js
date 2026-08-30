@@ -17,65 +17,64 @@ router.use(verifyToken);
 // ==========================================
 router.get('/devices', async (req, res) => {
     const { role, id: userId } = req.user;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(role?.toLowerCase());
     try {
         let result;
 
-        if (role === 'admin' || role === 'medical_staff') {
-            // Full inventory for admin / medical staff
+        if (isSysAdmin || role === 'medical_staff') {
+            // Full inventory for admin / sysadmin / medical staff
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
                         d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name,
                         p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
+                 WHERE d.is_archived IS DISTINCT FROM TRUE
                  ORDER BY d.created_at DESC`
             );
         } else if (role === 'facility_admin') {
             // Scoped inventory for facility admin:
-            // 1. Devices they registered (added_by = userId)
-            // 2. Devices from users they created/gave an account to
-            // 3. Devices from the assignments they made (invited_by = userId)
-            // 4. Patients/devices of the users they gave an account to
             result = await pool.query(
-                `SELECT DISTINCT d.serial_number, d.device_name, d.status, d.last_heartbeat,
+                `SELECT DISTINCT ON (d.serial_number) 
+                        d.serial_number, d.device_name, d.status, d.last_heartbeat,
                         d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
-                 WHERE (
-                     d.added_by = $1
-                     OR d.added_by IN (
-                         SELECT user_id FROM users WHERE created_by = $1
-                     )
-                     OR d.assigned_patient_id IN (
-                         SELECT patient_id FROM patient_access WHERE invited_by = $1
-                     )
-                     OR d.assigned_patient_id IN (
-                         SELECT patient_id FROM patient_access WHERE user_id IN (
-                             SELECT user_id FROM users WHERE created_by = $1
-                         )
-                     )
-                 )
-                 ORDER BY d.created_at DESC`,
+                 WHERE d.is_archived IS DISTINCT FROM TRUE
+                   AND (
+                      d.added_by = $1
+                      OR d.added_by IN (
+                          SELECT user_id FROM users WHERE created_by = $1
+                      )
+                      OR d.assigned_patient_id IN (
+                          SELECT patient_id FROM patient_access WHERE invited_by = $1
+                      )
+                      OR d.assigned_patient_id IN (
+                          SELECT patient_id FROM patient_access WHERE user_id IN (
+                              SELECT user_id FROM users WHERE created_by = $1
+                          )
+                      )
+                  )
+                 ORDER BY d.serial_number, d.created_at DESC`,
                 [userId]
             );
         } else {
-            // [OWASP A01] Caregiver scope:
-            // Show devices this caregiver registered (added_by = userId)
-            // OR devices assigned to a patient the caregiver has access to.
-            // DISTINCT prevents duplicate rows when multiple patient_access rows exist.
+            // Caregiver / Parent / Guardian scope:
             result = await pool.query(
-                `SELECT DISTINCT d.serial_number, d.device_name, d.status, d.last_heartbeat,
+                `SELECT DISTINCT ON (d.serial_number) 
+                        d.serial_number, d.device_name, d.status, d.last_heartbeat,
                         d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
-                 WHERE (
-                     d.added_by = $1
-                     OR pa.user_id = $1
-                 )
-                 ORDER BY d.created_at DESC`,
+                 WHERE d.is_archived IS DISTINCT FROM TRUE
+                   AND (
+                      d.added_by = $1
+                      OR pa.user_id = $1
+                  )
+                 ORDER BY d.serial_number, d.created_at DESC`,
                 [userId]
             );
         }

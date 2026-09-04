@@ -207,8 +207,8 @@ export default function PatientOnboarding() {
     }, [fetchPatients, fetchUnassignedPatients]);
 
     const handleRegister = async () => {
-        if (!form.first_name || !form.last_name || !form.age || !form.diagnosis || !form.room || !form.bed) {
-            return toast.error('All fields are required.');
+        if (!form.first_name || !form.last_name || !form.age || !form.diagnosis || !form.room) {
+            return toast.error('Please fill in all required fields (First Name, Last Name, Age, Diagnosis, Room).');
         }
         if (isSystemAdmin && form.patient_type === 'facility' && !form.facility_name.trim()) {
             return toast.error('Facility Name is required when Care Setting is Facility.');
@@ -220,7 +220,7 @@ export default function PatientOnboarding() {
         try {
             const res = await fetch(`${API}/patients`, {
                 method: 'POST', headers: getAuth(),
-                body: JSON.stringify({ ...form, age: parseInt(form.age), consent_confirmed: true })
+                body: JSON.stringify({ ...form, age: parseInt(form.age), bed: form.bed.trim() || null, consent_confirmed: true })
             });
             const data = await res.json();
             if (data.success) {
@@ -350,17 +350,33 @@ export default function PatientOnboarding() {
                     <CardContent className="space-y-3">
                         <div className="grid grid-cols-2 gap-2">
                             <div>
-                                <label className="block text-[10px] font-semibold text-slate-600 mb-1">First Name</label>
-                                <Input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} className="h-8 text-xs bg-slate-50/50" />
+                                <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                    First Name <span className="text-red-500">*</span>
+                                </label>
+                                <Input 
+                                    value={form.first_name} 
+                                    onChange={e => setForm(f => ({ ...f, first_name: e.target.value.replace(/[^a-zA-Z\s'-]/g, '') }))} 
+                                    className="h-8 text-xs bg-slate-50/50" 
+                                    placeholder="Juan"
+                                />
                             </div>
                             <div>
-                                <label className="block text-[10px] font-semibold text-slate-600 mb-1">Last Name</label>
-                                <Input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} className="h-8 text-xs bg-slate-50/50" />
+                                <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                    Last Name <span className="text-red-500">*</span>
+                                </label>
+                                <Input 
+                                    value={form.last_name} 
+                                    onChange={e => setForm(f => ({ ...f, last_name: e.target.value.replace(/[^a-zA-Z\s'-]/g, '') }))} 
+                                    className="h-8 text-xs bg-slate-50/50" 
+                                    placeholder="Dela Cruz"
+                                />
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div>
-                                <label className="block text-[10px] font-semibold text-slate-600 mb-1">Age</label>
+                                <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                    Age <span className="text-red-500">*</span>
+                                </label>
                                 <Input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value }))} className="h-8 text-xs bg-slate-50/50" />
                             </div>
                             <div>
@@ -372,8 +388,10 @@ export default function PatientOnboarding() {
                             </div>
                         </div>
                         <div>
-                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Diagnosis / Reason for Monitoring</label>
-                            <Input value={form.diagnosis} onChange={e => setForm(f => ({ ...f, diagnosis: e.target.value }))} className="h-8 text-xs bg-slate-50/50" />
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                Diagnosis / Reason for Monitoring <span className="text-red-500">*</span>
+                            </label>
+                            <Input value={form.diagnosis} onChange={e => setForm(f => ({ ...f, diagnosis: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Hypertension" />
                         </div>
 
                         {isSystemAdmin && (
@@ -395,7 +413,7 @@ export default function PatientOnboarding() {
                                 </div>
                                 {form.patient_type === 'facility' && (
                                     <div>
-                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Facility Name</label>
+                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Facility Name <span className="text-red-500">*</span></label>
                                         <Input
                                             value={form.facility_name}
                                             onChange={e => setForm(f => ({ ...f, facility_name: e.target.value }))}
@@ -417,12 +435,16 @@ export default function PatientOnboarding() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Room Name</label>
+                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                            Room Name <span className="text-red-500">*</span>
+                                        </label>
                                         <Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Room 101" />
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Bed Name</label>
-                                        <Input value={form.bed} onChange={e => setForm(f => ({ ...f, bed: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Bed 1" />
+                                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                            Bed Name <span className="text-slate-400 font-normal"> (Optional)</span>
+                                        </label>
+                                        <Input value={form.bed} onChange={e => setForm(f => ({ ...f, bed: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Bed 1 (Optional)" />
                                     </div>
                                 </div>
                             </div>

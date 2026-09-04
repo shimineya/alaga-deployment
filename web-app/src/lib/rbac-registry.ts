@@ -127,7 +127,7 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         //                      canSeeOTA         = isAdminTier (same flag as topology)
         'device-status':           isClinical || isFacilityAdmin || isAdminTier,
         'add-device':              isClinical || isFacilityAdmin || isAdminTier,
-        'assign-device':           isFacilityAdmin || isAdminTier,
+        'assign-device':           isFacilityAdmin || isClinical,
         'sys-device-assignment':   isAdminTier,
         'diagnostics':             isFacilityAdmin || isAdminTier,
         'topology':                isAdminTier,

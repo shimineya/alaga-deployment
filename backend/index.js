@@ -278,14 +278,21 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             });
         }
         */
-        // [OWASP A05] Parameterized duplicate check
+        // [OWASP A05] Parameterized case-insensitive duplicate check
         const userCheck = await client.query(
-            'SELECT * FROM users WHERE username = $1 OR email = $2',
+            'SELECT user_id, email, username FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)',
             [username, safeEmail]
         );
 
         if (userCheck.rows.length > 0) {
-            return res.status(409).json({ success: false, message: 'Username or Email already exists' });
+            const existing = userCheck.rows[0];
+            if (existing.email && existing.email.toLowerCase() === safeEmail) {
+                return res.status(409).json({ success: false, message: 'This email address is already registered to an account. Please sign in or use a different email.' });
+            }
+            if (existing.username && existing.username.toLowerCase() === username.toLowerCase()) {
+                return res.status(409).json({ success: false, message: 'This username is already taken. Please choose another username.' });
+            }
+            return res.status(409).json({ success: false, message: 'An account with this email or username already exists.' });
         }
 
         // [OWASP A04] bcrypt with 12 salt rounds

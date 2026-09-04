@@ -244,27 +244,35 @@ const AlertsHub: React.FC = () => {
             )}
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-                <TabsList className="bg-white border border-slate-200 p-1.5 rounded-2xl h-auto flex flex-wrap gap-2 shadow-sm">
-                    <TabsTrigger value="clinical" className="data-[state=active]:bg-red-50 data-[state=active]:text-red-700 font-semibold rounded-xl px-4 py-2.5 transition-all">
-                        <Activity className="h-4 w-4 mr-2" />
-                        Clinical Alerts
-                        {clinicalAlerts.filter(a => a.status !== 'Acknowledged').length > 0 && (
-                            <span className="ml-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
-                                {clinicalAlerts.filter(a => a.status !== 'Acknowledged').length}
-                            </span>
-                        )}
-                    </TabsTrigger>
-                    
-                    <TabsTrigger value="system" className="data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700 font-semibold rounded-xl px-4 py-2.5 transition-all">
-                        <HardDrive className="h-4 w-4 mr-2" />
-                        Hardware Diagnostics
-                        {systemAlerts.filter(a => a.status === 'Active').length > 0 && (
-                            <span className="ml-2 bg-amber-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
-                                {systemAlerts.filter(a => a.status === 'Active').length}
-                            </span>
-                        )}
-                    </TabsTrigger>
-                </TabsList>
+                <div className="border-b border-slate-200 mb-6 shrink-0">
+                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                        <TabsTrigger 
+                            value="clinical" 
+                            className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap data-[state=active]:border-b-2 data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                        >
+                            <Activity className="h-4 w-4 mr-1" />
+                            Clinical Alerts
+                            {clinicalAlerts.filter(a => a.status !== 'Acknowledged').length > 0 && (
+                                <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                                    {clinicalAlerts.filter(a => a.status !== 'Acknowledged').length}
+                                </span>
+                            )}
+                        </TabsTrigger>
+                        
+                        <TabsTrigger 
+                            value="system" 
+                            className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap data-[state=active]:border-b-2 data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                        >
+                            <HardDrive className="h-4 w-4 mr-1" />
+                            Hardware Diagnostics
+                            {systemAlerts.filter(a => a.status === 'Active').length > 0 && (
+                                <span className="ml-1.5 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                                    {systemAlerts.filter(a => a.status === 'Active').length}
+                                </span>
+                            )}
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
  
                 <TabsContent value="clinical" className="space-y-4">
                     {displayedClinicalAlerts.length === 0 && !isLoading ? (

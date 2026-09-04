@@ -624,7 +624,7 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
             return res.status(403).json({ success: false, message: 'You do not have permission to assign caregivers to this patient.' });
         }
 
-        // 2. Lookup caregiver / medstaff
+        // 2. Lookup user (parent, caregiver, or medstaff)
         const userRes = await pool.query(
             'SELECT user_id, role, first_name, last_name FROM users WHERE LOWER(email) = LOWER($1)',
             [email.trim()]
@@ -633,9 +633,10 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
             return res.status(404).json({ success: false, message: 'User with this email address not found.' });
         }
         const userToAssign = userRes.rows[0];
-        if (userToAssign.role !== 'caregiver' && userToAssign.role !== 'medical_staff') {
-            return res.status(400).json({ success: false, message: 'User is not a registered caregiver or medical staff member.' });
+        if (!['caregiver', 'medical_staff', 'parent'].includes(userToAssign.role)) {
+            return res.status(400).json({ success: false, message: 'User must be a registered Parent, Caregiver, or Medical Staff member.' });
         }
+        const defaultRelationship = userToAssign.role === 'parent' ? 'Parent / Guardian' : (userToAssign.role === 'medical_staff' ? 'Attending Medical Staff' : 'Assigned Caregiver');
 
         // 3. Upsert assignment with Pending invite_status
         const existingCheck = await pool.query(
@@ -649,27 +650,27 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
             if (existing.invite_status === 'Active' || existing.invite_status === 'Accepted') {
                 return res.status(409).json({
                     success: false,
-                    message: 'This patient is already actively assigned to this caregiver.'
+                    message: 'This patient is already actively assigned to this team member.'
                 });
             }
             // Re-invite if previously declined or pending
             await pool.query(
                 `UPDATE patient_access 
-                 SET invite_status = 'Pending', is_archived = FALSE, invited_by = $1, relationship = 'Assigned Caregiver'
-                 WHERE access_id = $2`,
-                [req.user.id, existing.access_id]
+                 SET invite_status = 'Pending', is_archived = FALSE, invited_by = $1, relationship = $2
+                 WHERE access_id = $3`,
+                [req.user.id, defaultRelationship, existing.access_id]
             );
         } else {
             await pool.query(
                 `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
-                 VALUES ($1, $2, 'Assigned Caregiver', 'Full', 'Pending', $3)`,
-                [userToAssign.user_id, patientId, req.user.id]
+                 VALUES ($1, $2, $3, 'Full', 'Pending', $4)`,
+                [userToAssign.user_id, patientId, defaultRelationship, req.user.id]
             );
         }
 
         res.json({
             success: true,
-            message: `Invitation sent to ${userToAssign.first_name || userToAssign.role} (${email}). The caregiver will see this patient once accepted.`
+            message: `Invitation sent to ${userToAssign.first_name || userToAssign.role} (${email}). They will join the care team once accepted.`
         });
     } catch (err) {
         console.error("Assign Staff by Email Error:", err.message);
@@ -711,9 +712,6 @@ router.put('/patients/:id', async (req, res) => {
         if (room !== undefined && (!room || !room.trim())) {
             return res.status(400).json({ success: false, message: 'Room name cannot be empty.' });
         }
-        if (bed !== undefined && (!bed || !bed.trim())) {
-            return res.status(400).json({ success: false, message: 'Bed name cannot be empty.' });
-        }
 
         const currentPatient = await client.query(
             'SELECT name, baseline_data FROM patients WHERE patient_id = $1',
@@ -729,7 +727,7 @@ router.put('/patients/:id', async (req, res) => {
             diagnosis: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
             ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
             room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
-            bed: bed !== undefined ? bed.trim() : currentPatient.rows[0].baseline_data?.bed
+            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed
         };
 
         // [OWASP A05] Parameterized query — no string concatenation.
@@ -1888,11 +1886,11 @@ router.post('/patients/invite-by-email', async (req, res) => {
             );
             patientRow = patRes.rows[0];
         } else {
-            // Parent/Caregiver must have Edit access to the patient
+            // Parent/Caregiver/MedicalStaff must have access to the patient
             const patRes = await client.query(
                 `SELECT p.patient_id FROM patients p
                  JOIN patient_access pa ON p.patient_id = pa.patient_id
-                 WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.access_level = 'Edit'`,
+                 WHERE (LOWER(p.name) = LOWER($1) OR p.patient_id::text = $1) AND pa.user_id = $2`,
                 [patientName.trim(), userId]
             );
             patientRow = patRes.rows[0];
@@ -1900,44 +1898,55 @@ router.post('/patients/invite-by-email', async (req, res) => {
 
         if (!patientRow) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ success: false, message: `Patient with name "${patientName}" not found or not in your access scope.` });
+            return res.status(404).json({ success: false, message: `Patient with name/ID "${patientName}" not found or not in your access scope.` });
         }
 
         const patientId = patientRow.patient_id;
 
-        // 2. Find caregiver
-        const caregiverRes = await client.query(
-            `SELECT user_id FROM users WHERE LOWER(email) = LOWER($1) AND role IN ('caregiver', 'medical_staff')`,
+        // 2. Find invitee (parent, caregiver, or medical_staff)
+        const userRes = await client.query(
+            `SELECT user_id, role, first_name, last_name FROM users WHERE LOWER(email) = LOWER($1) AND role IN ('caregiver', 'medical_staff', 'parent')`,
             [caregiverEmail.trim()]
         );
 
-        if (caregiverRes.rows.length === 0) {
+        if (userRes.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ success: false, message: `Caregiver/Med Staff user with email "${caregiverEmail}" not found.` });
+            return res.status(404).json({ success: false, message: `User with email "${caregiverEmail}" not found (must be registered as Parent, Caregiver, or Medical Staff).` });
         }
 
-        const caregiverId = caregiverRes.rows[0].user_id;
+        const userToAssign = userRes.rows[0];
+        const defaultRelationship = userToAssign.role === 'parent' ? 'Parent / Guardian' : (userToAssign.role === 'medical_staff' ? 'Attending Medical Staff' : 'Assigned Caregiver');
 
         // 3. Check if already assigned
         const check = await client.query(
-            "SELECT 1 FROM patient_access WHERE patient_id = $1 AND user_id = $2",
-            [patientId, caregiverId]
+            "SELECT access_id, invite_status FROM patient_access WHERE patient_id = $1 AND user_id = $2",
+            [patientId, userToAssign.user_id]
         );
 
         if (check.rows.length > 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ success: false, message: 'Caregiver invitation/assignment already exists for this patient.' });
+            const existing = check.rows[0];
+            if (existing.invite_status === 'Active' || existing.invite_status === 'Accepted') {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'This user is already an active member of the care team for this patient.' });
+            }
+            // Re-invite if previously declined or pending
+            await client.query(
+                `UPDATE patient_access 
+                 SET invite_status = 'Pending', is_archived = FALSE, invited_by = $1, relationship = $2
+                 WHERE access_id = $3`,
+                [userId, defaultRelationship, existing.access_id]
+            );
+        } else {
+            // 4. Insert pending invitation
+            await client.query(
+                `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
+                 VALUES ($1, $2, $3, 'View', 'Pending', $4)`,
+                [userToAssign.user_id, patientId, defaultRelationship, userId]
+            );
         }
 
-        // 4. Insert pending invitation
-        await client.query(
-            `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
-             VALUES ($1, $2, 'Assigned Caregiver', 'View', 'Pending', $3)`,
-            [caregiverId, patientId, userId]
-        );
-
         await client.query('COMMIT');
-        res.json({ success: true, message: `Invitation successfully sent to ${caregiverEmail}.` });
+        res.json({ success: true, message: `Invitation successfully sent to ${userToAssign.first_name || userToAssign.role} (${caregiverEmail}).` });
 
     } catch (err) {
         await client.query('ROLLBACK');
@@ -2505,7 +2514,7 @@ router.post('/devices/assign', async (req, res) => {
             const patRes = await client.query(
                 `SELECT p.patient_id FROM patients p
                  JOIN patient_access pa ON p.patient_id = pa.patient_id
-                 WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.access_level = 'Edit' AND p.is_archived IS DISTINCT FROM TRUE`,
+                 WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE AND p.is_archived IS DISTINCT FROM TRUE`,
                 [patientName.trim(), actorId]
             );
             patientRow = patRes.rows[0];
@@ -2600,6 +2609,11 @@ router.post('/devices/assign', async (req, res) => {
             await client.query(
                 `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2`,
                 [patientId, vitalSignsSn]
+            );
+            // Clear any stale assignment on other patients to satisfy UNIQUE constraint
+            await client.query(
+                `UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id != $2`,
+                [vitalSignsSn, patientId]
             );
             await client.query(
                 `UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2`,

@@ -106,18 +106,18 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
 
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
-        if (!formData.firstName) newErrors.firstName = "Required";
-        if (!formData.lastName) newErrors.lastName = "Required";
+        if (!formData.firstName.trim()) newErrors.firstName = "First name is required";
+        if (!formData.lastName.trim()) newErrors.lastName = "Last name is required";
         if (!formData.dateOfBirth) {
-            newErrors.dateOfBirth = "Required";
+            newErrors.dateOfBirth = "Birthdate is required";
         } else {
             const birthDate = new Date(formData.dateOfBirth);
             if (birthDate > new Date()) {
                 newErrors.dateOfBirth = "Cannot be in the future";
             }
         }
-        if (!formData.room) newErrors.room = "Required";
-        if (!formData.bed) newErrors.bed = "Required";
+        if (!formData.room.trim()) newErrors.room = "Room name is required";
+        // Bed name is optional
         return newErrors;
     };
 
@@ -142,7 +142,7 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    name: `${formData.firstName} ${formData.lastName}`,
+                    name: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
                     birthdate: formData.dateOfBirth,
                     medicalCondition: formData.conditions, // backwards-compatible field
                     illness: formData.primaryDiagnosis || null,
@@ -152,8 +152,8 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
                     vitalDeviceNo: formData.vsDeviceId,
                     diaperDeviceNo: formData.sdDeviceId,
                     ward: formData.ward || null,
-                    room: formData.room,
-                    bed: formData.bed
+                    room: formData.room.trim(),
+                    bed: formData.bed.trim() || null
                 })
             });
 
@@ -267,19 +267,21 @@ const handleSearchCaregiver = async (query: string) => {
                                         <Input
                                             placeholder="Juan"
                                             value={formData.firstName}
-                                            onChange={e => setFormData({ ...formData, firstName: e.target.value })}
+                                            onChange={e => setFormData({ ...formData, firstName: e.target.value.replace(/[^a-zA-Z\s'-]/g, '') })}
                                             className={`h-9 text-sm ${errors.firstName ? "border-red-500" : ""}`}
                                             autoFocus
                                         />
+                                        {errors.firstName && <p className="text-[10px] text-red-500">{errors.firstName}</p>}
                                     </div>
                                     <div className="space-y-1.5">
                                         <Label className="text-xs font-semibold text-slate-600">Last Name <span className="text-red-500">*</span></Label>
                                         <Input
                                             placeholder="Dela Cruz"
                                             value={formData.lastName}
-                                            onChange={e => setFormData({ ...formData, lastName: e.target.value })}
+                                            onChange={e => setFormData({ ...formData, lastName: e.target.value.replace(/[^a-zA-Z\s'-]/g, '') })}
                                             className={`h-9 text-sm ${errors.lastName ? "border-red-500" : ""}`}
                                         />
+                                        {errors.lastName && <p className="text-[10px] text-red-500">{errors.lastName}</p>}
                                     </div>
                                 </div>
 
@@ -293,7 +295,7 @@ const handleSearchCaregiver = async (query: string) => {
                                             max={new Date().toISOString().split('T')[0]}
                                             className={`flex-1 h-9 text-sm ${errors.dateOfBirth ? "border-red-500" : ""}`}
                                         />
-                                        {calculatedAge && (
+                                        {calculatedAge !== '' && (
                                             <div className="px-3 flex items-center bg-slate-50 border border-slate-200 rounded-md text-xs font-medium text-slate-600 min-w-[70px] justify-center">
                                                 {calculatedAge} yrs
                                             </div>
@@ -338,7 +340,9 @@ const handleSearchCaregiver = async (query: string) => {
                                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location Assignment</h4>
                                     <div className="space-y-3">
                                         <div className="space-y-1.5">
-                                            <Label className="text-xs font-semibold text-slate-600">Ward Name</Label>
+                                            <Label className="text-xs font-semibold text-slate-600">
+                                                Ward Name <span className="text-slate-400 font-normal">(Optional)</span>
+                                            </Label>
                                             <Input
                                                 placeholder="e.g. Pediatrics (Optional)"
                                                 value={formData.ward}
@@ -355,14 +359,17 @@ const handleSearchCaregiver = async (query: string) => {
                                                     onChange={e => setFormData({ ...formData, room: e.target.value })}
                                                     className={`h-9 text-sm ${errors.room ? "border-red-500" : ""}`}
                                                 />
+                                                {errors.room && <p className="text-[10px] text-red-500">{errors.room}</p>}
                                             </div>
                                             <div className="space-y-1.5">
-                                                <Label className="text-xs font-semibold text-slate-600">Bed Name <span className="text-red-500">*</span></Label>
+                                                <Label className="text-xs font-semibold text-slate-600">
+                                                    Bed Name <span className="text-slate-400 font-normal">(Optional)</span>
+                                                </Label>
                                                 <Input
-                                                    placeholder="e.g. Bed A"
+                                                    placeholder="e.g. Bed A (Optional)"
                                                     value={formData.bed}
                                                     onChange={e => setFormData({ ...formData, bed: e.target.value })}
-                                                    className={`h-9 text-sm ${errors.bed ? "border-red-500" : ""}`}
+                                                    className="h-9 text-sm"
                                                 />
                                             </div>
                                         </div>

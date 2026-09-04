@@ -296,7 +296,7 @@ function computeRoleDefaults(role) {
         'unassigned-patients':     isFacilityAdmin || isAdminTier,
         'device-status':           isClinical || isFacilityAdmin || isAdminTier,
         'add-device':              isClinical || isFacilityAdmin || isAdminTier,
-        'assign-device':           isFacilityAdmin || isAdminTier,
+        'assign-device':           isFacilityAdmin || isClinical,
         'sys-device-assignment':   isAdminTier,
         'diagnostics':             isFacilityAdmin || isAdminTier,
         'topology':                isAdminTier,

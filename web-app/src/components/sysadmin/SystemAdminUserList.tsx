@@ -6,6 +6,7 @@ import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
 import { MODULE_REGISTRY, computeRoleDefaults } from '@/lib/rbac-registry';
+import { PasswordGuide, checkPasswordCriteria } from '../ui/PasswordGuide';
 import { 
     Dialog, 
     DialogContent, 
@@ -34,7 +35,9 @@ import {
     ToggleLeft,
     ChevronRight,
     ChevronDown,
-    ShieldCheck
+    ShieldCheck,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
@@ -89,6 +92,7 @@ export default function SystemAdminUserList() {
     const [addUsername, setAddUsername] = useState('');
     const [addEmail, setAddEmail] = useState('');
     const [addPassword, setAddPassword] = useState('');
+    const [showAddPassword, setShowAddPassword] = useState(false);
     const [addRole, setAddRole] = useState('facility_admin');
     const [addFacilityId, setAddFacilityId] = useState('');
     const [addFacilityName, setAddFacilityName] = useState('');
@@ -97,6 +101,12 @@ export default function SystemAdminUserList() {
     const handleCreateUser = async () => {
         if (!addUsername.trim() || !addEmail.trim() || !addPassword.trim() || !addRole.trim()) {
             toast.error('All fields (username, email, password, and role) are required.');
+            return;
+        }
+
+        const criteria = checkPasswordCriteria(addPassword, 8);
+        if (!criteria.isValid) {
+            toast.error('Password does not meet all security criteria (8+ characters, uppercase, lowercase, number, special symbol).');
             return;
         }
 
@@ -683,13 +693,24 @@ export default function SystemAdminUserList() {
 
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-700 mb-1">Password</label>
-                                <Input 
-                                    type="password"
-                                    placeholder="Enter secure password"
-                                    value={addPassword} 
-                                    onChange={(e) => setAddPassword(e.target.value)}
-                                    className="h-9 text-xs"
-                                />
+                                <div className="relative">
+                                    <Input 
+                                        type={showAddPassword ? "text" : "password"} 
+                                        placeholder="Enter secure password" 
+                                        value={addPassword} 
+                                        onChange={(e) => setAddPassword(e.target.value)} 
+                                        className="h-9 text-xs pr-8" 
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddPassword(!showAddPassword)}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                        aria-label={showAddPassword ? "Hide password" : "Show password"}
+                                    >
+                                        {showAddPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                                <PasswordGuide password={addPassword} className="mt-2" />
                             </div>
 
                             <div>

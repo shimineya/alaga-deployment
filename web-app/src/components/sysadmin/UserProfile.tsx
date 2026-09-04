@@ -3,10 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { User, Mail, Phone, Lock, Camera, Save, Edit3, X, Building } from 'lucide-react';
+import { User, Mail, Phone, Lock, Camera, Save, Edit3, X, Building, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
+import { PasswordGuide, checkPasswordCriteria } from '../ui/PasswordGuide';
 
 export default function UserProfile() {
     const { user, refreshUser } = useAuth();
@@ -24,6 +25,8 @@ export default function UserProfile() {
     
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
@@ -85,14 +88,16 @@ export default function UserProfile() {
     };
 
     const handleSave = async () => {
-        if (password && password !== confirmPassword) {
-            toast.error('Passwords do not match');
-            return;
-        }
-
-        if (password && password.length < 8) {
-            toast.error('Password must be at least 8 characters long');
-            return;
+        if (password) {
+            if (password !== confirmPassword) {
+                toast.error('Passwords do not match');
+                return;
+            }
+            const criteria = checkPasswordCriteria(password, 8);
+            if (!criteria.isValid) {
+                toast.error('Password does not meet all security criteria (8+ characters, uppercase, lowercase, number, special symbol)');
+                return;
+            }
         }
 
         setIsSaving(true);
@@ -286,25 +291,48 @@ export default function UserProfile() {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
                                                 <Label className="text-xs text-slate-600">{t('New Password', 'Bagong Password')}</Label>
-                                                <Input 
-                                                    type="password" 
-                                                    placeholder={t('Leave blank to keep current', 'Iwanang blanko para panatilihin ang kasalukuyan')}
-                                                    value={password}
-                                                    onChange={e => setPassword(e.target.value)}
-                                                    className="h-9 focus-visible:ring-teal-500"
-                                                />
+                                                <div className="relative">
+                                                    <Input 
+                                                        type={showPassword ? "text" : "password"} 
+                                                        placeholder={t('Leave blank to keep current', 'Iwanang blanko para panatilihin ang kasalukuyan')}
+                                                        value={password}
+                                                        onChange={e => setPassword(e.target.value)}
+                                                        className="h-9 pr-9 focus-visible:ring-teal-500"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowPassword(!showPassword)}
+                                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                                        aria-label={showPassword ? "Hide password" : "Show password"}
+                                                    >
+                                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="space-y-1.5">
                                                 <Label className="text-xs text-slate-600">{t('Confirm Password', 'Kumpirmahin ang Password')}</Label>
-                                                <Input 
-                                                    type="password" 
-                                                    placeholder={t('Confirm new password', 'Kumpirmahin ang bagong password')}
-                                                    value={confirmPassword}
-                                                    onChange={e => setConfirmPassword(e.target.value)}
-                                                    className="h-9 focus-visible:ring-teal-500"
-                                                />
+                                                <div className="relative">
+                                                    <Input 
+                                                        type={showConfirmPassword ? "text" : "password"} 
+                                                        placeholder={t('Confirm new password', 'Kumpirmahin ang bagong password')}
+                                                        value={confirmPassword}
+                                                        onChange={e => setConfirmPassword(e.target.value)}
+                                                        className="h-9 pr-9 focus-visible:ring-teal-500"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                                                    >
+                                                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
+                                        {password.length > 0 && (
+                                            <PasswordGuide password={password} className="mt-3" />
+                                        )}
                                     </div>
                                 </div>
                             )}

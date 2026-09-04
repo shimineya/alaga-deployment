@@ -3,12 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { UserPlus, Key, Search, Lock, Unlock, ShieldAlert, RefreshCw, Trash2, ShieldCheck, ChevronRight, ChevronDown, ToggleRight, ToggleLeft } from 'lucide-react';
+import { UserPlus, Key, Search, Lock, Unlock, ShieldAlert, RefreshCw, Trash2, ShieldCheck, ChevronRight, ChevronDown, ToggleRight, ToggleLeft, Eye, EyeOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { MODULE_REGISTRY, computeRoleDefaults } from '@/lib/rbac-registry';
+import { PasswordGuide, checkPasswordCriteria } from '@/components/ui/PasswordGuide';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
@@ -44,6 +45,7 @@ export default function WardStaffManagement() {
     // Create User State
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newUser, setNewUser] = useState({ username: '', email: '', role: 'caregiver', password: '' });
+    const [showNewUserPassword, setShowNewUserPassword] = useState(false);
     const [creating, setCreating] = useState(false);
 
     // RBAC Modal State
@@ -80,6 +82,10 @@ export default function WardStaffManagement() {
     const handleCreateStaff = async () => {
         if (!newUser.username || !newUser.email || !newUser.password) {
             return toast.error("All fields (Username, Email, Password) are required.");
+        }
+        const criteria = checkPasswordCriteria(newUser.password);
+        if (!criteria.isValid) {
+            return toast.error("Password does not meet all security criteria (8+ chars, uppercase, lowercase, number, special symbol).");
         }
         setCreating(true);
         try {
@@ -317,9 +323,28 @@ export default function WardStaffManagement() {
                             <Label className="text-right text-xs font-semibold text-slate-700">Email</Label>
                             <Input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} className="col-span-3 text-sm h-9" placeholder="jdoe@hospital.com" />
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right text-xs font-semibold text-slate-700">Password</Label>
-                            <Input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} className="col-span-3 text-sm h-9" placeholder="Temporary password" />
+                        <div className="grid grid-cols-4 items-start gap-4">
+                            <Label className="text-right text-xs font-semibold text-slate-700 mt-2">Password</Label>
+                            <div className="col-span-3 space-y-1.5">
+                                <div className="relative">
+                                    <Input 
+                                        type={showNewUserPassword ? "text" : "password"} 
+                                        value={newUser.password} 
+                                        onChange={e => setNewUser({ ...newUser, password: e.target.value })} 
+                                        className="text-sm h-9 pr-9" 
+                                        placeholder="Temporary password" 
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewUserPassword(!showNewUserPassword)}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                        aria-label={showNewUserPassword ? "Hide password" : "Show password"}
+                                    >
+                                        {showNewUserPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                                <PasswordGuide password={newUser.password} />
+                            </div>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right text-xs font-semibold text-slate-700">Role</Label>

@@ -420,9 +420,10 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
         fetchSchedules();
 
         const fetchInterval = setInterval(() => {
+            fetchPatients();
             fetchSchedules();
             fetchPendingInvites();
-        }, 5000); // Poll schedules & invites every 5 seconds for real-time updates
+        }, 3000); // Poll patients, schedules & invites every 3 seconds for real-time updates
 
         return () => clearInterval(fetchInterval);
     }, [fetchPatients, fetchPendingInvites, fetchSchedules]);
@@ -936,10 +937,15 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         {filteredPatients
                             .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                             .map(patient => {
-                                const latestVital = vitalSigns.find(v => v.patientId === patient.id);
+                                const latestVital: any = vitalSigns.find(v => v.patientId === patient.id) || (patient as any).latest_telemetry;
                                 const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
                                 const isCritical = activeAlerts.some(a => a.severity === 'critical');
                                 const isUnassigned = !patient.deviceConnected;
+
+                                const pulseVal = latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;
+                                const tempVal = latestVital ? (latestVital.temperature) : null;
+                                const spo2Val = latestVital ? (latestVital.spo2) : null;
+                                const wetnessVal = latestVital ? (latestVital.moistureLevel ?? latestVital.moisture ?? latestVital.moisture_value) : null;
 
                                 return (
                                     <Card
@@ -979,7 +985,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className="text-[9px] text-slate-400 font-medium">PULSE</span>
                                                     </div>
                                                     <span className="text-xs font-bold text-slate-700">
-                                                        {latestVital ? Math.round(latestVital.heartRate) : '--'}
+                                                        {pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--'}
                                                     </span>
                                                 </div>
 
@@ -989,7 +995,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className="text-[9px] text-slate-400 font-medium">TEMP</span>
                                                     </div>
                                                     <span className="text-xs font-bold text-slate-700">
-                                                        {latestVital ? latestVital.temperature.toFixed(1) : '--'}
+                                                        {tempVal !== null && tempVal !== undefined ? Number(tempVal).toFixed(1) : '--'}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1001,7 +1007,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className="text-[9px] text-slate-400 font-medium">SPO2</span>
                                                     </div>
                                                     <span className="text-xs font-bold text-slate-700">
-                                                        {latestVital ? Math.round(latestVital.spo2) : '--'}
+                                                        {spo2Val !== null && spo2Val !== undefined ? Math.round(Number(spo2Val)) : '--'}
                                                     </span>
                                                 </div>
 
@@ -1011,7 +1017,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className="text-[9px] text-slate-400 font-medium">WETNESS</span>
                                                     </div>
                                                     <span className="text-xs font-bold text-slate-700">
-                                                        {latestVital ? `${Math.round(latestVital.moistureLevel)}%` : '--'}
+                                                        {wetnessVal !== null && wetnessVal !== undefined ? `${Math.round(Number(wetnessVal))}%` : '--'}
                                                     </span>
                                                 </div>
                                             </div>

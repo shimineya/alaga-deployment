@@ -1467,9 +1467,6 @@ router.put('/patients/:patientId', async (req, res) => {
     if (room !== undefined && (!room || !room.trim())) {
         return res.status(400).json({ success: false, message: 'Room name cannot be empty.' });
     }
-    if (bed !== undefined && (!bed || !bed.trim())) {
-        return res.status(400).json({ success: false, message: 'Bed name cannot be empty.' });
-    }
 
     try {
         if (!isSysAdmin) {
@@ -1497,7 +1494,7 @@ router.put('/patients/:patientId', async (req, res) => {
             diagnosis: diagnosis !== undefined ? diagnosis : currentPatient.rows[0].baseline_data?.diagnosis,
             ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
             room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
-            bed: bed !== undefined ? bed.trim() : currentPatient.rows[0].baseline_data?.bed
+            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed
         };
 
         await pool.query(

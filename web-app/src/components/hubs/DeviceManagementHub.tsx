@@ -35,10 +35,10 @@ export default function DeviceManagementHub() {
 
     // Visibilities — module IDs match UserRBACManager MODULE_REGISTRY exactly
     const canSeeMyDevices      = hasPermission('device-status',  isClinical || isFacilityAdmin || isAdminTier);
-    const canSeeAddDevice      = hasPermission('add-device',     isClinical || isFacilityAdmin || isAdminTier) && !['caregiver', 'medical_staff', 'parent'].includes(role);
+    const canSeeAddDevice      = hasPermission('add-device',     isClinical || isFacilityAdmin || isAdminTier);
     const canSeeDiagnostics    = hasPermission('diagnostics',    isFacilityAdmin || isAdminTier);
     const canSeeTopologyAndOTA = hasPermission('topology',       isAdminTier);
-    const canSeeAssignDevice   = hasPermission('assign-device',  isFacilityAdmin || isAdminTier);
+    const canSeeAssignDevice   = hasPermission('assign-device',  isFacilityAdmin || isClinical);
     const canSeeSysAssignment  = hasPermission('sys-device-assignment', isAdminTier);
     const canSeeSnapshots      = isAdminTier;
  

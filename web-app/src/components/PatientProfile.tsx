@@ -128,13 +128,44 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
     }
   };
 
-  // Load Vitals
+  // Load Vitals from Backend
   useEffect(() => {
-    // In a real app, this would fetch from API
-    // [MODIFIED] Removed mock data generation as requested. 
-    // In the future, this will fetch real data from the API.
-    setVitalSigns([]);
-  }, [patient.id, patient.baselineVitals]);
+    let isMounted = true;
+    const patId = String(patient.id).replace(/\D/g, '') || patient.id;
+
+    const fetchVitals = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token || !patId) return;
+
+        const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/sensor/history/${patId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (isMounted && data.success && Array.isArray(data.history) && data.history.length > 0) {
+          setVitalSigns(data.history.map((row: any, idx: number) => ({
+            id: `v-${idx}-${new Date(row.recorded_at).getTime()}`,
+            timestamp: new Date(row.recorded_at),
+            heartRate: Number(row.heart_rate) || 0,
+            temperature: Number(row.temperature) || 0,
+            spo2: Number(row.spo2) || 0,
+            moistureLevel: Number(row.moisture_value) || 0,
+          })));
+        }
+      } catch (err) {
+        console.error('Error fetching live vitals:', err);
+      }
+    };
+
+    fetchVitals();
+    const interval = setInterval(fetchVitals, 3000); // Live poll every 3 seconds
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [patient.id]);
 
   const latestVital = vitalSigns[vitalSigns.length - 1];
 

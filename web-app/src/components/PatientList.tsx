@@ -97,7 +97,19 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
 
     const getLatestVital = (patientId: string) => {
         const patientVitals = vitalSigns.filter(v => v.patientId === patientId);
-        return patientVitals.length > 0 ? patientVitals[patientVitals.length - 1] : null;
+        if (patientVitals.length > 0) return patientVitals[patientVitals.length - 1];
+        const p = patients.find(pat => pat.id === patientId);
+        if (p && p.latest_telemetry) {
+            return {
+                patientId,
+                heartRate: p.latest_telemetry.heart_rate ?? 0,
+                temperature: Number(p.latest_telemetry.temperature) || 0,
+                spo2: p.latest_telemetry.spo2 ?? 0,
+                moistureLevel: p.latest_telemetry.moisture ?? 0,
+                timestamp: new Date().toISOString()
+            };
+        }
+        return null;
     };
 
     // ---- OPEN EDIT MODAL ----

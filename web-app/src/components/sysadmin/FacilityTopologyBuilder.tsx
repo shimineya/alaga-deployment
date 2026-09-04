@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Building2, Layers, Bed, Cpu, Plus, Edit, Users, Server, ShieldAlert, Trash2, Mail, Info, ChevronRight, ChevronDown, Search, ArrowRight, UserCheck } from 'lucide-react';
+import { Building2, Layers, Bed, Cpu, Plus, Edit, Users, Server, ShieldAlert, Trash2, Mail, Info, ChevronRight, ChevronDown, Search, ArrowRight, UserCheck, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
+import { PasswordGuide, checkPasswordCriteria } from '@/components/ui/PasswordGuide';
 
 interface BedNode {
     name: string;
@@ -81,6 +82,7 @@ export default function FacilityTopologyBuilder() {
     const [adminUsername, setAdminUsername] = useState('');
     const [adminEmail, setAdminEmail] = useState('');
     const [adminPassword, setAdminPassword] = useState('');
+    const [showAdminPassword, setShowAdminPassword] = useState(false);
 
     // Topology Add Modals
     const [isAddWardOpen, setIsAddWardOpen] = useState(false);
@@ -188,6 +190,11 @@ export default function FacilityTopologyBuilder() {
         if (!adminUsername.trim()) return toast.error("Administrator Username is required");
         if (!adminEmail.trim()) return toast.error("Administrator Email is required");
         if (!adminPassword.trim()) return toast.error("Administrator Password is required");
+
+        const criteria = checkPasswordCriteria(adminPassword.trim(), 12);
+        if (!criteria.isValid) {
+            return toast.error("Administrator Password must meet all criteria (at least 12 characters, uppercase, lowercase, number, and special symbol).");
+        }
 
         try {
             const res = await fetch(`${SYSADMIN_API}/users`, {
@@ -949,10 +956,25 @@ export default function FacilityTopologyBuilder() {
                                 </div>
                                 <div className="space-y-1">
                                     <Label className="text-xs font-semibold text-slate-600">Facility Administrator Password</Label>
-                                    <Input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="h-8 text-xs border-slate-200" placeholder="e.g. min 12 chars (a-z, A-Z, 0-9, symbol)" autoComplete="new-password" />
-                                    <p className="text-[9px] text-slate-400 font-medium leading-normal mt-0.5">
-                                        At least 12 characters: 1 small letter, 1 capital letter, 1 number, and 1 symbol.
-                                    </p>
+                                    <div className="relative">
+                                        <Input 
+                                            type={showAdminPassword ? "text" : "password"} 
+                                            value={adminPassword} 
+                                            onChange={(e) => setAdminPassword(e.target.value)} 
+                                            className="h-8 text-xs border-slate-200 pr-8" 
+                                            placeholder="e.g. min 12 chars (a-z, A-Z, 0-9, symbol)" 
+                                            autoComplete="new-password" 
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAdminPassword(!showAdminPassword)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                                            aria-label={showAdminPassword ? "Hide password" : "Show password"}
+                                        >
+                                            {showAdminPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
+                                    </div>
+                                    <PasswordGuide password={adminPassword} minLength={12} className="mt-2" />
                                 </div>
                             </div>
                         </div>

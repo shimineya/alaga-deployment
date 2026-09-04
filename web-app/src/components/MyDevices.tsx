@@ -52,7 +52,7 @@ interface Device {
 
 export const MyDevices: React.FC = () => {
     const { token, user, isSysAdmin } = useAuth();
-    const isSystemAdmin = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(user?.role?.toLowerCase() || '');
+    const isSystemAdmin = isSysAdmin || (['system_admin', 'sysadmin', 'admin'].includes(user?.role?.toLowerCase() || '') && user?.role?.toLowerCase() !== 'facility_admin');
     const [devices, setDevices] = useState<Device[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -241,14 +241,16 @@ export const MyDevices: React.FC = () => {
                         <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                     </Button>
 
-                    {/* Assign to Patient */}
-                    <Button
-                        size="sm"
-                        onClick={() => setIsAssignModalOpen(true)}
-                        className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
-                    >
-                        <Activity className="w-4 h-4 mr-2" /> Assign to Patient
-                    </Button>
+                    {/* Assign to Patient - for clinical, facility admin, and parent roles only */}
+                    {!isSystemAdmin && (
+                        <Button
+                            size="sm"
+                            onClick={() => setIsAssignModalOpen(true)}
+                            className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+                        >
+                            <Activity className="w-4 h-4 mr-2" /> Assign to Patient
+                        </Button>
+                    )}
 
                     {/* Quick Add */}
                     <Button

@@ -97,7 +97,7 @@ Emergency "break-glass" access overrides must be justified. User audits store on
 
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/firmware/upload`, {
+            const res = await fetch(`${API_URL}/api/admin/firmware/upload`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`

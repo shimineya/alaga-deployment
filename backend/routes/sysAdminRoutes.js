@@ -1679,10 +1679,15 @@ router.get('/anonymized-patients/:id', async (req, res) => {
                 [patientId]
             ),
             pool.query(
-                `SELECT anomaly_id, event_type, confidence_score, details, recorded_at
+                `SELECT 
+                    event_id AS anomaly_id, 
+                    anomaly_type AS event_type, 
+                    ocsvm_score AS confidence_score, 
+                    anomaly_type AS details, 
+                    detected_at AS recorded_at
                  FROM anomaly_events 
                  WHERE patient_id = $1 
-                 ORDER BY recorded_at DESC 
+                 ORDER BY detected_at DESC 
                  LIMIT 50`,
                 [patientId]
             )
@@ -1713,7 +1718,7 @@ router.get('/clinical-analytics', async (req, res) => {
             pool.query(`
                 SELECT 
                     COUNT(DISTINCT p.patient_id) AS total_subjects,
-                    COUNT(DISTINCT dw.device_id) AS active_sensors,
+                    COUNT(DISTINCT dw.serial_number) AS active_sensors,
                     COUNT(sr.reading_id) AS total_telemetry_packets,
                     ROUND(AVG(sr.heart_rate)::numeric, 1) AS mean_heart_rate,
                     ROUND(AVG(sr.spo2)::numeric, 1) AS mean_spo2,
@@ -1754,9 +1759,9 @@ router.get('/clinical-analytics', async (req, res) => {
             `),
             pool.query(`
                 SELECT 
-                    COALESCE(event_type, 'General Alert') AS anomaly_type,
+                    COALESCE(anomaly_type, 'General Alert') AS anomaly_type,
                     COUNT(*) AS event_count,
-                    ROUND(AVG(confidence_score)::numeric, 2) AS avg_confidence
+                    ROUND(AVG(ocsvm_score)::numeric, 2) AS avg_confidence
                 FROM anomaly_events
                 GROUP BY 1
                 ORDER BY event_count DESC

@@ -6,6 +6,7 @@ const nodemailer = require('nodemailer');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // --- Multer for Firmware Uploads (Strict .bin validation) ---
 const firmwareStorage = multer.diskStorage({
@@ -35,6 +36,30 @@ const firmwareUpload = multer({
 // Apply Security Middleware to ALL routes in this file
 router.use(verifyToken);
 router.use(verifyAdmin);
+
+// [OWASP A08] Upload compiled .bin firmware binary for broadcast
+router.post('/firmware/upload', firmwareUpload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No firmware file uploaded.' });
+    }
+
+    try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const actualChecksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+        res.json({
+            success: true,
+            message: `Firmware ${req.file.originalname} uploaded successfully.`,
+            filename: req.file.filename,
+            originalName: req.file.originalname,
+            sizeBytes: req.file.size,
+            checksum: actualChecksum
+        });
+    } catch (err) {
+        console.error('Firmware upload error:', err);
+        res.status(500).json({ success: false, message: 'Failed to process firmware upload.' });
+    }
+});
 
 // =================================================================
 // MODULE A: COMPLIANCE HUB (Audit Logs)

@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS public.device_whitelist (
     serial_number VARCHAR(50) NOT NULL,
     device_name VARCHAR(50),
     firmware_version VARCHAR(20),
+    pending_firmware_version VARCHAR(50),
     status VARCHAR(20) DEFAULT 'ACTIVE'::character varying,
     added_by INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -143,6 +144,21 @@ CREATE TABLE IF NOT EXISTS public.device_whitelist (
     deleted_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT device_whitelist_pkey PRIMARY KEY (serial_number)
 );
+
+-- ----------------------------------------------------------------------------
+-- TABLE: user_firmware_downloads
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.user_firmware_downloads (
+    download_id SERIAL,
+    user_id INTEGER REFERENCES public.users(user_id) ON DELETE CASCADE,
+    firmware_version VARCHAR(50) NOT NULL,
+    device_type VARCHAR(50) DEFAULT 'both',
+    download_url TEXT,
+    downloaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'DOWNLOADED',
+    CONSTRAINT user_firmware_downloads_pkey PRIMARY KEY (download_id)
+);
+
 
 -- ----------------------------------------------------------------------------
 -- TABLE: facilities

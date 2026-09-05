@@ -3,6 +3,34 @@ const pool = require('../db');
 const { verifyToken, verifyAdmin, verifySuperAdmin } = require('../middleware/authMiddleware');
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// --- Multer for Firmware Uploads (Strict .bin validation) ---
+const firmwareStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = path.join(__dirname, '../uploads/firmware');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const sanitized = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        cb(null, `firmware_${Date.now()}_${sanitized}`);
+    }
+});
+
+const firmwareUpload = multer({
+    storage: firmwareStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+    fileFilter: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext !== '.bin' && ext !== '.hex') {
+            return cb(new Error('Only .bin or .hex firmware files are accepted.'));
+        }
+        cb(null, true);
+    }
+});
 
 // Apply Security Middleware to ALL routes in this file
 router.use(verifyToken);
@@ -579,8 +607,34 @@ router.post('/users/:id/reset-mfa', async (req, res) => {
 });
 
 // =================================================================
-// MODULE N: BROADCAST SYSTEM (Announcements)
+// MODULE N: BROADCAST SYSTEM (Announcements & Firmware Upload)
 // =================================================================
+
+// POST /firmware/upload - Upload actual firmware binary (.bin) file
+router.post('/firmware/upload', firmwareUpload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No firmware binary file provided.' });
+        }
+        const filename = req.file.filename;
+        const originalName = req.file.originalname;
+        const sizeBytes = req.file.size;
+        const downloadUrl = `/uploads/firmware/${filename}`;
+
+        res.json({
+            success: true,
+            filename,
+            originalName,
+            sizeBytes,
+            downloadUrl,
+            message: `Firmware file "${originalName}" uploaded successfully!`
+        });
+    } catch (err) {
+        console.error('Firmware upload error:', err.message);
+        res.status(500).json({ success: false, message: err.message || 'Failed to upload firmware binary' });
+    }
+});
+
 router.get('/announcements', async (req, res) => {
     try {
         const result = await pool.query(

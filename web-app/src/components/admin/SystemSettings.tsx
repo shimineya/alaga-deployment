@@ -18,7 +18,9 @@ import {
     Trash2,
     Mail,
     Send,
-    Cpu
+    Cpu,
+    Upload,
+    CheckCircle2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "../../lib/auth-context";
@@ -73,6 +75,70 @@ Emergency "break-glass" access overrides must be justified. User audits store on
     const [vitalSignsVersion, setVitalSignsVersion] = useState("v2.4.0");
     const [vitalSignsFile, setVitalSignsFile] = useState("vital_signs_v2.4.0.bin");
     const [pushToActiveDevices, setPushToActiveDevices] = useState(true);
+    const [uploadingDiaper, setUploadingDiaper] = useState(false);
+    const [uploadingVital, setUploadingVital] = useState(false);
+    const [smartDiaperUploadInfo, setSmartDiaperUploadInfo] = useState<{ originalName: string; sizeBytes: number } | null>(null);
+    const [vitalSignsUploadInfo, setVitalSignsUploadInfo] = useState<{ originalName: string; sizeBytes: number } | null>(null);
+
+    const handleFileUpload = async (file: File, type: 'diaper' | 'vital') => {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.bin') && !file.name.toLowerCase().endsWith('.hex')) {
+            toast.error("Only .bin or .hex compiled firmware binaries are accepted.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        if (type === 'diaper') setUploadingDiaper(true);
+        else setUploadingVital(true);
+
+        const toastId = toast.loading(`Uploading ${file.name}...`);
+
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/firmware/upload`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+            const data = await res.json();
+            toast.dismiss(toastId);
+
+            if (data.success) {
+                toast.success(data.message || `Firmware ${file.name} uploaded successfully!`);
+                
+                // Auto-detect version if present in filename, e.g. v2.5.0
+                const verMatch = file.name.match(/(v?\d+\.\d+(?:\.\d+)?)/i);
+                const detectedVer = verMatch ? (verMatch[1].startsWith('v') ? verMatch[1] : `v${verMatch[1]}`) : null;
+
+                if (type === 'diaper') {
+                    setSmartDiaperFile(data.filename);
+                    setSmartDiaperUploadInfo({ originalName: data.originalName, sizeBytes: data.sizeBytes });
+                    const newVer = detectedVer || smartDiaperVersion;
+                    if (detectedVer) setSmartDiaperVersion(detectedVer);
+                    syncAnnouncementWithFirmware(deviceTarget, newVer, vitalSignsVersion);
+                } else {
+                    setVitalSignsFile(data.filename);
+                    setVitalSignsUploadInfo({ originalName: data.originalName, sizeBytes: data.sizeBytes });
+                    const newVer = detectedVer || vitalSignsVersion;
+                    if (detectedVer) setVitalSignsVersion(detectedVer);
+                    syncAnnouncementWithFirmware(deviceTarget, smartDiaperVersion, newVer);
+                }
+            } else {
+                toast.error(data.message || "Failed to upload firmware binary.");
+            }
+        } catch (err) {
+            toast.dismiss(toastId);
+            console.error("Upload error:", err);
+            toast.error("Network error during firmware upload.");
+        } finally {
+            if (type === 'diaper') setUploadingDiaper(false);
+            else setUploadingVital(false);
+        }
+    };
 
     const syncAnnouncementWithFirmware = (
         target: 'both' | 'diaper' | 'vital',
@@ -656,14 +722,44 @@ const deleteAnnouncement = async (id: number) => {
                                                                 className="h-8 text-xs font-mono"
                                                             />
                                                         </div>
-                                                        <div>
-                                                            <Label className="text-[11px] text-slate-500">Binary (.bin) Filename / Code</Label>
-                                                            <Input
-                                                                value={smartDiaperFile}
-                                                                onChange={(e) => setSmartDiaperFile(e.target.value)}
-                                                                placeholder="e.g. smart_diaper_v2.4.0.bin"
-                                                                className="h-8 text-xs font-mono"
-                                                            />
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center justify-between">
+                                                                <Label className="text-[11px] text-slate-500">Upload Binary (.bin)</Label>
+                                                                {smartDiaperUploadInfo && (
+                                                                    <span className="text-[9px] text-emerald-600 font-semibold flex items-center gap-1">
+                                                                        <CheckCircle2 className="w-2.5 h-2.5" /> {Math.round(smartDiaperUploadInfo.sizeBytes / 1024)} KB
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex gap-1.5 items-center">
+                                                                <Input
+                                                                    value={smartDiaperFile}
+                                                                    onChange={(e) => setSmartDiaperFile(e.target.value)}
+                                                                    placeholder="e.g. smart_diaper_v2.4.0.bin"
+                                                                    className="h-8 text-xs font-mono flex-1 min-w-0 truncate"
+                                                                />
+                                                                <input
+                                                                    type="file"
+                                                                    accept=".bin,.hex"
+                                                                    id="sd_bin_file_input"
+                                                                    className="hidden"
+                                                                    onChange={(e) => {
+                                                                        if (e.target.files?.[0]) handleFileUpload(e.target.files[0], 'diaper');
+                                                                    }}
+                                                                />
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    disabled={uploadingDiaper}
+                                                                    onClick={() => document.getElementById('sd_bin_file_input')?.click()}
+                                                                    className="h-8 text-[11px] font-semibold px-2 bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 shrink-0 cursor-pointer"
+                                                                    title="Choose and upload .bin firmware file"
+                                                                >
+                                                                    <Upload className={`w-3 h-3 mr-1 ${uploadingDiaper ? 'animate-bounce' : ''}`} />
+                                                                    {uploadingDiaper ? "Uploading..." : "Upload"}
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -691,14 +787,44 @@ const deleteAnnouncement = async (id: number) => {
                                                                 className="h-8 text-xs font-mono"
                                                             />
                                                         </div>
-                                                        <div>
-                                                            <Label className="text-[11px] text-slate-500">Binary (.bin) Filename / Code</Label>
-                                                            <Input
-                                                                value={vitalSignsFile}
-                                                                onChange={(e) => setVitalSignsFile(e.target.value)}
-                                                                placeholder="e.g. vital_signs_v2.4.0.bin"
-                                                                className="h-8 text-xs font-mono"
-                                                            />
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center justify-between">
+                                                                <Label className="text-[11px] text-slate-500">Upload Binary (.bin)</Label>
+                                                                {vitalSignsUploadInfo && (
+                                                                    <span className="text-[9px] text-emerald-600 font-semibold flex items-center gap-1">
+                                                                        <CheckCircle2 className="w-2.5 h-2.5" /> {Math.round(vitalSignsUploadInfo.sizeBytes / 1024)} KB
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex gap-1.5 items-center">
+                                                                <Input
+                                                                    value={vitalSignsFile}
+                                                                    onChange={(e) => setVitalSignsFile(e.target.value)}
+                                                                    placeholder="e.g. vital_signs_v2.4.0.bin"
+                                                                    className="h-8 text-xs font-mono flex-1 min-w-0 truncate"
+                                                                />
+                                                                <input
+                                                                    type="file"
+                                                                    accept=".bin,.hex"
+                                                                    id="vs_bin_file_input"
+                                                                    className="hidden"
+                                                                    onChange={(e) => {
+                                                                        if (e.target.files?.[0]) handleFileUpload(e.target.files[0], 'vital');
+                                                                    }}
+                                                                />
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    disabled={uploadingVital}
+                                                                    onClick={() => document.getElementById('vs_bin_file_input')?.click()}
+                                                                    className="h-8 text-[11px] font-semibold px-2 bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700 shrink-0 cursor-pointer"
+                                                                    title="Choose and upload .bin firmware file"
+                                                                >
+                                                                    <Upload className={`w-3 h-3 mr-1 ${uploadingVital ? 'animate-bounce' : ''}`} />
+                                                                    {uploadingVital ? "Uploading..." : "Upload"}
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>

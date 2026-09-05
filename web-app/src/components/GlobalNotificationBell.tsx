@@ -3,7 +3,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Bell, Droplets, Activity, Wifi, AlertTriangle, Check, X, Megaphone, Trash2, Calendar, Download } from 'lucide-react';
+import { Bell, Droplets, Activity, Wifi, AlertTriangle, Check, X, Megaphone, Trash2, Calendar, Download, Zap, Cpu } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
@@ -97,6 +97,45 @@ export function GlobalNotificationBell() {
     } catch (err) {
       console.error('Download action error:', err);
       toast.info(`Firmware ${version} download started.`);
+    }
+  };
+
+  const handleUpdateActiveDevices = async (
+    notif: UnifiedNotification,
+    pkg?: { version: string; deviceType: string }
+  ) => {
+    const version = pkg?.version || notif.firmwareVersion || 'v2.4.0';
+    const deviceType = pkg?.deviceType || (notif.smartDiaperFirmware && notif.vitalSignsFirmware ? 'both' : (notif.smartDiaperFirmware ? 'diaper' : 'vital'));
+    const downloadUrl = (pkg?.deviceType === 'diaper' ? notif.smartDiaperFirmware?.downloadUrl : (pkg?.deviceType === 'vital' ? notif.vitalSignsFirmware?.downloadUrl : notif.downloadUrl)) || '';
+
+    const toastId = toast.loading(`Pushing firmware ${version} to active devices...`);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/caregiver/firmware/download-action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          announcementId: notif.id,
+          firmwareVersion: version,
+          deviceType,
+          downloadUrl
+        })
+      });
+      const data = await res.json();
+      toast.dismiss(toastId);
+
+      if (data.success) {
+        toast.success(data.message || `Firmware ${version} pushed immediately to active devices!`);
+      } else {
+        toast.error(data.message || 'Failed to push firmware to active devices');
+      }
+    } catch (err) {
+      toast.dismiss(toastId);
+      console.error('Update active devices error:', err);
+      toast.error('Network error triggering immediate device update');
     }
   };
 
@@ -343,46 +382,105 @@ export function GlobalNotificationBell() {
                       </p>
                       
                       {notif.type === 'announcement' && notif.isFirmwareUpdate && (
-                        <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
                           {notif.smartDiaperFirmware && notif.vitalSignsFirmware ? (
-                            <div className="flex flex-col gap-1.5">
-                              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">Partnered Devices Firmware:</span>
-                              <div className="flex flex-wrap gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownloadFirmware(notif, {
-                                    version: notif.smartDiaperFirmware!.version,
-                                    downloadUrl: notif.smartDiaperFirmware!.downloadUrl,
-                                    deviceType: 'diaper'
-                                  })}
-                                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold transition shadow-sm cursor-pointer"
-                                  title="Download & Push Smart Diaper Code"
-                                >
-                                  <Download className="w-2.5 h-2.5" /> Smart Diaper ({notif.smartDiaperFirmware.version})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownloadFirmware(notif, {
-                                    version: notif.vitalSignsFirmware!.version,
-                                    downloadUrl: notif.vitalSignsFirmware!.downloadUrl,
-                                    deviceType: 'vital'
-                                  })}
-                                  className="inline-flex items-center gap-1 px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded text-[8px] font-bold transition shadow-sm cursor-pointer"
-                                  title="Download & Push Vital Signs Monitor Code"
-                                >
-                                  <Download className="w-2.5 h-2.5" /> Vital Signs ({notif.vitalSignsFirmware.version})
-                                </button>
+                            <div className="p-2.5 bg-blue-50/70 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-blue-950 dark:text-blue-200 uppercase tracking-wider flex items-center gap-1">
+                                  <Cpu className="w-3 h-3 text-blue-600" /> Partnered Devices Firmware
+                                </span>
+                                <Badge className="bg-blue-600 text-white text-[8px] font-mono px-1.5 py-0">OTA Ready</Badge>
+                              </div>
+
+                              {/* Primary Action: Update both active devices immediately */}
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateActiveDevices(notif, { version: `${notif.smartDiaperFirmware!.version} & ${notif.vitalSignsFirmware!.version}`, deviceType: 'both' })}
+                                className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-md text-[9px] font-bold transition shadow-sm cursor-pointer active:scale-98"
+                              >
+                                <Zap className="w-3 h-3 fill-white text-yellow-300 animate-pulse" />
+                                Update Active Devices Now (Both SD & VS)
+                              </button>
+
+                              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                                {/* Smart Diaper Card */}
+                                <div className="flex flex-col gap-1 p-1.5 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-800">
+                                  <span className="text-[8px] font-bold text-slate-700 dark:text-slate-300 truncate">Smart Diaper ({notif.smartDiaperFirmware.version})</span>
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateActiveDevices(notif, { version: notif.smartDiaperFirmware!.version, deviceType: 'diaper' })}
+                                      className="flex-1 px-1.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold text-center transition cursor-pointer flex items-center justify-center gap-0.5"
+                                      title="Push update to active Smart Diapers immediately"
+                                    >
+                                      <Zap className="w-2.5 h-2.5" /> Update
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadFirmware(notif, { version: notif.smartDiaperFirmware!.version, downloadUrl: notif.smartDiaperFirmware!.downloadUrl, deviceType: 'diaper' })}
+                                      className="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[8px] font-bold text-center transition cursor-pointer"
+                                      title="Download .bin binary file"
+                                    >
+                                      <Download className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Vital Signs Card */}
+                                <div className="flex flex-col gap-1 p-1.5 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-800">
+                                  <span className="text-[8px] font-bold text-slate-700 dark:text-slate-300 truncate">Vital Signs ({notif.vitalSignsFirmware.version})</span>
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateActiveDevices(notif, { version: notif.vitalSignsFirmware!.version, deviceType: 'vital' })}
+                                      className="flex-1 px-1.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded text-[8px] font-bold text-center transition cursor-pointer flex items-center justify-center gap-0.5"
+                                      title="Push update to active Vital Signs monitors immediately"
+                                    >
+                                      <Zap className="w-2.5 h-2.5" /> Update
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadFirmware(notif, { version: notif.vitalSignsFirmware!.version, downloadUrl: notif.vitalSignsFirmware!.downloadUrl, deviceType: 'vital' })}
+                                      className="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[8px] font-bold text-center transition cursor-pointer"
+                                      title="Download .bin binary file"
+                                    >
+                                      <Download className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                          ) : notif.downloadUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadFirmware(notif)}
-                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold transition shadow-sm w-fit cursor-pointer"
-                            >
-                              <Download className="w-2.5 h-2.5" /> Download Update ({notif.firmwareVersion || 'Latest'})
-                            </button>
-                          ) : null}
+                          ) : (
+                            <div className="p-2 bg-blue-50/70 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-blue-950 dark:text-blue-200 uppercase tracking-wider flex items-center gap-1">
+                                  <Cpu className="w-3 h-3 text-blue-600" /> Firmware ({notif.firmwareVersion || 'Latest'})
+                                </span>
+                                <Badge className="bg-blue-600 text-white text-[8px] font-mono px-1.5 py-0">OTA Ready</Badge>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateActiveDevices(notif)}
+                                  className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[8px] font-bold transition shadow-sm cursor-pointer active:scale-98"
+                                  title="Update active devices immediately"
+                                >
+                                  <Zap className="w-3 h-3 fill-white text-yellow-300 animate-pulse" />
+                                  Update Active Devices Now
+                                </button>
+                                {notif.downloadUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadFirmware(notif)}
+                                    className="flex items-center gap-1 px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-[8px] font-bold transition cursor-pointer"
+                                    title="Download .bin binary file"
+                                  >
+                                    <Download className="w-2.5 h-2.5" /> .bin
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 

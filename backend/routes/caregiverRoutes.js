@@ -25,6 +25,7 @@ router.get('/devices', async (req, res) => {
             // Full inventory for admin / sysadmin / medical staff
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
+                        d.pending_firmware_version,
                         d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name,
                         p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
@@ -37,7 +38,7 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
+                        d.firmware_version, d.pending_firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
@@ -64,7 +65,7 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
+                        d.firmware_version, d.pending_firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
@@ -212,6 +213,373 @@ router.post('/devices', async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to register device.' });
     } finally {
         client.release();
+    }
+});
+
+// ==========================================
+// 0.15. UPDATE SPECIFIC DEVICE FIRMWARE (OTA PUSH / QUEUE)
+// If active: applies immediately. If offline: queues for when it reconnects.
+// ==========================================
+router.post('/devices/:serialNumber/update-firmware', async (req, res) => {
+    const { serialNumber } = req.params;
+    const { targetVersion } = req.body;
+    const userId = req.user.id;
+    const role = req.user.role?.toLowerCase() || '';
+    const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role);
+
+    try {
+        const devRes = await pool.query(
+            `SELECT serial_number, device_name, status, last_heartbeat, firmware_version, pending_firmware_version, added_by, assigned_patient_id
+             FROM device_whitelist
+             WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE`,
+            [serialNumber]
+        );
+
+        if (devRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Device not found in registry.' });
+        }
+
+        const device = devRes.rows[0];
+
+        if (!isSysAdmin && role !== 'medical_staff') {
+            if (role === 'facility_admin') {
+                const facCheck = await pool.query(
+                    `SELECT 1 FROM device_whitelist d
+                     WHERE d.serial_number = $1 AND (
+                         d.added_by = $2
+                         OR d.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                         OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $2)
+                         OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id IN (SELECT user_id FROM users WHERE created_by = $2))
+                     )`,
+                    [serialNumber, userId]
+                );
+                if (facCheck.rows.length === 0) {
+                    return res.status(403).json({ success: false, message: 'Unauthorized to manage this device.' });
+                }
+            } else {
+                const cgCheck = await pool.query(
+                    `SELECT 1 FROM device_whitelist d
+                     LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
+                     WHERE d.serial_number = $1 AND (d.added_by = $2 OR pa.user_id = $2)`,
+                    [serialNumber, userId]
+                );
+                if (cgCheck.rows.length === 0) {
+                    return res.status(403).json({ success: false, message: 'Unauthorized to manage this device.' });
+                }
+            }
+        }
+
+        const newVersion = targetVersion || device.pending_firmware_version || 'v2.4.0';
+        const isOnline = device.status === 'ACTIVE';
+
+        if (isOnline) {
+            await pool.query(
+                `UPDATE device_whitelist
+                 SET firmware_version = $1, pending_firmware_version = NULL, status = 'ACTIVE'
+                 WHERE serial_number = $2`,
+                [newVersion, serialNumber]
+            );
+
+            await pool.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'DEVICE_FIRMWARE_OTA_IMMEDIATE', $2, 'INFO')`,
+                [userId, `Pushed firmware ${newVersion} immediately to active device ${serialNumber}`]
+            );
+
+            return res.json({
+                success: true,
+                updatedNow: true,
+                firmware_version: newVersion,
+                message: `Firmware updated immediately to ${newVersion} for active device ${serialNumber}.`
+            });
+        } else {
+            await pool.query(
+                `UPDATE device_whitelist
+                 SET pending_firmware_version = $1
+                 WHERE serial_number = $2`,
+                [newVersion, serialNumber]
+            );
+
+            await pool.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'DEVICE_FIRMWARE_QUEUED_OFFLINE', $2, 'INFO')`,
+                [userId, `Queued firmware update ${newVersion} for offline device ${serialNumber}`]
+            );
+
+            return res.json({
+                success: true,
+                updatedNow: false,
+                queued: true,
+                pending_firmware_version: newVersion,
+                message: `Device ${serialNumber} is currently offline. Firmware update ${newVersion} is queued and will automatically apply once it reconnects.`
+            });
+        }
+    } catch (err) {
+        console.error('Update device firmware error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update device firmware.' });
+    }
+});
+
+// ==========================================
+// 0.16. UPDATE ALL ACTIVE DEVICES
+// ==========================================
+router.post('/devices/update-all-active', async (req, res) => {
+    const userId = req.user.id;
+    const role = req.user.role?.toLowerCase() || '';
+    const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role);
+    const { targetVersion, deviceType } = req.body;
+
+    try {
+        let updateQuery;
+        let updateParams;
+
+        let typeFilter = '';
+        if (deviceType === 'diaper') typeFilter = "AND serial_number LIKE 'SD-%'";
+        else if (deviceType === 'vital') typeFilter = "AND serial_number LIKE 'VS-%'";
+
+        if (isSysAdmin || role === 'medical_staff') {
+            if (targetVersion) {
+                updateQuery = `
+                    UPDATE device_whitelist
+                    SET firmware_version = $1, pending_firmware_version = NULL
+                    WHERE status = 'ACTIVE' AND is_archived IS DISTINCT FROM TRUE ${typeFilter}
+                    RETURNING serial_number
+                `;
+                updateParams = [targetVersion];
+            } else {
+                updateQuery = `
+                    UPDATE device_whitelist
+                    SET firmware_version = pending_firmware_version, pending_firmware_version = NULL
+                    WHERE status = 'ACTIVE' AND pending_firmware_version IS NOT NULL AND is_archived IS DISTINCT FROM TRUE ${typeFilter}
+                    RETURNING serial_number
+                `;
+                updateParams = [];
+            }
+        } else if (role === 'facility_admin') {
+            let facTypeFilter = '';
+            if (deviceType === 'diaper') facTypeFilter = "AND d.serial_number LIKE 'SD-%'";
+            else if (deviceType === 'vital') facTypeFilter = "AND d.serial_number LIKE 'VS-%'";
+
+            if (targetVersion) {
+                updateQuery = `
+                    UPDATE device_whitelist d
+                    SET firmware_version = $1, pending_firmware_version = NULL
+                    WHERE d.status = 'ACTIVE' AND d.is_archived IS DISTINCT FROM TRUE ${facTypeFilter}
+                      AND (
+                          d.added_by = $2
+                          OR d.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                          OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $2)
+                          OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id IN (SELECT user_id FROM users WHERE created_by = $2))
+                      )
+                    RETURNING d.serial_number
+                `;
+                updateParams = [targetVersion, userId];
+            } else {
+                updateQuery = `
+                    UPDATE device_whitelist d
+                    SET firmware_version = d.pending_firmware_version, pending_firmware_version = NULL
+                    WHERE d.status = 'ACTIVE' AND d.pending_firmware_version IS NOT NULL AND d.is_archived IS DISTINCT FROM TRUE ${facTypeFilter}
+                      AND (
+                          d.added_by = $1
+                          OR d.added_by IN (SELECT user_id FROM users WHERE created_by = $1)
+                          OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $1)
+                          OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id IN (SELECT user_id FROM users WHERE created_by = $1))
+                      )
+                    RETURNING d.serial_number
+                `;
+                updateParams = [userId];
+            }
+        } else {
+            let cgTypeFilter = '';
+            if (deviceType === 'diaper') cgTypeFilter = "AND d.serial_number LIKE 'SD-%'";
+            else if (deviceType === 'vital') cgTypeFilter = "AND d.serial_number LIKE 'VS-%'";
+
+            if (targetVersion) {
+                updateQuery = `
+                    UPDATE device_whitelist d
+                    SET firmware_version = $1, pending_firmware_version = NULL
+                    WHERE d.status = 'ACTIVE' AND d.is_archived IS DISTINCT FROM TRUE ${cgTypeFilter}
+                      AND (
+                          d.added_by = $2
+                          OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id = $2)
+                      )
+                    RETURNING d.serial_number
+                `;
+                updateParams = [targetVersion, userId];
+            } else {
+                updateQuery = `
+                    UPDATE device_whitelist d
+                    SET firmware_version = d.pending_firmware_version, pending_firmware_version = NULL
+                    WHERE d.status = 'ACTIVE' AND d.pending_firmware_version IS NOT NULL AND d.is_archived IS DISTINCT FROM TRUE ${cgTypeFilter}
+                      AND (
+                          d.added_by = $1
+                          OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id = $1)
+                      )
+                    RETURNING d.serial_number
+                `;
+                updateParams = [userId];
+            }
+        }
+
+        const result = await pool.query(updateQuery, updateParams);
+        const updatedCount = result.rows.length;
+
+        if (updatedCount > 0) {
+            await pool.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'BULK_FIRMWARE_OTA_ACTIVE', $2, 'INFO')`,
+                [userId, `Pushed firmware update to ${updatedCount} active devices: ${result.rows.map(r => r.serial_number).join(', ')}`]
+            );
+        }
+
+        res.json({
+            success: true,
+            updatedCount,
+            devices: result.rows.map(r => r.serial_number),
+            message: `Pushed firmware update to ${updatedCount} active device(s).`
+        });
+    } catch (err) {
+        console.error('Update all active devices error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update active devices.' });
+    }
+});
+
+// ==========================================
+// 0.17. FIRMWARE DOWNLOAD ACTION (SAVE IN ACCOUNT & PUSH TO ACTIVE DEVICES)
+// ==========================================
+router.post('/firmware/download-action', async (req, res) => {
+    const userId = req.user.id;
+    const role = req.user.role?.toLowerCase() || '';
+    const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role);
+    const { announcementId, firmwareVersion, deviceType, downloadUrl } = req.body;
+
+    const version = firmwareVersion || 'v2.4.0';
+    const type = deviceType || 'both';
+
+    try {
+        await pool.query(
+            `INSERT INTO user_firmware_downloads (user_id, firmware_version, device_type, download_url, downloaded_at, status)
+             VALUES ($1, $2, $3, $4, NOW(), 'DOWNLOADED')`,
+            [userId, version, type, downloadUrl || '']
+        );
+
+        let typeFilter = '';
+        if (type === 'diaper') typeFilter = "AND serial_number LIKE 'SD-%'";
+        else if (type === 'vital') typeFilter = "AND serial_number LIKE 'VS-%'";
+
+        let activeQuery, offlineQuery, queryParams;
+        if (isSysAdmin || role === 'medical_staff') {
+            activeQuery = `
+                UPDATE device_whitelist
+                SET firmware_version = $1, pending_firmware_version = NULL
+                WHERE status = 'ACTIVE' AND is_archived IS DISTINCT FROM TRUE ${typeFilter}
+                RETURNING serial_number
+            `;
+            offlineQuery = `
+                UPDATE device_whitelist
+                SET pending_firmware_version = $1
+                WHERE (status != 'ACTIVE' OR status IS NULL) AND is_archived IS DISTINCT FROM TRUE ${typeFilter}
+                RETURNING serial_number
+            `;
+            queryParams = [version];
+        } else if (role === 'facility_admin') {
+            let facTypeFilter = '';
+            if (type === 'diaper') facTypeFilter = "AND d.serial_number LIKE 'SD-%'";
+            else if (type === 'vital') facTypeFilter = "AND d.serial_number LIKE 'VS-%'";
+
+            activeQuery = `
+                UPDATE device_whitelist d
+                SET firmware_version = $1, pending_firmware_version = NULL
+                WHERE d.status = 'ACTIVE' AND d.is_archived IS DISTINCT FROM TRUE ${facTypeFilter}
+                  AND (
+                      d.added_by = $2
+                      OR d.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                      OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $2)
+                      OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id IN (SELECT user_id FROM users WHERE created_by = $2))
+                  )
+                RETURNING d.serial_number
+            `;
+            offlineQuery = `
+                UPDATE device_whitelist d
+                SET pending_firmware_version = $1
+                WHERE (d.status != 'ACTIVE' OR d.status IS NULL) AND d.is_archived IS DISTINCT FROM TRUE ${facTypeFilter}
+                  AND (
+                      d.added_by = $2
+                      OR d.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                      OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $2)
+                      OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id IN (SELECT user_id FROM users WHERE created_by = $2))
+                  )
+                RETURNING d.serial_number
+            `;
+            queryParams = [version, userId];
+        } else {
+            let cgTypeFilter = '';
+            if (type === 'diaper') cgTypeFilter = "AND d.serial_number LIKE 'SD-%'";
+            else if (type === 'vital') cgTypeFilter = "AND d.serial_number LIKE 'VS-%'";
+
+            activeQuery = `
+                UPDATE device_whitelist d
+                SET firmware_version = $1, pending_firmware_version = NULL
+                WHERE d.status = 'ACTIVE' AND d.is_archived IS DISTINCT FROM TRUE ${cgTypeFilter}
+                  AND (
+                      d.added_by = $2
+                      OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id = $2)
+                  )
+                RETURNING d.serial_number
+            `;
+            offlineQuery = `
+                UPDATE device_whitelist d
+                SET pending_firmware_version = $1
+                WHERE (d.status != 'ACTIVE' OR d.status IS NULL) AND d.is_archived IS DISTINCT FROM TRUE ${cgTypeFilter}
+                  AND (
+                      d.added_by = $2
+                      OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id = $2)
+                  )
+                RETURNING d.serial_number
+            `;
+            queryParams = [version, userId];
+        }
+
+        const [activeRes, offlineRes] = await Promise.all([
+            pool.query(activeQuery, queryParams),
+            pool.query(offlineQuery, queryParams)
+        ]);
+
+        const activeUpdatedCount = activeRes.rows.length;
+        const offlineQueuedCount = offlineRes.rows.length;
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'FIRMWARE_DOWNLOAD_AND_OTA_SYNC', $2, 'INFO')`,
+            [userId, `Downloaded firmware ${version} (${type}). Auto-updated ${activeUpdatedCount} active devices; queued ${offlineQueuedCount} offline devices.`]
+        );
+
+        res.json({
+            success: true,
+            savedInAccount: true,
+            activeUpdatedCount,
+            offlineQueuedCount,
+            message: `Firmware ${version} downloaded and saved to your account! ${activeUpdatedCount} active device(s) updated immediately, ${offlineQueuedCount} offline device(s) queued for auto-update.`
+        });
+    } catch (err) {
+        console.error('Firmware download action error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to process firmware download action.' });
+    }
+});
+
+// GET /firmware/downloads - Fetch user's saved firmware download records
+router.get('/firmware/downloads', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT download_id, firmware_version, device_type, download_url, downloaded_at, status
+             FROM user_firmware_downloads
+             WHERE user_id = $1
+             ORDER BY downloaded_at DESC`,
+            [req.user.id]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch firmware downloads.' });
     }
 });
 

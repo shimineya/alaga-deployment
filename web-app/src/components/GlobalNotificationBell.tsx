@@ -7,6 +7,12 @@ import { Bell, Droplets, Activity, Wifi, AlertTriangle, Check, X, Megaphone, Tra
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
+interface FirmwarePackage {
+  version: string;
+  file: string;
+  downloadUrl: string;
+}
+
 interface UnifiedNotification {
   id: string;
   type: 'clinical' | 'system' | 'announcement' | 'schedule';
@@ -19,6 +25,8 @@ interface UnifiedNotification {
   isFirmwareUpdate?: boolean;
   downloadUrl?: string | null;
   firmwareVersion?: string | null;
+  smartDiaperFirmware?: FirmwarePackage | null;
+  vitalSignsFirmware?: FirmwarePackage | null;
 }
 
 export function GlobalNotificationBell() {
@@ -42,6 +50,55 @@ export function GlobalNotificationBell() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   
   const API_BASE = import.meta.env.VITE_API_URL || '';
+
+  const handleDownloadFirmware = async (
+    notif: UnifiedNotification,
+    pkg?: { version: string; downloadUrl: string; deviceType: string }
+  ) => {
+    const version = pkg?.version || notif.firmwareVersion || 'v2.4.0';
+    const downloadUrl = pkg?.downloadUrl || notif.downloadUrl || `/uploads/firmware/smart_diaper_${version}.bin`;
+    const deviceType = pkg?.deviceType || (notif.smartDiaperFirmware && notif.vitalSignsFirmware ? 'both' : (notif.smartDiaperFirmware ? 'diaper' : 'vital'));
+
+    // 1. Trigger browser file download
+    try {
+      const link = document.createElement('a');
+      link.href = `${API_BASE}${downloadUrl}`;
+      link.download = downloadUrl.split('/').pop() || `firmware_${version}.bin`;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      console.error('Download link error:', e);
+    }
+
+    // 2. Call backend to save in user account & push to active devices immediately
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/caregiver/firmware/download-action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          announcementId: notif.id,
+          firmwareVersion: version,
+          deviceType,
+          downloadUrl
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || `Firmware ${version} saved to your account! Immediate update pushed to active devices.`);
+      } else {
+        toast.info(`Firmware ${version} downloaded.`);
+      }
+    } catch (err) {
+      console.error('Download action error:', err);
+      toast.info(`Firmware ${version} download started.`);
+    }
+  };
 
   // Load archived broadcasts from local storage
   useEffect(() => {
@@ -285,15 +342,47 @@ export function GlobalNotificationBell() {
                         {notif.message}
                       </p>
                       
-                      {notif.type === 'announcement' && notif.isFirmwareUpdate && notif.downloadUrl && (
-                        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                          <a
-                            href={`${API_BASE}${notif.downloadUrl}`}
-                            download
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold transition shadow-sm w-fit cursor-pointer"
-                          >
-                            <Download className="w-2.5 h-2.5" /> Download Update ({notif.firmwareVersion || 'Latest'})
-                          </a>
+                      {notif.type === 'announcement' && notif.isFirmwareUpdate && (
+                        <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                          {notif.smartDiaperFirmware && notif.vitalSignsFirmware ? (
+                            <div className="flex flex-col gap-1.5">
+                              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">Partnered Devices Firmware:</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadFirmware(notif, {
+                                    version: notif.smartDiaperFirmware!.version,
+                                    downloadUrl: notif.smartDiaperFirmware!.downloadUrl,
+                                    deviceType: 'diaper'
+                                  })}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold transition shadow-sm cursor-pointer"
+                                  title="Download & Push Smart Diaper Code"
+                                >
+                                  <Download className="w-2.5 h-2.5" /> Smart Diaper ({notif.smartDiaperFirmware.version})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadFirmware(notif, {
+                                    version: notif.vitalSignsFirmware!.version,
+                                    downloadUrl: notif.vitalSignsFirmware!.downloadUrl,
+                                    deviceType: 'vital'
+                                  })}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded text-[8px] font-bold transition shadow-sm cursor-pointer"
+                                  title="Download & Push Vital Signs Monitor Code"
+                                >
+                                  <Download className="w-2.5 h-2.5" /> Vital Signs ({notif.vitalSignsFirmware.version})
+                                </button>
+                              </div>
+                            </div>
+                          ) : notif.downloadUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadFirmware(notif)}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[8px] font-bold transition shadow-sm w-fit cursor-pointer"
+                            >
+                              <Download className="w-2.5 h-2.5" /> Download Update ({notif.firmwareVersion || 'Latest'})
+                            </button>
+                          ) : null}
                         </div>
                       )}
 

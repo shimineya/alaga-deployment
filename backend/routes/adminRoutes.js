@@ -594,17 +594,102 @@ router.get('/announcements', async (req, res) => {
 
 router.post('/announcements', async (req, res) => {
     try {
-        const { title, message } = req.body;
+        const { 
+            title, 
+            message, 
+            broadcast_firmware, 
+            device_target, 
+            smart_diaper_version, 
+            smart_diaper_file, 
+            vital_signs_version, 
+            vital_signs_file, 
+            push_to_active_devices 
+        } = req.body;
 
-        // Deactivate old active announcements (Optional rule: Only 1 active at a time?)
-        // For now, let's just insert a new one.
+        if (!title || !message) {
+            return res.status(400).json({ success: false, message: 'Title and message are required.' });
+        }
+
+        let enrichedMessage = message;
+        if (broadcast_firmware) {
+            let fwDetails = [];
+            if (smart_diaper_version) {
+                fwDetails.push(`Smart Diaper Firmware: ${smart_diaper_version} (${smart_diaper_file || 'binary'})`);
+            }
+            if (vital_signs_version) {
+                fwDetails.push(`Vital Signs Monitor Firmware: ${vital_signs_version} (${vital_signs_file || 'binary'})`);
+            }
+            if (fwDetails.length > 0 && !enrichedMessage.includes('Firmware Packages:')) {
+                enrichedMessage += `\n\nIncluded Firmware Packages:\n• ` + fwDetails.join('\n• ');
+            }
+        }
 
         await pool.query(
             "INSERT INTO announcements (title, message, created_by) VALUES ($1, $2, $3)",
-            [title, message, req.user.id]
+            [title, enrichedMessage, req.user.id]
         );
 
-        res.json({ success: true, message: "Announcement Posted" });
+        let activeUpdatedCount = 0;
+        let offlineQueuedCount = 0;
+
+        if (broadcast_firmware && push_to_active_devices) {
+            // Target Smart Diaper
+            if ((device_target === 'both' || device_target === 'diaper') && smart_diaper_version) {
+                // Online devices
+                const onlineDiapers = await pool.query(
+                    `UPDATE device_whitelist
+                     SET firmware_version = $1, pending_firmware_version = NULL, status = 'ACTIVE'
+                     WHERE serial_number LIKE 'SD-%' AND status = 'ACTIVE' AND (last_heartbeat > NOW() - INTERVAL '5 minutes' OR last_heartbeat IS NOT NULL)
+                     RETURNING serial_number`,
+                    [smart_diaper_version]
+                );
+                activeUpdatedCount += onlineDiapers.rows.length;
+
+                // Offline devices get queued pending firmware
+                const offlineDiapers = await pool.query(
+                    `UPDATE device_whitelist
+                     SET pending_firmware_version = $1
+                     WHERE serial_number LIKE 'SD-%' AND (status != 'ACTIVE' OR last_heartbeat IS NULL OR last_heartbeat <= NOW() - INTERVAL '5 minutes')
+                     RETURNING serial_number`,
+                    [smart_diaper_version]
+                );
+                offlineQueuedCount += offlineDiapers.rows.length;
+            }
+
+            // Target Vital Signs
+            if ((device_target === 'both' || device_target === 'vital') && vital_signs_version) {
+                const onlineVitals = await pool.query(
+                    `UPDATE device_whitelist
+                     SET firmware_version = $1, pending_firmware_version = NULL, status = 'ACTIVE'
+                     WHERE serial_number LIKE 'VS-%' AND status = 'ACTIVE' AND (last_heartbeat > NOW() - INTERVAL '5 minutes' OR last_heartbeat IS NOT NULL)
+                     RETURNING serial_number`,
+                    [vital_signs_version]
+                );
+                activeUpdatedCount += onlineVitals.rows.length;
+
+                const offlineVitals = await pool.query(
+                    `UPDATE device_whitelist
+                     SET pending_firmware_version = $1
+                     WHERE serial_number LIKE 'VS-%' AND (status != 'ACTIVE' OR last_heartbeat IS NULL OR last_heartbeat <= NOW() - INTERVAL '5 minutes')
+                     RETURNING serial_number`,
+                    [vital_signs_version]
+                );
+                offlineQueuedCount += offlineVitals.rows.length;
+            }
+
+            await pool.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'FIRMWARE_BROADCAST_OTA', $2, 'WARNING')`,
+                [req.user.id, `Broadcasted firmware update to ${activeUpdatedCount} active devices; queued for ${offlineQueuedCount} offline devices.`]
+            );
+        }
+
+        res.json({ 
+            success: true, 
+            message: broadcast_firmware && push_to_active_devices
+                ? `Broadcast posted! Pushed to ${activeUpdatedCount} active devices; queued for ${offlineQueuedCount} offline devices.`
+                : "Announcement posted successfully."
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

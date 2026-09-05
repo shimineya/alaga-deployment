@@ -17,8 +17,10 @@ import {
     Megaphone,
     Trash2,
     Mail,
-    Send
+    Send,
+    Cpu
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "../../lib/auth-context";
 import { API_URL } from "../../lib/config";
 
@@ -64,6 +66,36 @@ Emergency "break-glass" access overrides must be justified. User audits store on
     const [testEmail, setTestEmail] = useState("");
     const [firmwareVersions, setFirmwareVersions] = useState<any[]>([]);
     const [selectedFirmware, setSelectedFirmware] = useState("");
+    const [broadcastFirmware, setBroadcastFirmware] = useState(false);
+    const [deviceTarget, setDeviceTarget] = useState<'both' | 'diaper' | 'vital'>('both');
+    const [smartDiaperVersion, setSmartDiaperVersion] = useState("v2.4.0");
+    const [smartDiaperFile, setSmartDiaperFile] = useState("smart_diaper_v2.4.0.bin");
+    const [vitalSignsVersion, setVitalSignsVersion] = useState("v2.4.0");
+    const [vitalSignsFile, setVitalSignsFile] = useState("vital_signs_v2.4.0.bin");
+    const [pushToActiveDevices, setPushToActiveDevices] = useState(true);
+
+    const syncAnnouncementWithFirmware = (
+        target: 'both' | 'diaper' | 'vital',
+        sdVer: string,
+        vsVer: string
+    ) => {
+        if (target === 'both') {
+            setNewAnnouncement({
+                title: `Firmware Update Available: Partnered Devices (${sdVer} & ${vsVer})`,
+                message: `An official firmware update is available for partnered monitoring devices.\n\nIncluded Firmware Packages:\n• Smart Diaper Firmware: ${sdVer} (${smartDiaperFile})\n• Vital Signs Monitor Firmware: ${vsVer} (${vitalSignsFile})\n\nThis update optimizes telemetry ingestion, power efficiency, and BLE reconnection protocols.`
+            });
+        } else if (target === 'diaper') {
+            setNewAnnouncement({
+                title: `Firmware Update Available: Smart Diaper Module (${sdVer})`,
+                message: `An official firmware update is available for Smart Diaper modules.\n\nIncluded Firmware Packages:\n• Smart Diaper Firmware: ${sdVer} (${smartDiaperFile})\n\nThis update improves incontinence threshold sensing and battery management.`
+            });
+        } else {
+            setNewAnnouncement({
+                title: `Firmware Update Available: Vital Signs Monitor (${vsVer})`,
+                message: `An official firmware update is available for Vital Signs monitors.\n\nIncluded Firmware Packages:\n• Vital Signs Monitor Firmware: ${vsVer} (${vitalSignsFile})\n\nThis update improves pulse-oximeter calibration and real-time vital telemetry accuracy.`
+            });
+        }
+    };
 
     const handleSelectFirmwareChange = (key: string) => {
         setSelectedFirmware(key);
@@ -277,15 +309,31 @@ Emergency "break-glass" access overrides must be justified. User audits store on
         }
         try {
             const token = localStorage.getItem('token');
-            await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/announcements`, {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/announcements`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify(newAnnouncement)
+                body: JSON.stringify({
+                    title: newAnnouncement.title,
+                    message: newAnnouncement.message,
+                    broadcast_firmware: broadcastFirmware,
+                    device_target: deviceTarget,
+                    smart_diaper_version: smartDiaperVersion,
+                    smart_diaper_file: smartDiaperFile,
+                    vital_signs_version: vitalSignsVersion,
+                    vital_signs_file: vitalSignsFile,
+                    push_to_active_devices: pushToActiveDevices
+                })
             });
-            toast.success("Broadcast Sent");
-            setNewAnnouncement({ title: "", message: "" });
-            setSelectedFirmware("");
-            fetchAnnouncements();
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || "Broadcast Sent");
+                setNewAnnouncement({ title: "", message: "" });
+                setBroadcastFirmware(false);
+                setSelectedFirmware("");
+                fetchAnnouncements();
+            } else {
+                toast.error(data.message || "Failed to post announcement");
+            }
         } catch (err) {
             toast.error("Failed to post announcement");
         }
@@ -515,20 +563,162 @@ const deleteAnnouncement = async (id: number) => {
 
                             {/* Added 'pb-8' to ensure button isn't cut off */}
                             <CardContent className="space-y-6 pb-8">
-                                <div className="space-y-2">
-                                    <Label className="font-semibold text-xs text-slate-600">Select Firmware Version to Broadcast (Optional)</Label>
-                                    <select
-                                        value={selectedFirmware}
-                                        onChange={(e) => handleSelectFirmwareChange(e.target.value)}
-                                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:ring-1 focus:ring-blue-500 outline-none"
-                                    >
-                                        <option value="">-- Custom General Announcement --</option>
-                                        {firmwareVersions.map((fw) => (
-                                            <option key={fw.key} value={fw.key}>
-                                                {fw.name} ({fw.version})
-                                            </option>
-                                        ))}
-                                    </select>
+                                <div className="space-y-3">
+                                    <div className="flex items-center space-x-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                                        <input
+                                            type="checkbox"
+                                            id="broadcastFirmware"
+                                            checked={broadcastFirmware}
+                                            onChange={(e) => {
+                                                const checked = e.target.checked;
+                                                setBroadcastFirmware(checked);
+                                                if (checked) {
+                                                    syncAnnouncementWithFirmware(deviceTarget, smartDiaperVersion, vitalSignsVersion);
+                                                }
+                                            }}
+                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                        <label htmlFor="broadcastFirmware" className="font-semibold text-xs text-slate-800 dark:text-slate-200 cursor-pointer flex items-center gap-1.5">
+                                            <Cpu className="w-3.5 h-3.5 text-blue-600" />
+                                            Broadcast Firmware Update (OTA)
+                                        </label>
+                                    </div>
+
+                                    {broadcastFirmware && (
+                                        <div className="space-y-3 p-4 bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-xl animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <Label className="font-semibold text-xs text-blue-900 dark:text-blue-200">
+                                                Select Target Device Type:
+                                            </Label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDeviceTarget('both');
+                                                        syncAnnouncementWithFirmware('both', smartDiaperVersion, vitalSignsVersion);
+                                                    }}
+                                                    className={`p-2.5 text-xs font-semibold rounded-lg border text-center transition-all cursor-pointer ${
+                                                        deviceTarget === 'both'
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    Partnered Devices (Both)
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDeviceTarget('diaper');
+                                                        syncAnnouncementWithFirmware('diaper', smartDiaperVersion, vitalSignsVersion);
+                                                    }}
+                                                    className={`p-2.5 text-xs font-semibold rounded-lg border text-center transition-all cursor-pointer ${
+                                                        deviceTarget === 'diaper'
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    Smart Diaper Only
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDeviceTarget('vital');
+                                                        syncAnnouncementWithFirmware('vital', smartDiaperVersion, vitalSignsVersion);
+                                                    }}
+                                                    className={`p-2.5 text-xs font-semibold rounded-lg border text-center transition-all cursor-pointer ${
+                                                        deviceTarget === 'vital'
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    Vital Signs Monitor Only
+                                                </button>
+                                            </div>
+
+                                            {/* Smart Diaper Firmware Section */}
+                                            {(deviceTarget === 'both' || deviceTarget === 'diaper') && (
+                                                <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span> Smart Diaper Device Code
+                                                        </span>
+                                                        <Badge variant="outline" className="text-[10px] font-mono">SD-Series (Separate Hardware)</Badge>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <Label className="text-[11px] text-slate-500">Firmware Version</Label>
+                                                            <Input
+                                                                value={smartDiaperVersion}
+                                                                onChange={(e) => {
+                                                                    setSmartDiaperVersion(e.target.value);
+                                                                    syncAnnouncementWithFirmware(deviceTarget, e.target.value, vitalSignsVersion);
+                                                                }}
+                                                                placeholder="e.g. v2.4.0"
+                                                                className="h-8 text-xs font-mono"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <Label className="text-[11px] text-slate-500">Binary (.bin) Filename / Code</Label>
+                                                            <Input
+                                                                value={smartDiaperFile}
+                                                                onChange={(e) => setSmartDiaperFile(e.target.value)}
+                                                                placeholder="e.g. smart_diaper_v2.4.0.bin"
+                                                                className="h-8 text-xs font-mono"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Vital Signs Firmware Section */}
+                                            {(deviceTarget === 'both' || deviceTarget === 'vital') && (
+                                                <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                                            <span className="w-2 h-2 rounded-full bg-teal-500"></span> Vital Signs Monitor Device Code
+                                                        </span>
+                                                        <Badge variant="outline" className="text-[10px] font-mono">VS-Series (Separate Hardware)</Badge>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <Label className="text-[11px] text-slate-500">Firmware Version</Label>
+                                                            <Input
+                                                                value={vitalSignsVersion}
+                                                                onChange={(e) => {
+                                                                    setVitalSignsVersion(e.target.value);
+                                                                    syncAnnouncementWithFirmware(deviceTarget, smartDiaperVersion, e.target.value);
+                                                                }}
+                                                                placeholder="e.g. v2.4.0"
+                                                                className="h-8 text-xs font-mono"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <Label className="text-[11px] text-slate-500">Binary (.bin) Filename / Code</Label>
+                                                            <Input
+                                                                value={vitalSignsFile}
+                                                                onChange={(e) => setVitalSignsFile(e.target.value)}
+                                                                placeholder="e.g. vital_signs_v2.4.0.bin"
+                                                                className="h-8 text-xs font-mono"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Option to push immediately to all active devices */}
+                                            <div className="flex items-center space-x-2 pt-1">
+                                                <input
+                                                    type="checkbox"
+                                                    id="pushToActive"
+                                                    checked={pushToActiveDevices}
+                                                    onChange={(e) => setPushToActiveDevices(e.target.checked)}
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                />
+                                                <label htmlFor="pushToActive" className="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
+                                                    Push to all active devices immediately (offline devices will queue & auto-update once online)
+                                                </label>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">

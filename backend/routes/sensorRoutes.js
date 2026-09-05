@@ -226,9 +226,14 @@ router.post('/reading', readingValidation, async (req, res) => {
         ai_status    : aiResult.status
     });
 
-    // Step 8: Update device heartbeat timestamp
+    // Step 8: Update device heartbeat timestamp & auto-apply pending firmware update when it connects online
     await pool.query(
-        'UPDATE device_whitelist SET last_heartbeat = NOW() WHERE serial_number = $1',
+        `UPDATE device_whitelist 
+         SET last_heartbeat = NOW(),
+             status = 'ACTIVE',
+             firmware_version = COALESCE(pending_firmware_version, firmware_version),
+             pending_firmware_version = NULL
+         WHERE serial_number = $1`,
         [deviceSerial]
     ).catch(() => {});
 

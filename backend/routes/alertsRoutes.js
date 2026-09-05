@@ -751,20 +751,55 @@ router.get('/unified', async (req, res) => {
             ...announcementsRes.rows.map(r => {
                 const isFirmwareUpdate = r.title.toLowerCase().includes('firmware') || r.message.toLowerCase().includes('firmware') || r.title.toLowerCase().includes('ota') || r.message.toLowerCase().includes('ota');
                 
-                // Try to find matching version in the title or message
                 let matchedFile = null;
                 let matchedVersion = null;
+                let smartDiaperPkg = null;
+                let vitalSignsPkg = null;
+
                 if (isFirmwareUpdate) {
+                    // Check for Smart Diaper specific firmware in message
+                    const sdMatch = r.message.match(/Smart Diaper Firmware:\s*([^\s(]+)(?:\s*\(([^)]+)\))?/i);
+                    if (sdMatch) {
+                        const ver = sdMatch[1];
+                        const fl = sdMatch[2] || (firmwareMap[ver] ? firmwareMap[ver].file : `smart_diaper_${ver}.bin`);
+                        smartDiaperPkg = {
+                            version: ver,
+                            file: fl,
+                            downloadUrl: `/uploads/firmware/${fl}`
+                        };
+                    }
+
+                    // Check for Vital Signs specific firmware in message
+                    const vsMatch = r.message.match(/Vital Signs(?: Monitor)? Firmware:\s*([^\s(]+)(?:\s*\(([^)]+)\))?/i);
+                    if (vsMatch) {
+                        const ver = vsMatch[1];
+                        const fl = vsMatch[2] || (firmwareMap[ver] ? firmwareMap[ver].file : `vital_signs_${ver}.bin`);
+                        vitalSignsPkg = {
+                            version: ver,
+                            file: fl,
+                            downloadUrl: `/uploads/firmware/${fl}`
+                        };
+                    }
+
+                    // General / fallback version
                     const versionMatch = r.title.match(/(\d+\.\d+\.\d+)/) || r.message.match(/(\d+\.\d+\.\d+)/);
                     if (versionMatch && firmwareMap[versionMatch[1]]) {
                         matchedFile = firmwareMap[versionMatch[1]].file;
                         matchedVersion = firmwareMap[versionMatch[1]].version;
+                    } else if (smartDiaperPkg) {
+                        matchedFile = smartDiaperPkg.file;
+                        matchedVersion = smartDiaperPkg.version;
+                    } else if (vitalSignsPkg) {
+                        matchedFile = vitalSignsPkg.file;
+                        matchedVersion = vitalSignsPkg.version;
                     } else {
-                        // Fallback to latest uploaded firmware
                         const latestKey = Object.keys(firmwareMap)[0];
                         if (latestKey && firmwareMap[latestKey]) {
                             matchedFile = firmwareMap[latestKey].file;
                             matchedVersion = firmwareMap[latestKey].version;
+                        } else {
+                            matchedVersion = 'v2.4.0';
+                            matchedFile = 'smart_diaper_v2.4.0.bin';
                         }
                     }
                 }
@@ -780,7 +815,9 @@ router.get('/unified', async (req, res) => {
                     patientName: null,
                     isFirmwareUpdate,
                     downloadUrl: isFirmwareUpdate && matchedFile ? `/uploads/firmware/${matchedFile}` : null,
-                    firmwareVersion: isFirmwareUpdate ? matchedVersion : null
+                    firmwareVersion: isFirmwareUpdate ? matchedVersion : null,
+                    smartDiaperFirmware: smartDiaperPkg,
+                    vitalSignsFirmware: vitalSignsPkg
                 };
             })
         ];

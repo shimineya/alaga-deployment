@@ -19,7 +19,8 @@ import {
     RefreshCw,
     MoreVertical,
     Activity,
-    Signal
+    Signal,
+    Cpu
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { toast } from 'sonner';
@@ -48,6 +49,7 @@ interface Device {
     battery_level?: number;
     assigned_room?: string; // Optional: To be populated if available
     firmware_version?: string;
+    pending_firmware_version?: string | null;
 }
 
 export const MyDevices: React.FC = () => {
@@ -94,6 +96,7 @@ export const MyDevices: React.FC = () => {
                     battery_level: d.battery_level ?? 92, // Default mock value if missing
                     assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
                     firmware_version: d.firmware_version || 'v1.0.0',
+                    pending_firmware_version: d.pending_firmware_version || null,
                     assigned_patient_baseline: d.assigned_patient_baseline || null
                 }));
                 setDevices(mappedDevices);
@@ -118,6 +121,62 @@ export const MyDevices: React.FC = () => {
     const handlePing = (device: Device) => {
         toast.info(`Pinging ${device.device_name}...`);
         setTimeout(() => toast.success(`Device ${device.serial_number} is Online (23ms)`), 1500);
+    };
+
+    const handleUpdateDeviceFirmware = async (device: Device) => {
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/${device.serial_number}/update-firmware`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    targetVersion: device.pending_firmware_version || 'v2.4.0'
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (data.updatedNow) {
+                    toast.success(data.message || `Firmware updated immediately on active device ${device.serial_number}!`);
+                } else {
+                    toast.info(data.message || `Device is offline. Firmware queued for auto-update when reconnected.`);
+                }
+                fetchInventory();
+            } else {
+                toast.error(data.message || "Failed to update firmware");
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Network error updating firmware");
+        }
+    };
+
+    const handleUpdateAllActiveDevices = async () => {
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/update-all-active`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({})
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (data.updatedCount > 0) {
+                    toast.success(`Pushed firmware update to ${data.updatedCount} active device(s)!`);
+                } else {
+                    toast.info("All active devices are already up to date.");
+                }
+                fetchInventory();
+            } else {
+                toast.error(data.message || "Failed to update active devices");
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Network error updating active devices");
+        }
     };
 
     const handleUnpair = async (device: Device) => {
@@ -241,6 +300,18 @@ export const MyDevices: React.FC = () => {
                         <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                     </Button>
 
+                    {/* Update All Active Devices */}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleUpdateAllActiveDevices}
+                        className="h-9 border-blue-200 text-blue-700 hover:bg-blue-50 font-medium cursor-pointer"
+                        title="Push latest firmware to all online active devices"
+                    >
+                        <Cpu className="w-4 h-4 mr-1.5 text-blue-600" />
+                        Update All Active
+                    </Button>
+
                     {/* Assign to Patient - for clinical, facility admin, and parent roles only */}
                     {!isSystemAdmin && (
                         <Button
@@ -346,9 +417,17 @@ export const MyDevices: React.FC = () => {
                                                 </TableCell>
                                             )}
                                             <TableCell>
-                                                <Badge variant="secondary" className="font-mono text-[10px]">
-                                                    {device.firmware_version}
-                                                </Badge>
+                                                <div className="flex flex-col gap-1 items-start">
+                                                    <Badge variant="secondary" className="font-mono text-[10px]">
+                                                        {device.firmware_version}
+                                                    </Badge>
+                                                    {device.pending_firmware_version && (
+                                                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 font-mono text-[9px] flex items-center gap-1">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                                            Pending {device.pending_firmware_version}
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <DropdownMenu>
@@ -360,6 +439,10 @@ export const MyDevices: React.FC = () => {
                                                     <DropdownMenuContent align="end" className="w-[160px]">
                                                         <DropdownMenuItem onClick={() => handlePing(device)}>
                                                             Ping Device
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => handleUpdateDeviceFirmware(device)}>
+                                                            <Cpu className="w-3.5 h-3.5 mr-2 text-blue-600" />
+                                                            Push Firmware Update
                                                         </DropdownMenuItem>
                                                         {!isSystemAdmin && (
                                                             <DropdownMenuItem

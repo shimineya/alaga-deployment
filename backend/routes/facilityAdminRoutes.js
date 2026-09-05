@@ -558,7 +558,7 @@ router.get('/patients', async (req, res) => {
     try {
         // Aggregate multiple caregivers per patient into a JSON array
         const result = await pool.query(
-            `SELECT p.patient_id, p.name AS patient_name,
+            `SELECT p.*, p.name AS patient_name,
                     COALESCE(
                         json_agg(
                             json_build_object('user_id', pa.user_id, 'username', u.username, 'invite_status', pa.invite_status)
@@ -569,8 +569,8 @@ router.get('/patients', async (req, res) => {
              LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
                  AND pa.relationship = 'Assigned Caregiver'
              LEFT JOIN users u ON pa.user_id = u.user_id
-             WHERE p.facility_id = $1
-             GROUP BY p.patient_id, p.name
+             WHERE p.facility_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
+             GROUP BY p.patient_id
              ORDER BY p.name ASC`,
             [facilityId]
         );

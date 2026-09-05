@@ -8,13 +8,14 @@ import { toast } from 'sonner';
 import { generateAlertsFromDoctorsOrders } from '@/lib/alert-generator';
 
 export default function ClinicalReportsHub() {
-    const { token, user, isSysAdmin } = useAuth();
+    const { token, user } = useAuth();
     const role = user?.role?.toLowerCase() || '';
-    const isSysAdminUser = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(role);
+    // ONLY anonymize if strictly System Administrator accessing governance mode
+    const isSysAdminUser = role === 'system_admin' || role === 'sysadmin';
     const isFacilityAdmin = role === 'facility_admin';
     const isMedStaff = role === 'medical_staff' || role === 'medstaff';
 
-    const isAllowed = isSysAdminUser || isFacilityAdmin || isMedStaff;
+    const isAllowed = isSysAdminUser || isFacilityAdmin || isMedStaff || role === 'admin' || role === 'caregiver' || role === 'parent';
 
     const [patients, setPatients] = useState<Patient[]>([]);
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
@@ -26,9 +27,7 @@ export default function ClinicalReportsHub() {
         setIsLoading(true);
         try {
             const API_BASE = import.meta.env.VITE_API_URL || '';
-            const endpoint = isFacilityAdmin 
-                ? `${API_BASE}/api/facility-admin/patients`
-                : `${API_BASE}/api/caregiver/patients`;
+            const endpoint = `${API_BASE}/api/caregiver/patients`;
 
             const response = await fetch(endpoint, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -37,11 +36,11 @@ export default function ClinicalReportsHub() {
 
             if (data.success && Array.isArray(data.data)) {
                 const mapped: Patient[] = data.data.map((p: any) => {
-                    // For Medical Staff and Facility Admin: full real patient identity and contact details
-                    // For System Admin: anonymized de-identified subject code for privacy governance
+                    // For Medical Staff, Facility Admin, Caregivers: full real patient identity and contact details
+                    // Strictly for pure System Admin: anonymized subject code for privacy governance
                     const displayName = isSysAdminUser
                         ? (p.anonymous_identifier || `Subject #${p.patient_id} (De-identified)`)
-                        : (p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Patient #${p.patient_id}`);
+                        : (p.name || p.patient_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || `Patient #${p.patient_id}`);
 
                     const emergencyContact = isSysAdminUser
                         ? { name: 'Protected', phone: 'Protected', relation: 'Contact' }

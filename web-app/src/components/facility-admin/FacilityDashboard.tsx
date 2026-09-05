@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/lib/auth-context';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { useAuth } from '../../lib/auth-context';
+import { API_URL } from '../../lib/config';
 import { toast } from 'sonner';
 import {
     Users,
@@ -16,10 +17,10 @@ import {
     Calendar,
     Activity
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 
-const API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
+const API = `${API_URL}/api/facility-admin`;
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
 interface FacilityStats {

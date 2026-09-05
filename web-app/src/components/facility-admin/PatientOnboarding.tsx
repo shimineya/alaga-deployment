@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { toast } from 'sonner';
 import { UserPlus, Cpu, RotateCcw, Search, RefreshCw, PlusCircle, Database } from 'lucide-react';
 import { Badge } from '../ui/badge';
-import { useAuth } from '@/lib/auth-context';
-import { API_URL } from '@/lib/config';
+import { useAuth } from '../../lib/auth-context';
+import { API_URL } from '../../lib/config';
 
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 

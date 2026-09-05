@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { UserPlus, Cpu, RotateCcw, Search, RefreshCw, PlusCircle, Database } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
+import { API_URL } from '@/lib/config';
 
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
@@ -43,8 +44,8 @@ export default function PatientOnboarding() {
     const isParentOrGuardian = role === 'parent' || role === 'guardian';
 
     const API = isFacilityAdmin 
-        ? `${import.meta.env.VITE_API_URL || ''}/api/facility-admin` 
-        : `${import.meta.env.VITE_API_URL || ''}/api/caregiver`;
+        ? `${API_URL}/api/facility-admin` 
+        : `${API_URL}/api/caregiver`;
 
     // Patient form state
     const [form, setForm] = useState({ 
@@ -74,7 +75,7 @@ export default function PatientOnboarding() {
     // Fetch available devices
     const fetchAvailableDevices = async () => {
         try {
-            const res = await fetch(`${API.replace('/facility-admin', '')}/caregiver/devices/available`, {
+            const res = await fetch(`${API_URL}/api/caregiver/devices/available`, {
                 headers: getAuth()
             });
             const data = await res.json();

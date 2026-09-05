@@ -698,8 +698,8 @@ router.post('/patients', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Patient name is required.' });
     }
 
-    if (!room || !room.trim() || !bed || !bed.trim()) {
-        return res.status(400).json({ success: false, message: 'Room name and Bed name are required.' });
+    if (!room || !room.trim()) {
+        return res.status(400).json({ success: false, message: 'Room name is required.' });
     }
 
     let patientBirthdate = birthdate;
@@ -738,7 +738,7 @@ router.post('/patients', async (req, res) => {
             created_by: req.user.id,
             ward: ward ? ward.trim() : null,
             room: room.trim(),
-            bed: bed.trim(),
+            bed: bed && bed.trim() ? bed.trim() : null,
             illness: illness || null,
             medicalConditions: conditions ? (Array.isArray(conditions) ? conditions : conditions.split(',').map(c => c.trim()).filter(Boolean)) : [],
             emergencyContact: emergencyContact || null
@@ -2722,15 +2722,23 @@ router.post('/baseline/reset', async (req, res) => {
         const patientIds = accessResult.rows.map(row => row.patient_id);
 
         if (patientIds.length > 0) {
-            // Delete learned vitals baselines
-            await client.query(
-                'DELETE FROM patient_baselines WHERE patient_id = ANY($1)',
-                [patientIds]
-            );
+            // Delete learned vitals baselines if table exists
+            try {
+                await client.query(
+                    'DELETE FROM patient_baselines WHERE patient_id = ANY($1)',
+                    [patientIds]
+                );
+            } catch {
+                // Table might not exist in all environments
+            }
 
-            // Reset SVM baseline on patients table
+            // Reset SVM baseline on patients table (both column and JSONB for resilience)
             await client.query(
-                'UPDATE patients SET svm_baseline_data = NULL, baseline_reset_at = NOW() WHERE patient_id = ANY($1)',
+                `UPDATE patients 
+                 SET svm_baseline_data = NULL, 
+                     baseline_reset_at = NOW(),
+                     baseline_data = jsonb_set(COALESCE(baseline_data, '{}'::jsonb), '{baseline_reset_at}', to_jsonb(NOW()::text))
+                 WHERE patient_id = ANY($1)`,
                 [patientIds]
             );
 

@@ -245,12 +245,30 @@ CREATE TABLE IF NOT EXISTS public.patients (
     patient_type VARCHAR(50),
     device_serial_number VARCHAR(50),
     baseline_data JSONB,
+    svm_baseline_data JSONB,
+    baseline_reset_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_archived BOOLEAN DEFAULT false,
     facility_id INTEGER,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT patients_pkey PRIMARY KEY (patient_id)
+);
+
+-- ----------------------------------------------------------------------------
+-- TABLE: patient_baselines
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.patient_baselines (
+    baseline_id     SERIAL PRIMARY KEY,
+    patient_id      INTEGER NOT NULL REFERENCES public.patients(patient_id) ON DELETE CASCADE,
+    vital_name      VARCHAR(30) NOT NULL,
+    flag_count      INTEGER NOT NULL DEFAULT 0,
+    flagged_values  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    mean_value      NUMERIC(6, 2),
+    upper_bound     NUMERIC(6, 2),
+    lower_bound     NUMERIC(6, 2),
+    updated_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT patient_baselines_patient_vital_key UNIQUE (patient_id, vital_name)
 );
 
 -- ----------------------------------------------------------------------------

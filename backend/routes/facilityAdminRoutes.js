@@ -595,10 +595,10 @@ router.post('/patients', async (req, res) => {
         });
     }
 
-    if (!room || !room.trim() || !bed || !bed.trim()) {
+    if (!room || !room.trim()) {
         return res.status(400).json({
             success: false,
-            message: 'Room name and Bed name are required.'
+            message: 'Room name is required.'
         });
     }
 
@@ -632,7 +632,7 @@ router.post('/patients', async (req, res) => {
             condition: diagnosis,
             ward: ward ? ward.trim() : null,
             room: room.trim(),
-            bed: bed.trim()
+            bed: bed && bed.trim() ? bed.trim() : null
         };
 
         // [OWASP A05] Parameterized insert
@@ -859,7 +859,11 @@ router.post('/patients/:patientId/reset-baseline', async (req, res) => {
 
         // Clear SVM training data and timestamp
         await pool.query(
-            'UPDATE patients SET svm_baseline_data = NULL, baseline_reset_at = NOW() WHERE patient_id = $1',
+            `UPDATE patients 
+             SET svm_baseline_data = NULL, 
+                 baseline_reset_at = NOW(),
+                 baseline_data = jsonb_set(COALESCE(baseline_data, '{}'::jsonb), '{baseline_reset_at}', to_jsonb(NOW()::text))
+             WHERE patient_id = $1`,
             [targetPatientId]
         );
 

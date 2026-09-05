@@ -17,6 +17,8 @@ export const SignUp: React.FC = () => {
     userType === 'home' ? 'parent' : 'caregiver'
   );
 
+  const [hasFacility, setHasFacility] = useState(false);
+  const [facilityName, setFacilityName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -48,6 +50,12 @@ export const SignUp: React.FC = () => {
     if (!formData.email.trim()) newErrors.email = "Email is required";
     if (!formData.username.trim()) newErrors.username = "Username is required";
     
+    if ((selectedRole === 'caregiver' || selectedRole === 'medical_staff') && hasFacility) {
+      if (!facilityName.trim()) {
+        newErrors.facilityName = "Facility Name is required";
+      }
+    }
+
     if (!formData.password) {
       newErrors.password = "Password is required";
     } else if (!isPasswordValid) {
@@ -67,7 +75,7 @@ export const SignUp: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) {
-      toast.error("Please fill in all required fields and satisfy password requirements.");
+      toast.error("Please fill in all required fields correctly.");
       return;
     }
 
@@ -84,7 +92,9 @@ export const SignUp: React.FC = () => {
           email: formData.email.trim(),
           username: formData.username.trim(),
           password: formData.password,
-          role: selectedRole
+          role: selectedRole,
+          has_facility: (selectedRole === 'caregiver' || selectedRole === 'medical_staff') ? hasFacility : false,
+          facility_name: ((selectedRole === 'caregiver' || selectedRole === 'medical_staff') && hasFacility) ? facilityName.trim() : null
         })
       });
 
@@ -96,6 +106,8 @@ export const SignUp: React.FC = () => {
           } else if (data.message?.toLowerCase().includes('username')) {
             setErrors(prev => ({ ...prev, username: data.message }));
           }
+        } else if (data.message?.toLowerCase().includes('facility')) {
+          setErrors(prev => ({ ...prev, facilityName: data.message }));
         }
         throw new Error(data.message || "Registration failed");
       }
@@ -164,6 +176,50 @@ export const SignUp: React.FC = () => {
                 >
                   <Stethoscope className="w-3.5 h-3.5" /> Medical Staff
                 </button>
+              </div>
+            )}
+
+            {/* Facility Affiliation Checkbox & Input */}
+            {(selectedRole === 'caregiver' || selectedRole === 'medical_staff') && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="hasFacility"
+                    checked={hasFacility}
+                    onChange={(e) => {
+                      setHasFacility(e.target.checked);
+                      if (!e.target.checked) setFacilityName('');
+                    }}
+                    className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 cursor-pointer"
+                  />
+                  <label htmlFor="hasFacility" className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                    Affiliated with a Healthcare Facility / Hospital?
+                  </label>
+                </div>
+
+                {hasFacility && (
+                  <div className="space-y-1 pl-6 pt-1">
+                    <Label className="text-[10px] uppercase font-bold text-slate-600 flex items-center gap-0.5">
+                      Facility Name <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      type="text"
+                      placeholder="Enter exact facility name (e.g. Alaga Medical Center)"
+                      className={`h-8 text-xs bg-white ${errors.facilityName ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                      value={facilityName}
+                      onChange={(e) => {
+                        setFacilityName(e.target.value);
+                        if (errors.facilityName) setErrors(prev => ({ ...prev, facilityName: '' }));
+                      }}
+                      autoComplete="off"
+                    />
+                    {errors.facilityName && <p className="text-[10px] text-red-500">{errors.facilityName}</p>}
+                    <p className="text-[10px] text-slate-400">
+                      Must match an existing registered hospital or facility name in the system.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

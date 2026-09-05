@@ -207,31 +207,47 @@ const loadSmtpConfig = async () => {
 
 const sendOtpEmail = async ({ to, otp, purpose }) => {
   try {
+    const fromEmail = process.env.RESEND_FROM || 'Pulsera Innovations <pulserainnovations@gmail.com>';
+    const emailSubject = 'ALAGA Email Verification Code';
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; color: #1e293b; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
+        <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 16px;">Welcome to ALAGA!</h2>
+        <p style="font-size: 14px; line-height: 1.6; color: #334155; margin-bottom: 24px;">
+          We're glad you're here. Just one more step before you get started, please verify your email using the code below:
+        </p>
+        <div style="font-size: 32px; font-weight: 700; letter-spacing: 4px; color: #0f172a; margin-bottom: 24px; font-family: monospace;">
+          ${otp}
+        </div>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 16px; line-height: 1.5;">
+          This code expires in 10 minutes.
+        </p>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 16px; line-height: 1.5;">
+          Once verified, you'll be able to start monitoring and caring for your loved ones with ALAGA.
+        </p>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 24px; line-height: 1.5;">
+          If you did not create an account, you can safely ignore this email.
+        </p>
+        <p style="font-size: 13px; color: #475569; font-weight: 500; margin-bottom: 0;">
+          ALAGA, your partner in patient care.
+        </p>
+      </div>
+    `;
+
     if (resend) {
-      const fromEmail = process.env.RESEND_FROM || 'Alaga Support <noreply@alagamonitoringsystem.me>';
       const data = await resend.emails.send({
         from: fromEmail,
         to: [to],
-        subject: 'Your Alaga Verification Code',
-        html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
-            <h2 style="color: #0f766e;">Alaga Account Verification</h2>
-            <p style="color: #475569; font-size: 16px;">Your one-time verification code is:</p>
-            <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
-              <h1 style="color: #0f766e; letter-spacing: 6px; font-family: monospace; font-size: 32px; margin: 0;">${otp}</h1>
-            </div>
-            <p style="color: #64748b; font-size: 14px;">This code is valid for 10 minutes. Please do not share it with anyone.</p>
-          </div>
-        `
+        subject: emailSubject,
+        html: emailHtml
       });
       console.log('Email sent successfully via Resend:', data);
       return data;
     } else {
       const info = await transporter.sendMail({
-        from: process.env.EMAIL_USER || process.env.SMTP_USER,
+        from: process.env.EMAIL_USER || process.env.SMTP_USER || fromEmail,
         to,
-        subject: 'Your OTP Code',
-        html: `<p>Your verification code is: <strong>${otp}</strong></p>`
+        subject: emailSubject,
+        html: emailHtml
       });
       console.log('Email sent successfully via Nodemailer/Gmail:', info.messageId);
       return info;
@@ -260,13 +276,35 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
 
     const client = await pool.connect();
     try {
-        let { username, password, email, role, mobile_number, first_name, last_name, middle_initial } = req.body;
+        let { username, password, email, role, mobile_number, first_name, last_name, middle_initial, has_facility, facility_name } = req.body;
         console.log(`Registering user: ${email}`);
 
         const safeEmail = email.toLowerCase().trim();
 
         if (!username || username.trim() === '') {
             username = safeEmail.split('@')[0];
+        }
+
+        // Strict Facility Validation for Caregiver / Medical Staff with facility affiliation
+        let facilityIdToAssign = null;
+        if (has_facility || (facility_name && facility_name.trim() !== '')) {
+            if (!facility_name || facility_name.trim() === '') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Facility Name is required when affiliated with a healthcare facility.'
+                });
+            }
+            const facilityCheck = await client.query(
+                'SELECT facility_id, facility_name FROM facilities WHERE LOWER(TRIM(facility_name)) = LOWER(TRIM($1)) AND (is_archived IS DISTINCT FROM TRUE)',
+                [facility_name.trim()]
+            );
+            if (facilityCheck.rows.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Facility "${facility_name.trim()}" does not exist in the system. Please verify the exact facility name or uncheck the facility option.`
+                });
+            }
+            facilityIdToAssign = facilityCheck.rows[0].facility_id;
         }
 
         /* [OWASP A05] DNS MX validation to reject undeliverable email domains
@@ -306,9 +344,9 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             `INSERT INTO users (
                 username, password_hash, email, role, 
                 mobile_number, first_name, last_name, middle_initial, 
-                account_status, is_verified, created_at
+                facility_id, account_status, is_verified, created_at
             ) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Pending_Review', FALSE, NOW()) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Pending_Review', FALSE, NOW()) 
              RETURNING user_id, username, role, email, account_status, is_verified`,
             [
                 username,
@@ -318,7 +356,8 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
                 mobile_number,
                 first_name,
                 last_name,
-                middle_initial || null
+                middle_initial || null,
+                facilityIdToAssign
             ]
         );
 

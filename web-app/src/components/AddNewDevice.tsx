@@ -112,7 +112,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                         }}
                         className="w-full h-9 rounded-md border border-slate-300 text-sm px-2 text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
                     >
-                        <option value="both">Both Devices</option>
+                        <option value="both">Partnered Devices</option>
                         <option value="diaper">Smart Diaper Device Only</option>
                         <option value="vital">Vital Signs Device Only</option>
                     </select>

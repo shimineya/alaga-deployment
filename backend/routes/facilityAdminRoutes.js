@@ -452,17 +452,17 @@ router.put('/patients/:patientId/assign-staff', async (req, res) => {
     const { caregiver_id } = req.body;
 
     try {
-        // [OWASP A01 / IDOR] Verify both patient and caregiver belong to this facility
+        // Verify patient belongs to this facility and caregiver exists in system
         const [patientCheck, caregiverCheck] = await Promise.all([
             pool.query('SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2', [patientId, facilityId]),
-            pool.query('SELECT user_id FROM users WHERE user_id = $1 AND facility_id = $2', [caregiver_id, facilityId])
+            pool.query('SELECT user_id, role FROM users WHERE user_id = $1 AND role IN (\'caregiver\', \'medical_staff\', \'parent\')', [caregiver_id])
         ]);
 
         if (patientCheck.rows.length === 0) {
             return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
         }
         if (caregiverCheck.rows.length === 0) {
-            return res.status(403).json({ success: false, message: 'Caregiver not found in your facility.' });
+            return res.status(404).json({ success: false, message: 'Staff member or caregiver not found in the system.' });
         }
 
         // Check if this exact assignment already exists
@@ -689,105 +689,194 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
         }
 
-        // Check device is whitelisted and was registered/claimed by this facility
+        const cleanSN = serial_number.trim().toUpperCase();
+        const { register_new } = req.body;
+
         const deviceCheck = await pool.query(
             `SELECT dw.serial_number, dw.device_name, dw.added_by, dw.assigned_patient_id, u.role as creator_role, u.facility_id as creator_facility_id
              FROM device_whitelist dw
              LEFT JOIN users u ON dw.added_by = u.user_id
-             WHERE dw.serial_number = $1 AND dw.status IN ('AVAILABLE', 'ACTIVE') AND dw.is_archived IS DISTINCT FROM TRUE`,
-            [serial_number]
+             WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
+            [cleanSN]
         );
+
         if (deviceCheck.rows.length === 0) {
-            return res.status(400).json({ success: false, message: 'Device not found in system whitelist. Only devices registered by System Admin can be used.' });
+            if (register_new || isSysAdmin) {
+                // Auto-register new device into inventory and pair to patient
+                const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor';
+                await pool.query(
+                    `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
+                     VALUES ($1, $2, 'ACTIVE', $3, $4, NOW(), FALSE)`,
+                    [cleanSN, devType, req.user.id, patientId]
+                );
+            } else {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Device ${cleanSN} is not registered in system inventory. Please check the serial number or choose "Register a new device to patient".` 
+                });
+            }
+        } else {
+            const devRow = deviceCheck.rows[0];
+            if (devRow.assigned_patient_id && devRow.assigned_patient_id != patientId) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Device ${cleanSN} is already assigned to another patient (#${devRow.assigned_patient_id}).`
+                });
+            }
+
+            // Claim and assign device to patient
+            await pool.query(
+                "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = COALESCE(added_by, $2) WHERE serial_number = $3",
+                [patientId, req.user.id, cleanSN]
+            );
         }
 
-        const devRow = deviceCheck.rows[0];
-        const isCreatorSysAdmin = !devRow.added_by || ['admin', 'system_admin', 'sysadmin'].includes(devRow.creator_role);
-        const isDeviceClaimedByFacility = devRow.added_by === req.user.id || (!isCreatorSysAdmin && facilityId && devRow.creator_facility_id === facilityId);
-        if (!isDeviceClaimedByFacility) {
-            return res.status(400).json({
-                success: false,
-                message: `Device ${serial_number} has not yet been registered by your facility. Please register/add this device to your inventory before pairing it with a patient.`
-            });
+        if (cleanSN.startsWith('VS-')) {
+            // Clear stale assignment on other patients
+            await pool.query(
+                `UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id != $2`,
+                [cleanSN, patientId]
+            );
+            await pool.query(
+                'UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2',
+                [cleanSN, patientId]
+            );
         }
-
-        if (devRow.assigned_patient_id && devRow.assigned_patient_id != patientId) {
-            return res.status(409).json({
-                success: false,
-                message: `Device ${serial_number} is already assigned to another patient (#${devRow.assigned_patient_id}).`
-            });
-        }
-
-        await pool.query(
-            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-            [patientId, serial_number]
-        );
-        await pool.query(
-            'UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2',
-            [serial_number, patientId]
-        );
 
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected)
              VALUES ($1, 'DEVICE_PAIR', $2)`,
-            [req.user.id, `Paired device ${serial_number} to Patient ${patientId}`]
+            [req.user.id, `Paired device ${cleanSN} to Patient ${patientId}`]
         );
 
         // Auto-generate system report for device pairing
         systemReportService.recordDevicePairingReport({
-            serial_number,
-            device_name: deviceCheck.rows[0]?.device_name,
+            serial_number: cleanSN,
+            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor',
             patient_id: patientId,
             patient_name: patientCheck.rows[0]?.name,
             assigned_by: req.user.email || `Facility Admin #${req.user.id}`,
             facility_id: req.user.facility_id
         }).catch(err => console.error('Device pairing report error:', err.message));
 
-        res.json({ success: true, message: 'Device paired to patient successfully.' });
+        res.json({ success: true, message: `Device ${cleanSN} paired successfully to patient.` });
     } catch (err) {
-        console.error("Pair Device Error:", err.message);
-        res.status(500).json({ success: false, message: 'Device pairing failed.' });
+        console.error('Device Pairing Route Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to pair device to patient.' });
     }
 });
 
-// Reset SVM baseline for a patient
+// Reset SVM baseline for a patient or device
 router.post('/patients/:patientId/reset-baseline', async (req, res) => {
     const facilityId = req.user.facility_id;
     const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
     const { patientId } = req.params;
-    const { reason } = req.body;
+    const { reason, device_sn } = req.body;
+
+    if (!reason || !reason.trim()) {
+        return res.status(400).json({ success: false, message: 'Clinical reason for baseline reset is required.' });
+    }
 
     try {
+        let targetPatientId = parseInt(patientId);
+
+        // If patientId is not a valid number, check if it's a device serial number
+        if (isNaN(targetPatientId) || targetPatientId <= 0) {
+            const snToCheck = (device_sn || patientId).trim().toUpperCase();
+            const devCheck = await pool.query(
+                'SELECT serial_number, assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE',
+                [snToCheck]
+            );
+            if (devCheck.rows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: `Device "${snToCheck}" does not exist in the system. Cannot reset baseline for an unregistered or imaginary device.`
+                });
+            }
+            if (!devCheck.rows[0].assigned_patient_id) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Device "${snToCheck}" is currently not assigned to any patient. Baseline reset is only applicable to active patient assignments.`
+                });
+            }
+            targetPatientId = devCheck.rows[0].assigned_patient_id;
+        }
+
+        // If a specific device serial number was provided, validate it exists
+        if (device_sn && device_sn.trim()) {
+            const specificSn = device_sn.trim().toUpperCase();
+            const devCheck = await pool.query(
+                'SELECT serial_number, assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE',
+                [specificSn]
+            );
+            if (devCheck.rows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: `Device "${specificSn}" does not exist in the system. Cannot reset baseline for an imaginary device.`
+                });
+            }
+            if (devCheck.rows[0].assigned_patient_id && devCheck.rows[0].assigned_patient_id !== targetPatientId) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Device "${specificSn}" is assigned to Patient #${devCheck.rows[0].assigned_patient_id}, not Patient #${targetPatientId}.`
+                });
+            }
+        }
+
+        // Validate patient existence in system and access scope
         let patientCheck;
         if (isSysAdmin) {
             patientCheck = await pool.query(
-                'SELECT patient_id FROM patients WHERE patient_id = $1 AND is_archived IS DISTINCT FROM TRUE',
-                [patientId]
+                'SELECT patient_id, name, device_serial_number FROM patients WHERE patient_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+                [targetPatientId]
             );
         } else {
             patientCheck = await pool.query(
-                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2 AND is_archived IS DISTINCT FROM TRUE',
-                [patientId, facilityId]
+                'SELECT patient_id, name, device_serial_number FROM patients WHERE patient_id = $1 AND (facility_id = $2 OR facility_id IS NULL) AND is_archived IS DISTINCT FROM TRUE',
+                [targetPatientId, facilityId]
             );
         }
+
         if (patientCheck.rows.length === 0) {
-            return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+            return res.status(404).json({
+                success: false,
+                message: `Patient #${targetPatientId} does not exist in the system or you do not have permission to manage this record.`
+            });
         }
 
-        // Clear SVM training data for this patient
+        // Validate that patient has at least one assigned device in whitelist
+        const assignedDevs = await pool.query(
+            'SELECT serial_number, device_name FROM device_whitelist WHERE assigned_patient_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+            [targetPatientId]
+        );
+
+        if (assignedDevs.rows.length === 0 && !patientCheck.rows[0].device_serial_number) {
+            return res.status(400).json({
+                success: false,
+                message: `Patient #${targetPatientId} (${patientCheck.rows[0].name}) currently has no active devices assigned. Cannot reset baseline when no sensor hardware is attached.`
+            });
+        }
+
+        // Clear SVM training data and timestamp
         await pool.query(
             'UPDATE patients SET svm_baseline_data = NULL, baseline_reset_at = NOW() WHERE patient_id = $1',
-            [patientId]
+            [targetPatientId]
         );
+
+        const devList = assignedDevs.rows.map(d => d.serial_number).join(', ') || patientCheck.rows[0].device_serial_number || 'All Devices';
 
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'SVM_BASELINE_RESET', $2, 'WARNING')`,
-            [req.user.id, `Reset SVM baseline for Patient ${patientId}. Reason: ${reason || 'Not provided'}`]
+            [req.user.id, `Reset SVM baseline for Patient #${targetPatientId} (${patientCheck.rows[0].name}). Assigned Devices: [${devList}]. Reason: ${reason.trim()}`]
         );
 
-        res.json({ success: true, message: 'SVM baseline has been cleared. The system will re-learn this patient\'s normal patterns.' });
+        res.json({
+            success: true,
+            message: `SVM baseline for Patient #${targetPatientId} (${patientCheck.rows[0].name}) has been cleared. The system will relearn normal vital patterns from device (${devList}).`
+        });
     } catch (err) {
+        console.error('Reset Baseline Error:', err.message);
         res.status(500).json({ success: false, message: 'Baseline reset failed.' });
     }
 });
@@ -1403,12 +1492,8 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
         }
         const userToAssign = userRes.rows[0];
 
-        if (userToAssign.role !== 'caregiver' && userToAssign.role !== 'medical_staff') {
-            return res.status(400).json({ success: false, message: 'User is not a caregiver or medical staff member.' });
-        }
-
-        if (!isSysAdmin && userToAssign.facility_id !== facilityId) {
-            return res.status(403).json({ success: false, message: 'Staff member does not belong to your facility.' });
+        if (!['caregiver', 'medical_staff', 'parent'].includes(userToAssign.role)) {
+            return res.status(400).json({ success: false, message: 'User must be a registered Caregiver, Medical Staff, or Parent.' });
         }
 
         if (!isSysAdmin) {

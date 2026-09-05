@@ -533,74 +533,85 @@ router.post('/patients', async (req, res) => {
 // Pair device endpoint for caregivers / parents / guardians / facility admin
 router.post('/patients/:patientId/pair-device', async (req, res) => {
     const { patientId } = req.params;
-    const { serial_number } = req.body;
+    const { serial_number, register_new } = req.body;
 
     if (!serial_number || !serial_number.trim()) {
         return res.status(400).json({ success: false, message: 'Device serial number is required.' });
     }
 
+    const cleanSN = serial_number.trim().toUpperCase();
+
     try {
-        // Validation: Ensure device exists in whitelist and was pre-registered by system admin
+        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
+
+        // Check if device exists in whitelist
         const deviceCheck = await pool.query(
             `SELECT dw.*, u.role as creator_role, u.facility_id as creator_facility_id
              FROM device_whitelist dw 
              LEFT JOIN users u ON dw.added_by = u.user_id 
              WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
-            [serial_number.trim()]
+            [cleanSN]
         );
 
         if (deviceCheck.rows.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: "This device is not registered in the master inventory. Only devices pre-registered by a System Administrator can be paired."
-            });
-        }
-
-        const device = deviceCheck.rows[0];
-        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
-        
-        if (!isSysAdmin) {
-            // Must have been claimed/registered by this facility / user first (not just sitting in SysAdmin inventory)
-            const isCreatorSysAdmin = !device.added_by || ['admin', 'system_admin', 'sysadmin'].includes(device.creator_role);
-            const isClaimedByFacility = device.added_by === req.user.id || (!isCreatorSysAdmin && req.user.facility_id && device.creator_facility_id === req.user.facility_id);
-            if (!isClaimedByFacility) {
+            if (register_new || isSysAdmin) {
+                // Auto register new device
+                const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor';
+                await pool.query(
+                    `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
+                     VALUES ($1, $2, 'ACTIVE', $3, $4, NOW(), FALSE)`,
+                    [cleanSN, devType, req.user.id, patientId]
+                );
+            } else {
                 return res.status(400).json({
                     success: false,
-                    message: `Device ${serial_number} has not yet been registered by your facility. Please register/add this device to your inventory before pairing it with a patient.`
+                    message: `Device ${cleanSN} is not registered in system inventory. Please check the serial number or choose "Register a new device to patient".`
                 });
             }
-        }
+        } else {
+            const device = deviceCheck.rows[0];
+            if (device.assigned_patient_id && device.assigned_patient_id != patientId) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Device ${cleanSN} is already assigned to another patient (#${device.assigned_patient_id}).`
+                });
+            }
 
-        if (device.assigned_patient_id && device.assigned_patient_id != patientId) {
-            return res.status(400).json({
-                success: false,
-                message: `Device ${serial_number} is already assigned to another patient (#${device.assigned_patient_id}).`
-            });
+            // Pair / Claim device
+            await pool.query(
+                "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = COALESCE(added_by, $2) WHERE serial_number = $3",
+                [patientId, req.user.id, cleanSN]
+            );
         }
 
         // Get patient name
         const patRes = await pool.query("SELECT name FROM patients WHERE patient_id = $1", [patientId]);
         const patientName = patRes.rows[0]?.name || `Patient #${patientId}`;
 
-        // Pair device
-        await pool.query(
-            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-            [patientId, serial_number.trim()]
-        );
+        if (cleanSN.startsWith('VS-')) {
+            await pool.query(
+                `UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id != $2`,
+                [cleanSN, patientId]
+            );
+            await pool.query(
+                'UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2',
+                [cleanSN, patientId]
+            );
+        }
 
         // Record in system reports
         systemReportService.recordDevicePairingReport({
-            serial_number: serial_number.trim(),
-            device_name: device.device_name || 'Medical Hardware Sensor',
+            serial_number: cleanSN,
+            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor',
             patient_id: parseInt(patientId, 10),
             patient_name: patientName,
             assigned_by: req.user.email || `User #${req.user.id}`
         }).catch(e => console.error('Device pairing report hook error:', e));
 
-        res.json({ success: true, message: `Device ${serial_number} paired successfully.` });
+        res.json({ success: true, message: `Device ${cleanSN} paired successfully to patient.` });
     } catch (err) {
-        console.error("Pair Device Error:", err.message);
-        res.status(500).json({ success: false, message: 'Failed to pair device.' });
+        console.error('Device pairing error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to pair device to patient.' });
     }
 });
 
@@ -1963,22 +1974,32 @@ router.post('/patients/invite-by-email', async (req, res) => {
 // ==========================================
 router.get('/devices/available', async (req, res) => {
     try {
-        const { role, id: userId } = req.user;
+        const { role, id: userId, facility_id: facilityId } = req.user;
+        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role?.toLowerCase());
+
         let queryStr;
         let queryParams = [];
 
-        // [OWASP A01] Admin/Medical Staff see all available devices
-        if (role === 'admin' || role === 'medical_staff') {
+        if (isSysAdmin) {
             queryStr = `SELECT serial_number, device_name, status 
              FROM device_whitelist 
-             WHERE status = 'AVAILABLE' AND assigned_patient_id IS NULL
+             WHERE status = 'AVAILABLE' AND assigned_patient_id IS NULL AND is_archived IS DISTINCT FROM TRUE
              ORDER BY created_at DESC`;
+        } else if (facilityId) {
+            queryStr = `SELECT dw.serial_number, dw.device_name, dw.status 
+             FROM device_whitelist dw
+             LEFT JOIN users u ON dw.added_by = u.user_id
+             WHERE dw.status = 'AVAILABLE' AND dw.assigned_patient_id IS NULL AND dw.is_archived IS DISTINCT FROM TRUE
+               AND (dw.added_by = $1 OR u.facility_id = $2 OR u.role IN ('admin', 'system_admin', 'sysadmin') OR dw.added_by IS NULL)
+             ORDER BY dw.created_at DESC`;
+            queryParams = [userId, facilityId];
         } else {
-            // [OWASP A01] Parents/Caregivers only see available devices they registered
-            queryStr = `SELECT serial_number, device_name, status 
-             FROM device_whitelist 
-             WHERE status = 'AVAILABLE' AND assigned_patient_id IS NULL AND added_by = $1
-             ORDER BY created_at DESC`;
+            queryStr = `SELECT dw.serial_number, dw.device_name, dw.status 
+             FROM device_whitelist dw
+             LEFT JOIN users u ON dw.added_by = u.user_id
+             WHERE dw.status = 'AVAILABLE' AND dw.assigned_patient_id IS NULL AND dw.is_archived IS DISTINCT FROM TRUE
+               AND (dw.added_by = $1 OR u.role IN ('admin', 'system_admin', 'sysadmin') OR dw.added_by IS NULL)
+             ORDER BY dw.created_at DESC`;
             queryParams = [userId];
         }
 
@@ -2482,113 +2503,108 @@ router.post('/devices/archive', async (req, res) => {
 // Description: Assign diaper/vitals devices to a patient by name
 // ==========================================
 router.post('/devices/assign', async (req, res) => {
-    const { patientName, smartDiaperSn, vitalSignsSn } = req.body;
-    const actorId = req.user.id;
-    const role = req.user.role.toLowerCase();
+        const { patientName, smartDiaperSn, vitalSignsSn, registerNew } = req.body;
+        const actorId = req.user.id;
+        const role = req.user.role.toLowerCase();
 
-    if (!patientName) {
-        return res.status(400).json({ success: false, message: 'Patient name is required.' });
-    }
-
-    if (!smartDiaperSn && !vitalSignsSn) {
-        return res.status(400).json({ success: false, message: 'At least one device serial number must be provided.' });
-    }
-
-    const client = await pool.connect();
-    try {
-        // 1. Resolve Patient record using the actor's access scope
-        let patientRow;
-        if (role === 'admin' || role === 'system_admin' || role === 'sysadmin') {
-            const patRes = await client.query(
-                `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE`,
-                [patientName.trim()]
-            );
-            patientRow = patRes.rows[0];
-        } else if (role === 'facility_admin') {
-            const patRes = await client.query(
-                `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND facility_id = $2 AND is_archived IS DISTINCT FROM TRUE`,
-                [patientName.trim(), req.user.facility_id]
-            );
-            patientRow = patRes.rows[0];
-        } else {
-            const patRes = await client.query(
-                `SELECT p.patient_id FROM patients p
-                 JOIN patient_access pa ON p.patient_id = pa.patient_id
-                 WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE AND p.is_archived IS DISTINCT FROM TRUE`,
-                [patientName.trim(), actorId]
-            );
-            patientRow = patRes.rows[0];
+        if (!patientName) {
+            return res.status(400).json({ success: false, message: 'Patient name is required.' });
         }
 
-        if (!patientRow) {
-            client.release();
-            return res.status(404).json({ success: false, message: `Patient with name "${patientName}" not found or not in your access scope.` });
+        if (!smartDiaperSn && !vitalSignsSn) {
+            return res.status(400).json({ success: false, message: 'At least one device serial number must be provided.' });
         }
 
-        const patientId = patientRow.patient_id;
-
-        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role);
-
-        // 2. Validate device whitelist registration & availability
-        if (smartDiaperSn) {
-            const checkDiaper = await client.query(
-                `SELECT dw.serial_number, dw.assigned_patient_id, dw.added_by, u.role as creator_role, u.facility_id as creator_facility_id
-                 FROM device_whitelist dw
-                 LEFT JOIN users u ON dw.added_by = u.user_id
-                 WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
-                [smartDiaperSn]
-            );
-            if (checkDiaper.rows.length === 0) {
-                client.release();
-                return res.status(404).json({ success: false, message: `Diaper device ${smartDiaperSn} not registered in master whitelist.` });
+        const client = await pool.connect();
+        try {
+            // 1. Resolve Patient record using the actor's access scope
+            let patientRow;
+            if (role === 'admin' || role === 'system_admin' || role === 'sysadmin') {
+                const patRes = await client.query(
+                    `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE`,
+                    [patientName.trim()]
+                );
+                patientRow = patRes.rows[0];
+            } else if (role === 'facility_admin') {
+                const patRes = await client.query(
+                    `SELECT patient_id FROM patients WHERE LOWER(name) = LOWER($1) AND facility_id = $2 AND is_archived IS DISTINCT FROM TRUE`,
+                    [patientName.trim(), req.user.facility_id]
+                );
+                patientRow = patRes.rows[0];
+            } else {
+                const patRes = await client.query(
+                    `SELECT p.patient_id FROM patients p
+                     JOIN patient_access pa ON p.patient_id = pa.patient_id
+                     WHERE LOWER(p.name) = LOWER($1) AND pa.user_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE AND p.is_archived IS DISTINCT FROM TRUE`,
+                    [patientName.trim(), actorId]
+                );
+                patientRow = patRes.rows[0];
             }
-            const diaperDev = checkDiaper.rows[0];
-            if (!isSysAdmin) {
-                const isCreatorSysAdmin = !diaperDev.added_by || ['admin', 'system_admin', 'sysadmin'].includes(diaperDev.creator_role);
-                const isClaimedByFacility = diaperDev.added_by === actorId || (!isCreatorSysAdmin && req.user.facility_id && diaperDev.creator_facility_id === req.user.facility_id);
-                if (!isClaimedByFacility) {
-                    client.release();
-                    return res.status(400).json({
-                        success: false,
-                        message: `Diaper device ${smartDiaperSn} has not yet been registered by your facility. Please register/add this device to your inventory before assigning it to a patient.`
-                    });
+
+            if (!patientRow) {
+                client.release();
+                return res.status(404).json({ success: false, message: `Patient with name "${patientName}" not found or not in your access scope.` });
+            }
+
+            const patientId = patientRow.patient_id;
+            const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role);
+
+            // 2. Validate / register devices
+            if (smartDiaperSn) {
+                const checkDiaper = await client.query(
+                    `SELECT dw.serial_number, dw.assigned_patient_id, dw.added_by, u.role as creator_role, u.facility_id as creator_facility_id
+                     FROM device_whitelist dw
+                     LEFT JOIN users u ON dw.added_by = u.user_id
+                     WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
+                    [smartDiaperSn]
+                );
+                if (checkDiaper.rows.length === 0) {
+                    if (registerNew || isSysAdmin) {
+                        await client.query(
+                            `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
+                             VALUES ($1, 'Smart Diaper Module', 'ACTIVE', $2, $3, NOW(), FALSE)`,
+                            [smartDiaperSn, actorId, patientId]
+                        );
+                    } else {
+                        client.release();
+                        return res.status(400).json({ success: false, message: `Diaper device ${smartDiaperSn} not registered in inventory. Please choose "Register a new device to patient".` });
+                    }
+                } else {
+                    const diaperDev = checkDiaper.rows[0];
+                    if (diaperDev.assigned_patient_id && diaperDev.assigned_patient_id !== patientId) {
+                        client.release();
+                        return res.status(409).json({ success: false, message: `Diaper device ${smartDiaperSn} is already assigned to another patient.` });
+                    }
                 }
             }
-            if (diaperDev.assigned_patient_id && diaperDev.assigned_patient_id !== patientId) {
-                client.release();
-                return res.status(409).json({ success: false, message: `Diaper device ${smartDiaperSn} is already assigned to another patient.` });
-            }
-        }
 
-        if (vitalSignsSn) {
-            const checkVital = await client.query(
-                `SELECT dw.serial_number, dw.assigned_patient_id, dw.added_by, u.role as creator_role, u.facility_id as creator_facility_id
-                 FROM device_whitelist dw
-                 LEFT JOIN users u ON dw.added_by = u.user_id
-                 WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
-                [vitalSignsSn]
-            );
-            if (checkVital.rows.length === 0) {
-                client.release();
-                return res.status(404).json({ success: false, message: `Vital Signs device ${vitalSignsSn} not registered in master whitelist.` });
-            }
-            const vitalDev = checkVital.rows[0];
-            if (!isSysAdmin) {
-                const isCreatorSysAdmin = !vitalDev.added_by || ['admin', 'system_admin', 'sysadmin'].includes(vitalDev.creator_role);
-                const isClaimedByFacility = vitalDev.added_by === actorId || (!isCreatorSysAdmin && req.user.facility_id && vitalDev.creator_facility_id === req.user.facility_id);
-                if (!isClaimedByFacility) {
-                    client.release();
-                    return res.status(400).json({
-                        success: false,
-                        message: `Vital Signs device ${vitalSignsSn} has not yet been registered by your facility. Please register/add this device to your inventory before assigning it to a patient.`
-                    });
+            if (vitalSignsSn) {
+                const checkVital = await client.query(
+                    `SELECT dw.serial_number, dw.assigned_patient_id, dw.added_by, u.role as creator_role, u.facility_id as creator_facility_id
+                     FROM device_whitelist dw
+                     LEFT JOIN users u ON dw.added_by = u.user_id
+                     WHERE dw.serial_number = $1 AND dw.is_archived IS DISTINCT FROM TRUE`,
+                    [vitalSignsSn]
+                );
+                if (checkVital.rows.length === 0) {
+                    if (registerNew || isSysAdmin) {
+                        await client.query(
+                            `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
+                             VALUES ($1, 'Vital Sign Monitor', 'ACTIVE', $2, $3, NOW(), FALSE)`,
+                            [vitalSignsSn, actorId, patientId]
+                        );
+                    } else {
+                        client.release();
+                        return res.status(400).json({ success: false, message: `Vital Signs device ${vitalSignsSn} not registered in inventory. Please choose "Register a new device to patient".` });
+                    }
+                } else {
+                    const vitalDev = checkVital.rows[0];
+                    if (vitalDev.assigned_patient_id && vitalDev.assigned_patient_id !== patientId) {
+                        client.release();
+                        return res.status(409).json({ success: false, message: `Vital Signs device ${vitalSignsSn} is already assigned to another patient.` });
+                    }
                 }
             }
-            if (vitalDev.assigned_patient_id && vitalDev.assigned_patient_id !== patientId) {
-                client.release();
-                return res.status(409).json({ success: false, message: `Vital Signs device ${vitalSignsSn} is already assigned to another patient.` });
-            }
-        }
 
         // 3. Begin Transaction & perform assignments
         await client.query('BEGIN');

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { UserPlus, Cpu, RotateCcw, Search, RefreshCw } from 'lucide-react';
+import { UserPlus, Cpu, RotateCcw, Search, RefreshCw, PlusCircle, Database } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
 
@@ -65,12 +65,34 @@ export default function PatientOnboarding() {
 
     // Device pairing state
     const [pairPatientId, setPairPatientId] = useState('');
+    const [pairMode, setPairMode] = useState<'new' | 'existing'>('new');
     const [pairingType, setPairingType] = useState('both'); // 'both' | 'diaper' | 'vital'
     const [diaperSN, setDiaperSN] = useState('');
     const [vitalSN, setVitalSN] = useState('');
+    const [availableDevices, setAvailableDevices] = useState<{ serial_number: string; device_name?: string; status: string }[]>([]);
+
+    // Fetch available devices
+    const fetchAvailableDevices = async () => {
+        try {
+            const res = await fetch(`${API.replace('/facility-admin', '')}/caregiver/devices/available`, {
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success && Array.isArray(data.data)) {
+                setAvailableDevices(data.data);
+            }
+        } catch (err) {
+            console.error('Failed to fetch available devices:', err);
+        }
+    };
+
+    useEffect(() => {
+        fetchAvailableDevices();
+    }, []);
 
     // SVM reset state
     const [resetPatientId, setResetPatientId] = useState('');
+    const [resetDeviceSN, setResetDeviceSN] = useState('');
     const [resetReason, setResetReason] = useState('');
 
     // Patient List State
@@ -236,27 +258,32 @@ export default function PatientOnboarding() {
     };
 
     const handlePairDevice = async () => {
-        if (!pairPatientId) return toast.error('Patient ID is required.');
+        if (!pairPatientId.trim()) return toast.error('Patient ID is required.');
         
         let diaperToPair = '';
         let vitalToPair = '';
 
         if (pairingType === 'both' || pairingType === 'diaper') {
-            diaperToPair = diaperSN.trim();
+            diaperToPair = diaperSN.trim().toUpperCase();
             if (!diaperToPair) return toast.error('Smart Diaper Device serial number is required.');
+            if (!diaperToPair.startsWith('SD-')) return toast.error('Smart Diaper serial number must start with "SD-" (e.g. SD-2026-0001)');
         }
         if (pairingType === 'both' || pairingType === 'vital') {
-            vitalToPair = vitalSN.trim();
+            vitalToPair = vitalSN.trim().toUpperCase();
             if (!vitalToPair) return toast.error('Vital Signs Device serial number is required.');
+            if (!vitalToPair.startsWith('VS-')) return toast.error('Vital Signs serial number must start with "VS-" (e.g. VS-2026-0001)');
         }
 
         try {
             // Function to pair a single device
             const pairOne = async (sn: string, label: string) => {
-                const res = await fetch(`${API}/patients/${pairPatientId}/pair-device`, {
+                const res = await fetch(`${API}/patients/${pairPatientId.trim()}/pair-device`, {
                     method: 'POST', 
                     headers: getAuth(),
-                    body: JSON.stringify({ serial_number: sn })
+                    body: JSON.stringify({ 
+                        serial_number: sn,
+                        register_new: pairMode === 'new'
+                    })
                 });
                 const data = await res.json();
                 if (!data.success) {
@@ -271,30 +298,53 @@ export default function PatientOnboarding() {
                 await pairOne(vitalToPair, 'Vital Signs');
             }
 
-            toast.success('Device(s) paired successfully.');
+            toast.success('Device(s) paired successfully to patient.');
             setPairPatientId('');
             setDiaperSN('');
             setVitalSN('');
             fetchPatients();
             fetchUnassignedPatients();
+            fetchAvailableDevices();
         } catch (err: any) {
             toast.error(err.message || 'Device pairing failed.');
         }
     };
 
     const handleResetBaseline = async () => {
-        if (!resetPatientId) return toast.error('Patient ID is required.');
-        const res = await fetch(`${API}/patients/${resetPatientId}/reset-baseline`, {
-            method: 'POST', headers: getAuth(),
-            body: JSON.stringify({ reason: resetReason })
-        });
-        const data = await res.json();
-        if (data.success) { 
-            toast.success(data.message); 
-            setResetPatientId(''); 
-            setResetReason(''); 
-            fetchPatients();
-        } else toast.error(data.message);
+        const cleanPatientId = resetPatientId.trim();
+        const cleanDeviceSN = resetDeviceSN.trim().toUpperCase();
+
+        if (!cleanPatientId && !cleanDeviceSN) {
+            return toast.error('Patient ID or Device Serial Number is required.');
+        }
+        if (!resetReason.trim()) {
+            return toast.error('Clinical reason for baseline reset is required.');
+        }
+
+        const targetIdentifier = cleanPatientId || cleanDeviceSN;
+
+        try {
+            const res = await fetch(`${API}/patients/${targetIdentifier}/reset-baseline`, {
+                method: 'POST', 
+                headers: getAuth(),
+                body: JSON.stringify({ 
+                    reason: resetReason.trim(),
+                    device_sn: cleanDeviceSN || undefined
+                })
+            });
+            const data = await res.json();
+            if (data.success) { 
+                toast.success(data.message); 
+                setResetPatientId(''); 
+                setResetDeviceSN('');
+                setResetReason(''); 
+                fetchPatients();
+            } else {
+                toast.error(data.message || 'Baseline reset failed.');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Network error during baseline reset.');
+        }
     };
 
     // Filter patients
@@ -476,6 +526,55 @@ export default function PatientOnboarding() {
                             <CardDescription className="text-[10px] text-slate-500">Device serial number must be pre-approved in whitelist.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3">
+                            {/* Mode Selection Checkbox */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1.5">
+                                <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider">Device Registration Option</label>
+                                <div className="grid grid-cols-1 gap-1.5">
+                                    <label 
+                                        className={`flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all ${
+                                            pairMode === 'new' 
+                                                ? 'bg-teal-50 border-teal-500 text-teal-900 font-medium' 
+                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        <input 
+                                            type="checkbox" 
+                                            checked={pairMode === 'new'} 
+                                            onChange={() => {
+                                                setPairMode('new');
+                                                setDiaperSN('');
+                                                setVitalSN('');
+                                            }}
+                                            className="accent-teal-600 cursor-pointer" 
+                                        />
+                                        <PlusCircle className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                        <span>Register a new device to patient</span>
+                                    </label>
+
+                                    <label 
+                                        className={`flex items-center gap-2 p-1.5 rounded border cursor-pointer text-xs transition-all ${
+                                            pairMode === 'existing' 
+                                                ? 'bg-teal-50 border-teal-500 text-teal-900 font-medium' 
+                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        <input 
+                                            type="checkbox" 
+                                            checked={pairMode === 'existing'} 
+                                            onChange={() => {
+                                                setPairMode('existing');
+                                                setDiaperSN('');
+                                                setVitalSN('');
+                                                fetchAvailableDevices();
+                                            }}
+                                            className="accent-teal-600 cursor-pointer" 
+                                        />
+                                        <Database className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                        <span>Register an existing device to a patient</span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="block text-[10px] font-semibold text-slate-600 mb-1">Patient ID</label>
                                 <Input value={pairPatientId} onChange={e => setPairPatientId(e.target.value)} placeholder="e.g. 5" type="number" className="h-8 text-xs bg-slate-50/50" />
@@ -487,7 +586,7 @@ export default function PatientOnboarding() {
                                     onChange={e => setPairingType(e.target.value)}
                                     className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 cursor-pointer"
                                 >
-                                    <option value="both">Both Devices</option>
+                                    <option value="both">Partnered Devices (Smart Diaper & Vital Signs)</option>
                                     <option value="diaper">Smart Diaper Device only</option>
                                     <option value="vital">Vital Signs Device only</option>
                                 </select>
@@ -495,19 +594,71 @@ export default function PatientOnboarding() {
                             
                             {(pairingType === 'both' || pairingType === 'diaper') && (
                                 <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">Smart Diaper Device</label>
-                                    <Input value={diaperSN} onChange={e => setDiaperSN(e.target.value)} placeholder="e.g. SD-2026-0001" className="h-8 text-xs font-mono bg-slate-50/50" />
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block text-[10px] font-semibold text-slate-600">Smart Diaper Device Serial Number</label>
+                                        {pairMode === 'existing' && availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).length > 0 && (
+                                            <span className="text-[9px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-medium">
+                                                {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).length} Available
+                                            </span>
+                                        )}
+                                    </div>
+                                    {pairMode === 'existing' && availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).length > 0 ? (
+                                        <div className="space-y-1">
+                                            <select
+                                                value={diaperSN}
+                                                onChange={e => setDiaperSN(e.target.value)}
+                                                className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 font-mono cursor-pointer"
+                                            >
+                                                <option value="">-- Select Available Diaper Device --</option>
+                                                {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).map(d => (
+                                                    <option key={d.serial_number} value={d.serial_number}>
+                                                        {d.serial_number} - AVAILABLE
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <Input value={diaperSN} onChange={e => setDiaperSN(e.target.value)} placeholder="Or type serial number (e.g. SD-2026-0001)" className="h-7 text-xs font-mono bg-slate-50/50" />
+                                        </div>
+                                    ) : (
+                                        <Input value={diaperSN} onChange={e => setDiaperSN(e.target.value)} placeholder="e.g. SD-2026-0001" className="h-8 text-xs font-mono bg-slate-50/50" />
+                                    )}
                                 </div>
                             )}
 
                             {(pairingType === 'both' || pairingType === 'vital') && (
                                 <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">Vital Signs Device</label>
-                                    <Input value={vitalSN} onChange={e => setVitalSN(e.target.value)} placeholder="e.g. VS-2026-0001" className="h-8 text-xs font-mono bg-slate-50/50" />
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block text-[10px] font-semibold text-slate-600">Vital Signs Device Serial Number</label>
+                                        {pairMode === 'existing' && availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).length > 0 && (
+                                            <span className="text-[9px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-medium">
+                                                {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).length} Available
+                                            </span>
+                                        )}
+                                    </div>
+                                    {pairMode === 'existing' && availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).length > 0 ? (
+                                        <div className="space-y-1">
+                                            <select
+                                                value={vitalSN}
+                                                onChange={e => setVitalSN(e.target.value)}
+                                                className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 font-mono cursor-pointer"
+                                            >
+                                                <option value="">-- Select Available Vital Signs Device --</option>
+                                                {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).map(d => (
+                                                    <option key={d.serial_number} value={d.serial_number}>
+                                                        {d.serial_number} - AVAILABLE
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <Input value={vitalSN} onChange={e => setVitalSN(e.target.value)} placeholder="Or type serial number (e.g. VS-2026-0001)" className="h-7 text-xs font-mono bg-slate-50/50" />
+                                        </div>
+                                    ) : (
+                                        <Input value={vitalSN} onChange={e => setVitalSN(e.target.value)} placeholder="e.g. VS-2026-0001" className="h-8 text-xs font-mono bg-slate-50/50" />
+                                    )}
                                 </div>
                             )}
 
-                            <Button onClick={handlePairDevice} className="w-full h-8 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold cursor-pointer">Pair Device/s</Button>
+                            <Button onClick={handlePairDevice} className="w-full h-8 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold cursor-pointer">
+                                {pairMode === 'new' ? 'Register & Pair New Device' : 'Pair Existing Device'}
+                            </Button>
                         </CardContent>
                     </Card>
 
@@ -516,12 +667,13 @@ export default function PatientOnboarding() {
                         <CardHeader className="py-4">
                             <CardTitle className="text-slate-800 text-sm flex items-center gap-2"><RotateCcw className="w-4 h-4 text-amber-600" /> Reset SVM Learning Baseline</CardTitle>
                             <CardDescription className="text-[10px] text-slate-500">
-                                Forces SVM algorithm to relearn patient's normal ranges.
+                                Forces SVM algorithm to relearn patient's normal ranges. Validates device/patient existence.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-2">
-                            <Input value={resetPatientId} onChange={e => setResetPatientId(e.target.value)} placeholder="Patient ID" type="number" className="h-8 text-xs bg-slate-50/50" />
-                            <Input value={resetReason} onChange={e => setResetReason(e.target.value)} placeholder="Clinical reason for reset" className="h-8 text-xs bg-slate-50/50" />
+                            <Input value={resetPatientId} onChange={e => setResetPatientId(e.target.value)} placeholder="Patient ID (e.g. 5)" type="number" className="h-8 text-xs bg-slate-50/50" />
+                            <Input value={resetDeviceSN} onChange={e => setResetDeviceSN(e.target.value)} placeholder="Device Serial Number (Optional, e.g. VS-2026-0001)" className="h-8 text-xs font-mono bg-slate-50/50" />
+                            <Input value={resetReason} onChange={e => setResetReason(e.target.value)} placeholder="Clinical reason for reset (Required)" className="h-8 text-xs bg-slate-50/50" />
                             <Button onClick={handleResetBaseline} variant="outline" className="w-full h-8 border-amber-400 text-amber-700 hover:bg-amber-50 text-xs font-semibold cursor-pointer">
                                 Reset Baseline
                             </Button>

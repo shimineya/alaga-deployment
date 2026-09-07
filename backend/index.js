@@ -1123,10 +1123,10 @@ app.post('/api/device/data', async (req, res) => {
     const { device_id, heart_rate, temperature, spo2, moisture } = req.body;
 
     try {
-        // 1. Verify the device identity in your database
+        // 1. Verify the device identity in your database (must be whitelisted and not archived)
         const deviceCheck = await pool.query(
-            'SELECT assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND status = $2 AND is_archived IS DISTINCT FROM TRUE', 
-            [device_id, 'ACTIVE']
+            'SELECT assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE', 
+            [device_id]
         );
 
         if (deviceCheck.rows.length === 0) {
@@ -1135,12 +1135,37 @@ app.post('/api/device/data', async (req, res) => {
 
         const patientId = deviceCheck.rows[0].assigned_patient_id;
 
+        // Verify device is assigned to an active patient
+        if (!patientId) {
+            return res.status(422).json({
+                error: "Device is unpaired",
+                message: "Device is active but not currently assigned to any patient."
+            });
+        }
+
         // 2. Insert the readings into the database
         await pool.query(
             `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
              VALUES ($1, $2, $3, $4, $5, NOW())`,
             [patientId, heart_rate || 0, temperature || 0, spo2 || 0, moisture || 0]
         );
+
+        // 3. Update device heartbeat, battery level, signal strength, and IP address
+        const batteryVal = req.body.battery !== undefined && req.body.battery !== null ? parseInt(req.body.battery, 10) : null;
+        const signalVal = req.body.signal ? String(req.body.signal).slice(0, 20) : 'Good';
+        const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
+        const clientIp = String(rawIp).split(',')[0].trim().replace(/^.*:/, '');
+
+        await pool.query(
+            `UPDATE device_whitelist 
+             SET last_heartbeat = NOW(),
+                 status = 'ACTIVE',
+                 battery_level = COALESCE($2, battery_level),
+                 signal_strength = $3,
+                 ip_address = COALESCE(NULLIF($4, ''), ip_address)
+             WHERE serial_number = $1`,
+            [device_id, batteryVal, signalVal, clientIp]
+        ).catch(err => console.error("Heartbeat update error:", err.message));
 
         res.status(200).send("Data recorded successfully.");
     } catch (err) {

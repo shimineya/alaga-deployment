@@ -39,6 +39,12 @@ pool.connect((err, client, release) => {
       ALTER TABLE public.archives 
       ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb
     `).catch(err => console.error('Failed to run archives details migration:', err));
+
+    // Auto-migration: Create ip_address column on device_whitelist table if it does not exist
+    pool.query(`
+      ALTER TABLE public.device_whitelist 
+      ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)
+    `).catch(err => console.error('Failed to run device_whitelist ip_address migration:', err));
   }
   if (release) release();
 });

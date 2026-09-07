@@ -45,11 +45,15 @@ interface Device {
     serial_number: string;
     device_name: string;
     status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+    is_online?: boolean;
     last_heartbeat: string;
-    battery_level?: number;
+    battery_level?: number | null;
+    signal_strength?: string;
     assigned_room?: string; // Optional: To be populated if available
     firmware_version?: string;
     pending_firmware_version?: string | null;
+    assigned_patient_baseline?: any;
+    assigned_patient_name?: string;
 }
 
 export const MyDevices: React.FC = () => {
@@ -85,15 +89,15 @@ export const MyDevices: React.FC = () => {
             });
             const data = await res.json();
             if (data.success) {
-                // Map/Transform data if necessary to fit the interface
-                // Mocking battery/room for demonstration if backend misses it
-                console.log("Fetched Devices:", data.data); // [DEBUG] Check data structure
+                console.log("Fetched Devices:", data.data);
 
                 const mappedDevices = data.data.map((d: any) => ({
                     ...d,
                     device_name: d.device_name || 'Unknown Device',
-                    status: (d.status || 'INACTIVE').toUpperCase(), // Normalize case
-                    battery_level: d.battery_level ?? 92, // Default mock value if missing
+                    status: (d.status || 'INACTIVE').toUpperCase(),
+                    is_online: Boolean(d.is_online),
+                    battery_level: d.battery_level !== undefined && d.battery_level !== null ? Number(d.battery_level) : null,
+                    signal_strength: d.is_online ? (d.signal_strength || 'Good') : 'No Signal',
                     assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
                     firmware_version: d.firmware_version || 'v1.0.0',
                     pending_firmware_version: d.pending_firmware_version || null,
@@ -118,9 +122,29 @@ export const MyDevices: React.FC = () => {
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
 
     // --- ACTIONS ---
-    const handlePing = (device: Device) => {
-        toast.info(`Pinging ${device.device_name}...`);
-        setTimeout(() => toast.success(`Device ${device.serial_number} is Online (23ms)`), 1500);
+    const handlePing = async (device: Device) => {
+        const toastId = toast.loading(`Pinging ${device.device_name} (${device.serial_number})...`);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/${device.serial_number}/ping`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            const data = await res.json();
+            toast.dismiss(toastId);
+            if (data.success && data.is_online) {
+                toast.success(data.message || `Device ${device.serial_number} is Online (${data.latencyMs ?? 20}ms)`);
+            } else {
+                toast.error(data.message || `Device ${device.serial_number} is Offline.`);
+            }
+            // Immediately refresh device inventory so status badge reflects real connection state!
+            fetchInventory();
+        } catch (err) {
+            toast.dismiss(toastId);
+            toast.error(`Error pinging device ${device.serial_number}`);
+        }
     };
 
     const handleUpdateDeviceFirmware = async (device: Device) => {
@@ -392,13 +416,17 @@ export const MyDevices: React.FC = () => {
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-4">
-                                                    <div className="flex items-center gap-1.5 tooltip-container" title="Battery Level">
-                                                        <Battery className={`w-4 h-4 ${(device.battery_level || 0) < 20 ? 'text-red-500' : 'text-emerald-500'}`} />
-                                                        <span className="text-xs font-medium text-slate-700">{device.battery_level}%</span>
+                                                    <div className="flex items-center gap-1.5 tooltip-container" title={device.is_online ? `Battery Level: ${device.battery_level !== null && device.battery_level !== undefined ? `${device.battery_level}%` : 'Reading...'}` : 'Device Offline'}>
+                                                        <Battery className={`w-4 h-4 ${!device.is_online ? 'text-slate-400' : (device.battery_level || 0) < 20 ? 'text-red-500' : 'text-emerald-500'}`} />
+                                                        <span className={`text-xs font-medium ${device.is_online ? 'text-slate-700' : 'text-slate-400'}`}>
+                                                            {device.battery_level !== null && device.battery_level !== undefined ? `${device.battery_level}%` : '--'}
+                                                        </span>
                                                     </div>
-                                                    <div className="flex items-center gap-1.5" title="WiFi Signal Strength">
-                                                        <Signal className="w-3.5 h-3.5 text-blue-500" />
-                                                        <span className="text-xs text-slate-500">Good</span>
+                                                    <div className="flex items-center gap-1.5" title={device.is_online ? `WiFi Signal: ${device.signal_strength || 'Online'}` : 'Device Offline / Powered Down'}>
+                                                        <Signal className={`w-3.5 h-3.5 ${device.is_online ? 'text-blue-500' : 'text-slate-400'}`} />
+                                                        <span className={`text-xs ${device.is_online ? 'text-slate-600 font-medium' : 'text-slate-400'}`}>
+                                                            {device.is_online ? (device.signal_strength || 'Good') : 'Offline'}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </TableCell>

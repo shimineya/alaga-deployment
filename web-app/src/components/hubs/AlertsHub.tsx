@@ -17,6 +17,7 @@ interface ClinicalAlert {
     sent_at: string;
     patient_name: string;
     anomaly_type: string;
+    is_anonymized?: boolean;
 }
 
 interface SystemAlert {
@@ -27,6 +28,7 @@ interface SystemAlert {
     status: string;
     triggered_at: string;
     patient_name: string;
+    is_anonymized?: boolean;
 }
 
 const AlertsHub: React.FC = () => {
@@ -295,6 +297,11 @@ const AlertsHub: React.FC = () => {
                                         <div className="space-y-1">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <h3 className="font-bold text-lg text-slate-800">{alert.patient_name}</h3>
+                                                {alert.is_anonymized && (
+                                                    <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 text-[10px] font-mono">
+                                                        De-identified Governance
+                                                    </Badge>
+                                                )}
                                                 <Badge className={getSeverityColor(alert.severity)} variant="outline">
                                                     {alert.severity}
                                                 </Badge>
@@ -355,7 +362,9 @@ const AlertsHub: React.FC = () => {
                                                 <h3 className="font-bold text-slate-800 text-lg">{alert.alert_type}</h3>
                                                 <Badge className={getSeverityColor(alert.severity)} variant="outline">{alert.severity}</Badge>
                                                 {alert.patient_name && (
-                                                    <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-xl font-semibold">Device: {alert.patient_name}</span>
+                                                    <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-xl font-semibold">
+                                                        {alert.is_anonymized ? alert.patient_name : `Device: ${alert.patient_name}`}
+                                                    </span>
                                                 )}
                                             </div>
                                             <p className="text-sm text-slate-700 font-medium">{alert.description}</p>

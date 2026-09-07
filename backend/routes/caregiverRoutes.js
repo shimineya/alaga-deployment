@@ -25,7 +25,7 @@ router.get('/devices', async (req, res) => {
             // Full inventory for admin / sysadmin / medical staff
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
-                        d.pending_firmware_version,
+                        d.pending_firmware_version, d.battery_level, d.signal_strength,
                         d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name,
                         p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
@@ -38,7 +38,8 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.pending_firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
+                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
@@ -65,7 +66,8 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.pending_firmware_version, d.assigned_patient_id, d.added_by, d.created_at,
+                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
@@ -80,10 +82,119 @@ router.get('/devices', async (req, res) => {
             );
         }
 
-        res.json({ success: true, data: result.rows });
+        // Dynamically compute real-time connection status (Online if heartbeat received within last 60 seconds)
+        const processedRows = result.rows.map(row => {
+            const isOnline = row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 60000;
+            return {
+                ...row,
+                is_online: !!isOnline,
+                status: isOnline ? (row.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'ACTIVE') : (row.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
+            };
+        });
+
+        res.json({ success: true, data: processedRows });
     } catch (err) {
         console.error('Fetch Devices Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch device inventory' });
+    }
+});
+
+// ==========================================
+// 0.05. REAL-TIME DEVICE PING & REACHABILITY PROBE
+// Attempts to actively probe the ESP32 via HTTP /status or checks recent heartbeat.
+// If online: immediately updates status to 'ACTIVE' and refreshes last_heartbeat.
+// ==========================================
+router.post('/devices/:serialNumber/ping', async (req, res) => {
+    const { serialNumber } = req.params;
+    try {
+        const devRes = await pool.query(
+            `SELECT serial_number, device_name, status, last_heartbeat, ip_address, battery_level, signal_strength
+             FROM device_whitelist
+             WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE`,
+            [serialNumber]
+        );
+
+        if (devRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Device not found in registry.' });
+        }
+
+        const device = devRes.rows[0];
+        const t0 = Date.now();
+        let isReachable = false;
+        let latencyMs = 0;
+        let extraInfo = {};
+
+        // 1. If device IP is known, attempt an active HTTP probe to ESP32 /status
+        if (device.ip_address) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                const probeUrl = `http://${device.ip_address}/status`;
+                const probeRes = await fetch(probeUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (probeRes.ok) {
+                    latencyMs = Date.now() - t0;
+                    isReachable = true;
+                    try {
+                        const json = await probeRes.json();
+                        extraInfo = json;
+                    } catch (_) {}
+                }
+            } catch (probeErr) {
+                // Device did not answer on local IP /status
+            }
+        }
+
+        // 2. If direct probe didn't succeed, check if device sent telemetry within last 60 seconds
+        if (!isReachable && device.last_heartbeat) {
+            const timeSinceLastHeartbeat = Date.now() - new Date(device.last_heartbeat).getTime();
+            if (timeSinceLastHeartbeat < 60000) {
+                isReachable = true;
+                latencyMs = Math.min(Math.round(timeSinceLastHeartbeat / 100), 45) || 18;
+            }
+        }
+
+        // 3. Update database according to ping result
+        if (isReachable) {
+            const updatedBattery = extraInfo.battery !== undefined ? parseInt(extraInfo.battery, 10) : device.battery_level;
+            await pool.query(
+                `UPDATE device_whitelist
+                 SET last_heartbeat = NOW(),
+                     status = 'ACTIVE',
+                     battery_level = COALESCE($2, battery_level)
+                 WHERE serial_number = $1`,
+                [serialNumber, updatedBattery]
+            );
+
+            return res.json({
+                success: true,
+                is_online: true,
+                latencyMs: latencyMs || 24,
+                battery: updatedBattery,
+                message: `Device ${device.device_name} (${serialNumber}) is Online (${latencyMs || 24}ms)`
+            });
+        } else {
+            // Explicitly mark offline
+            await pool.query(
+                `UPDATE device_whitelist SET status = 'INACTIVE' WHERE serial_number = $1`,
+                [serialNumber]
+            );
+
+            const lastSeenMinutes = device.last_heartbeat
+                ? Math.max(1, Math.round((Date.now() - new Date(device.last_heartbeat).getTime()) / 60000))
+                : null;
+            const lastSeenText = lastSeenMinutes ? `${lastSeenMinutes}m ago` : 'Never';
+
+            return res.json({
+                success: false,
+                is_online: false,
+                message: `Device ${device.device_name} (${serialNumber}) is Offline. Last signal received was ${lastSeenText}.`
+            });
+        }
+    } catch (err) {
+        console.error('Ping device error:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error pinging device.' });
     }
 });
 

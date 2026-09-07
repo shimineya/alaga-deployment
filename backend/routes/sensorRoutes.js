@@ -43,7 +43,6 @@ async function authenticateDevice(serialNumber, providedToken) {
          FROM device_whitelist
          WHERE serial_number = $1
            AND device_token_hash = $2
-           AND status = 'ACTIVE'
            AND is_archived IS DISTINCT FROM TRUE`,
         [serialNumber, tokenHash]
     );

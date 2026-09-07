@@ -202,12 +202,20 @@ export function GlobalNotificationBell() {
     if (!window.confirm("Are you sure you want to archive this notification?")) {
       return;
     }
+
+    const previousNotifications = [...notifications];
+    const previousArchived = [...archivedBroadcasts];
+
+    // Optimistic UI update: instantly remove notification
+    setNotifications(prev => prev.filter(n => n.id !== id));
     if (id.startsWith('announcement_')) {
-      const newArchived = [...archivedBroadcasts, id];
-      setArchivedBroadcasts(newArchived);
-      localStorage.setItem('archived_broadcasts', JSON.stringify(newArchived));
-      toast.success(t('Announcement archived', 'Na-archive ang anunsyo'));
-      return;
+      const updatedArchived = Array.from(new Set([...archivedBroadcasts, id]));
+      setArchivedBroadcasts(updatedArchived);
+      try {
+        localStorage.setItem('archived_broadcasts', JSON.stringify(updatedArchived));
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     try {
@@ -222,38 +230,56 @@ export function GlobalNotificationBell() {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(t('Alert archived', 'Na-archive ang alert'));
+        toast.success(t('Notification archived', 'Na-archive ang notipikasyon'));
         fetchNotifications();
       } else {
-        toast.error(data.message || 'Failed to archive alert');
+        // Rollback optimistic update
+        setNotifications(previousNotifications);
+        setArchivedBroadcasts(previousArchived);
+        try {
+          localStorage.setItem('archived_broadcasts', JSON.stringify(previousArchived));
+        } catch (e) {
+          console.error(e);
+        }
+        toast.error(data.message || 'Failed to archive notification');
       }
     } catch {
-      toast.error('Failed to archive alert');
+      // Rollback optimistic update
+      setNotifications(previousNotifications);
+      setArchivedBroadcasts(previousArchived);
+      try {
+        localStorage.setItem('archived_broadcasts', JSON.stringify(previousArchived));
+      } catch (e) {
+        console.error(e);
+      }
+      toast.error('Failed to archive notification');
     }
   };
 
   const handleArchiveAll = async () => {
+    if (activeNotifications.length === 0) return;
     if (!window.confirm("Are you sure you want to archive all notifications?")) {
       return;
     }
-    const idsToArchiveDb: string[] = [];
-    const localArchivedBroadcasts = [...archivedBroadcasts];
 
-    activeNotifications.forEach(n => {
-      if (n.type === 'announcement') {
-        localArchivedBroadcasts.push(n.id);
-      } else {
-        idsToArchiveDb.push(n.id);
+    const toArchive = [...activeNotifications];
+    const allIds = toArchive.map(n => n.id);
+    const announcementIds = toArchive.filter(n => n.type === 'announcement').map(n => n.id);
+
+    // Save previous state for rollback
+    const previousNotifications = [...notifications];
+    const previousArchived = [...archivedBroadcasts];
+
+    // 1. Optimistic UI update: instantly clear all active notifications
+    setNotifications(prev => prev.filter(n => !allIds.includes(n.id)));
+    if (announcementIds.length > 0) {
+      const updatedArchived = Array.from(new Set([...archivedBroadcasts, ...announcementIds]));
+      setArchivedBroadcasts(updatedArchived);
+      try {
+        localStorage.setItem('archived_broadcasts', JSON.stringify(updatedArchived));
+      } catch (e) {
+        console.error(e);
       }
-    });
-
-    // Save broadcasts locally
-    setArchivedBroadcasts(localArchivedBroadcasts);
-    localStorage.setItem('archived_broadcasts', JSON.stringify(localArchivedBroadcasts));
-
-    if (idsToArchiveDb.length === 0) {
-      toast.success(t('All notifications cleared', 'Nalinis na ang lahat ng notipikasyon'));
-      return;
     }
 
     try {
@@ -264,16 +290,32 @@ export function GlobalNotificationBell() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ ids: idsToArchiveDb })
+        body: JSON.stringify({ ids: allIds })
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(t('All alerts archived', 'Na-archive ang lahat ng alert'));
+        toast.success(t('All notifications archived', 'Na-archive ang lahat ng notipikasyon'));
         fetchNotifications();
       } else {
+        // Rollback optimistic update on error
+        setNotifications(previousNotifications);
+        setArchivedBroadcasts(previousArchived);
+        try {
+          localStorage.setItem('archived_broadcasts', JSON.stringify(previousArchived));
+        } catch (e) {
+          console.error(e);
+        }
         toast.error(data.message || 'Failed to archive alerts');
       }
     } catch {
+      // Rollback optimistic update on network error
+      setNotifications(previousNotifications);
+      setArchivedBroadcasts(previousArchived);
+      try {
+        localStorage.setItem('archived_broadcasts', JSON.stringify(previousArchived));
+      } catch (e) {
+        console.error(e);
+      }
       toast.error('Failed to archive alerts');
     }
   };
@@ -371,12 +413,24 @@ export function GlobalNotificationBell() {
                         <span className="text-xs font-bold text-slate-800 truncate" title={notif.title}>
                           {notif.title}
                         </span>
-                        {notif.severity === 'critical' && (
-                          <Badge className="bg-rose-50 text-rose-700 border-none font-bold text-[7px] scale-90 px-1 py-0 h-3.5 shrink-0 uppercase">
-                            CRITICAL
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {notif.isAnonymized && (
+                            <Badge className="bg-slate-100 text-slate-600 border border-slate-300 font-mono text-[7px] px-1 py-0 h-3.5 uppercase">
+                              ANONYMIZED
+                            </Badge>
+                          )}
+                          {notif.severity === 'critical' && (
+                            <Badge className="bg-rose-50 text-rose-700 border-none font-bold text-[7px] scale-90 px-1 py-0 h-3.5 uppercase">
+                              CRITICAL
+                            </Badge>
+                          )}
+                        </div>
                       </div>
+                      {notif.patientName && (
+                        <div className="text-[9px] font-semibold text-slate-500 mt-0.5">
+                          {notif.patientName}
+                        </div>
+                      )}
                       <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed break-words font-medium">
                         {notif.message}
                       </p>

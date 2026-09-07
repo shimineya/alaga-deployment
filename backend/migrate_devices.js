@@ -13,6 +13,8 @@ async function createTables() {
                 added_by INTEGER REFERENCES users(user_id),
                 status VARCHAR(20) DEFAULT 'ACTIVE',
                 assigned_patient_id INTEGER REFERENCES patients(patient_id),
+                battery_level INTEGER,
+                signal_strength VARCHAR(20),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);

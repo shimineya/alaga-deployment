@@ -33,7 +33,8 @@ async function runPrediction(data) {
       temperature : data.temperature  || 36.5,
       spo2        : data.spo2         || 97,
       moisture    : data.moisture     || 0,
-      patient_type: data.patient_type || 'adult'
+      patient_type: data.patient_type || 'adult',
+      baselines   : data.baselines    || []
     });
 
     execFile('python', [BRIDGE_SCRIPT, input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {

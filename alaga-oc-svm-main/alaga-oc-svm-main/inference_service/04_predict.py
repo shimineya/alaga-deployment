@@ -275,16 +275,34 @@ def is_suppressed_by_baseline(patient_id, vital, value):
     personalized baseline (i.e. caregiver has flagged it
     as normal 5+ times). Returns True if alert should be suppressed.
     """
-    if patient_id not in PATIENT_BASELINES:
-        return False
-    if vital not in PATIENT_BASELINES[patient_id]:
-        return False
-
-    baseline = PATIENT_BASELINES[patient_id][vital]
-    if baseline.get("flag_count", 0) < FLAG_THRESHOLD:
+    pid = str(patient_id)
+    if pid not in PATIENT_BASELINES:
         return False
 
-    return baseline["lower"] <= value <= baseline["upper"]
+    # Check direct match, normalized base vitals, or rule prefixes
+    keys_to_check = [vital]
+    for prefix in ["rule_", ""]:
+        for suffix in ["_high", "_low", ""]:
+            base = vital.replace(prefix, "").replace(suffix, "")
+            if base and base not in keys_to_check:
+                keys_to_check.append(base)
+
+    for k in keys_to_check:
+        if k in PATIENT_BASELINES[pid]:
+            baseline = PATIENT_BASELINES[pid][k]
+            if baseline.get("flag_count", 0) >= FLAG_THRESHOLD:
+                # If bounds are defined and value is numeric, check range
+                if baseline.get("lower") is not None and baseline.get("upper") is not None and value is not None:
+                    try:
+                        val_num = float(value)
+                        if baseline["lower"] <= val_num <= baseline["upper"]:
+                            return True
+                    except (ValueError, TypeError):
+                        pass
+                # Once 5 flags are reached, pattern baseline is personalized and alert is suppressed
+                return True
+
+    return False
 
 
 def flag_as_normal(patient_id, vital, value):
@@ -293,11 +311,12 @@ def flag_as_normal(patient_id, vital, value):
     After FLAG_THRESHOLD flags, personalizes the patient baseline.
     Returns a status message.
     """
-    if patient_id not in PATIENT_BASELINES:
-        PATIENT_BASELINES[patient_id] = {}
+    pid = str(patient_id)
+    if pid not in PATIENT_BASELINES:
+        PATIENT_BASELINES[pid] = {}
 
-    if vital not in PATIENT_BASELINES[patient_id]:
-        PATIENT_BASELINES[patient_id][vital] = {
+    if vital not in PATIENT_BASELINES[pid]:
+        PATIENT_BASELINES[pid][vital] = {
             "flag_count": 0,
             "flagged_values": [],
             "mean": None,
@@ -305,7 +324,7 @@ def flag_as_normal(patient_id, vital, value):
             "lower": None
         }
 
-    entry = PATIENT_BASELINES[patient_id][vital]
+    entry = PATIENT_BASELINES[pid][vital]
     entry["flag_count"]     += 1
     entry["flagged_values"].append(value)
 
@@ -315,7 +334,7 @@ def flag_as_normal(patient_id, vital, value):
         entry["mean"]  = round(mean, 2)
         entry["upper"] = round(mean + tol, 2)
         entry["lower"] = round(mean - tol, 2)
-        return (f"✅ Baseline personalized for patient {patient_id} | "
+        return (f"✅ Baseline personalized for patient {pid} | "
                 f"{vital}: {entry['lower']} – {entry['upper']} "
                 f"(mean {entry['mean']}). Alerts suppressed in this range.")
     else:
@@ -354,10 +373,8 @@ def predict(patient_id, heart_rate, temperature, spo2, moisture,
         vital = alert["vital"]
         value = alert["value"]
 
-        # Cold-start CRITICAL alerts are NEVER suppressed
-        # Cold-start WARNINGS can be suppressed by personal baseline
-        if (alert["severity"] == "warning" and
-                is_suppressed_by_baseline(patient_id, vital, value)):
+        # If flagged 5+ times as normal, suppress alert (model learns patient baseline)
+        if is_suppressed_by_baseline(patient_id, vital, value):
             suppress[vital] = True
         else:
             alerts.append(alert)
@@ -365,7 +382,9 @@ def predict(patient_id, heart_rate, temperature, spo2, moisture,
     # ── Layer 2: Urination pattern tracking ───────────────────────────────
     log_urination_event(patient_id, moisture == 1, timestamp=now)
     urination_alerts = check_urination_pattern(patient_id, patient_type, now=now)
-    alerts.extend(urination_alerts)
+    for u_alert in urination_alerts:
+        if not is_suppressed_by_baseline(patient_id, u_alert["vital"], u_alert.get("value")):
+            alerts.append(u_alert)
 
     # ── Layer 3: OC-SVM Anomaly Detection ─────────────────────────────────
     X = np.array([[heart_rate, temperature, spo2, moisture]])
@@ -373,23 +392,25 @@ def predict(patient_id, heart_rate, temperature, spo2, moisture,
     ocsvm_result = model.predict(X_scaled)[0]  # +1 = normal, -1 = anomaly
 
     if ocsvm_result == -1:
-        vitals_to_check = {
-            "heart_rate" : heart_rate,
-            "temperature": temperature,
-            "spo2"       : spo2,
-        }
-        suppressed_all = all(
-            is_suppressed_by_baseline(patient_id, v, val)
-            for v, val in vitals_to_check.items()
-        )
-        if not suppressed_all:
-            alerts.append({
-                "vital"   : "multi_feature",
-                "value"   : None,
-                "message" : ("OC-SVM detected abnormal pattern — "
-                             "multi-feature deviation from baseline"),
-                "severity": "warning"
-            })
+        if not (is_suppressed_by_baseline(patient_id, "ocsvm_anomaly", None) or 
+                is_suppressed_by_baseline(patient_id, "multi_feature", None)):
+            vitals_to_check = {
+                "heart_rate" : heart_rate,
+                "temperature": temperature,
+                "spo2"       : spo2,
+            }
+            suppressed_all = all(
+                is_suppressed_by_baseline(patient_id, v, val)
+                for v, val in vitals_to_check.items()
+            )
+            if not suppressed_all:
+                alerts.append({
+                    "vital"   : "multi_feature",
+                    "value"   : None,
+                    "message" : ("OC-SVM detected abnormal pattern — "
+                                 "multi-feature deviation from baseline"),
+                    "severity": "warning"
+                })
 
     # ── Attach illness detail to each alert ───────────────────────────────
     for alert in alerts:

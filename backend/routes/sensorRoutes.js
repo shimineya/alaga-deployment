@@ -160,10 +160,31 @@ router.post('/reading', readingValidation, async (req, res) => {
     let aiResult;
     try {
         const patientRow = await pool.query(
-            'SELECT patient_type FROM patients WHERE patient_id = $1',
+            'SELECT patient_type, is_monitoring_disabled FROM patients WHERE patient_id = $1',
             [patientId]
         );
+        const isMonitoringDisabled = !!patientRow.rows[0]?.is_monitoring_disabled;
+        if (isMonitoringDisabled) {
+            // Patient monitoring is paused/disabled — store reading but skip AI alert generation
+            return res.status(201).json({
+                success: true,
+                message: 'Reading stored successfully (Monitoring disabled for patient).',
+                data: {
+                    reading_id: readingId,
+                    patient_id: patientId,
+                    monitoring_status: 'DISABLED',
+                    alerts: []
+                }
+            });
+        }
         const patientType = patientRow.rows[0]?.patient_type || 'adult';
+
+        // Query active personalized baselines for this patient
+        const baselinesRes = await pool.query(
+            'SELECT vital_name, flag_count, flagged_values, mean_value, upper_bound, lower_bound FROM patient_baselines WHERE patient_id = $1',
+            [patientId]
+        ).catch(() => ({ rows: [] }));
+        const patientBaselines = baselinesRes.rows || [];
 
         aiResult = await runPrediction({
             patient_id  : patientId,
@@ -171,7 +192,8 @@ router.post('/reading', readingValidation, async (req, res) => {
             temperature : temperature,
             spo2        : spo2,
             moisture    : moisture,
-            patient_type: patientType
+            patient_type: patientType,
+            baselines   : patientBaselines
         });
 
     } catch (aiErr) {
@@ -184,14 +206,35 @@ router.post('/reading', readingValidation, async (req, res) => {
         };
     }
 
-    // Step 6: If the AI detected alerts, write anomaly_events + alert_notifications
+    // Step 6: If the AI detected alerts, write anomaly_events + alert_notifications (suppress if flagged normal 5+ times)
     if (aiResult.alerts && aiResult.alerts.length > 0) {
         try {
+            // Fetch latest baselines to ensure real-time suppression
+            const baselinesCheck = await pool.query(
+                'SELECT vital_name, flag_count FROM patient_baselines WHERE patient_id = $1 AND flag_count >= 5',
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+            const suppressedBaselines = baselinesCheck.rows || [];
+
             for (const alert of aiResult.alerts) {
                 const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
                 const anomalyType = alert.vital === 'multi_feature'
                     ? 'ocsvm_anomaly'
                     : `rule_${alert.vital}`;
+
+                // Double safeguard: check if patient baseline has 5+ flags for this pattern
+                const isSuppressed = suppressedBaselines.some(b => {
+                    if (b.flag_count < 5) return false;
+                    if (b.vital_name === anomalyType) return true;
+                    if (alert.vital && (b.vital_name === alert.vital || alert.vital.startsWith(b.vital_name))) return true;
+                    if (anomalyType === 'ocsvm_anomaly' && ['ocsvm_anomaly', 'multi_feature'].includes(b.vital_name)) return true;
+                    return false;
+                });
+
+                if (isSuppressed) {
+                    console.log(`[AI Alert Engine] Alert suppressed for patient ${patientId} (${anomalyType}): Pattern flagged as normal 5+ times (learned baseline).`);
+                    continue;
+                }
 
                 const eventResult = await pool.query(
                     `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)

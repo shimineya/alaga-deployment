@@ -52,11 +52,6 @@ const zoneBNav = [
         icon: UserPlus,
     },
     {
-        title: 'Alert Configuration',
-        url: '/sysadmin/facility/alerts',
-        icon: Bell,
-    },
-    {
         title: 'Security & Audits',
         url: '/sysadmin/facility/security',
         icon: ShieldCheck,
@@ -462,18 +457,6 @@ export function SysAdminSidebar() {
                                         </li>
                                     </ul>
                                 )}
-                            </li>
-                            <li>
-                                <NavLink
-                                    to="/sysadmin/caregiver/alerts"
-                                    onClick={(e) => handlePhiClick(e, '/sysadmin/caregiver/alerts')}
-                                    className={({ isActive }) =>
-                                        `${phiNavLinkClasses} ${isActive ? 'ring-2 ring-amber-400/80' : ''}`
-                                    }
-                                >
-                                    <Bell className="w-4 h-4 flex-shrink-0 text-amber-300" />
-                                    <span>Alerts &amp; Notifications</span>
-                                </NavLink>
                             </li>
                             <li>
                                 <button

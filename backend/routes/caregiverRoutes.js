@@ -1293,6 +1293,72 @@ router.patch('/patients/:id/archive', async (req, res) => {
 });
 
 // ==========================================
+// 2.3. TOGGLE PATIENT MONITORING
+// ==========================================
+router.patch('/patients/:id/toggle-monitoring', async (req, res) => {
+    try {
+        const patientId = req.params.id;
+        const userId = req.user.id;
+        const { role } = req.user;
+
+        // [OWASP A01] Check access rights
+        if (role !== 'admin' && role !== 'system_admin' && role !== 'sysadmin' && role !== 'medical_staff' && role !== 'parent') {
+            const accessCheck = await pool.query(
+                `SELECT access_level FROM patient_access
+                 WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
+                [patientId, userId]
+            );
+            if (accessCheck.rows.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have permission to modify this patient record.'
+                });
+            }
+        }
+
+        const currentPatient = await pool.query(
+            'SELECT patient_id, name, is_monitoring_disabled FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+        if (currentPatient.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const currentVal = !!currentPatient.rows[0].is_monitoring_disabled;
+        const targetVal = req.body.is_monitoring_disabled !== undefined 
+            ? !!req.body.is_monitoring_disabled 
+            : !currentVal;
+
+        await pool.query(
+            'UPDATE patients SET is_monitoring_disabled = $1, updated_at = NOW() WHERE patient_id = $2',
+            [targetVal, patientId]
+        );
+
+        // Audit log
+        await pool.query(
+            `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected, severity)
+             VALUES ($1, $2, 'PATIENT_MONITORING_TOGGLE', $3, 'INFO')`,
+            [
+                userId,
+                patientId,
+                `${targetVal ? 'Disabled' : 'Enabled'} monitoring for Patient #${patientId} (${currentPatient.rows[0].name || 'Unnamed'})`
+            ]
+        ).catch(e => console.warn('Audit log insert warning:', e.message));
+
+        res.json({
+            success: true,
+            is_monitoring_disabled: targetVal,
+            message: targetVal 
+                ? 'Monitoring for patient has been disabled.' 
+                : 'Monitoring for patient has been enabled.'
+        });
+    } catch (err) {
+        console.error('Toggle Patient Monitoring Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update patient monitoring status.' });
+    }
+});
+
+// ==========================================
 // 3. GET MY PATIENTS (Updated with Device Info)
 // ==========================================
 router.get('/patients', async (req, res) => {

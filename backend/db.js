@@ -45,6 +45,24 @@ pool.connect((err, client, release) => {
       ALTER TABLE public.device_whitelist 
       ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)
     `).catch(err => console.error('Failed to run device_whitelist ip_address migration:', err));
+
+    // Auto-migration: Expand resource_affected column on access_logs to TEXT
+    pool.query(`
+      ALTER TABLE public.access_logs 
+      ALTER COLUMN resource_affected TYPE TEXT
+    `).catch(err => console.error('Failed to run access_logs resource_affected migration:', err));
+
+    // Auto-migration: Add is_monitoring_disabled column on patients table if it does not exist
+    pool.query(`
+      ALTER TABLE public.patients 
+      ADD COLUMN IF NOT EXISTS is_monitoring_disabled BOOLEAN DEFAULT FALSE
+    `).catch(err => console.error('Failed to run patients is_monitoring_disabled migration:', err));
+
+    // Auto-migration: Expand vital_name column on patient_baselines to VARCHAR(100)
+    pool.query(`
+      ALTER TABLE public.patient_baselines 
+      ALTER COLUMN vital_name TYPE VARCHAR(100)
+    `).catch(err => console.error('Failed to run patient_baselines vital_name migration:', err));
   }
   if (release) release();
 });

@@ -50,6 +50,19 @@ export default function ArchiveHub() {
     const role = user?.role?.toLowerCase() || '';
     const isSysAdmin = ['system_admin', 'admin', 'sysadmin'].includes(role);
 
+    // [HIPAA / Data Privacy] Anonymize patient name to Patient ID for System Admin role
+    const getTargetDisplayName = (rec: ArchiveRecord) => {
+        if (isSysAdmin) {
+            if (rec.entity_type === 'Patient') {
+                return `Patient #${rec.target_id}`;
+            }
+            if (rec.entity_type === 'Clinical Alert' && rec.target_name) {
+                return rec.target_name.replace(/^[^-]+ - (Clinical Alert|Clinical:)/i, `Patient #${rec.target_id} - $1`);
+            }
+        }
+        return rec.target_name;
+    };
+
     const [records, setRecords] = useState<ArchiveRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -103,7 +116,7 @@ export default function ArchiveHub() {
             });
             const data = await res.json();
             if (data.success) {
-                toast.success(`${record.entity_type} "${record.target_name}" restored successfully.`);
+                toast.success(`${record.entity_type} "${getTargetDisplayName(record)}" restored successfully.`);
                 setRecords(prev => prev.filter(r => r.archive_id !== record.archive_id));
             } else {
                 toast.error(data.message || 'Failed to restore record.');
@@ -130,7 +143,7 @@ export default function ArchiveHub() {
             });
             const data = await res.json();
             if (data.success) {
-                toast.success(`${deleteRecord.entity_type} "${deleteRecord.target_name}" has been permanently deleted.`);
+                toast.success(`${deleteRecord.entity_type} "${getTargetDisplayName(deleteRecord)}" has been permanently deleted.`);
                 setRecords(prev => prev.filter(r => r.archive_id !== deleteRecord.archive_id));
                 setDeleteRecord(null);
             } else {
@@ -146,9 +159,12 @@ export default function ArchiveHub() {
 
     // Filter and search computation
     const filteredRecords = records.filter(rec => {
+        const displayName = getTargetDisplayName(rec).toLowerCase();
+        const query = searchQuery.toLowerCase();
         const matchesSearch = 
-            rec.target_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            rec.target_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            displayName.includes(query) ||
+            rec.target_name.toLowerCase().includes(query) ||
+            rec.target_id.toLowerCase().includes(query) ||
             rec.archive_id.toString().includes(searchQuery);
         
         const matchesType = typeFilter === 'ALL' || rec.entity_type.toUpperCase() === typeFilter.toUpperCase();
@@ -285,7 +301,7 @@ export default function ArchiveHub() {
                                                 </div>
                                             </td>
                                             <td className="py-4 px-4">
-                                                <div className="font-semibold text-slate-900">{record.target_name}</div>
+                                                <div className="font-semibold text-slate-900">{getTargetDisplayName(record)}</div>
                                                 <div className="text-[10px] text-slate-400 font-mono mt-0.5">ID/Serial: {record.target_id}</div>
                                             </td>
                                             {isSysAdmin && (
@@ -375,7 +391,7 @@ export default function ArchiveHub() {
                             </div>
                             <div className="mt-2">
                                 <span className="font-semibold text-slate-500 uppercase text-[10px] tracking-wider block">{t('Target Name', 'Target na Pangalan')}</span>
-                                <span className="font-bold text-slate-800">{deleteRecord.target_name}</span>
+                                <span className="font-bold text-slate-800">{getTargetDisplayName(deleteRecord)}</span>
                             </div>
                             <div className="mt-2">
                                 <span className="font-semibold text-slate-500 uppercase text-[10px] tracking-wider block">{t('Reference ID', 'Reference ID')}</span>

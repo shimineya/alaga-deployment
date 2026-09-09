@@ -27,11 +27,18 @@ void __attribute__((constructor(101))) disable_brownout() {
 }
 
 // ==============================================================================
-// HARDWARE PIN DEFINITIONS
+// HARDWARE PIN DEFINITIONS & CALIBRATION
 // ==============================================================================
-const int WATER_PIN       = 4;   // Moisture sensor digital input
+const int WATER_PIN       = 4;   // Moisture sensor input (supports Analog ADC and Digital input)
 const int BATTERY_PIN     = 35;  // Battery voltage ADC (GPIO 35 is ADC1, WiFi-safe)
 const int CONFIG_BTN_PIN  = 0;   // ESP32 onboard BOOT button (Hold 3s to enter AP/Reset)
+
+// Analog Moisture Sensor Calibration:
+// Enables continuous intermediate readings (0% to 100%) rather than binary 0/100%
+const int WETNESS_ADC_SAMPLES  = 16;   // Number of multi-samples to filter electrical noise
+const int WETNESS_DRY_RAW      = 200;  // Baseline ADC reading when completely dry (0%)
+const int WETNESS_WET_RAW      = 3200; // Saturated ADC reading when heavily wet (100%)
+const bool INVERT_WETNESS_ADC  = false; // Set true if your sensor board pulls DOWN when wet
 
 // ==============================================================================
 // DEFAULT FACTORY SETTINGS (Saved in NVS; overridable via Captive Portal)
@@ -57,6 +64,8 @@ const long sendInterval    = 5000; // Send telemetry every 5 seconds
 // Sensor & Battery Readings
 int waterState         = 0;
 int wetnessPercent     = 0;
+int rawMoistureADC     = 0;
+String wetnessLevel    = "DRY";
 float batteryVoltage   = 0.0;
 int batteryPercent     = 100;
 int lastBackendCode    = 0;
@@ -114,17 +123,61 @@ void readBattery() {
 }
 
 // ==============================================================================
+// CONTINUOUS ANALOG WETNESS IDENTIFIER FUNCTION
+// Measures dynamic intermediate values between 0% and 100% instead of binary 0/1.
+// Returns: 0 to 100 percentage.
+// Categorization:
+//   0% - 10%: DRY (Clean & dry surface)
+//  11% - 35%: DAMP (Trace moisture / perspiration)
+//  36% - 70%: MODERATE WETNESS (Urination detected - changing recommended soon)
+//  71% - 100%: HEAVY WETNESS / SOAKED (Diaper saturated - immediate action required)
+// ==============================================================================
+int calculateWetnessPercentage() {
+  // 1. Take multi-sampled ADC readings to filter high-frequency noise
+  long rawSum = 0;
+  for (int i = 0; i < WETNESS_ADC_SAMPLES; i++) {
+    rawSum += analogRead(WATER_PIN);
+    delay(2);
+  }
+  rawMoistureADC = (int)(rawSum / WETNESS_ADC_SAMPLES);
+
+  int percent = 0;
+
+  if (INVERT_WETNESS_ADC) {
+    // Sensor voltage drops when wet (common on comparator analog pins)
+    int clamped = constrain(rawMoistureADC, WETNESS_DRY_RAW, WETNESS_WET_RAW);
+    percent = map(clamped, WETNESS_WET_RAW, WETNESS_DRY_RAW, 0, 100);
+  } else {
+    // Sensor voltage rises when wet (conductive tracks bridge to VCC)
+    int clamped = constrain(rawMoistureADC, WETNESS_DRY_RAW, WETNESS_WET_RAW);
+    percent = map(clamped, WETNESS_DRY_RAW, WETNESS_WET_RAW, 0, 100);
+  }
+
+  percent = constrain(percent, 0, 100);
+
+  // 2. Intelligent Fallback:
+  // If the user connects to a digital-only comparator board pin, check digitalRead:
+  if (percent < 10 && digitalRead(WATER_PIN) == HIGH) {
+    percent = 100;
+  }
+
+  return percent;
+}
+
+String getWetnessLevelDescription(int percent) {
+  if (percent <= 10) return "DRY";
+  if (percent <= 35) return "DAMP (Trace moisture)";
+  if (percent <= 70) return "MODERATE WETNESS";
+  return "HEAVY WETNESS (Saturated)";
+}
+
+// ==============================================================================
 // SENSOR READING HELPER
 // ==============================================================================
 void readSensors() {
-  waterState = digitalRead(WATER_PIN);
-
-  // Digital moisture sensor: HIGH = Wet detected (conductive liquid present)
-  if (waterState == HIGH) {
-    wetnessPercent = 100;
-  } else {
-    wetnessPercent = 0;
-  }
+  wetnessPercent  = calculateWetnessPercentage();
+  wetnessLevel    = getWetnessLevelDescription(wetnessPercent);
+  waterState      = (wetnessPercent >= 35) ? HIGH : LOW;
 
   readBattery();
 }
@@ -233,6 +286,8 @@ String getHtmlHeader(String title) {
   h += ".stat-sub { font-size: 12px; font-weight: 600; margin-top: 4px; }";
   h += ".banner { border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center; }";
   h += ".banner-wet { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; }";
+  h += ".banner-moderate { background: #FFFBEB; border: 1px solid #FDE68A; color: #B45309; }";
+  h += ".banner-damp { background: #ECFEFF; border: 1px solid #A5F3FC; color: #0E7490; }";
   h += ".banner-dry { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; }";
   h += ".meter-bar { width: 100%; height: 10px; background: #E2E8F0; border-radius: 9999px; overflow: hidden; margin-top: 10px; }";
   h += ".meter-fill { height: 100%; border-radius: 9999px; transition: width 0.3s ease; }";
@@ -274,11 +329,32 @@ void handleDashboard() {
   page += "<p class='subtitle'>Real-time patient moisture & power telemetry</p>";
   page += "</div>";
 
-  // Large Status Banner Container
-  String bannerClass = wetnessPercent > 50 ? "banner banner-wet" : "banner banner-dry";
-  String bannerEmoji = wetnessPercent > 50 ? "💧💧💧" : "☀️";
-  String bannerTitle = wetnessPercent > 50 ? "WETNESS DETECTED" : "STATUS: DRY";
-  String bannerDesc  = wetnessPercent > 50 ? "Diaper / pad requires immediate caregiver attention" : "Patient surface is clean and dry";
+  // Large Status Banner Container (Supports intermediate 0-100% moisture tiers)
+  String bannerClass = "banner banner-dry";
+  String bannerEmoji = "☀️";
+  String bannerTitle = "STATUS: DRY";
+  String bannerDesc  = "Patient surface is clean and dry";
+  String wetColor    = "#10B981";
+
+  if (wetnessPercent > 70) {
+    bannerClass = "banner banner-wet";
+    bannerEmoji = "💧💧💧";
+    bannerTitle = "HEAVY WETNESS / SOAKED";
+    bannerDesc  = "Diaper saturated — immediate caregiver attention required";
+    wetColor    = "#EF4444";
+  } else if (wetnessPercent > 35) {
+    bannerClass = "banner banner-moderate";
+    bannerEmoji = "💧💧";
+    bannerTitle = "MODERATE WETNESS";
+    bannerDesc  = "Urination detected — changing pad / diaper recommended soon";
+    wetColor    = "#F59E0B";
+  } else if (wetnessPercent > 10) {
+    bannerClass = "banner banner-damp";
+    bannerEmoji = "💧";
+    bannerTitle = "DAMP (TRACE MOISTURE)";
+    bannerDesc  = "Minor moisture or perspiration detected";
+    wetColor    = "#06B6D4";
+  }
 
   page += "<div id='metric-banner' class='" + bannerClass + "'>";
   page += "<div id='banner-emoji' style='font-size: 32px;'>" + bannerEmoji + "</div>";
@@ -290,12 +366,11 @@ void handleDashboard() {
   page += "<div class='stats-grid'>";
   
   // Moisture Box
-  String wetColor = wetnessPercent > 50 ? "#EF4444" : "#10B981";
   page += "<div class='stat-box'>";
   page += "<div class='stat-label'>Wetness Level</div>";
   page += "<div class='stat-value' id='metric-wetness' style='color: " + wetColor + ";'>" + String(wetnessPercent) + "<span style='font-size:16px;'>%</span></div>";
   page += "<div class='meter-bar'><div id='metric-wetness-bar' class='meter-fill' style='width: " + String(wetnessPercent) + "%; background: " + wetColor + ";'></div></div>";
-  page += "<div class='stat-sub' id='metric-wetness-sub' style='color: " + wetColor + ";'>" + (wetnessPercent > 50 ? "WET" : "DRY") + "</div>";
+  page += "<div class='stat-sub' id='metric-wetness-sub' style='color: " + wetColor + ";'>" + wetnessLevel + "</div>";
   page += "</div>";
 
   // Battery Box
@@ -340,13 +415,36 @@ void handleDashboard() {
   page += "  fetch('/status')";
   page += "    .then(function(r){ return r.json(); })";
   page += "    .then(function(d){";
-  page += "      var isWet = d.wetness > 50;";
-  page += "      var wColor = isWet ? '#EF4444' : '#10B981';";
-  page += "      document.getElementById('metric-wetness').innerHTML = d.wetness + '<span style=\"font-size:16px;\">%</span>';";
+  page += "      var p = Number(d.wetness) || 0;";
+  page += "      var wColor = '#10B981';";
+  page += "      var bClass = 'banner banner-dry';";
+  page += "      var bEmoji = '☀️';";
+  page += "      var bTitle = 'STATUS: DRY';";
+  page += "      var bDesc = 'Patient surface is clean and dry';";
+  page += "      if (p > 70) {";
+  page += "        wColor = '#EF4444';";
+  page += "        bClass = 'banner banner-wet';";
+  page += "        bEmoji = '💧💧💧';";
+  page += "        bTitle = 'HEAVY WETNESS / SOAKED';";
+  page += "        bDesc = 'Diaper saturated — immediate caregiver attention required';";
+  page += "      } else if (p > 35) {";
+  page += "        wColor = '#F59E0B';";
+  page += "        bClass = 'banner banner-moderate';";
+  page += "        bEmoji = '💧💧';";
+  page += "        bTitle = 'MODERATE WETNESS';";
+  page += "        bDesc = 'Urination detected — changing pad / diaper recommended soon';";
+  page += "      } else if (p > 10) {";
+  page += "        wColor = '#06B6D4';";
+  page += "        bClass = 'banner banner-damp';";
+  page += "        bEmoji = '💧';";
+  page += "        bTitle = 'DAMP (TRACE MOISTURE)';";
+  page += "        bDesc = 'Minor moisture or perspiration detected';";
+  page += "      }";
+  page += "      document.getElementById('metric-wetness').innerHTML = p + '<span style=\"font-size:16px;\">%</span>';";
   page += "      document.getElementById('metric-wetness').style.color = wColor;";
-  page += "      document.getElementById('metric-wetness-bar').style.width = d.wetness + '%';";
+  page += "      document.getElementById('metric-wetness-bar').style.width = p + '%';";
   page += "      document.getElementById('metric-wetness-bar').style.background = wColor;";
-  page += "      document.getElementById('metric-wetness-sub').innerText = isWet ? 'WET' : 'DRY';";
+  page += "      document.getElementById('metric-wetness-sub').innerText = d.wetState || (p > 35 ? 'WET' : 'DRY');";
   page += "      document.getElementById('metric-wetness-sub').style.color = wColor;";
   page += "      var bColor = d.battery > 50 ? '#10B981' : (d.battery > 20 ? '#F59E0B' : '#EF4444');";
   page += "      document.getElementById('metric-battery').innerHTML = d.battery + '<span style=\"font-size:16px;\">%</span>';";
@@ -356,17 +454,10 @@ void handleDashboard() {
   page += "      document.getElementById('metric-voltage').innerText = Number(d.voltage).toFixed(2) + ' V';";
   page += "      document.getElementById('metric-voltage').style.color = bColor;";
   page += "      var banner = document.getElementById('metric-banner');";
-  page += "      if (isWet) {";
-  page += "        banner.className = 'banner banner-wet';";
-  page += "        document.getElementById('banner-emoji').innerText = '💧💧💧';";
-  page += "        document.getElementById('banner-title').innerText = 'WETNESS DETECTED';";
-  page += "        document.getElementById('banner-desc').innerText = 'Diaper / pad requires immediate caregiver attention';";
-  page += "      } else {";
-  page += "        banner.className = 'banner banner-dry';";
-  page += "        document.getElementById('banner-emoji').innerText = '☀️';";
-  page += "        document.getElementById('banner-title').innerText = 'STATUS: DRY';";
-  page += "        document.getElementById('banner-desc').innerText = 'Patient surface is clean and dry';";
-  page += "      }";
+  page += "      banner.className = bClass;";
+  page += "      document.getElementById('banner-emoji').innerText = bEmoji;";
+  page += "      document.getElementById('banner-title').innerText = bTitle;";
+  page += "      document.getElementById('banner-desc').innerText = bDesc;";
   page += "    })";
   page += "    .catch(function(err){});";
   page += "}";
@@ -387,7 +478,8 @@ void handleStatus() {
 
   String json = "{";
   json += "\"wetness\":" + String(wetnessPercent) + ",";
-  json += "\"wetState\":\"" + String(wetnessPercent > 50 ? "WET" : "DRY") + "\",";
+  json += "\"wetState\":\"" + wetnessLevel + "\",";
+  json += "\"rawAdc\":" + String(rawMoistureADC) + ",";
   json += "\"battery\":" + String(batteryPercent) + ",";
   json += "\"voltage\":" + String(batteryVoltage, 2) + ",";
   json += "\"isAP\":" + String(isAPMode ? "true" : "false") + ",";
@@ -807,7 +899,8 @@ void setup() {
   Serial.println("==================================================");
 
   // 1. Initialize Hardware Pins
-  pinMode(WATER_PIN, INPUT_PULLDOWN);
+  analogSetAttenuation(ADC_11db); // Full 0 - 3.3V range on analog ADC channels
+  pinMode(WATER_PIN, INPUT);
   pinMode(BATTERY_PIN, INPUT);
   pinMode(CONFIG_BTN_PIN, INPUT_PULLUP);
 
@@ -909,7 +1002,9 @@ void loop() {
     Serial.print("[MONITOR] Wetness: ");
     Serial.print(wetnessPercent);
     Serial.print("% (");
-    Serial.print(wetnessPercent > 50 ? "WET" : "DRY");
+    Serial.print(wetnessLevel);
+    Serial.print(", ADC=");
+    Serial.print(rawMoistureADC);
     Serial.print(") | Battery: ");
     Serial.print(batteryPercent);
     Serial.print("% (");

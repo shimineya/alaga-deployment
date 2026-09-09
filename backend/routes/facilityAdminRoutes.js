@@ -1284,6 +1284,7 @@ router.get('/patients-added-and-assigned', async (req, res) => {
         if (isSysAdmin) {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                       COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
                             (
@@ -1329,6 +1330,7 @@ router.get('/patients-added-and-assigned', async (req, res) => {
         } else {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                       COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
                             (
@@ -1406,6 +1408,7 @@ router.get('/unassigned-patients', async (req, res) => {
         if (isSysAdmin) {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                       COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
                             (
@@ -1437,6 +1440,7 @@ router.get('/unassigned-patients', async (req, res) => {
         } else {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                       COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
                             (
@@ -1603,6 +1607,64 @@ router.put('/patients/:patientId', async (req, res) => {
     } catch (err) {
         console.error('Update Patient Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to update patient.' });
+    }
+});
+
+// PATCH /patients/:patientId/toggle-monitoring - Enable/Disable active patient monitoring
+router.patch('/patients/:patientId/toggle-monitoring', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const { patientId } = req.params;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
+
+    try {
+        if (!isSysAdmin) {
+            const patientCheck = await pool.query(
+                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+                [patientId, facilityId]
+            );
+            if (patientCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
+            }
+        }
+
+        const currentPatient = await pool.query(
+            'SELECT patient_id, name, is_monitoring_disabled FROM patients WHERE patient_id = $1',
+            [patientId]
+        );
+        if (currentPatient.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const currentVal = !!currentPatient.rows[0].is_monitoring_disabled;
+        const targetVal = req.body.is_monitoring_disabled !== undefined 
+            ? !!req.body.is_monitoring_disabled 
+            : !currentVal;
+
+        await pool.query(
+            'UPDATE patients SET is_monitoring_disabled = $1, updated_at = NOW() WHERE patient_id = $2',
+            [targetVal, patientId]
+        );
+
+        // Audit log
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'PATIENT_MONITORING_TOGGLE', $2, 'INFO')`,
+            [
+                req.user.id,
+                `${targetVal ? 'Disabled' : 'Enabled'} monitoring for Patient #${patientId} (${currentPatient.rows[0].name || 'Unnamed'})`
+            ]
+        ).catch(e => console.warn('Audit log insert warning:', e.message));
+
+        res.json({
+            success: true,
+            is_monitoring_disabled: targetVal,
+            message: targetVal 
+                ? 'Monitoring for patient has been disabled.' 
+                : 'Monitoring for patient has been enabled.'
+        });
+    } catch (err) {
+        console.error('Toggle Patient Monitoring Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update patient monitoring status.' });
     }
 });
 

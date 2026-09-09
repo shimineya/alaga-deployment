@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Card, CardContent } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Badge } from '../ui/badge';
-import { AlertCircle, CheckCircle2, Shield, Activity, HardDrive } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Shield, Activity, HardDrive, Flag, Sparkles, Archive, Volume2, VolumeX, BellRing } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { AcknowledgeModal } from '../ui/AcknowledgeModal';
 import { useLocation } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 
 interface ClinicalAlert {
     alert_id: number;
+    patient_id?: number;
     severity: string;
     message: string;
     status: string;
@@ -18,6 +19,9 @@ interface ClinicalAlert {
     patient_name: string;
     anomaly_type: string;
     is_anonymized?: boolean;
+    flag_count?: number;
+    remaining_flags?: number;
+    is_suppressed?: boolean;
 }
 
 interface SystemAlert {
@@ -32,8 +36,35 @@ interface SystemAlert {
 }
 
 const AlertsHub: React.FC = () => {
-    const { user, token } = useAuth();
-    const isSysAdmin = user?.role === 'system_admin' || user?.role === 'admin' || user?.role === 'sysadmin';
+    const { user, token, isSysAdmin: authIsSysAdmin } = useAuth();
+    const isSysAdmin = Boolean(authIsSysAdmin || (user?.role as string) === 'system_admin' || (user?.role as string) === 'admin' || (user?.role as string) === 'sysadmin');
+
+    // System Admins are restricted from viewing alerts to enforce privacy and clinical boundaries
+    if (isSysAdmin) {
+        return (
+            <div className="w-full h-full flex items-center justify-center p-6">
+                <div className="max-w-md w-full bg-white rounded-xl border border-slate-200 shadow-sm p-6 text-center space-y-4">
+                    <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
+                        <AlertCircle className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-2">
+                        <h2 className="text-lg font-bold text-slate-800">Access Restricted</h2>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                            System Administrators do not have access to patient alerts. Alert monitoring and response are managed exclusively by clinical staff, assigned caregivers, and facility administrators.
+                        </p>
+                    </div>
+                    <div className="pt-2">
+                        <a
+                            href="/dashboard"
+                            className="inline-flex items-center justify-center px-4 py-2 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+                        >
+                            Return to Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const [activeTab, setActiveTab] = useState(isSysAdmin ? 'system' : 'clinical');
     const [clinicalAlerts, setClinicalAlerts] = useState<ClinicalAlert[]>([]);
@@ -90,9 +121,100 @@ const AlertsHub: React.FC = () => {
         inactivityTimeoutRef.current = setTimeout(() => setIsInactive(true), 60000);
     };
 
+    const [isMuted, setIsMuted] = useState(false);
+    const soundIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Active unacknowledged & unflagged alerts:
+    // Only alerts that are NOT acknowledged, NOT suppressed (flag_count < 5), and not archived
+    const activeUnacknowledgedAlerts = useMemo(() => {
+        return clinicalAlerts.filter(a => 
+            a.status !== 'Acknowledged' && 
+            (a.flag_count || 0) < 5 && 
+            !a.is_suppressed
+        );
+    }, [clinicalAlerts]);
+
+    const highestEmergency = useMemo<'critical' | 'warning' | 'none'>(() => {
+        const hasCritical = activeUnacknowledgedAlerts.some(a => a.severity?.toLowerCase() === 'critical');
+        if (hasCritical) return 'critical';
+        const hasWarning = activeUnacknowledgedAlerts.some(a => a.severity?.toLowerCase() === 'warning');
+        if (hasWarning) return 'warning';
+        return 'none';
+    }, [activeUnacknowledgedAlerts]);
+
+    const playEmergencySound = (level: 'critical' | 'warning') => {
+        if (isMuted) return;
+        try {
+            let ctx = audioContext;
+            if (!ctx) {
+                ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                setAudioContext(ctx);
+            }
+            if (ctx.state === 'suspended') {
+                ctx.resume().catch(() => {});
+            }
+
+            const now = ctx.currentTime;
+
+            if (level === 'critical') {
+                // Urgent clinical alarm pulse: 3 rapid high-frequency bursts (880Hz, 880Hz, 1046.5Hz)
+                const freqs = [880, 880, 1046.5];
+                freqs.forEach((freq, idx) => {
+                    const start = now + idx * 0.15;
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, start);
+                    
+                    gain.gain.setValueAtTime(0, start);
+                    gain.gain.linearRampToValueAtTime(0.7, start + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.13);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    
+                    osc.start(start);
+                    osc.stop(start + 0.14);
+                });
+            } else if (level === 'warning') {
+                // Cautionary chime: dual harmonic tone (587.33Hz, 783.99Hz)
+                const freqs = [587.33, 783.99];
+                freqs.forEach((freq, idx) => {
+                    const start = now + idx * 0.20;
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, start);
+                    
+                    gain.gain.setValueAtTime(0, start);
+                    gain.gain.linearRampToValueAtTime(0.45, start + 0.03);
+                    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.32);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    
+                    osc.start(start);
+                    osc.stop(start + 0.35);
+                });
+            }
+        } catch (err) {
+            console.warn("Audio alert error:", err);
+        }
+    };
+
     useEffect(() => {
+        const unlockAudio = () => {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().catch(() => {});
+            }
+        };
+
         window.addEventListener('mousemove', resetInactivity);
         window.addEventListener('keydown', resetInactivity);
+        window.addEventListener('click', unlockAudio);
+        window.addEventListener('touchstart', unlockAudio);
         resetInactivity();
         
         try {
@@ -105,27 +227,43 @@ const AlertsHub: React.FC = () => {
         return () => {
             window.removeEventListener('mousemove', resetInactivity);
             window.removeEventListener('keydown', resetInactivity);
+            window.removeEventListener('click', unlockAudio);
+            window.removeEventListener('touchstart', unlockAudio);
             if (inactivityTimeoutRef.current) clearTimeout(inactivityTimeoutRef.current);
             if (audioContext) audioContext.close();
+            if (soundIntervalRef.current) clearInterval(soundIntervalRef.current);
         };
     }, []);
 
-    const playAlertSound = () => {
-        if (!audioContext) return;
-        const osc = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        osc.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        osc.frequency.setValueAtTime(800, audioContext.currentTime);
-        osc.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(1, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.5);
-        
-        osc.start();
-        osc.stop(audioContext.currentTime + 1.5);
-    };
+    // Repeating sound effect synced with active unacknowledged & unflagged notifications
+    useEffect(() => {
+        if (soundIntervalRef.current) {
+            clearInterval(soundIntervalRef.current);
+            soundIntervalRef.current = null;
+        }
+
+        if (highestEmergency === 'none' || isMuted) {
+            return;
+        }
+
+        // Play sound immediately on trigger/change
+        playEmergencySound(highestEmergency);
+
+        // Repeat frequency varies by level of emergency:
+        // - Critical: repeats every 3.5 seconds (urgent, rapid clinical pulse)
+        // - Warning: repeats every 8.0 seconds (cautionary chime)
+        const repeatInterval = highestEmergency === 'critical' ? 3500 : 8000;
+        soundIntervalRef.current = setInterval(() => {
+            playEmergencySound(highestEmergency);
+        }, repeatInterval);
+
+        return () => {
+            if (soundIntervalRef.current) {
+                clearInterval(soundIntervalRef.current);
+                soundIntervalRef.current = null;
+            }
+        };
+    }, [highestEmergency, isMuted, audioContext]);
 
     const fetchAlerts = async () => {
         if (!token) return;
@@ -137,9 +275,6 @@ const AlertsHub: React.FC = () => {
             ]);
             setClinicalAlerts(clinicalRes.data.data || []);
             setSystemAlerts(sysRes.data.data || []);
-            
-            const hasCritical = (clinicalRes.data.data || []).some((a: any) => a.severity === 'Critical' && a.status !== 'Acknowledged');
-            if (hasCritical) playAlertSound();
         } catch (error) {
             console.error("Failed to load alerts", error);
         } finally {
@@ -161,6 +296,8 @@ const AlertsHub: React.FC = () => {
             await axios.put(`${API_BASE}/api/alerts/clinical/${selectedAlert.alert_id}/acknowledge`, {
                 action_taken: actionTaken
             }, getHeaders());
+            // Immediately mark as Acknowledged in local state so the repeating sound stops without delay
+            setClinicalAlerts(prev => prev.map(a => a.alert_id === selectedAlert.alert_id ? { ...a, status: 'Acknowledged' } : a));
             await fetchAlerts();
         } catch (error) {
             console.error("Failed to acknowledge alert", error);
@@ -174,6 +311,43 @@ const AlertsHub: React.FC = () => {
             await fetchAlerts();
         } catch (error) {
             console.error("Failed to resolve system alert", error);
+        }
+    };
+
+    const [flaggingIds, setFlaggingIds] = useState<Record<number, boolean>>({});
+
+    const handleFlagAsNormal = async (alert: ClinicalAlert) => {
+        if (!token) return;
+        setFlaggingIds(prev => ({ ...prev, [alert.alert_id]: true }));
+        try {
+            const res = await axios.post(
+                `${API_BASE}/api/alerts/clinical/${alert.alert_id}/flag-normal`,
+                {},
+                getHeaders()
+            );
+            if (res.data.success) {
+                toast.info(res.data.message);
+                setClinicalAlerts(prev => prev.map(a => {
+                    if (a.alert_id === alert.alert_id || (alert.patient_id && a.patient_id === alert.patient_id && a.anomaly_type === alert.anomaly_type)) {
+                        return {
+                            ...a,
+                            flag_count: res.data.flag_count,
+                            remaining_flags: res.data.remaining_flags,
+                            is_suppressed: res.data.suppressed,
+                            status: res.data.suppressed ? 'Acknowledged' : a.status
+                        };
+                    }
+                    return a;
+                }));
+                fetchAlerts();
+            } else {
+                toast.error(res.data.message || "Failed to flag alert.");
+            }
+        } catch (error: any) {
+            console.error("Failed to flag alert as normal", error);
+            toast.error(error.response?.data?.message || "Failed to flag alert as normal.");
+        } finally {
+            setFlaggingIds(prev => ({ ...prev, [alert.alert_id]: false }));
         }
     };
 
@@ -227,6 +401,40 @@ const AlertsHub: React.FC = () => {
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight">System Alerts</h1>
                     <p className="text-slate-500 text-sm mt-1">Real-time clinical and hardware alerts monitor</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                    {highestEmergency === 'critical' && !isMuted && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold animate-pulse shadow-sm">
+                            <BellRing className="w-3.5 h-3.5 text-red-600 animate-bounce" />
+                            <span>Critical Alarm (repeats every 3.5s)</span>
+                        </div>
+                    )}
+                    {highestEmergency === 'warning' && !isMuted && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold shadow-sm">
+                            <BellRing className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Warning Chime (repeats every 8s)</span>
+                        </div>
+                    )}
+                    {(highestEmergency === 'none' || isMuted) && (
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-xs font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{isMuted ? 'Alarm Audio Muted' : 'Alert Sounds Idle'}</span>
+                        </div>
+                    )}
+
+                    <button
+                        onClick={() => setIsMuted(prev => !prev)}
+                        title={isMuted ? "Unmute alarm sound" : "Mute alarm sound"}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition ${
+                            isMuted 
+                                ? 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200' 
+                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 shadow-sm'
+                        }`}
+                    >
+                        {isMuted ? <VolumeX className="w-3.5 h-3.5 text-slate-400" /> : <Volume2 className="w-3.5 h-3.5 text-teal-600" />}
+                        {isMuted ? 'Unmute Audio' : 'Mute Audio'}
+                    </button>
                 </div>
             </div>
 
@@ -287,14 +495,14 @@ const AlertsHub: React.FC = () => {
                         </Card>
                     ) : (
                         displayedClinicalAlerts.map(alert => (
-                            <Card key={alert.alert_id} className={`overflow-hidden transition-all duration-200 bg-white rounded-2xl ${alert.status === 'Acknowledged' ? 'opacity-60 border-slate-200' : 'border-red-100 shadow-sm'}`}>
-                                <div className={`h-1.5 w-full ${alert.status === 'Acknowledged' ? 'bg-slate-200' : 'bg-red-500'}`}></div>
-                                <CardContent className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                                    <div className="flex gap-4 items-start">
+                            <Card key={alert.alert_id} className={`overflow-hidden transition-all duration-200 bg-white rounded-2xl ${alert.status === 'Acknowledged' ? 'opacity-75 border-slate-200' : 'border-red-100 shadow-sm'}`}>
+                                <div className={`h-1.5 w-full ${alert.status === 'Acknowledged' ? 'bg-slate-300' : 'bg-red-500'}`}></div>
+                                <CardContent className="p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+                                    <div className="flex gap-4 items-start flex-1">
                                         <div className={`p-3.5 rounded-2xl mt-0.5 ${alert.status === 'Acknowledged' ? 'bg-slate-100 text-slate-400' : 'bg-red-50 text-red-600'}`}>
                                             <Activity className="h-6 w-6" />
                                         </div>
-                                        <div className="space-y-1">
+                                        <div className="space-y-1.5 flex-1">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <h3 className="font-bold text-lg text-slate-800">{alert.patient_name}</h3>
                                                 {alert.is_anonymized && (
@@ -305,32 +513,73 @@ const AlertsHub: React.FC = () => {
                                                 <Badge className={getSeverityColor(alert.severity)} variant="outline">
                                                     {alert.severity}
                                                 </Badge>
+                                                {alert.status === 'Acknowledged' && (
+                                                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs flex items-center gap-1">
+                                                        <CheckCircle2 className="w-3 h-3" /> Acknowledged
+                                                    </Badge>
+                                                )}
+                                                {(alert.flag_count || 0) >= 5 && (
+                                                    <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-200 text-xs flex items-center gap-1">
+                                                        <Sparkles className="w-3 h-3" /> AI Baseline Learned (Suppressed)
+                                                    </Badge>
+                                                )}
                                             </div>
                                             <p className="text-slate-700 font-medium">{alert.message}</p>
-                                            <p className="text-xs text-slate-400 pt-1">
+                                            <p className="text-xs text-slate-400">
                                                 Triggered: {new Date(alert.sent_at).toLocaleString()}
                                             </p>
+
+                                            {/* AI Model Baseline Condition Box */}
+                                            <div className="mt-2.5 flex items-start gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 max-w-xl">
+                                                <Sparkles className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+                                                <div>
+                                                    <span className="font-semibold text-slate-700">AI Adaptive Baseline: </span>
+                                                    {(alert.flag_count || 0) >= 5 ? (
+                                                        <span className="text-emerald-700 font-medium">
+                                                            The AI model has learned this patient's pattern. Baseline updated (0 more flags needed). Alerts for this pattern are now suppressed.
+                                                        </span>
+                                                    ) : (
+                                                        <span>
+                                                            The AI model learns from the patient's pattern. Modifying it's baseline needs to be learned repeatedly. ({Math.max(0, 5 - (alert.flag_count || 0))} more flags needed)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
- 
-                                    <div className="w-full md:w-auto flex items-center justify-end gap-2.5 shrink-0">
-                                        {alert.status !== 'Acknowledged' && (
-                                            <button 
-                                                onClick={() => { setSelectedAlert(alert); setAckModalOpen(true); }}
-                                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition shadow-sm w-full md:w-auto"
-                                            >
-                                                Review & Acknowledge
-                                            </button>
-                                        )}
-                                        {alert.status === 'Acknowledged' && (
-                                            <div className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
-                                                <CheckCircle2 className="h-4 w-4" /> Acknowledged
-                                            </div>
-                                        )}
+
+                                    <div className="w-full lg:w-auto flex flex-wrap items-center justify-end gap-2.5 shrink-0">
+                                        <button 
+                                            onClick={() => { setSelectedAlert(alert); setAckModalOpen(true); }}
+                                            className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition shadow-sm w-full sm:w-auto flex items-center justify-center gap-1.5 ${
+                                                alert.status === 'Acknowledged' 
+                                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 
+                                                    : 'bg-red-600 hover:bg-red-700 text-white'
+                                            }`}
+                                        >
+                                            {alert.status === 'Acknowledged' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+                                            Review & Acknowledge
+                                        </button>
+
+                                        <button 
+                                            onClick={() => handleFlagAsNormal(alert)}
+                                            disabled={(alert.flag_count || 0) >= 5 || flaggingIds[alert.alert_id]}
+                                            title={`The AI model learns from the patient's pattern. Modifying it's baseline needs to be learned repeatedly. (${Math.max(0, 5 - (alert.flag_count || 0))} more flags needed)`}
+                                            className={`px-3.5 py-2.5 text-xs font-semibold rounded-xl transition border flex items-center justify-center gap-1.5 w-full sm:w-auto ${
+                                                (alert.flag_count || 0) >= 5 
+                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default opacity-90' 
+                                                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 shadow-sm'
+                                            }`}
+                                        >
+                                            <Flag className="w-3.5 h-3.5" />
+                                            {(alert.flag_count || 0) >= 5 ? 'Normal (Learned 5/5)' : `Flag as Normal (${alert.flag_count || 0}/5)`}
+                                        </button>
+
                                         <button 
                                             onClick={() => handleArchiveAlert('clinical_' + alert.alert_id)}
-                                            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold rounded-xl transition"
+                                            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 w-full sm:w-auto"
                                         >
+                                            <Archive className="w-3.5 h-3.5" />
                                             Archive
                                         </button>
                                     </div>

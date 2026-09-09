@@ -40,8 +40,26 @@ try:
     action = input_data.get('action', 'predict')
 
     if action == 'predict':
+        pid = str(input_data.get('patient_id', 'P001'))
+        baselines = input_data.get('baselines', [])
+        if baselines:
+            if not hasattr(predict_module, 'PATIENT_BASELINES') or predict_module.PATIENT_BASELINES is None:
+                predict_module.PATIENT_BASELINES = {}
+            if pid not in predict_module.PATIENT_BASELINES:
+                predict_module.PATIENT_BASELINES[pid] = {}
+            for b in baselines:
+                vname = b.get('vital_name')
+                if vname:
+                    predict_module.PATIENT_BASELINES[pid][vname] = {
+                        "flag_count": int(b.get('flag_count', 0)),
+                        "mean": float(b['mean_value']) if b.get('mean_value') is not None else None,
+                        "upper": float(b['upper_bound']) if b.get('upper_bound') is not None else None,
+                        "lower": float(b['lower_bound']) if b.get('lower_bound') is not None else None,
+                        "flagged_values": b.get('flagged_values') or []
+                    }
+
         result = predict(
-            patient_id=str(input_data.get('patient_id', 'P001')),
+            patient_id=pid,
             heart_rate=float(input_data.get('heart_rate', 0)),
             temperature=float(input_data.get('temperature', 36.5)),
             spo2=float(input_data.get('spo2', 97)),

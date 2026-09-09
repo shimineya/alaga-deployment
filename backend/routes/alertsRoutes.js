@@ -2,9 +2,22 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { flagAsNormal } = require('../services/alagarAIService');
 
 // Secure all routes with JWT verification
 router.use(verifyToken);
+
+// [HIPAA / Data Privacy] Enforce Role-Based Scoping: System Administrators are restricted from Alerts
+router.use((req, res, next) => {
+    const role = req.user?.role?.toLowerCase() || '';
+    if (['sysadmin', 'system_admin', 'admin'].includes(role) || req.user?.is_sysadmin) {
+        return res.status(403).json({
+            success: false,
+            message: 'Access to alerts is restricted for system administrators. Clinical monitoring is reserved for caregivers and facility staff.'
+        });
+    }
+    next();
+});
 
 // Helper: Sanitize/anonymize patient names in notification messages for System Administrators (HIPAA/DPA compliance)
 function anonymizeMessageForSysAdmin(message, realName, patientId) {
@@ -75,10 +88,19 @@ router.get('/clinical', async (req, res) => {
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
                        a.acknowledged_by, a.acknowledged_at, a.action_taken,
                        p.patient_id, p.name as patient_name,
-                       e.anomaly_type, e.ocsvm_score
+                       e.anomaly_type, e.ocsvm_score,
+                       COALESCE(pb.flag_count, pb2.flag_count, 0) as flag_count
                 FROM alert_notifications a
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = p.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = p.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
                 WHERE a.status IS DISTINCT FROM 'Archived'
                   AND p.is_archived IS DISTINCT FROM TRUE
             `;
@@ -93,10 +115,19 @@ router.get('/clinical', async (req, res) => {
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
                        a.acknowledged_by, a.acknowledged_at, a.action_taken,
                        p.patient_id, p.name as patient_name,
-                       e.anomaly_type, e.ocsvm_score
+                       e.anomaly_type, e.ocsvm_score,
+                       COALESCE(pb.flag_count, pb2.flag_count, 0) as flag_count
                 FROM alert_notifications a
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = p.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = p.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
                 WHERE a.status IS DISTINCT FROM 'Archived'
                   AND p.is_archived IS DISTINCT FROM TRUE
                   AND (
@@ -135,10 +166,19 @@ router.get('/clinical', async (req, res) => {
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
                        a.acknowledged_by, a.acknowledged_at, a.action_taken,
                        p.patient_id, p.name as patient_name,
-                       e.anomaly_type, e.ocsvm_score
+                       e.anomaly_type, e.ocsvm_score,
+                       COALESCE(pb.flag_count, pb2.flag_count, 0) as flag_count
                 FROM alert_notifications a
                 JOIN anomaly_events e ON a.event_id = e.event_id
                 JOIN patients p ON e.patient_id = p.patient_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = p.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = p.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
                 WHERE a.status IS DISTINCT FROM 'Archived'
                   AND p.is_archived IS DISTINCT FROM TRUE
                   AND p.patient_id IN (
@@ -158,19 +198,27 @@ router.get('/clinical', async (req, res) => {
         const isSysAdmin = ['sysadmin', 'system_admin'].includes(role?.toLowerCase());
         const result = await pool.query(query, params);
         const data = result.rows.map(r => {
+            const flagCount = parseInt(r.flag_count || 0, 10);
+            const remainingFlags = Math.max(0, 5 - flagCount);
+            const baseObj = {
+                ...r,
+                flag_count: flagCount,
+                remaining_flags: remainingFlags,
+                is_suppressed: flagCount >= 5
+            };
             if (isSysAdmin) {
                 const anonId = r.patient_id ? `Subject #${r.patient_id} (De-identified)` : 'De-identified Subject';
                 const sanitizedMsg = r.patient_name && r.patient_id 
                     ? anonymizeMessageForSysAdmin(r.message, r.patient_name, r.patient_id) 
                     : r.message;
                 return {
-                    ...r,
+                    ...baseObj,
                     patient_name: anonId,
                     message: sanitizedMsg,
                     is_anonymized: true
                 };
             }
-            return r;
+            return baseObj;
         });
         res.json({ success: true, data });
     } catch (err) {
@@ -274,6 +322,205 @@ router.put('/clinical/:id/acknowledge', async (req, res) => {
         res.status(500).json({ success: false, message: 'Server Error during acknowledgment' });
     }
 });
+
+// ==========================================
+// 2.1 POST /clinical/:id/flag-normal
+// Allows caregivers to flag an alert's pattern as normal.
+// After 5 flags, updates the baseline and suppresses future identical alerts.
+// ==========================================
+router.post('/clinical/:id/flag-normal', async (req, res) => {
+    try {
+        const alertId = parseInt(req.params.id);
+        const userId = req.user.id;
+        const clientIp = req.ip || req.connection.remoteAddress;
+
+        // Fetch the alert with anomaly event and patient details
+        const alertQuery = await pool.query(
+            `SELECT a.alert_id, a.message, a.severity, a.status,
+                    e.anomaly_type, e.patient_id, e.reading_id,
+                    p.name as patient_name
+             FROM alert_notifications a
+             JOIN anomaly_events e ON a.event_id = e.event_id
+             JOIN patients p ON e.patient_id = p.patient_id
+             WHERE a.alert_id = $1`,
+            [alertId]
+        );
+
+        if (alertQuery.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Alert not found.' });
+        }
+
+        const alert = alertQuery.rows[0];
+        const patientId = alert.patient_id;
+        const anomalyType = alert.anomaly_type || 'unknown_anomaly';
+
+        // Determine vital name and initial value
+        let vitalName = anomalyType;
+        let vitalValue = null;
+
+        if (alert.reading_id) {
+            const readingRes = await pool.query(
+                `SELECT heart_rate, temperature, spo2, moisture FROM sensor_readings WHERE reading_id = $1`,
+                [alert.reading_id]
+            ).catch(() => ({ rowCount: 0, rows: [] }));
+
+            if (readingRes.rowCount > 0) {
+                const r = readingRes.rows[0];
+                if (anomalyType.includes('heart_rate')) {
+                    vitalName = 'heart_rate';
+                    vitalValue = parseFloat(r.heart_rate);
+                } else if (anomalyType.includes('temp')) {
+                    vitalName = 'temperature';
+                    vitalValue = parseFloat(r.temperature);
+                } else if (anomalyType.includes('spo2')) {
+                    vitalName = 'spo2';
+                    vitalValue = parseFloat(r.spo2);
+                } else if (anomalyType.includes('moisture')) {
+                    vitalName = 'moisture';
+                    vitalValue = parseFloat(r.moisture);
+                }
+            }
+        }
+
+        if (vitalValue === null && alert.message) {
+            const numMatch = alert.message.match(/(\d+(\.\d+)?)/);
+            if (numMatch) {
+                vitalValue = parseFloat(numMatch[1]);
+            }
+        }
+
+        if (anomalyType.includes('heart_rate') && vitalName !== 'heart_rate') vitalName = 'heart_rate';
+        if (anomalyType.includes('temp') && vitalName !== 'temperature') vitalName = 'temperature';
+        if (anomalyType.includes('spo2') && vitalName !== 'spo2') vitalName = 'spo2';
+        if (anomalyType.includes('moisture') && vitalName !== 'moisture') vitalName = 'moisture';
+
+        const toleranceMap = {
+            heart_rate: 10.0,
+            temperature: 0.5,
+            spo2: 2.0,
+            moisture: 0.0
+        };
+
+        // Query existing baseline for this patient and vital
+        const existingRes = await pool.query(
+            `SELECT flag_count, flagged_values, mean_value, upper_bound, lower_bound 
+             FROM patient_baselines 
+             WHERE patient_id = $1 AND vital_name = $2`,
+            [patientId, vitalName]
+        );
+
+        let newFlagCount = 1;
+        let flaggedValues = vitalValue !== null ? [vitalValue] : [1];
+        let meanVal = vitalValue;
+        let upperVal = vitalValue !== null ? parseFloat((vitalValue + (toleranceMap[vitalName] || 5.0)).toFixed(2)) : null;
+        let lowerVal = vitalValue !== null ? parseFloat((vitalValue - (toleranceMap[vitalName] || 5.0)).toFixed(2)) : null;
+
+        if (existingRes.rowCount > 0) {
+            const row = existingRes.rows[0];
+            newFlagCount = (parseInt(row.flag_count, 10) || 0) + 1;
+            const existingList = Array.isArray(row.flagged_values) ? row.flagged_values : [];
+            if (vitalValue !== null) {
+                existingList.push(vitalValue);
+            }
+            flaggedValues = existingList;
+            const numericVals = flaggedValues.filter(v => typeof v === 'number');
+            if (numericVals.length > 0) {
+                const sum = numericVals.reduce((a, b) => a + b, 0);
+                meanVal = parseFloat((sum / numericVals.length).toFixed(2));
+                const tol = toleranceMap[vitalName] || 5.0;
+                upperVal = parseFloat((meanVal + tol).toFixed(2));
+                lowerVal = parseFloat((meanVal - tol).toFixed(2));
+            }
+        }
+
+        // Upsert into patient_baselines
+        await pool.query(
+            `INSERT INTO patient_baselines 
+                 (patient_id, vital_name, flag_count, flagged_values, mean_value, upper_bound, lower_bound, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             ON CONFLICT (patient_id, vital_name) DO UPDATE
+             SET flag_count = $3,
+                 flagged_values = $4,
+                 mean_value = $5,
+                 upper_bound = $6,
+                 lower_bound = $7,
+                 updated_at = NOW()`,
+            [patientId, vitalName, newFlagCount, JSON.stringify(flaggedValues), meanVal, upperVal, lowerVal]
+        );
+
+        // Also track anomalyType in patient_baselines if different from vitalName
+        if (anomalyType && anomalyType !== vitalName) {
+            await pool.query(
+                `INSERT INTO patient_baselines 
+                     (patient_id, vital_name, flag_count, flagged_values, mean_value, upper_bound, lower_bound, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                 ON CONFLICT (patient_id, vital_name) DO UPDATE
+                 SET flag_count = $3,
+                     flagged_values = $4,
+                     mean_value = $5,
+                     upper_bound = $6,
+                     lower_bound = $7,
+                     updated_at = NOW()`,
+                [patientId, anomalyType, newFlagCount, JSON.stringify(flaggedValues), meanVal, upperVal, lowerVal]
+            ).catch(() => {});
+        }
+
+        // Also notify python AI service if standard vital
+        if (vitalValue !== null && ['heart_rate', 'temperature', 'spo2'].includes(vitalName)) {
+            flagAsNormal(String(patientId), vitalName, vitalValue).catch(() => {});
+        }
+
+        const remainingFlags = Math.max(0, 5 - newFlagCount);
+
+        // If reached 5 flags, auto-acknowledge this alert
+        if (newFlagCount >= 5) {
+            await pool.query(
+                `UPDATE alert_notifications
+                 SET status = 'Acknowledged',
+                     action_taken = 'AI Baseline Updated - Flagged as Normal (5/5). Pattern learned and future alerts suppressed.',
+                     acknowledged_by = $1,
+                     acknowledged_at = NOW()
+                 WHERE alert_id = $2 AND status != 'Acknowledged'`,
+                [userId, alertId]
+            ).catch(() => {});
+        }
+
+        // Audit log for HIPAA/DPA
+        await pool.query(
+            `INSERT INTO access_logs 
+                 (user_id, target_patient_id, action, ip_address, severity, status, details)
+             VALUES ($1, $2, 'FLAG_ALERT_AS_NORMAL', $3, 'INFO', 'SUCCESS', $4)`,
+            [
+                userId,
+                patientId,
+                clientIp,
+                JSON.stringify({
+                    alert_id: alertId,
+                    vital: vitalName,
+                    anomaly_type: anomalyType,
+                    flag_count: newFlagCount,
+                    remaining_flags: remainingFlags
+                })
+            ]
+        ).catch(() => {});
+
+        const conditionMessage = newFlagCount >= 5
+            ? "The AI model has learned this patient's pattern. Baseline updated (0 more flags needed). Alerts for this pattern are now suppressed."
+            : `The AI model learns from the patient's pattern. Modifying it's baseline needs to be learned repeatedly. (${remainingFlags} more flags needed)`;
+
+        return res.json({
+            success: true,
+            message: conditionMessage,
+            flag_count: newFlagCount,
+            remaining_flags: remainingFlags,
+            suppressed: newFlagCount >= 5
+        });
+    } catch (err) {
+        console.error("Flag Alert As Normal Error:", err.message);
+        res.status(500).json({ success: false, message: 'Server error while flagging alert.' });
+    }
+});
+
 
 // ==========================================
 // 3. GET /system - Fetch IoT/Hardware Alerts

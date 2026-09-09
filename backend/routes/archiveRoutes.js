@@ -31,7 +31,23 @@ router.get('/', async (req, res) => {
                 ORDER BY a.archived_at DESC
             `;
             const result = await pool.query(query);
-            res.json({ success: true, data: result.rows });
+            // [HIPAA / Data Privacy] De-identify patient names for System Admin: replace with Patient #<ID>
+            const sanitizedRows = result.rows.map(row => {
+                if (row.entity_type === 'Patient') {
+                    return {
+                        ...row,
+                        target_name: `Patient #${row.target_id}`
+                    };
+                }
+                if (row.entity_type === 'Clinical Alert' && row.target_name) {
+                    return {
+                        ...row,
+                        target_name: row.target_name.replace(/^[^-]+ - (Clinical Alert|Clinical:)/i, `Patient #${row.target_id} - $1`)
+                    };
+                }
+                return row;
+            });
+            res.json({ success: true, data: sanitizedRows });
         } else {
             // Facility admin - fetch user's facility ID from DB first
             const userCheck = await pool.query('SELECT facility_id, role FROM users WHERE user_id = $1', [userId]);
@@ -166,12 +182,21 @@ router.post('/:archiveId/unarchive', async (req, res) => {
         // Delete from archives
         await client.query('DELETE FROM archives WHERE archive_id = $1', [archiveId]);
 
-        // Log audit trail
-        await client.query(
-            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, 'UNARCHIVE_ENTITY', $2, 'INFO')`,
-            [userId, `Unarchived ${archive.entity_type} (ID/Serial: ${archive.target_id}) - ${archive.target_name}`]
-        );
+        // Log audit trail (safe savepoint so audit logging issues never abort restore)
+        try {
+            await client.query('SAVEPOINT audit_sp');
+            const uCheck = await client.query('SELECT user_id FROM users WHERE user_id = $1', [userId]);
+            const validActorId = uCheck.rows.length > 0 ? userId : null;
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'UNARCHIVE_ENTITY', $2, 'INFO')`,
+                [validActorId, `Unarchived ${archive.entity_type} (ID/Serial: ${archive.target_id}) - ${archive.target_name || ''}`]
+            );
+            await client.query('RELEASE SAVEPOINT audit_sp');
+        } catch (auditErr) {
+            await client.query('ROLLBACK TO SAVEPOINT audit_sp');
+            console.warn('[ARCHIVE] Audit log write warning during unarchive:', auditErr.message);
+        }
 
         await client.query('COMMIT');
         res.json({ success: true, message: `${archive.entity_type} has been successfully restored.` });
@@ -325,12 +350,21 @@ router.delete('/:archiveId', async (req, res) => {
         // Delete from archives table
         await client.query('DELETE FROM archives WHERE archive_id = $1', [archiveId]);
 
-        // Log audit trail
-        await client.query(
-            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
-             VALUES ($1, 'HARD_DELETE_ENTITY', $2, 'CRITICAL')`,
-            [userId, `Hard deleted ${archive.entity_type} (ID/Serial: ${archive.target_id}) - ${archive.target_name} permanently`]
-        );
+        // Log audit trail (safe savepoint so audit logging issues never abort delete)
+        try {
+            await client.query('SAVEPOINT audit_sp');
+            const uCheck = await client.query('SELECT user_id FROM users WHERE user_id = $1', [userId]);
+            const validActorId = uCheck.rows.length > 0 ? userId : null;
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+                 VALUES ($1, 'HARD_DELETE_ENTITY', $2, 'CRITICAL')`,
+                [validActorId, `Hard deleted ${archive.entity_type} (ID/Serial: ${archive.target_id}) - ${archive.target_name || ''} permanently`]
+            );
+            await client.query('RELEASE SAVEPOINT audit_sp');
+        } catch (auditErr) {
+            await client.query('ROLLBACK TO SAVEPOINT audit_sp');
+            console.warn('[ARCHIVE] Audit log write warning during delete:', auditErr.message);
+        }
 
         await client.query('COMMIT');
         res.json({ success: true, message: `${archive.entity_type} has been permanently deleted.` });

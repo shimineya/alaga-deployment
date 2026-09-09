@@ -150,10 +150,10 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         'rbac_management':         isAdminTier,
 
         // --- Alerts Hub ---
-        // AlertsHub: canSeeLiveAlerts = isFacilityAdmin || isClinical || isAdminTier
-        //            canSeeConfig     = isFacilityAdmin || isAdminTier
-        'alerts':                  isFacilityAdmin || isClinical || isAdminTier,
-        'alert-config':            isFacilityAdmin || isAdminTier,
+        // AlertsHub: canSeeLiveAlerts = (isFacilityAdmin || isClinical) && !isAdminTier
+        //            canSeeConfig     = isFacilityAdmin && !isAdminTier
+        'alerts':                  (isFacilityAdmin || isClinical) && !isAdminTier,
+        'alert-config':            isFacilityAdmin && !isAdminTier,
 
         // --- Reports Hubs ---
         // Clinical Reports (PHI): accessible strictly to Facility Admin, Medical Staff, and System Admin

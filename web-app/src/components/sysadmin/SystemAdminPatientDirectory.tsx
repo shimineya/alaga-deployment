@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Search, UserPlus, Trash2, Edit, Check, ShieldAlert, Users, Layers, Mail, Calendar, UserCheck } from 'lucide-react';
+import { Search, UserPlus, Trash2, Edit, Check, ShieldAlert, Users, Layers, Mail, Calendar, UserCheck, Activity, BellOff } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
 
@@ -20,6 +20,7 @@ interface ScopedPatient {
         bed?: string;
     };
     created_at: string;
+    is_monitoring_disabled?: boolean;
     facility_name: string | null;
     device_serial_number: string | null;
     paired_devices: {
@@ -276,6 +277,35 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
         }
     };
 
+    // Toggle patient monitoring
+    const handleToggleMonitoring = async (patient: ScopedPatient) => {
+        const isDisabling = !patient.is_monitoring_disabled;
+        const confirmMsg = isDisabling
+            ? `Disable live telemetry monitoring for ${patient.name}? Active clinical alerts will be paused.`
+            : `Re-enable live telemetry monitoring for ${patient.name}?`;
+        
+        if (!confirm(confirmMsg)) return;
+
+        const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
+        try {
+            const res = await fetch(`${targetApi}/patients/${patient.patient_id}/toggle-monitoring`, {
+                method: 'PATCH',
+                headers: getAuth(),
+                body: JSON.stringify({ is_monitoring_disabled: isDisabling })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || `Monitoring ${isDisabling ? 'disabled' : 'enabled'} for ${patient.name}.`);
+                fetchAssigned();
+                fetchUnassigned();
+            } else {
+                toast.error(data.message || "Failed to update monitoring status");
+            }
+        } catch {
+            toast.error("Network error updating monitoring status");
+        }
+    };
+
     // Filters
     const filteredAssigned = assignedPatients.filter(p => {
         const query = assignedSearch.toLowerCase();
@@ -397,7 +427,18 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                              #{p.patient_id}
                                                          </td>
                                                          <td className="px-4 py-3 font-bold text-slate-900">
-                                                             {p.name}
+                                                             <div className="flex items-center gap-1.5 flex-wrap">
+                                                                 <span>{p.name}</span>
+                                                                 {p.is_monitoring_disabled ? (
+                                                                     <Badge className="bg-amber-50 text-amber-700 border border-amber-200/80 font-semibold text-[9px] px-1.5 py-0 shadow-none">
+                                                                         Monitoring Paused
+                                                                     </Badge>
+                                                                 ) : (
+                                                                     <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-semibold text-[9px] px-1.5 py-0 shadow-none">
+                                                                         Monitoring Active
+                                                                     </Badge>
+                                                                 )}
+                                                             </div>
                                                          </td>
                                                          <td className="px-4 py-3">
                                                              <Badge className="bg-slate-100 text-slate-800 border-none font-semibold text-[10px]">
@@ -443,24 +484,41 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                          </td>
                                                          {canManage && (
                                                              <td className="px-4 py-3 text-right">
-                                                                 <div className="flex justify-end gap-1.5">
-                                                                     <Button
-                                                                         variant="outline"
-                                                                         size="icon"
-                                                                         onClick={() => handleStartEdit(p)}
-                                                                         className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-                                                                     >
-                                                                         <Edit className="w-3.5 h-3.5 text-slate-500" />
-                                                                     </Button>
-                                                                     <Button
-                                                                         variant="outline"
-                                                                         size="icon"
-                                                                         onClick={() => handleArchivePatient(p.patient_id)}
-                                                                         className="w-7 h-7 border-slate-200 hover:border-red-300 hover:bg-red-50 cursor-pointer"
-                                                                     >
-                                                                         <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" />
-                                                                     </Button>
-                                                                 </div>
+                                                                  <div className="flex justify-end gap-1.5">
+                                                                      <Button
+                                                                          variant="outline"
+                                                                          size="icon"
+                                                                          onClick={() => handleToggleMonitoring(p)}
+                                                                          title={p.is_monitoring_disabled ? "Enable Live Monitoring" : "Disable Live Monitoring"}
+                                                                          className={`w-7 h-7 border cursor-pointer transition-colors ${
+                                                                              p.is_monitoring_disabled 
+                                                                                  ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-700' 
+                                                                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-teal-600'
+                                                                          }`}
+                                                                      >
+                                                                          {p.is_monitoring_disabled ? (
+                                                                              <BellOff className="w-3.5 h-3.5 text-amber-600" />
+                                                                          ) : (
+                                                                              <Activity className="w-3.5 h-3.5 text-teal-600" />
+                                                                          )}
+                                                                      </Button>
+                                                                      <Button
+                                                                          variant="outline"
+                                                                          size="icon"
+                                                                          onClick={() => handleStartEdit(p)}
+                                                                          className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                                                                      >
+                                                                          <Edit className="w-3.5 h-3.5 text-slate-500" />
+                                                                      </Button>
+                                                                      <Button
+                                                                          variant="outline"
+                                                                          size="icon"
+                                                                          onClick={() => handleArchivePatient(p.patient_id)}
+                                                                          className="w-7 h-7 border-slate-200 hover:border-red-300 hover:bg-red-50 cursor-pointer"
+                                                                      >
+                                                                          <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" />
+                                                                      </Button>
+                                                                  </div>
                                                              </td>
                                                          )}
                                                      </tr>
@@ -552,7 +610,18 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                             #{p.patient_id}
                                                         </td>
                                                         <td className="px-4 py-3 font-bold text-slate-900">
-                                                            {p.name}
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                 <span>{p.name}</span>
+                                                                 {p.is_monitoring_disabled ? (
+                                                                     <Badge className="bg-amber-50 text-amber-700 border border-amber-200/80 font-semibold text-[9px] px-1.5 py-0 shadow-none">
+                                                                         Monitoring Paused
+                                                                     </Badge>
+                                                                 ) : (
+                                                                     <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-semibold text-[9px] px-1.5 py-0 shadow-none">
+                                                                         Monitoring Active
+                                                                     </Badge>
+                                                                 )}
+                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <Badge className="bg-slate-100 text-slate-800 border-none font-semibold text-[10px]">
@@ -607,6 +676,23 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
                                                             <div className="flex justify-end gap-1.5">
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="icon"
+                                                                    onClick={() => handleToggleMonitoring(p)}
+                                                                    title={p.is_monitoring_disabled ? "Enable Live Monitoring" : "Disable Live Monitoring"}
+                                                                    className={`w-7 h-7 border cursor-pointer transition-colors ${
+                                                                        p.is_monitoring_disabled 
+                                                                            ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-700' 
+                                                                            : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-teal-600'
+                                                                    }`}
+                                                                >
+                                                                    {p.is_monitoring_disabled ? (
+                                                                        <BellOff className="w-3.5 h-3.5 text-amber-600" />
+                                                                    ) : (
+                                                                        <Activity className="w-3.5 h-3.5 text-teal-600" />
+                                                                    )}
+                                                                </Button>
                                                                 <Button
                                                                     variant="outline"
                                                                     size="icon"

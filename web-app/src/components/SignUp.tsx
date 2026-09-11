@@ -284,6 +284,9 @@ export const SignUp: React.FC = () => {
                   value={formData.mobileNumber} 
                   onChange={(e) => handleChange('mobileNumber', e.target.value)} 
                 />
+                <p className="text-[10px] text-slate-500 leading-tight">
+                  This will be used for multifactor authentication.
+                </p>
               </div>
             </div>
 

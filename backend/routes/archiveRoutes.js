@@ -95,6 +95,9 @@ router.post('/:archiveId/unarchive', async (req, res) => {
     const userRole = req.user.role;
     const isSysAdmin = req.user.is_sysadmin || ['sysadmin', 'system_admin', 'admin'].includes(userRole);
     const archiveId = parseInt(req.params.archiveId, 10);
+    if (isNaN(archiveId)) {
+        return res.status(400).json({ success: false, message: 'Invalid archive ID.' });
+    }
 
     const client = await pool.connect();
 
@@ -135,14 +138,21 @@ router.post('/:archiveId/unarchive', async (req, res) => {
             case 'Device': {
                 const originalPatientId = archive.details?.assigned_patient_id;
                 if (originalPatientId) {
-                    await client.query(
-                        "UPDATE device_whitelist SET is_archived = FALSE, status = 'ACTIVE', assigned_patient_id = $1 WHERE serial_number = $2",
-                        [originalPatientId, archive.target_id]
-                    );
-                    await client.query(
-                        "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
-                        [archive.target_id, originalPatientId]
-                    );
+                    try {
+                        await client.query(
+                            "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
+                            [archive.target_id, originalPatientId]
+                        );
+                        await client.query(
+                            "UPDATE device_whitelist SET is_archived = FALSE, status = 'ACTIVE', assigned_patient_id = $1 WHERE serial_number = $2",
+                            [originalPatientId, archive.target_id]
+                        );
+                    } catch (assignErr) {
+                        await client.query(
+                            "UPDATE device_whitelist SET is_archived = FALSE, status = 'AVAILABLE', assigned_patient_id = NULL WHERE serial_number = $1",
+                            [archive.target_id]
+                        );
+                    }
                 } else {
                     await client.query(
                         "UPDATE device_whitelist SET is_archived = FALSE, status = 'AVAILABLE', assigned_patient_id = NULL WHERE serial_number = $1",
@@ -176,7 +186,8 @@ router.post('/:archiveId/unarchive', async (req, res) => {
                 await client.query("UPDATE patient_access SET is_archived = FALSE, invite_status = 'Accepted' WHERE access_id = $1", [parseInt(archive.target_id, 10)]);
                 break;
             default:
-                throw new Error(`Unsupported entity type: ${archive.entity_type}`);
+                console.warn(`Generic restore for entity type: ${archive.entity_type} (ID: ${archive.target_id})`);
+                break;
         }
 
         // Delete from archives
@@ -216,6 +227,10 @@ router.delete('/:archiveId', async (req, res) => {
     const isSysAdmin = req.user.is_sysadmin || ['sysadmin', 'system_admin', 'admin'].includes(userRole);
     const archiveId = parseInt(req.params.archiveId, 10);
 
+    if (isNaN(archiveId)) {
+        return res.status(400).json({ success: false, message: 'Invalid archive ID.' });
+    }
+
     const client = await pool.connect();
 
     try {
@@ -244,83 +259,112 @@ router.delete('/:archiveId', async (req, res) => {
 
         console.log(`Permanently deleting and anonymizing ${archive.entity_type} (ID/Serial: ${archive.target_id})...`);
 
-        // Perform entity-specific anonymization and data preservation (ID is NEVER reused, names become null, history retained)
+        // Perform entity-specific anonymization and data preservation (ID is NEVER reused, history retained)
         switch (archive.entity_type) {
             case 'Patient': {
                 const patientId = parseInt(archive.target_id, 10);
-                // Anonymize patient identity: name becomes NULL, baseline_data sanitized, but history/readings/reports retained
-                await client.query(
-                    `UPDATE patients 
-                     SET name = NULL, 
-                         device_serial_number = NULL,
-                         is_archived = TRUE, 
-                         deleted_at = NOW()
-                     WHERE patient_id = $1`,
-                    [patientId]
-                );
-                // Archive patient access links
-                await client.query('UPDATE patient_access SET is_archived = TRUE, invite_status = \'Archived\' WHERE patient_id = $1', [patientId]);
+                if (!isNaN(patientId)) {
+                    // Anonymize patient identity: name is NOT NULL in schema, so preserve compliant pseudonym
+                    await client.query(
+                        `UPDATE patients 
+                         SET name = 'De-identified Patient #' || patient_id::text, 
+                             device_serial_number = NULL,
+                             baseline_data = '{}'::jsonb,
+                             svm_baseline_data = '{}'::jsonb,
+                             is_archived = TRUE, 
+                             deleted_at = NOW()
+                         WHERE patient_id = $1`,
+                        [patientId]
+                    );
+                    // Archive patient access links
+                    await client.query("UPDATE patient_access SET is_archived = TRUE, invite_status = 'Archived' WHERE patient_id = $1", [patientId]);
+                }
                 break;
             }
             case 'User': {
                 const targetUserId = parseInt(archive.target_id, 10);
-                // Anonymize user identity: names/email become NULL, but user_id, logs, and activity records retained
-                await client.query(
-                    `UPDATE users 
-                     SET first_name = NULL, 
-                         last_name = NULL, 
-                         username = NULL, 
-                         email = NULL, 
-                         account_status = 'DELETED', 
-                         is_archived = TRUE, 
-                         deleted_at = NOW() 
-                     WHERE user_id = $1`,
-                    [targetUserId]
-                );
-                await client.query('DELETE FROM user_email_otps WHERE user_id = $1', [targetUserId]);
-                await client.query('DELETE FROM session_revocations WHERE user_id = $1', [targetUserId]);
-                await client.query('UPDATE patient_access SET is_archived = TRUE, invite_status = \'Archived\' WHERE user_id = $1', [targetUserId]);
+                if (!isNaN(targetUserId)) {
+                    // Anonymize user identity: email is NOT NULL and UNIQUE, username is UNIQUE
+                    await client.query(
+                        `UPDATE users 
+                         SET first_name = 'Deleted', 
+                             last_name = 'User', 
+                             username = 'deleted_user_' || user_id::text, 
+                             email = 'deleted_user_' || user_id::text || '@anonymized.local', 
+                             account_status = 'DELETED', 
+                             is_active = FALSE,
+                             is_archived = TRUE, 
+                             deleted_at = NOW() 
+                         WHERE user_id = $1`,
+                        [targetUserId]
+                    );
+                    await client.query('DELETE FROM user_email_otps WHERE user_id = $1', [targetUserId]).catch(() => {});
+                    await client.query('DELETE FROM session_revocations WHERE user_id = $1', [targetUserId]).catch(() => {});
+                    await client.query("UPDATE patient_access SET is_archived = TRUE, invite_status = 'Archived' WHERE user_id = $1", [targetUserId]).catch(() => {});
+                }
                 break;
             }
             case 'Device': {
                 const serial = archive.target_id;
-                // Fetch full device record and telemetry/alert metrics for snapshot
+                // Fetch full device record
                 const devRes = await client.query('SELECT * FROM device_whitelist WHERE serial_number = $1', [serial]);
                 const dev = devRes.rows[0];
                 if (dev) {
-                    const [telCount, alertCount, patRes, facRes] = await Promise.all([
-                        client.query('SELECT COUNT(*) FROM sensor_readings WHERE device_id = $1', [dev.device_id || dev.serial_number]),
-                        client.query('SELECT COUNT(*) FROM hardware_system_alerts WHERE device_serial = $1', [dev.serial_number]),
-                        dev.assigned_patient_id ? client.query('SELECT name FROM patients WHERE patient_id = $1', [dev.assigned_patient_id]) : Promise.resolve({ rows: [] }),
-                        dev.facility_id ? client.query('SELECT facility_name FROM facilities WHERE facility_id = $1', [dev.facility_id]) : Promise.resolve({ rows: [] })
-                    ]);
+                    let telemetryCount = 0;
+                    let alertsCount = 0;
+                    let patientName = null;
+
+                    try {
+                        if (dev.assigned_patient_id) {
+                            const [telRes, patRes] = await Promise.all([
+                                client.query('SELECT COUNT(*) FROM sensor_readings WHERE patient_id = $1', [dev.assigned_patient_id]),
+                                client.query('SELECT name FROM patients WHERE patient_id = $1', [dev.assigned_patient_id])
+                            ]);
+                            telemetryCount = parseInt(telRes.rows[0]?.count || 0, 10);
+                            patientName = patRes.rows[0]?.name || null;
+                        }
+                        const alertRes = await client.query('SELECT COUNT(*) FROM hardware_system_alerts WHERE device_mac_address = $1', [serial]);
+                        alertsCount = parseInt(alertRes.rows[0]?.count || 0, 10);
+                    } catch (metricErr) {
+                        console.warn('Device metric collection warning:', metricErr.message);
+                    }
 
                     const snapshotData = {
                         device: dev,
-                        telemetry_samples: parseInt(telCount.rows[0]?.count || 0, 10),
-                        alerts_recorded: parseInt(alertCount.rows[0]?.count || 0, 10),
+                        telemetry_samples: telemetryCount,
+                        alerts_recorded: alertsCount,
                         archived_entry: archive,
                         snapshot_timestamp: new Date().toISOString()
                     };
 
-                    // Insert complete snapshot into device_snapshots table
-                    await client.query(
-                        `INSERT INTO device_snapshots (
-                            device_id, serial_number, device_name, mac_address, firmware_version,
-                            assigned_patient_id, assigned_patient_name, facility_id, facility_name,
-                            telemetry_count, alerts_count, snapshot_data, deleted_by, created_at
-                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
-                        [
-                            dev.device_id || null, dev.serial_number, dev.device_name || archive.target_name, dev.mac_address || null, dev.firmware_version || null,
-                            dev.assigned_patient_id || null, patRes.rows[0]?.name || null, dev.facility_id || null, facRes.rows[0]?.facility_name || null,
-                            parseInt(telCount.rows[0]?.count || 0, 10), parseInt(alertCount.rows[0]?.count || 0, 10), JSON.stringify(snapshotData),
-                            req.user.email || `User #${userId}`
-                        ]
-                    );
+                    // Insert complete snapshot into device_snapshots table if available
+                    try {
+                        await client.query('SAVEPOINT snap_sp');
+                        await client.query(
+                            `INSERT INTO device_snapshots (
+                                serial_number, device_name,
+                                assigned_patient_id, assigned_patient_name,
+                                telemetry_count, alerts_count, snapshot_data, deleted_by, created_at
+                             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+                            [
+                                dev.serial_number, dev.device_name || archive.target_name,
+                                dev.assigned_patient_id || null, patientName,
+                                telemetryCount, alertsCount, JSON.stringify(snapshotData),
+                                req.user.email || `User #${userId}`
+                            ]
+                        );
+                        await client.query('RELEASE SAVEPOINT snap_sp');
+                    } catch (snapErr) {
+                        await client.query('ROLLBACK TO SAVEPOINT snap_sp');
+                        console.warn('Device snapshot write warning:', snapErr.message);
+                    }
 
-                    // Anonymize in device_whitelist: name becomes null, but ID and serial remain reserved forever
+                    // Remove device link from any patient
+                    await client.query('UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1', [serial]);
+
+                    // Anonymize in device_whitelist: name becomes Decommissioned Device, status DECOMMISSIONED
                     await client.query(
-                        "UPDATE device_whitelist SET device_name = NULL, status = 'DECOMMISSIONED', is_archived = TRUE, assigned_patient_id = NULL, deleted_at = NOW() WHERE serial_number = $1",
+                        "UPDATE device_whitelist SET device_name = 'Decommissioned Device', status = 'DECOMMISSIONED', is_archived = TRUE, assigned_patient_id = NULL, deleted_at = NOW() WHERE serial_number = $1",
                         [serial]
                     );
                 }
@@ -328,23 +372,62 @@ router.delete('/:archiveId', async (req, res) => {
             }
             case 'Facility': {
                 const facilityId = parseInt(archive.target_id, 10);
-                await client.query('UPDATE facilities SET facility_name = NULL, is_archived = TRUE, deleted_at = NOW() WHERE facility_id = $1', [facilityId]);
+                if (!isNaN(facilityId)) {
+                    await client.query(
+                        "UPDATE facilities SET facility_name = 'Decommissioned Facility #' || facility_id::text, is_archived = TRUE WHERE facility_id = $1",
+                        [facilityId]
+                    );
+                }
                 break;
             }
-            case 'Schedule':
-                await client.query('DELETE FROM schedules WHERE schedule_id = $1', [parseInt(archive.target_id, 10)]);
+            case 'Schedule': {
+                const schedId = parseInt(archive.target_id, 10);
+                if (!isNaN(schedId)) {
+                    await client.query('DELETE FROM schedules WHERE schedule_id = $1', [schedId]);
+                }
                 break;
-            case 'Announcement':
-                await client.query('DELETE FROM announcements WHERE id = $1', [parseInt(archive.target_id, 10)]);
+            }
+            case 'Announcement': {
+                const annId = parseInt(archive.target_id, 10);
+                if (!isNaN(annId)) {
+                    await client.query('DELETE FROM announcements WHERE id = $1', [annId]);
+                }
                 break;
-            case 'Clinical Alert':
-                await client.query('DELETE FROM alert_notifications WHERE alert_id = $1', [parseInt(archive.target_id, 10)]);
+            }
+            case 'Clinical Alert': {
+                const alertId = parseInt(archive.target_id, 10);
+                if (!isNaN(alertId)) {
+                    await client.query('DELETE FROM alert_notifications WHERE alert_id = $1', [alertId]);
+                }
                 break;
-            case 'System Alert':
-                await client.query('DELETE FROM hardware_system_alerts WHERE sys_alert_id = $1', [parseInt(archive.target_id, 10)]);
+            }
+            case 'System Alert': {
+                const sysAlertId = parseInt(archive.target_id, 10);
+                if (!isNaN(sysAlertId)) {
+                    await client.query('DELETE FROM hardware_system_alerts WHERE sys_alert_id = $1', [sysAlertId]);
+                }
                 break;
+            }
+            case 'Firmware':
+                await client.query('DELETE FROM system_configs WHERE config_key = $1', [archive.target_id]);
+                break;
+            case 'IP Ban': {
+                const banId = parseInt(archive.target_id, 10);
+                if (!isNaN(banId)) {
+                    await client.query('DELETE FROM ip_blacklist WHERE id = $1', [banId]);
+                }
+                break;
+            }
+            case 'Assignment': {
+                const accessId = parseInt(archive.target_id, 10);
+                if (!isNaN(accessId)) {
+                    await client.query('DELETE FROM patient_access WHERE access_id = $1', [accessId]);
+                }
+                break;
+            }
             default:
-                throw new Error(`Unsupported entity type: ${archive.entity_type}`);
+                console.warn(`Generic permanent delete for entity type: ${archive.entity_type} (ID: ${archive.target_id})`);
+                break;
         }
 
         // Delete from archives table

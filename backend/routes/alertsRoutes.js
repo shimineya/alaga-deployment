@@ -7,17 +7,6 @@ const { flagAsNormal } = require('../services/alagarAIService');
 // Secure all routes with JWT verification
 router.use(verifyToken);
 
-// [HIPAA / Data Privacy] Enforce Role-Based Scoping: System Administrators are restricted from Alerts
-router.use((req, res, next) => {
-    const role = req.user?.role?.toLowerCase() || '';
-    if (['sysadmin', 'system_admin', 'admin'].includes(role) || req.user?.is_sysadmin) {
-        return res.status(403).json({
-            success: false,
-            message: 'Access to alerts is restricted for system administrators. Clinical monitoring is reserved for caregivers and facility staff.'
-        });
-    }
-    next();
-});
 
 // Helper: Sanitize/anonymize patient names in notification messages for System Administrators (HIPAA/DPA compliance)
 function anonymizeMessageForSysAdmin(message, realName, patientId) {

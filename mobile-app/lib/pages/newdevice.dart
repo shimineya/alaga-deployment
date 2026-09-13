@@ -12,7 +12,6 @@ class NewDeviceScreen extends StatefulWidget {
 }
 
 class _NewDeviceScreenState extends State<NewDeviceScreen> {
-  bool isManual = true;
   bool isDoubleDevice = true;
 
   // [FIX] Pre-fill the year prefix so users only enter the 4-digit suffix.
@@ -83,7 +82,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
     setState(() => _isSubmitting = true);
 
     final result = await ApiService.post(
-      '/caregiver/devices',
+      '/api/caregiver/devices',
       body: {
         if (vitalDeviceNo != null) 'vitalDeviceNo': vitalDeviceNo,
         if (diaperDeviceNo != null) 'diaperDeviceNo': diaperDeviceNo,
@@ -94,7 +93,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
     setState(() => _isSubmitting = false);
 
     if (result['success'] == true) {
-      _showSuccessDialog();
+      _showSuccessDialog(result);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -144,26 +143,39 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                 style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 16),
-            // [FIX] vital.png and diaper.png do not exist -- use built-in icons.
             ListTile(
-              leading: const Icon(Icons.monitor_heart_outlined,
-                  color: Color(0xFF5FA9A9), size: 28),
+              leading: Image.asset(
+                'assets/images/vital.png',
+                width: 28,
+                height: 28,
+                errorBuilder: (c, e, s) => const Icon(
+                    Icons.monitor_heart_outlined,
+                    color: Color(0xFF5FA9A9),
+                    size: 28),
+              ),
               title: Text("Vital Signs Monitor (VS)",
                   style: GoogleFonts.poppins(fontSize: 14)),
               subtitle: Text('e.g. VS-$_currentYear-0001',
-                  style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey)),
+                  style:
+                      GoogleFonts.albertSans(fontSize: 11, color: Colors.grey)),
               onTap: () {
                 Navigator.pop(context);
                 _addSingleDevice('VS');
               },
             ),
             ListTile(
-              leading: const Icon(Icons.child_care_outlined,
-                  color: Color(0xFF5FA9A9), size: 28),
+              leading: Image.asset(
+                'assets/images/diaper.png',
+                width: 28,
+                height: 28,
+                errorBuilder: (c, e, s) => const Icon(Icons.child_care_outlined,
+                    color: Color(0xFF5FA9A9), size: 28),
+              ),
               title: Text("Smart Diaper Module (SD)",
                   style: GoogleFonts.poppins(fontSize: 14)),
               subtitle: Text('e.g. SD-$_currentYear-0001',
-                  style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey)),
+                  style:
+                      GoogleFonts.albertSans(fontSize: 11, color: Colors.grey)),
               onTap: () {
                 Navigator.pop(context);
                 _addSingleDevice('SD');
@@ -175,7 +187,10 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
     );
   }
 
-  void _showSuccessDialog() {
+  void _showSuccessDialog(Map<String, dynamic> result) {
+    final rawTokens = result['provisioning_tokens'];
+    final tokens =
+        rawTokens is List ? rawTokens.whereType<Map>().toList() : <Map>[];
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -205,14 +220,37 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                     fontWeight: FontWeight.w600,
                     color: Colors.black),
               ),
+              if (tokens.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Text(
+                  'Enter each one-time provisioning token in the matching device setup portal. It will not be shown again.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.albertSans(
+                      fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                ...tokens.map((entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: SelectableText(
+                        '${entry['serial_number']}: ${entry['token']}',
+                        style: GoogleFonts.robotoMono(fontSize: 11),
+                      ),
+                    )),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('I saved the tokens'),
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.pop(context);
-    });
+    if (tokens.isEmpty) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+      });
+    }
   }
 
   @override
@@ -243,33 +281,13 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1)),
               const SizedBox(height: 25),
-
-              // Toggle Bar (Manual / Scan QR)
-              Container(
-                height: 54,
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                    color: const Color(0xFFD9D9D9),
-                    borderRadius: BorderRadius.circular(18)),
-                child: Row(
-                  children: [
-                    _buildToggleButton(true, 'keyboard', 'Manual'),
-                    _buildToggleButton(false, 'qr', 'Scan QR'),
-                  ],
-                ),
-              ),
+              _buildManualView(),
               const SizedBox(height: 40),
-
-              isManual ? _buildManualView() : _buildScanView(),
-
-              const SizedBox(height: 40),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _buildActionButton("Cancel",
-                      isPrimary: false,
-                      onTap: () => Navigator.pop(context)),
+                      isPrimary: false, onTap: () => Navigator.pop(context)),
                   const SizedBox(width: 50),
                   _buildActionButton("Register",
                       isPrimary: true, onTap: _validateAndRegister),
@@ -300,7 +318,8 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.5)),
+            border: Border.all(
+                color: const Color(0xFF5FA9A9).withValues(alpha: 0.5)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -309,7 +328,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    isDoubleDevice ? "DOUBLE DEVICE" : "SINGLE DEVICE",
+                    isDoubleDevice ? "PAIRED DEVICE" : "SINGLE DEVICE",
                     style: GoogleFonts.poppins(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -328,7 +347,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: true,
-                        child: Text("Double Device",
+                        child: Text("Paired Device",
                             style: GoogleFonts.poppins(fontSize: 13)),
                       ),
                       PopupMenuItem(
@@ -338,18 +357,19 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                       ),
                     ],
                     child: Image.asset(
-                    'assets/images/dropdown.png',
-                    width: 20,
-                    height: 20,
-                    color: Colors.black54,
-                    errorBuilder: (c, e, s) =>
-                        const Icon(Icons.arrow_drop_down, size: 20, color: Colors.black54),
-                  ),
+                      'assets/images/dropdown.png',
+                      width: 20,
+                      height: 20,
+                      color: Colors.black54,
+                      errorBuilder: (c, e, s) => const Icon(
+                          Icons.arrow_drop_down,
+                          size: 20,
+                          color: Colors.black54),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-
               if (isDoubleDevice) ...[
                 _buildInputLabel("Vital Signs Device No."),
                 _buildTextField(_vitalSignsCtrl,
@@ -384,12 +404,13 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                         ),
                         _buildTextField(ctrl,
                             errorText: device['error'],
-                            hint: type == 'VS' ? 'VS-$_currentYear-0001' : 'SD-$_currentYear-0001'),
+                            hint: type == 'VS'
+                                ? 'VS-$_currentYear-0001'
+                                : 'SD-$_currentYear-0001'),
                       ],
                     ),
                   );
                 }),
-
                 GestureDetector(
                   onTap: _showAddDeviceTypeDialog,
                   child: Padding(
@@ -408,42 +429,6 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildScanView() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.5)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.black12)),
-            child: Image.asset('assets/images/qr.png',
-                width: 40,
-                height: 40,
-                errorBuilder: (c, e, s) =>
-                    const Icon(Icons.qr_code_scanner, size: 40)),
-          ),
-          const SizedBox(height: 20),
-          Text("Scan Device Sticker",
-              style:
-                  GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Text("Upload a clear photo of the QR code\nfound on the back of the device.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.albertSans(fontSize: 14, color: Colors.black87)),
-          const SizedBox(height: 30),
-          _buildUploadButton(),
-        ],
-      ),
     );
   }
 
@@ -467,12 +452,13 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
               borderSide: BorderSide(
                   color: errorText != null
                       ? Colors.red
-                      : const Color(0xFF5FA9A9).withOpacity(0.3)),
+                      : const Color(0xFF5FA9A9).withValues(alpha: 0.3)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(30),
               borderSide: BorderSide(
-                  color: errorText != null ? Colors.red : const Color(0xFF5FA9A9),
+                  color:
+                      errorText != null ? Colors.red : const Color(0xFF5FA9A9),
                   width: 1.5),
             ),
           ),
@@ -487,74 +473,6 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
     );
   }
 
-  Widget _buildToggleButton(bool value, String icon, String label) {
-    bool isSelected = isManual == value;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() {
-          isManual = value;
-          _vsError = null;
-          _sdError = null;
-        }),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(15),
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset('assets/images/$icon.png',
-                  width: 20,
-                  color: isSelected ? const Color(0xFF5FA9A9) : Colors.black45,
-                  errorBuilder: (c, e, s) => Icon(
-                      value ? Icons.keyboard : Icons.qr_code_scanner,
-                      size: 20,
-                      color: isSelected
-                          ? const Color(0xFF5FA9A9)
-                          : Colors.black45)),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: isSelected
-                          ? const Color(0xFF5FA9A9)
-                          : Colors.black45)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUploadButton() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      decoration: BoxDecoration(
-          color: const Color(0xFFE0E8E8),
-          borderRadius: BorderRadius.circular(12),
-          border:
-              Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.5))),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset('assets/images/upload.png',
-              width: 20,
-              color: const Color(0xFF5FA9A9),
-              errorBuilder: (c, e, s) =>
-                  const Icon(Icons.upload, color: Color(0xFF5FA9A9))),
-          const SizedBox(width: 10),
-          Text("Upload Image",
-              style: GoogleFonts.poppins(
-                  color: const Color(0xFF5FA9A9),
-                  fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildActionButton(String label,
       {required bool isPrimary, required VoidCallback onTap}) {
     return SizedBox(
@@ -562,17 +480,24 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
       height: 48,
       child: isPrimary
           ? ElevatedButton(
-              onPressed: onTap,
+              onPressed: _isSubmitting ? null : onTap,
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF5FA9A9),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(25))),
-              child: Text(label,
-                  style: GoogleFonts.poppins(
-                      color: Colors.black, fontWeight: FontWeight.w600)))
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : Text(label,
+                      style: GoogleFonts.poppins(
+                          color: Colors.black, fontWeight: FontWeight.w600)))
           : OutlinedButton(
-              onPressed: onTap,
+              onPressed: _isSubmitting ? null : onTap,
               style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.black),
                   shape: RoundedRectangleBorder(
@@ -593,8 +518,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                 GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
         const TextSpan(
             text: " *",
-            style:
-                TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
       ])),
     );
   }

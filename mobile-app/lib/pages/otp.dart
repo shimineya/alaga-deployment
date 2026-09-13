@@ -35,12 +35,15 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
 
   bool _isLoading = false;
   bool _isResending = false;
-  bool _isEmailSelected = true;
 
   @override
   void dispose() {
-    for (var controller in _controllers) controller.dispose();
-    for (var node in _focusNodes) node.dispose();
+    for (var controller in _controllers) {
+      controller.dispose();
+    }
+    for (var node in _focusNodes) {
+      node.dispose();
+    }
     super.dispose();
   }
 
@@ -78,7 +81,7 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
 
     // [OWASP A05] Parameterized API call -- no string concatenation in the request.
     final result = await ApiService.post(
-      '/auth/verify-otp',
+      '/api/auth/verify-otp',
       body: {
         'user_id': widget.userId,
         'email': widget.email,
@@ -103,7 +106,8 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
       // Navigate to the registration success page
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const RegistrationSuccessPage()),
+        MaterialPageRoute(
+            builder: (context) => const RegistrationSuccessPage()),
       );
     } else {
       // [OWASP A10] Display the backend's error message.
@@ -127,7 +131,7 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
     setState(() => _isResending = true);
 
     final result = await ApiService.post(
-      '/auth/resend-otp',
+      '/api/auth/resend-otp',
       body: {
         'user_id': widget.userId,
         'email': widget.email,
@@ -152,10 +156,13 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
         content: Text(
           result['success'] == true
               ? 'A new verification code has been sent to your email.'
-              : (result['message'] ?? 'Failed to resend code. Please try again.'),
+              : (result['message'] ??
+                  'Failed to resend code. Please try again.'),
           style: GoogleFonts.albertSans(),
         ),
-        backgroundColor: result['success'] == true ? const Color(0xFF5FA9A9) : Colors.redAccent,
+        backgroundColor: result['success'] == true
+            ? const Color(0xFF5FA9A9)
+            : Colors.redAccent,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -170,16 +177,17 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
           SafeArea(
             bottom: false,
             child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 30),
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 26),
               child: Column(
                 children: [
-                  Image.asset('assets/images/alagahead.png', height: 90),
-                  const SizedBox(height: 12),
+                  Image.asset('assets/images/alagahead.png', height: 72),
+                  const SizedBox(height: 8),
                   Text(
                     'ALAGA',
                     style: GoogleFonts.poppins(
-                      fontSize: 24,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
                       color: Colors.black,
                     ),
                   ),
@@ -200,66 +208,54 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    _buildFolderTab("Email", true),
-                    _buildFolderTab("Phone", false),
-                  ],
-                ),
                 Expanded(
                   child: Container(
                     width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF5F5F0),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF5F5F0),
                       borderRadius: BorderRadius.only(
-                        topLeft: _isEmailSelected
-                            ? Radius.zero
-                            : const Radius.circular(30),
-                        topRight: _isEmailSelected
-                            ? const Radius.circular(30)
-                            : Radius.zero,
+                        topLeft: Radius.circular(30),
+                        topRight: Radius.circular(30),
                       ),
                     ),
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Column(
                         children: [
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 48),
                           Text(
-                            'OTP Verification',
+                            'Email OTP Verification',
                             style: GoogleFonts.poppins(
-                              fontSize: 28,
+                              fontSize: 24,
                               fontWeight: FontWeight.bold,
                               color: Colors.black,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            _isEmailSelected
-                                ? 'Enter the code sent to ${widget.email}.'
-                                : 'Enter the code sent to your contact number.',
+                          const Text(
+                            'Enter the code sent to your email address.',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'AlbertSans',
                               fontSize: 14,
                               color: Colors.black87,
                             ),
                           ),
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 34),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: List.generate(
                                 _otpLength, (index) => _buildOTPBox(index)),
                           ),
-                          const SizedBox(height: 60),
+                          const SizedBox(height: 52),
                           SizedBox(
-                            width: 220,
+                            width: 188,
                             child: ElevatedButton(
                               onPressed: _isLoading ? null : _verifyOTP,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF5FA9A9),
                                 padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(25)),
                                 elevation: 2,
@@ -274,7 +270,7 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
                                   : Text(
                                       'Verify',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 18,
+                                        fontSize: 16,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.black,
                                       ),
@@ -306,7 +302,8 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
                                           text: 'Resend.',
                                           style: TextStyle(
                                             fontWeight: FontWeight.bold,
-                                            decoration: TextDecoration.underline,
+                                            decoration:
+                                                TextDecoration.underline,
                                           ),
                                         ),
                                       ],
@@ -327,39 +324,10 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
     );
   }
 
-  Widget _buildFolderTab(String label, bool isEmailTab) {
-    bool isActive =
-        (isEmailTab && _isEmailSelected) || (!isEmailTab && !_isEmailSelected);
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _isEmailSelected = isEmailTab),
-        child: Container(
-          height: 55,
-          decoration: BoxDecoration(
-            color: isActive ? const Color(0xFFF5F5F0) : Colors.transparent,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(25),
-              topRight: Radius.circular(25),
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-              color: isActive ? Colors.black : Colors.white,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildOTPBox(int index) {
     return SizedBox(
-      width: 48,
-      height: 48,
+      width: 44,
+      height: 44,
       child: TextField(
         controller: _controllers[index],
         focusNode: _focusNodes[index],
@@ -367,7 +335,7 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
         keyboardType: TextInputType.number,
         maxLength: 1,
         style: GoogleFonts.poppins(
-          fontSize: 20,
+          fontSize: 18,
           fontWeight: FontWeight.bold,
         ),
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -377,12 +345,12 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
           fillColor: const Color(0xFFF5F5F0),
           contentPadding: EdgeInsets.zero,
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(50),
-            borderSide: const BorderSide(color: Colors.black54, width: 1.5),
+            borderRadius: BorderRadius.circular(22),
+            borderSide: const BorderSide(color: Colors.black54, width: 1.2),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(50),
-            borderSide: const BorderSide(color: Colors.black54, width: 2),
+            borderRadius: BorderRadius.circular(22),
+            borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 2),
           ),
         ),
         onChanged: (v) => _onCodeChanged(index, v),

@@ -29,6 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordCtrl = TextEditingController();
 
   bool _isLoading = false;
+  bool _isPasswordObscured = true;
 
   @override
   void dispose() {
@@ -37,18 +38,13 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // [INTEGRATION] Calls POST /api/auth/login with username/email and password.
-  // On success, persists the JWT session and navigates to the dashboard.
-  // On specific error codes, provides contextual feedback or redirects.
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
-    // [OWASP A05] Credentials are sent via the ApiService's parameterized JSON body.
-    // requiresAuth: false -- no JWT needed for login.
     final result = await ApiService.post(
-      '/auth/login',
+      '/api/auth/login',
       body: {
         'username': _usernameCtrl.text.trim(),
         'password': _passwordCtrl.text,
@@ -60,20 +56,17 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = false);
 
     if (result['success'] == true) {
-      // [OWASP A07] Persist the session securely using encrypted SharedPreferences.
       final session = UserSession.fromJson(result['user'], result['token']);
       await SessionManager.saveSession(session);
 
       if (!mounted) return;
 
-      // Navigate to dashboard, clearing the navigation stack
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const DashboardScreen()),
         (route) => false,
       );
     } else if (result['requiresOtp'] == true) {
-      // Account exists but email is not yet verified -- redirect to OTP page
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -85,11 +78,6 @@ class _LoginPageState extends State<LoginPage> {
         ),
       );
     } else {
-      // [OWASP A10] Display the backend's generic error message.
-      // The backend already handles specific cases:
-      // - 404: "User not found. Please register."
-      // - 401: "Incorrect password. Please try again."
-      // - 403: "Account is locked. Contact Admin."
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -104,8 +92,6 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _loginWithBiometrics() async {
-    // [OWASP A07] Step 1: Confirm the user explicitly opted in during registration
-    // or via Settings. Do NOT trigger the OS biometric dialog if they never enabled it.
     final isEnabled = await SessionManager.isBiometricEnabled();
 
     if (!mounted) return;
@@ -124,8 +110,6 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // Step 2: Load the biometric session snapshot BEFORE prompting the OS dialog.
-    // We need the stored username to validate against the typed field.
     final biometricSession = await SessionManager.loadBiometricSession();
 
     if (!mounted) return;
@@ -144,24 +128,12 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // Step 3: Account ownership check.
-    // [OWASP A01] Silently logging in as a different person when a mismatched
-    // username is typed is a Broken Access Control violation in a clinical system.
-    //
-    // - If the field is empty: auto-fill the stored account's username and proceed.
-    // - If the field matches the stored account: proceed normally.
-    // - If the field contains a DIFFERENT username: block and require password login
-    //   for that account. This prevents one user from using another's biometric token.
     final typedUsername = _usernameCtrl.text.trim();
 
     if (typedUsername.isEmpty) {
-      // Auto-fill the stored account's username so the user knows whose
-      // account they are about to log into via biometrics.
       setState(() => _usernameCtrl.text = biometricSession.username);
-    } else if (typedUsername.toLowerCase() != biometricSession.username.toLowerCase()) {
-      // The typed username does not match the account registered for biometric login.
-      // Do NOT trigger the OS prompt — doing so and silently logging in as the
-      // wrong person would be a patient data access violation.
+    } else if (typedUsername.toLowerCase() !=
+        biometricSession.username.toLowerCase()) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -178,7 +150,6 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // Step 4: Ownership confirmed. Prompt the OS biometric dialog.
     final authenticated = await _biometricService.authenticate(
       reason: 'Scan your fingerprint to log in as ${biometricSession.username}',
     );
@@ -186,12 +157,6 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (authenticated) {
-      // [TECHNICAL DEBT] The biometric scan unlocks the biometric session snapshot
-      // stored in ALAGA_BIOMETRIC_SESSION. This key is intentionally preserved
-      // across logout so biometrics work after the user signs out.
-      // In production, this token must be sent to POST /auth/validate-token
-      // to confirm it has not been revoked server-side before granting access.
-      // This is documented in the Recommendations chapter as a future upgrade.
       await SessionManager.saveSession(biometricSession);
       if (mounted) {
         Navigator.pushReplacement(
@@ -270,16 +235,19 @@ class _LoginPageState extends State<LoginPage> {
                     Text(
                       'Log In',
                       style: GoogleFonts.poppins(
-                        fontSize: 28, 
-                        fontWeight: FontWeight.w600, 
-                        color: Colors.black87
+                        fontSize: 28,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 4),
                     const Text(
                       'Enter your details to continue.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontFamily: 'AlbertSans', fontSize: 14, color: Colors.black),
+                      style: TextStyle(
+                          fontFamily: 'AlbertSans',
+                          fontSize: 14,
+                          color: Colors.black),
                     ),
                     const SizedBox(height: 30),
 
@@ -291,14 +259,30 @@ class _LoginPageState extends State<LoginPage> {
                           _buildInput(
                             controller: _usernameCtrl,
                             hint: 'Username',
-                            validator: (v) => (v == null || v.isEmpty) ? "" : null,
+                            validator: (v) =>
+                                (v == null || v.isEmpty) ? "" : null,
                           ),
                           const SizedBox(height: 16),
                           _buildInput(
                             controller: _passwordCtrl,
                             hint: 'Password',
-                            obscure: true,
-                            validator: (v) => (v == null || v.isEmpty) ? "" : null,
+                            obscure: _isPasswordObscured,
+                            validator: (v) =>
+                                (v == null || v.isEmpty) ? "" : null,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _isPasswordObscured
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                color: Colors.black87, // Darker icon color
+                                size: 22,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _isPasswordObscured = !_isPasswordObscured;
+                                });
+                              },
+                            ),
                           ),
                         ],
                       ),
@@ -372,7 +356,8 @@ class _LoginPageState extends State<LoginPage> {
                                 )
                               ],
                             ),
-                            child: Image.asset('assets/images/fingerprint.png', height: 40),
+                            child: Image.asset('assets/images/fingerprint.png',
+                                height: 40),
                           ),
                         ),
                       ],
@@ -384,7 +369,10 @@ class _LoginPageState extends State<LoginPage> {
                     RichText(
                       text: TextSpan(
                         text: "Don't have an account yet? ",
-                        style: const TextStyle(fontFamily: 'AlbertSans', fontSize: 14, color: Colors.black),
+                        style: const TextStyle(
+                            fontFamily: 'AlbertSans',
+                            fontSize: 14,
+                            color: Colors.black),
                         children: [
                           TextSpan(
                             text: 'Register.',
@@ -398,7 +386,8 @@ class _LoginPageState extends State<LoginPage> {
                               ..onTap = () {
                                 Navigator.pushReplacement(
                                   context,
-                                  MaterialPageRoute(builder: (_) => const RegisterPage()),
+                                  MaterialPageRoute(
+                                      builder: (_) => const RegisterPage()),
                                 );
                               },
                           ),
@@ -416,27 +405,35 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // UPDATED: Helper exactly matching the Registration Page styling
+  // UPDATED: Input widget matched to dark colors of CreateCredentialsPage
   Widget _buildInput({
     required TextEditingController controller,
     required String hint,
     bool obscure = false,
+    Widget? suffixIcon,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscure,
       validator: validator,
-      style: const TextStyle(fontFamily: 'AlbertSans', fontSize: 14, color: Colors.black87),
+      style: const TextStyle(
+          fontFamily: 'AlbertSans',
+          fontSize: 14,
+          color: Colors.black), // Darker typed text
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(fontFamily: 'AlbertSans', color: Colors.black38),
+        hintStyle: const TextStyle(
+            fontFamily: 'AlbertSans',
+            color: Colors.black54), // Darker hint text
         filled: true,
-        fillColor: const Color(0xFFF5F5F0), // Matches container for seamless look
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        fillColor: const Color(0xFFF5F5F0),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        suffixIcon: suffixIcon,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.black54, width: 1.2), // The correct gray outline
+          borderSide: const BorderSide(color: Colors.black54, width: 1.2),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),

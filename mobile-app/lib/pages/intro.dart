@@ -171,51 +171,60 @@ class _IntroContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      // Prevents vertical overflow on smaller screens
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset(
-            image,
-            height: imageHeight,
-            fit: BoxFit.contain,
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              // Forces the content to match screen height if it fits
+              minHeight: constraints.maxHeight, 
+            ),
+            child: IntrinsicHeight(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Spacer(), // Pushes content towards center
+                  
+                  Image.asset(
+                    image,
+                    height: imageHeight,
+                    fit: BoxFit.contain,
+                  ),
 
-          // Flexible gap so the layout adapts to available height
-          const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-          // Using GoogleFonts for Poppins titles
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-              color: Colors.black,
-              height: 1.2,
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                      height: 1.2,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Text(
+                    description,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'AlbertSans',
+                      fontSize: 14,
+                      color: Colors.black87,
+                      height: 1.6,
+                    ),
+                  ),
+
+                  const Spacer(), // Keeps content centered vertically
+                ],
+              ),
             ),
           ),
-
-          const SizedBox(height: 16),
-
-          // Using your working local 'AlbertSans' for description
-          Text(
-            description,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontFamily: 'AlbertSans',
-              fontSize: 14,
-              color: Colors.black87,
-              height: 1.6,
-            ),
-          ),
-
-          // Bottom padding so content never sits flush at the edge
-          const SizedBox(height: 16),
-        ],
-      ),
+        );
+      },
     );
   }
 }

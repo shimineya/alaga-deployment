@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dashboard.dart';
 
-class PrivacyPolicyScreen extends StatelessWidget {
-  const PrivacyPolicyScreen({super.key});
+import '../models/registration_data.dart';
+import 'terms.dart';
 
+class PrivacyPolicyScreen extends StatefulWidget {
+  final RegistrationData registrationData;
+
+  const PrivacyPolicyScreen({super.key, required this.registrationData});
+
+  @override
+  State<PrivacyPolicyScreen> createState() => _PrivacyPolicyScreenState();
+}
+
+class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -27,14 +36,14 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
               const SizedBox(height: 15),
 
-              // Title Section: Matches ToS Hierarchy
+              // Header
               Column(
                 children: [
                   Text(
                     "ALAGA",
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
-                      fontSize: 24, // Matches ToS
+                      fontSize: 24,
                       fontWeight: FontWeight.w600,
                       color: Colors.black,
                     ),
@@ -43,8 +52,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
                     "Privacy Policy",
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
-                      fontSize: 18, // Smaller than ALAGA
-                      fontWeight: FontWeight.w400, // Not bold
+                      fontSize: 18,
+                      fontWeight: FontWeight.w400,
                       color: Colors.black,
                     ),
                   ),
@@ -53,7 +62,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
               const SizedBox(height: 20),
 
-              // Scrollable Privacy Policy container
+              // Scrollable Text Container
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.all(16),
@@ -62,11 +71,11 @@ class PrivacyPolicyScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey.shade300),
                   ),
-                  child: SingleChildScrollView(
+                  child: const SingleChildScrollView(
                     child: Text(
                       _privacyPolicyText,
-                      style: const TextStyle(
-                        fontFamily: 'AlbertSans', // Font changed to Albert Sans
+                      style: TextStyle(
+                        fontFamily: 'AlbertSans',
                         fontSize: 12,
                         height: 1.6,
                         color: Colors.black87,
@@ -78,22 +87,19 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
               const SizedBox(height: 20),
 
-              // Buttons
+              // Action Buttons
               Row(
                 children: [
                   // Decline Button
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        debugPrint("❌ Privacy Policy declined");
-                        Navigator.pop(context);
-                      },
+                      onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.grey.shade400),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
                         ),
-                        side: BorderSide(color: Colors.grey.shade400),
                       ),
                       child: Text(
                         "Decline",
@@ -106,16 +112,17 @@ class PrivacyPolicyScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 16),
-                  
-                  // Accept Button - Teal Background restored
+
+                  // Accept Button -> Moves to ToSScreen passing registrationData
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () {
-                        debugPrint("✅ Privacy Policy accepted");
-                        Navigator.pushReplacement(
+                        Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const DashboardScreen(),
+                            builder: (_) => ToSScreen(
+                              registrationData: widget.registrationData,
+                            ),
                           ),
                         );
                       },
@@ -147,70 +154,35 @@ class PrivacyPolicyScreen extends StatelessWidget {
   }
 }
 
+// =======================
+// PRIVACY POLICY CONTENT
+// =======================
+
 const String _privacyPolicyText = """
-Last Updated: February 2026
+Last Updated: August 2026
 
-Pulsera Innovations ("We," "Us," or "Our") values your privacy and is committed to protecting your personal data. This Privacy Policy explains how ALAGA, an IoT-powered mobile application for patient care, collects, uses, discloses, and safeguards information when you use our mobile application, devices, and related services.
+Pulsera Innovations ("we," "our," or "us") is committed to protecting the privacy and personal data of our users ("you" or "User"). This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use the ALAGA mobile application, devices, and related services.
 
-By using ALAGA, you agree to the collection and use of information in accordance with this Privacy Policy.
+By using ALAGA, you agree to the collection and use of information in accordance with this Privacy Policy and applicable data privacy laws, including Republic Act No. 10173 (Data Privacy Act of 2012 of the Philippines).
 
 1. Information We Collect
-
-1.1 Personal Information
-• Full name
-• Email address
-• Contact information
-• User role
-• Login credentials (including biometric authentication data)
-
-Note: Biometric data is processed locally on your device and is not stored by ALAGA.
-
-1.2 Patient-Related Information
-• Age range and care-related details
-• Bed-wetting or moisture detection events
-• Vital sign data, depending on enabled features
-
-1.3 Device and Technical Information
-• Device identifiers
-• Sensor readings
-• App usage data
-• Log files and crash reports
+We collect personal information such as name, contact details, user account credentials, patient monitoring data, and vital signs necessary for system functionality.
 
 2. How We Use Your Information
-We use collected data to operate and improve the Service, generate alerts, authenticate users, and comply with legal obligations.
+Your information is used strictly to provide vital signs and bed-wetting monitoring, system notifications, caregiver alerts, and service improvements.
 
-3. Legal Basis for Processing
-• User consent
-• Contract performance
-• Legal compliance
-• Legitimate interests
+3. Data Sharing and Disclosure
+We do not sell your personal data. Data may be shared only with authorized healthcare personnel, caregivers designated by you, or required legal authorities.
 
-4. Data Sharing and Disclosure
-We do not sell personal data. Data may be shared only with authorized parties, service providers, or when required by law.
+4. Data Security
+We implement administrative, technical, and physical security measures to safeguard your personal information against unauthorized access or disclosure.
 
-5. Data Storage and Security
-We implement reasonable safeguards but cannot guarantee absolute security.
+5. Your Data Privacy Rights
+Under the Data Privacy Act of 2012, you have the right to be informed, access, correct, object to processing, or request erasure of your personal data.
 
 6. Data Retention
-Data is retained only as long as necessary or as required by law.
+Personal data will be retained only as long as necessary to fulfill the purposes outlined in this Privacy Policy.
 
-7. User Rights
-Users may request access, correction, deletion, or withdrawal of consent.
-
-8. Children's Privacy
-ALAGA is not intended for direct use by children.
-
-9. Third-Party Services
-We are not responsible for third-party privacy practices.
-
-10. Changes to This Privacy Policy
-Updates will be communicated within the application.
-
-11. Compliance with Philippine Data Privacy Laws
-ALAGA complies with the Data Privacy Act of 2012 (RA 10173).
-
-12. Contact Information
-Email: support@alaga-app.com
-
-By using ALAGA, you acknowledge that you have read and understood this Privacy Policy.
+7. Contact Us
+For questions or concerns regarding this Privacy Policy, please contact us at pulserainnovations@gmail.com.
 """;

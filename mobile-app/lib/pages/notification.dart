@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'dashboard.dart';
 import '../services/api_service.dart';
 
 // ============================================================================
@@ -25,6 +24,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   List<dynamic> _alerts = [];
   bool _isLoading = true;
   String? _errorMessage;
+  bool _showClinicalAlerts = true;
 
   @override
   void initState() {
@@ -43,7 +43,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
       _errorMessage = null;
     });
 
-    final result = await ApiService.get('/alerts/clinical');
+    final result = await ApiService.get(
+      _showClinicalAlerts ? '/api/alerts/clinical' : '/api/alerts/system',
+    );
 
     if (!mounted) return;
 
@@ -133,7 +135,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     // [HIPAA] PUT /alerts/clinical/:id/acknowledge records who acknowledged,
     // when, and what action was taken — required for the audit trail.
     final result = await ApiService.put(
-      '/alerts/clinical/$alertId/acknowledge',
+      '/api/alerts/clinical/$alertId/acknowledge',
       body: {'action_taken': actionText},
     );
 
@@ -223,13 +225,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                     icon: const Icon(Icons.arrow_back,
                         color: Colors.black87, size: 28),
                     onPressed: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              const DashboardScreen(initialIndex: 2),
-                        ),
-                      );
+                      Navigator.pop(context);
                     },
                   ),
                   Text(
@@ -250,6 +246,32 @@ class _NotificationScreenState extends State<NotificationScreen> {
               ),
             ),
 
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    _buildAlertTab(
+                      label: 'Clinical Alerts',
+                      icon: Icons.monitor_heart_outlined,
+                      selected: _showClinicalAlerts,
+                      onTap: () => _selectTab(true),
+                    ),
+                    _buildAlertTab(
+                      label: 'Hardware Diagnostics',
+                      icon: Icons.memory_outlined,
+                      selected: !_showClinicalAlerts,
+                      onTap: () => _selectTab(false),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -302,7 +324,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
               width: 120,
               height: 120,
               decoration: BoxDecoration(
-                color: const Color(0xFF5FA9A9).withOpacity(0.1),
+                color: const Color(0xFF5FA9A9).withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -313,7 +335,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              'No alerts at this time.',
+              _showClinicalAlerts
+                  ? 'No clinical alerts at this time.'
+                  : 'No hardware diagnostics at this time.',
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -321,7 +345,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'All patients are within normal ranges.',
+              _showClinicalAlerts
+                  ? 'All patients are within normal ranges.'
+                  : 'All connected devices are operating normally.',
               style: GoogleFonts.albertSans(
                   fontSize: 13, color: Colors.black45),
             ),
@@ -345,13 +371,22 @@ class _NotificationScreenState extends State<NotificationScreen> {
   Widget _buildAlertCard(Map<String, dynamic> alert) {
     final severity    = alert['severity']     ?? 'Info';
     final status      = alert['status']       ?? 'Sent';
-    final message     = alert['message']      ?? 'Alert received.';
+    final message = _showClinicalAlerts
+        ? (alert['message'] ?? 'Alert received.')
+        : (alert['description'] ?? 'Hardware diagnostic received.');
     final patientName = alert['patient_name'] ?? 'Unknown Patient';
+    final cardTitle = _showClinicalAlerts
+        ? patientName
+        : (alert['alert_type'] == null
+            ? 'Hardware Alert'
+            : _formatAnomalyType(alert['alert_type'].toString()));
     final anomalyType = alert['anomaly_type'];
     final ocsvmScore  = alert['ocsvm_score'];
-    final sentAt      = alert['sent_at'];
-    final alertId     = alert['alert_id'];
-    final isAcknowledged = status == 'Acknowledged';
+    final sentAt = _showClinicalAlerts ? alert['sent_at'] : alert['triggered_at'];
+    final alertId = _showClinicalAlerts ? alert['alert_id'] : alert['sys_alert_id'];
+    final isAcknowledged = _showClinicalAlerts
+        ? status == 'Acknowledged'
+        : status == 'Resolved';
     final color       = _severityColor(severity);
 
     return Container(
@@ -363,7 +398,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -377,11 +412,15 @@ class _NotificationScreenState extends State<NotificationScreen> {
             // Header row: icon + patient name + time
             Row(
               children: [
-                Icon(_severityIcon(severity), color: color, size: 20),
+                Icon(
+                  _showClinicalAlerts ? _severityIcon(severity) : Icons.memory_outlined,
+                  color: color,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    patientName,
+                    cardTitle,
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -417,10 +456,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
               runSpacing: 4,
               children: [
                 _chip(severity.toUpperCase(), color),
-                if (anomalyType != null)
+                if (_showClinicalAlerts && anomalyType != null)
                   _chip(_formatAnomalyType(anomalyType),
                       const Color(0xFF5FA9A9)),
-                if (ocsvmScore != null)
+                if (_showClinicalAlerts && ocsvmScore != null)
                   _chip(
                     'Score: ${double.tryParse(ocsvmScore.toString())?.toStringAsFixed(2) ?? ocsvmScore}',
                     Colors.blueGrey,
@@ -429,7 +468,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
             ),
 
             // Acknowledge button (only for unacknowledged alerts)
-            if (!isAcknowledged && alertId != null) ...[
+            if (_showClinicalAlerts && !isAcknowledged && alertId != null) ...[
               const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerRight,
@@ -456,7 +495,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       size: 14, color: Colors.green),
                   const SizedBox(width: 4),
                   Text(
-                    'Acknowledged',
+                    _showClinicalAlerts ? 'Acknowledged' : 'Resolved',
                     style: GoogleFonts.albertSans(
                       fontSize: 11,
                       color: Colors.green,
@@ -475,9 +514,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         label,
@@ -485,6 +524,61 @@ class _NotificationScreenState extends State<NotificationScreen> {
           fontSize: 10,
           color: color,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  void _selectTab(bool clinical) {
+    if (_showClinicalAlerts == clinical) return;
+    setState(() => _showClinicalAlerts = clinical);
+    _fetchAlerts();
+  }
+
+  Widget _buildAlertTab({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 11),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF5FA9A9) : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF5FA9A9).withValues(alpha: 0.25),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 17, color: selected ? Colors.white : Colors.black54),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected ? Colors.white : Colors.black54,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

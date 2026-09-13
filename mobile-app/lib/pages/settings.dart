@@ -17,6 +17,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- Loading State ---
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isCheckingFirmware = false;
 
   // Notification States (loaded from backend)
   bool criticalAlerts = true;
@@ -38,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _dbStatus = "Checking...";
   String _activeDevices = "...";
   String _lastBackup = "Not available";
+  String _firmwareStatus = "Not checked";
 
   @override
   void initState() {
@@ -72,19 +74,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // [TECHNICAL DEBT] Replace with PackageInfo.fromPlatform() in production.
       _appVersion = "v1.0.8";
 
-      if (profileResult['success'] == true && profileResult['profile'] != null) {
+      if (profileResult['success'] == true &&
+          profileResult['profile'] != null) {
         // [INTEGRATION] notification_preferences is stored as a PostgreSQL TEXT[]
         // containing the names of ENABLED preferences (e.g. ['critical_alerts', 'email_notifications']).
         final rawPrefs = profileResult['profile']['notification_preferences'];
-        final List<String> enabledPrefs = rawPrefs is List
-            ? List<String>.from(rawPrefs)
-            : <String>[];
+        final List<String> enabledPrefs =
+            rawPrefs is List ? List<String>.from(rawPrefs) : <String>[];
 
-        criticalAlerts     = enabledPrefs.contains('critical_alerts')     || enabledPrefs.isEmpty;
-        warningAlerts      = enabledPrefs.contains('warning_alerts')      || enabledPrefs.isEmpty;
-        infoNotifications  = enabledPrefs.contains('info_notifications');
-        emailNotifications = enabledPrefs.contains('email_notifications') || enabledPrefs.isEmpty;
-        smsNotifications   = enabledPrefs.contains('sms_notifications');
+        criticalAlerts =
+            enabledPrefs.contains('critical_alerts') || enabledPrefs.isEmpty;
+        warningAlerts =
+            enabledPrefs.contains('warning_alerts') || enabledPrefs.isEmpty;
+        infoNotifications = enabledPrefs.contains('info_notifications');
+        emailNotifications = enabledPrefs.contains('email_notifications') ||
+            enabledPrefs.isEmpty;
+        smsNotifications = enabledPrefs.contains('sms_notifications');
         _dbStatus = "Connected";
       } else {
         // [OWASP A10] Do not expose raw error from server; show a generic status
@@ -93,8 +98,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (devicesResult['success'] == true) {
         final devices = (devicesResult['data'] as List?) ?? [];
-        final onlineCount = devices.where((d) => d['status'] == 'ACTIVE').length;
-        _activeDevices = "$onlineCount device${onlineCount == 1 ? '' : 's'} online";
+        final onlineCount =
+            devices.where((d) => d['status'] == 'ACTIVE').length;
+        _activeDevices =
+            "$onlineCount device${onlineCount == 1 ? '' : 's'} online";
       } else {
         _activeDevices = "Unavailable";
       }
@@ -102,7 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // [OWASP A07] Biometric availability and user preference loaded from
       // AES-encrypted local storage. Never read from a plain key-value store.
       _isBiometricAvailable = canCheck && isSupported && available.isNotEmpty;
-      _isBiometricEnabled   = biometricEnabled;
+      _isBiometricEnabled = biometricEnabled;
 
       _isLoading = false;
     });
@@ -143,8 +150,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               : result['message'] ?? "Failed to save settings.",
           style: GoogleFonts.albertSans(),
         ),
-        backgroundColor:
-            result['success'] == true ? const Color(0xFF4DB6AC) : Colors.redAccent,
+        backgroundColor: result['success'] == true
+            ? const Color(0xFF4DB6AC)
+            : Colors.redAccent,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -168,7 +176,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() => _isBiometricEnabled = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Biometric login has been enabled.', style: GoogleFonts.albertSans()),
+            content: Text('Biometric login has been enabled.',
+                style: GoogleFonts.albertSans()),
             backgroundColor: const Color(0xFF4DB6AC),
             behavior: SnackBarBehavior.floating,
           ),
@@ -191,7 +200,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isBiometricEnabled = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Biometric login has been disabled.', style: GoogleFonts.albertSans()),
+          content: Text('Biometric login has been disabled.',
+              style: GoogleFonts.albertSans()),
           backgroundColor: Colors.grey.shade700,
           behavior: SnackBarBehavior.floating,
         ),
@@ -199,60 +209,102 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // --- Logic for Update Check ---
-  // [TECHNICAL DEBT] This is a simulated update check. In production this should
-  // call a versioning endpoint (e.g. GET /api/app-version) and compare against
-  // the installed build number retrieved via package_info_plus.
-  void _checkVersionUpdate(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        Future.delayed(const Duration(seconds: 2), () {
-          if (context.mounted) {
-            Navigator.pop(context);
-            _showUpToDateDialog(context);
-          }
-        });
+  // Checks the shared backend for firmware built from the Arduino sketches in
+  // device-code/, then lets the user push/queue it to their authorized devices.
+  Future<void> _checkFirmwareUpdate() async {
+    setState(() => _isCheckingFirmware = true);
+    final result = await ApiService.get('/caregiver/firmware/check');
 
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 10),
-              const CircularProgressIndicator(color: Color(0xFF4DB6AC)),
-              const SizedBox(height: 20),
-              Text("Checking for updates...", style: GoogleFonts.poppins(fontSize: 14)),
-            ],
+    if (!mounted) return;
+    setState(() => _isCheckingFirmware = false);
+
+    if (result['success'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text(result['message'] ?? 'Unable to check device firmware.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final rawUpdates = result['updates'];
+    final updates = rawUpdates is List
+        ? rawUpdates.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : <Map<String, dynamic>>[];
+    if (updates.isEmpty) {
+      setState(() => _firmwareStatus = 'No update published');
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('No firmware available'),
+          content: const Text(
+            'No compiled Arduino firmware has been published by an administrator yet.',
           ),
-        );
-      },
-    );
-  }
-
-  void _showUpToDateDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.green),
-            const SizedBox(width: 10),
-            Text("Up to Date", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK'),
+            ),
           ],
         ),
+      );
+      return;
+    }
+
+    final versions = updates
+        .map((update) => (update['version'] ?? 'Unknown').toString())
+        .toSet();
+    final releaseSummary = updates.map((update) {
+      final type = update['deviceType'] == 'wetness_sensor'
+          ? 'Wetness sensor'
+          : 'Vital signs';
+      return '$type: ${update['version'] ?? 'Unknown'}\n${update['features'] ?? 'Firmware improvements'}';
+    }).join('\n\n');
+    setState(() => _firmwareStatus = '${updates.length} package(s) available');
+
+    final install = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Device firmware available'),
         content: Text(
-          "ALAGA $_appVersion is currently the latest version. No updates are required at this time.",
-          style: GoogleFonts.poppins(fontSize: 13),
-        ),
+            '$releaseSummary\n\nQueue the correct package for each authorized ALAGA device?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("OK", style: TextStyle(color: Color(0xFF4DB6AC), fontWeight: FontWeight.bold)),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Update devices'),
           ),
         ],
+      ),
+    );
+
+    if (install != true || !mounted) return;
+    setState(() => _isCheckingFirmware = true);
+    final updateResult = await ApiService.post('/caregiver/firmware/update');
+    if (!mounted) return;
+    setState(() {
+      _isCheckingFirmware = false;
+      if (updateResult['success'] == true) {
+        _firmwareStatus = 'Queued: ${versions.join(', ')}';
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          updateResult['message'] ??
+              (updateResult['success'] == true
+                  ? 'Device firmware update started.'
+                  : 'Device firmware update failed.'),
+        ),
+        backgroundColor: updateResult['success'] == true
+            ? const Color(0xFF4DB6AC)
+            : Colors.redAccent,
       ),
     );
   }
@@ -274,7 +326,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: Color(0xFFFFFDF5),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF4DB6AC))),
+        body:
+            Center(child: CircularProgressIndicator(color: Color(0xFF4DB6AC))),
       );
     }
 
@@ -305,7 +358,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 4),
             Text("SETTINGS", style: headerStyle),
             Text("Manage your application preferences.",
-              style: GoogleFonts.albertSans(color: Colors.black, fontSize: 14)),
+                style:
+                    GoogleFonts.albertSans(color: Colors.black, fontSize: 14)),
             const SizedBox(height: 25),
 
             // 1. General Settings
@@ -313,7 +367,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: "General Settings",
               icon: Icons.settings_outlined,
               children: [
-                _buildDropdown("Timezone", selectedTimezone, ["Asia/Manila (PHT)", "UTC+0"],
+                _buildDropdown(
+                    "Timezone",
+                    selectedTimezone,
+                    ["Asia/Manila (PHT)", "UTC+0"],
                     (val) => setState(() => selectedTimezone = val!)),
               ],
             ),
@@ -323,18 +380,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: "Notification Preferences",
               icon: Icons.notifications_none_outlined,
               children: [
-                _buildSwitchTile("Critical Alerts", "Extreme fever, heart rate anomalies",
-                    criticalAlerts, (val) => setState(() => criticalAlerts = val)),
-                _buildSwitchTile("Warning Alerts", "Elevated vitals, moisture detection",
-                    warningAlerts, (val) => setState(() => warningAlerts = val)),
-                _buildSwitchTile("Info Notifications", "General updates and reminders",
-                    infoNotifications, (val) => setState(() => infoNotifications = val)),
+                _buildSwitchTile(
+                    "Critical Alerts",
+                    "Extreme fever, heart rate anomalies",
+                    criticalAlerts,
+                    (val) => setState(() => criticalAlerts = val)),
+                _buildSwitchTile(
+                    "Warning Alerts",
+                    "Elevated vitals, moisture detection",
+                    warningAlerts,
+                    (val) => setState(() => warningAlerts = val)),
+                _buildSwitchTile(
+                    "Info Notifications",
+                    "General updates and reminders",
+                    infoNotifications,
+                    (val) => setState(() => infoNotifications = val)),
                 const Divider(height: 30),
                 Text("Notification Channels", style: labelStyle),
-                _buildSwitchTile("Email Notifications", null,
-                    emailNotifications, (val) => setState(() => emailNotifications = val)),
-                _buildSwitchTile("SMS Notifications", null,
-                    smsNotifications, (val) => setState(() => smsNotifications = val)),
+                _buildSwitchTile(
+                    "Email Notifications",
+                    null,
+                    emailNotifications,
+                    (val) => setState(() => emailNotifications = val)),
+                _buildSwitchTile("SMS Notifications", null, smsNotifications,
+                    (val) => setState(() => smsNotifications = val)),
               ],
             ),
 
@@ -343,7 +412,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: "Alert Configuration",
               icon: Icons.shield_outlined,
               children: [
-                _buildDropdown("Alert Sensitivity", selectedSensitivity,
+                _buildDropdown(
+                    "Alert Sensitivity",
+                    selectedSensitivity,
                     ["Low", "Medium (Balanced)", "High"],
                     (val) => setState(() => selectedSensitivity = val!)),
                 const SizedBox(height: 10),
@@ -357,11 +428,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text("Anomaly Detection (OC-SVM)",
-                          style: labelStyle.copyWith(color: Colors.blue.shade800)),
+                          style:
+                              labelStyle.copyWith(color: Colors.blue.shade800)),
                       const SizedBox(height: 4),
                       Text(
                         "One-Class SVM algorithm is active for high-precision alerts and reduced false positives.",
-                        style: GoogleFonts.poppins(fontSize: 11, color: Colors.blue.shade700),
+                        style: GoogleFonts.poppins(
+                            fontSize: 11, color: Colors.blue.shade700),
                       ),
                     ],
                   ),
@@ -394,33 +467,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 5. Software Update
+            // 5. Arduino device firmware update
             _buildSectionCard(
-              title: "Software Update",
+              title: "Device Firmware",
               icon: Icons.system_update_outlined,
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // [INTEGRATION] Version read from app state (loaded in _loadSettings)
-                        Text("Current Version: $_appVersion", style: labelStyle),
-                        const Text("Last checked: Today",
-                            style: TextStyle(fontSize: 11, color: Colors.grey)),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Arduino firmware", style: labelStyle),
+                          Text(_firmwareStatus,
+                              style: const TextStyle(
+                                  fontSize: 11, color: Colors.grey)),
+                        ],
+                      ),
                     ),
                     ElevatedButton(
-                      onPressed: () => _checkVersionUpdate(context),
+                      onPressed:
+                          _isCheckingFirmware ? null : _checkFirmwareUpdate,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4DB6AC),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text("Check Update",
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      child: _isCheckingFirmware
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text("Check Update",
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -439,7 +523,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF4DB6AC),
                       padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
                     ),
                     child: _isSaving
                         ? const SizedBox(
@@ -449,7 +534,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 strokeWidth: 2, color: Colors.white),
                           )
                         : const Text("Save Changes",
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(width: 15),
@@ -470,7 +557,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- UI Components ---
 
   Widget _buildSectionCard(
-      {required String title, required IconData icon, required List<Widget> children}) {
+      {required String title,
+      required IconData icon,
+      required List<Widget> children}) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 20),
@@ -488,7 +577,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Icon(icon, size: 20, color: const Color(0xFF4DB6AC)),
               const SizedBox(width: 10),
               Text(title,
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
           const SizedBox(height: 20),
@@ -498,15 +588,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildDropdown(
-      String label, String value, List<String> items, Function(String?) onChanged) {
+  Widget _buildDropdown(String label, String value, List<String> items,
+      Function(String?) onChanged) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
+              style: GoogleFonts.poppins(
+                  fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             value: value,
@@ -515,11 +606,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               fillColor: const Color(0xFFF1F2F6),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none),
             ),
             items: items
-                .map((i) =>
-                    DropdownMenuItem(value: i, child: Text(i, style: const TextStyle(fontSize: 14))))
+                .map((i) => DropdownMenuItem(
+                    value: i,
+                    child: Text(i, style: const TextStyle(fontSize: 14))))
                 .toList(),
             onChanged: onChanged,
           ),
@@ -532,9 +625,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       String title, String? subtitle, bool value, Function(bool) onChanged) {
     return SwitchListTile.adaptive(
       contentPadding: EdgeInsets.zero,
-      title:
-          Text(title, style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: subtitle != null ? Text(subtitle, style: const TextStyle(fontSize: 12)) : null,
+      title: Text(title,
+          style:
+              GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500)),
+      subtitle: subtitle != null
+          ? Text(subtitle, style: const TextStyle(fontSize: 12))
+          : null,
       value: value,
       activeColor: const Color(0xFF4DB6AC),
       onChanged: onChanged,
@@ -547,13 +643,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text("System Information",
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+            style:
+                GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 15),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             _infoItem("Application Version", _appVersion),
-            _infoItem("Database Status", _dbStatus, isStatus: _dbStatus == "Connected"),
+            _infoItem("Database Status", _dbStatus,
+                isStatus: _dbStatus == "Connected"),
           ],
         ),
         const SizedBox(height: 15),

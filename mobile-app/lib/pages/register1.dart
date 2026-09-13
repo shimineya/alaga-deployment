@@ -2,15 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// [INTEGRATION] Import the API service and registration data model
 import '../models/registration_data.dart';
-import '../services/api_service.dart';
-import 'otp.dart';
+import 'privacy.dart'; 
 import 'login.dart'; 
 
 class CreateCredentialsPage extends StatefulWidget {
-  // [OWASP A01] RegistrationData is required -- contains personal info and role
-  // from the previous steps in the registration flow.
   final RegistrationData registrationData;
 
   const CreateCredentialsPage({super.key, required this.registrationData});
@@ -28,7 +24,6 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
 
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
-  bool _isLoading = false;
   bool _submitted = false;
 
   @override
@@ -246,19 +241,16 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
                     SizedBox(
                       width: 200,
                       child: ElevatedButton(
-                        onPressed: _isLoading ? null : _submit,
+                        onPressed: _proceedToAgreement,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF5FA9A9),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
                         ),
-                        child: _isLoading
-                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                            : Text('Sign Up', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                        child: Text('Next', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
                       ),
                     ),
                     const SizedBox(height: 24),
-                    // RESTORED LOGIN NAVIGATION
                     RichText(
                       text: TextSpan(
                         text: 'Registered already? ',
@@ -295,57 +287,22 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
     );
   }
 
-  // [INTEGRATION] Sends the complete registration payload to POST /api/auth/register.
-  // On success, navigates to the OTP verification page.
-  // On failure, displays the backend's error message in a SnackBar.
-  Future<void> _submit() async {
+  // Validates credentials and forwards RegistrationData to PrivacyPolicyScreen
+  void _proceedToAgreement() {
     setState(() => _submitted = true);
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _isLoading = true);
 
-    // Populate credentials into the RegistrationData model
+    // Attach credentials to the registration model
     widget.registrationData.username = _usernameCtrl.text;
     widget.registrationData.password = _passwordCtrl.text;
 
-    // [OWASP A05] Send the complete registration payload via parameterized API service.
-    // requiresAuth: false -- no JWT needed for registration.
-    // [FIX] 45-second timeout: the backend runs DNS MX validation + bcrypt 12
-    // rounds + DB writes before responding. 15s was too short and caused the
-    // app to show "Network error" even when the registration had succeeded.
-    final result = await ApiService.post(
-      '/auth/register',
-      body: widget.registrationData.toJson(),
-      requiresAuth: false,
-      timeoutSeconds: 45,
+    // Navigate to Privacy Policy screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PrivacyPolicyScreen(
+          registrationData: widget.registrationData,
+        ),
+      ),
     );
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (result['success'] == true) {
-      // Backend returns { requiresOtp: true, user_id: ..., email: ... }
-      // Navigate to OTP verification page with the returned identifiers.
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => OTPVerificationPage(
-            userId: result['user_id'],
-            email: result['email'],
-            purpose: result['otpPurpose'] ?? 'REGISTER_VERIFY',
-          ),
-        ),
-      );
-    } else {
-      // [OWASP A10] Display the backend's generic error message.
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result['message'] ?? 'Registration failed. Please try again.',
-            style: GoogleFonts.albertSans(),
-          ),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
   }
 }

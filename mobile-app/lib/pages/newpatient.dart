@@ -15,7 +15,6 @@ class NewPatientScreen extends StatefulWidget {
 
 class _NewPatientScreenState extends State<NewPatientScreen> {
   int currentStep = 1;
-  bool isSearching = true;
   bool _isSubmitting = false;
 
   // [INTEGRATION] Track selected caregiver and device serial numbers
@@ -25,7 +24,11 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   final TextEditingController _lastNameCtrl = TextEditingController();
   final TextEditingController _birthdateCtrl = TextEditingController();
   final TextEditingController _medicalNotesCtrl = TextEditingController();
+  final TextEditingController _wardNameCtrl = TextEditingController();
+  final TextEditingController _roomNameCtrl = TextEditingController();
+  final TextEditingController _bedNameCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
+  bool _hasInformedConsent = false;
 
   List<dynamic> _availableDevices = [];
   String? _selectedVitalDevice;
@@ -36,6 +39,19 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   void initState() {
     super.initState();
     _fetchAvailableDevices();
+  }
+
+  @override
+  void dispose() {
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
+    _birthdateCtrl.dispose();
+    _medicalNotesCtrl.dispose();
+    _wardNameCtrl.dispose();
+    _roomNameCtrl.dispose();
+    _bedNameCtrl.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchAvailableDevices() async {
@@ -63,6 +79,17 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   // Includes patient info, optional caregiver assignment, and device serial numbers.
   Future<void> _enrollPatient() async {
     if (_isSubmitting) return;
+    if (!_hasInformedConsent) {
+      setState(() => currentStep = 1);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please confirm informed consent before proceeding.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() => _isSubmitting = true);
 
     final patientName = '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'.trim();
@@ -71,6 +98,10 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       'name': patientName,
       'birthdate': _birthdateCtrl.text.trim(),
       'medicalCondition': _medicalNotesCtrl.text.trim(),
+      'wardName': _wardNameCtrl.text.trim(),
+      'roomName': _roomNameCtrl.text.trim(),
+      'bedName': _bedNameCtrl.text.trim(),
+      'consentGiven': _hasInformedConsent,
     };
 
     if (_selectedCaregiverId != null) {
@@ -216,9 +247,19 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   _buildActionButton(
                     currentStep == 3 ? "Finish" : "Next Step",
                     isPrimary: true,
-                    onTap: () {
+                    onTap: currentStep == 1 && !_hasInformedConsent ? null : () {
                       if (_isSubmitting) return;
                       if (currentStep < 3) {
+                        if (currentStep == 1 && !_hasInformedConsent) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please confirm informed consent before proceeding.'),
+                              backgroundColor: Colors.redAccent,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
                         setState(() => currentStep++);
                       } else {
                         _enrollPatient();
@@ -265,7 +306,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                             fontSize: 15,
                             color: const Color(0xFF0046AD))),
                     Text(
-                        "Optional. You can search for an existing nurse/doctor or scan their ID.",
+                        "Optional. You can search for an existing nurse/doctor or caregiver.",
                         style: GoogleFonts.albertSans(
                             fontSize: 12, color: const Color(0xFF0046AD))),
                   ],
@@ -275,21 +316,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        Container(
-          height: 54,
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-              color: const Color(0xFFDCDCDC),
-              borderRadius: BorderRadius.circular(18)),
-          child: Row(
-            children: [
-              _buildCaregiverToggleButton(true, "Search Database"),
-              _buildCaregiverToggleButton(false, "Scan ID Token"),
-            ],
-          ),
-        ),
-        const SizedBox(height: 30),
-        isSearching ? _buildSearchDatabaseView() : _buildScanQRView(),
+        _buildSearchDatabaseView(),
       ],
     );
   }
@@ -510,6 +537,20 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   onTap: () => _selectDate(context),
                   prefixIcon:
                       const Icon(Icons.calendar_today, size: 18, color: Color(0xFF5FA9A9))),
+              const SizedBox(height: 26),
+              Text(
+                'Location Assignment',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              _buildInputLabel('Ward Name (Optional)', isRequired: false),
+              _buildTextField(_wardNameCtrl, hint: 'Enter ward name', radius: 12),
+              const SizedBox(height: 16),
+              _buildInputLabel('Room Name (Optional)', isRequired: false),
+              _buildTextField(_roomNameCtrl, hint: 'Enter room name', radius: 12),
+              const SizedBox(height: 16),
+              _buildInputLabel('Bed Name (Optional)', isRequired: false),
+              _buildTextField(_bedNameCtrl, hint: 'Enter bed name', radius: 12),
             ],
           ),
         ),
@@ -519,6 +560,28 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         const SizedBox(height: 8),
         _buildTextField(_medicalNotesCtrl,
             hint: "Brief medical history...", isLarge: true, radius: 15),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _hasInformedConsent ? const Color(0xFF5FA9A9) : Colors.black12,
+            ),
+          ),
+          child: CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            activeColor: const Color(0xFF5FA9A9),
+            value: _hasInformedConsent,
+            onChanged: (value) => setState(() => _hasInformedConsent = value ?? false),
+            title: Text(
+              'I confirm that the patient or their legal guardian has provided informed consent for health data collection and processing as required by the Data Privacy Act of 2012 (RA 10173), Section 13.',
+              style: GoogleFonts.albertSans(fontSize: 12.5, height: 1.35),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -718,70 +781,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
 
 
 
-  Widget _buildScanQRView() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.5))),
-      child: Column(
-        children: [
-          Container(
-              padding: const EdgeInsets.all(20),
-              decoration:
-                  BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.black12)),
-              child: const Icon(Icons.qr_code_scanner, size: 40)),
-          const SizedBox(height: 20),
-          Text("Scan QR ID",
-              style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Text("Upload a clear photo of the ID QR code.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.albertSans(fontSize: 14)),
-          const SizedBox(height: 30),
-          _buildUploadButton(),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildCaregiverToggleButton(bool value, String label) {
-    bool isSelected = isSearching == value;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => isSearching = value),
-        child: Container(
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-              color: isSelected ? Colors.white : Colors.transparent,
-              borderRadius: BorderRadius.circular(15)),
-          child: Text(label,
-              style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? const Color(0xFF5FA9A9) : Colors.black54)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUploadButton() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      decoration: BoxDecoration(
-          color: const Color(0xFFE0E8E8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.5))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.upload, color: Color(0xFF5FA9A9)),
-        const SizedBox(width: 10),
-        Text("Upload Image",
-            style: GoogleFonts.poppins(
-                color: const Color(0xFF5FA9A9), fontWeight: FontWeight.w600)),
-      ]),
-    );
-  }
 
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -859,7 +859,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                     const BorderSide(color: Color(0xFF5FA9A9), width: 1.5))));
   }
 
-  Widget _buildInputLabel(String label) {
+  Widget _buildInputLabel(String label, {bool isRequired = true}) {
     return Padding(
         padding: const EdgeInsets.only(bottom: 8.0),
         child: Text.rich(TextSpan(children: [
@@ -867,14 +867,15 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
               text: label,
               style:
                   GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
-          const TextSpan(
-              text: " *",
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+          if (isRequired)
+            const TextSpan(
+                text: " *",
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
         ])));
   }
 
   Widget _buildActionButton(String label,
-      {required bool isPrimary, required VoidCallback onTap}) {
+      {required bool isPrimary, required VoidCallback? onTap}) {
     return SizedBox(
         width: 130,
         height: 48,
@@ -1155,23 +1156,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                       letterSpacing: 0.5)),
               const SizedBox(height: 20),
 
-              // Toggle Manual / Scan QR
-              Container(
-                height: 48,
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                    color: const Color(0xFFD9D9D9),
-                    borderRadius: BorderRadius.circular(15)),
-                child: Row(
-                  children: [
-                    _toggleBtn(true, 'keyboard', 'Manual'),
-                    _toggleBtn(false, 'qr', 'Scan QR'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 25),
-
-              isManual ? _buildManualView() : _buildScanView(),
+              _buildManualView(),
 
               const SizedBox(height: 30),
               Row(
@@ -1192,41 +1177,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
     );
   }
 
-  Widget _toggleBtn(bool val, String icon, String label) {
-    bool selected = isManual == val;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => isManual = val),
-        child: Container(
-          decoration: BoxDecoration(
-              color: selected ? Colors.white : Colors.transparent,
-              borderRadius: BorderRadius.circular(12)),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset('assets/images/$icon.png',
-                  width: 16,
-                  color: selected ? const Color(0xFF5FA9A9) : Colors.black45,
-                  errorBuilder: (c, e, s) => Icon(
-                      val ? Icons.keyboard : Icons.qr_code_scanner,
-                      size: 16,
-                      color: selected
-                          ? const Color(0xFF5FA9A9)
-                          : Colors.black45)),
-              const SizedBox(width: 6),
-              Text(label,
-                  style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color:
-                          selected ? const Color(0xFF5FA9A9) : Colors.black45)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildManualView() {
     return Column(
@@ -1247,7 +1198,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    isDoubleDevice ? "DOUBLE DEVICE" : "SINGLE DEVICE",
+                    isDoubleDevice ? "PAIRED DEVICE" : "SINGLE DEVICE",
                     style: GoogleFonts.poppins(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -1266,7 +1217,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: true,
-                        child: Text("Double Device",
+                        child: Text("Paired Device",
                             style: GoogleFonts.poppins(fontSize: 13)),
                       ),
                       PopupMenuItem(
@@ -1355,53 +1306,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
     );
   }
 
-  Widget _buildScanView() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-              color: const Color(0xFF5FA9A9).withOpacity(0.3))),
-      child: Column(
-        children: [
-          Image.asset('assets/images/qr.png',
-              width: 32,
-              height: 32,
-              errorBuilder: (c, e, s) =>
-                  const Icon(Icons.qr_code_scanner, size: 32)),
-          const SizedBox(height: 10),
-          Text("Scan Device Sticker",
-              style:
-                  GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Text(
-              "Upload a clear photo of the QR code\nfound on the back of the device.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black87)),
-          const SizedBox(height: 15),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-                color: const Color(0xFFE0E8E8),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: const Color(0xFF5FA9A9).withOpacity(0.4))),
-            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.upload, size: 16, color: Color(0xFF5FA9A9)),
-              SizedBox(width: 8),
-              Text("Upload Image",
-                  style: TextStyle(
-                      color: Color(0xFF5FA9A9),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12))
-            ]),
-          )
-        ],
-      ),
-    );
-  }
+
 
   Widget _modalLabel(String text) => Padding(
       padding: const EdgeInsets.only(bottom: 5),

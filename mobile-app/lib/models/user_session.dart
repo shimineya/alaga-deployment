@@ -60,11 +60,11 @@ class UserSession {
     };
   }
 
-  // [INTEGRATION] Returns a new UserSession with the given fields overridden.
-  // Used by the profile screen to update the in-memory session after a save
-  // without mutating the immutable fields directly.
   UserSession copyWith({
     String? username,
+    String? role,
+    String? name,
+    String? token,
     String? profilePictureUrl,
     // Pass the sentinel value _clearPicture to explicitly null-out the picture.
     bool clearProfilePicture = false,
@@ -73,9 +73,9 @@ class UserSession {
       id: id,
       username: username ?? this.username,
       email: email,
-      role: role,
-      name: name,
-      token: token,
+      role: role ?? this.role,
+      name: name ?? this.name,
+      token: token ?? this.token,
       profilePictureUrl: clearProfilePicture
           ? null
           : (profilePictureUrl ?? this.profilePictureUrl),

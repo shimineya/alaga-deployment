@@ -44,7 +44,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       _errorMessage = null;
     });
 
-    final result = await ApiService.get('/caregiver/devices');
+    final result = await ApiService.get('/api/caregiver/devices');
 
     if (!mounted) return;
 
@@ -67,7 +67,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     if (_isFetchingPatients) return;
     _isFetchingPatients = true;
 
-    final result = await ApiService.get('/caregiver/patients');
+    final result = await ApiService.get('/api/caregiver/patients');
 
     if (!mounted) return;
     _isFetchingPatients = false;
@@ -177,7 +177,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
 
                     // [FIX] Only dismiss the dialog AFTER the API response is received
                     // so the dialogContext is still valid through the await.
-                    final result = await ApiService.post('/caregiver/devices', body: {
+                    final result = await ApiService.post('/api/caregiver/devices', body: {
                       if (selectedType == "Vital Signs") 'vitalDeviceNo': input,
                       if (selectedType == "Smart Diaper Device") 'diaperDeviceNo': input,
                     });
@@ -385,7 +385,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                           // Endpoint: POST /api/caregiver/patients/:patientId/assign-device
                           // Body: { serialNumber } — matches caregiverRoutes.js line 550.
                           final result = await ApiService.post(
-                            '/caregiver/patients/$patientId/assign-device',
+                            '/api/caregiver/patients/$patientId/assign-device',
                             body: {'serialNumber': serialNumber},
                           );
 
@@ -495,41 +495,38 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          // [OWASP A01] Only parent accounts can register hardware or assign devices.
-                          if (UserSession.current?.isParent == true) ...[
-                            Row(
-                              children: [
-                                // --- Add Device to Inventory ---
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _showNewDeviceDialog(context),
-                                    icon: const Icon(Icons.add, size: 16),
-                                    label: const Text("+ Inventory", style: TextStyle(fontSize: 13)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF4DB6AC),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 14),
-                                    ),
+                          Row(
+                            children: [
+                              // --- Add Device to Inventory ---
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _showNewDeviceDialog(context),
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text("+ Inventory", style: TextStyle(fontSize: 13)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF4DB6AC),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                // --- Register Device to Patient ---
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _showRegisterDeviceDialog(context),
-                                    icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
-                                    label: const Text("Register", style: TextStyle(fontSize: 13)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF00796B),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 14),
-                                    ),
+                              ),
+                              const SizedBox(width: 10),
+                              // --- Register Device to Patient ---
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _showRegisterDeviceDialog(context),
+                                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
+                                  label: const Text("Register", style: TextStyle(fontSize: 13)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF00796B),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
                                   ),
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                          ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
                           TextField(
                             controller: _searchController,
                             onChanged: (val) => setState(() => _searchQuery = val),
@@ -740,7 +737,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     if (confirmed != true || !mounted) return;
 
     // [OWASP A05] Serial number is sent as a path segment — no string concatenation into queries.
-    final result = await ApiService.delete('/caregiver/devices/$serialNumber');
+    final result = await ApiService.delete('/api/caregiver/devices/$serialNumber');
 
     if (!mounted) return;
 

@@ -54,8 +54,8 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
 
     // Run both fetches concurrently
     final results = await Future.wait([
-      ApiService.get('/assignments/my-assignments'),
-      ApiService.get('/assignments/pending-invites'),
+      ApiService.get('/api/assignments/my-assignments'),
+      ApiService.get('/api/assignments/pending-invites'),
     ]);
 
     if (!mounted) return;
@@ -332,7 +332,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
     required VoidCallback onDone,
   }) async {
     final result = await ApiService.post(
-      '/assignments/respond-invite',
+      '/api/assignments/respond-invite',
       body: {
         'access_id': accessId,
         'action': action,
@@ -437,7 +437,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   //             a user cannot remove someone else via this endpoint.
   Future<void> _selfRemove(int patientId) async {
     final result = await ApiService.delete(
-      '/assignments/caregiver/self-remove',
+      '/api/assignments/caregiver/self-remove',
       body: {'patient_id': patientId},
     );
 
@@ -463,7 +463,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
 
   Future<void> _revokeAccess(int patientId, int targetUserId) async {
     final result = await ApiService.delete(
-      '/assignments/caregiver/revoke',
+      '/api/assignments/caregiver/revoke',
       body: {
         'patient_id': patientId,
         'target_user_id': targetUserId,
@@ -486,7 +486,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   Future<void> _updatePermissions(
       int patientId, int targetUserId, String relationship, String accessLevel) async {
     final result = await ApiService.put(
-      '/assignments/caregiver/permissions',
+      '/api/assignments/caregiver/permissions',
       body: {
         'patient_id': patientId,
         'target_user_id': targetUserId,

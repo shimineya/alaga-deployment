@@ -5,6 +5,7 @@ import 'dart:async';
 // [INTEGRATION] Import API service for fetching patient data
 import '../services/api_service.dart';
 import '../models/user_session.dart';
+import 'newpatient.dart';
 
 class PatientListScreen extends StatefulWidget {
   final VoidCallback? onBack; 
@@ -39,7 +40,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
       _errorMessage = null;
     });
 
-    final result = await ApiService.get('/caregiver/patients');
+    final result = await ApiService.get('/api/caregiver/patients');
 
     if (!mounted) return;
 
@@ -110,6 +111,24 @@ class _PatientListScreenState extends State<PatientListScreen> {
 
     return Scaffold(
       backgroundColor: bgColor,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const NewPatientScreen()),
+          ).then((_) => _fetchPatients());
+        },
+        backgroundColor: const Color(0xFF4DB6AC),
+        icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+        label: Text(
+          "Enroll Patient",
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: Colors.white,
+          ),
+        ),
+      ),
       appBar: AppBar(
         title: const Text(""),
         backgroundColor: bgColor,

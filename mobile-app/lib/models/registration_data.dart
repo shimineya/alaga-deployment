@@ -9,6 +9,8 @@ class RegistrationData {
   String password;
   String role;
   String mobileNumber;
+  String caregiverType; // 'facility' | 'freelance'
+  String facilityName;
 
   RegistrationData({
     this.firstName = '',
@@ -19,11 +21,15 @@ class RegistrationData {
     this.password = '',
     this.role = '',
     this.mobileNumber = '',
+    this.caregiverType = '',
+    this.facilityName = '',
   });
 
   // Convert to JSON for HTTP posting to POST /api/auth/register
   // [OWASP A05] Keys match the backend's expected field names exactly.
   Map<String, dynamic> toJson() {
+    final registersWithFacility = caregiverType == 'facility';
+
     return {
       'first_name': firstName.trim(),
       'last_name': lastName.trim(),
@@ -33,6 +39,9 @@ class RegistrationData {
       'password': password,
       'role': role,
       'mobile_number': mobileNumber.trim(),
+      'has_facility': registersWithFacility,
+      if (registersWithFacility && facilityName.trim().isNotEmpty)
+        'facility_name': facilityName.trim(),
     };
   }
 }

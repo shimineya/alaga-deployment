@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -24,31 +25,74 @@ import '../models/user_session.dart';
 
 class ApiService {
   // [OWASP A02] Base URL sourced from environment file — never hard-coded.
-  // Change your _baseUrl getter to this:
   static String get _baseUrl {
     final url = dotenv.env['API_BASE_URL'];
-    if (url != null && url.isNotEmpty) {
-      return url;
+    if (url != null && url.trim().isNotEmpty) {
+      return url.trim();
     }
-    // Fallback to PC IP if .env is missing/empty
-    return 'http://192.168.0.188:3000'; 
+    // Fallback to local default if .env is missing/empty
+    return 'http://192.168.254.113:3000'; 
   }
 
   /// Public accessor for constructing full API URLs.
-  /// Avoids hard-coding the server address in UI code (OWASP A02).
   static String get baseUrl => _baseUrl;
 
   /// Returns the server origin (scheme + host + port) WITHOUT the /api path.
   /// Used to construct URLs for static assets served by Express (e.g. /uploads/...).
   /// Example: 'http://192.168.254.124:3000/api' -> 'http://192.168.254.124:3000'
   static String get serverOrigin {
-    final uri = Uri.parse(_baseUrl);
-    return '${uri.scheme}://${uri.host}:${uri.port}';
+    var raw = _baseUrl.trim();
+    while (raw.endsWith('/')) {
+      raw = raw.substring(0, raw.length - 1);
+    }
+    if (raw.endsWith('/api')) {
+      raw = raw.substring(0, raw.length - 4);
+    }
+    final uri = Uri.parse(raw);
+    final portSuffix = (uri.hasPort && uri.port != 80 && uri.port != 443) ? ':${uri.port}' : '';
+    return '${uri.scheme}://${uri.host}$portSuffix';
+  }
+
+  /// Helper to obtain an ImageProvider for any relative or absolute image path.
+  static ImageProvider? getImageProvider(String? path) {
+    if (path == null || path.trim().isEmpty) return null;
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return NetworkImage(trimmed);
+    }
+    final origin = serverOrigin;
+    final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return NetworkImage('$origin$normalizedPath');
   }
 
   // ────────────────────────────────────────────────────────────────────────────
   // INTERNAL HELPERS
   // ────────────────────────────────────────────────────────────────────────────
+
+  /// Normalizes and builds the target URI so endpoint calls never fail due to
+  /// trailing slashes, duplicate /api prefixes, or missing /api prefixes.
+  static Uri _buildUri(String endpoint, [Map<String, String>? queryParams]) {
+    var origin = serverOrigin;
+    while (origin.endsWith('/')) {
+      origin = origin.substring(0, origin.length - 1);
+    }
+
+    var path = endpoint.trim();
+    if (!path.startsWith('/')) {
+      path = '/$path';
+    }
+
+    // Ensure all backend routes are mapped to /api/...
+    if (!path.startsWith('/api/') && path != '/api') {
+      path = '/api$path';
+    }
+
+    var uri = Uri.parse('$origin$path');
+    if (queryParams != null && queryParams.isNotEmpty) {
+      uri = uri.replace(queryParameters: queryParams);
+    }
+    return uri;
+  }
 
   /// Builds the standard JSON request headers, including the JWT Bearer token
   /// when a session is active (OWASP A01 — all protected routes require it).
@@ -89,7 +133,7 @@ class ApiService {
       // Safety fallback for malformed JSON from the server.
       return {
         'success': false,
-        'message': 'Server returned an unreadable response.',
+        'message': 'Server returned an unreadable response (Status ${response.statusCode}).',
         'statusCode': response.statusCode,
       };
     }
@@ -101,7 +145,7 @@ class ApiService {
 
   /// Sends an authenticated GET request.
   ///
-  /// [endpoint] — relative path after the base URL (e.g. '/caregiver/patients').
+  /// [endpoint] — relative path (e.g. '/caregiver/patients' or '/api/caregiver/patients').
   /// [queryParams] — optional URL query parameters.
   static Future<Map<String, dynamic>> get(
     String endpoint, {
@@ -109,10 +153,7 @@ class ApiService {
     bool requiresAuth = true,
   }) async {
     try {
-      var uri = Uri.parse('$_baseUrl$endpoint');
-      if (queryParams != null && queryParams.isNotEmpty) {
-        uri = uri.replace(queryParameters: queryParams);
-      }
+      final uri = _buildUri(endpoint, queryParams);
 
       final response = await http
           .get(uri, headers: _buildHeaders(requiresAuth: requiresAuth))
@@ -128,10 +169,6 @@ class ApiService {
   }
 
   /// Sends an authenticated POST request with a JSON body.
-  ///
-  /// [timeoutSeconds] — override the default 15s timeout for endpoints that
-  /// involve slow server-side operations (e.g., registration involves DNS MX
-  /// lookup + bcrypt hashing before any DB write).
   static Future<Map<String, dynamic>> post(
     String endpoint, {
     Map<String, dynamic>? body,
@@ -139,7 +176,7 @@ class ApiService {
     int timeoutSeconds = 15,
   }) async {
     try {
-      final uri = Uri.parse('$_baseUrl$endpoint');
+      final uri = _buildUri(endpoint);
 
       final response = await http
           .post(
@@ -165,7 +202,7 @@ class ApiService {
     bool requiresAuth = true,
   }) async {
     try {
-      final uri = Uri.parse('$_baseUrl$endpoint');
+      final uri = _buildUri(endpoint);
 
       final response = await http
           .put(
@@ -191,7 +228,7 @@ class ApiService {
     bool requiresAuth = true,
   }) async {
     try {
-      final uri = Uri.parse('$_baseUrl$endpoint');
+      final uri = _buildUri(endpoint);
 
       final response = await http
           .patch(
@@ -211,21 +248,18 @@ class ApiService {
   }
 
   /// Sends an authenticated DELETE request.
-  /// [body] is optional but supported for routes that require a JSON payload
-  /// (e.g., DELETE /assignments/caregiver/revoke which needs patient_id + target_user_id).
   static Future<Map<String, dynamic>> delete(
     String endpoint, {
     bool requiresAuth = true,
     Map<String, dynamic>? body,
   }) async {
     try {
-      final uri = Uri.parse('$_baseUrl$endpoint');
+      final uri = _buildUri(endpoint);
 
       final response = await http
           .delete(
             uri,
             headers: _buildHeaders(requiresAuth: requiresAuth),
-            // [OWASP A05] Body is JSON-encoded; never concatenated into a URL.
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(const Duration(seconds: 15));
@@ -246,7 +280,7 @@ class ApiService {
   /// Sends a multipart PUT request to upload a file along with optional fields.
   /// Used for profile picture uploads (OWASP A04 -- file is validated server-side).
   ///
-  /// [endpoint]  -- relative path (e.g. '/user/profile').
+  /// [endpoint]  -- relative path (e.g. '/user/profile' or '/api/user/profile').
   /// [filePath]  -- absolute path to the file on the device.
   /// [fileField] -- the form field name expected by multer (e.g. 'profile_picture').
   /// [fields]    -- optional text fields to include alongside the file.
@@ -257,7 +291,7 @@ class ApiService {
     Map<String, String>? fields,
   }) async {
     try {
-      final uri = Uri.parse('$_baseUrl$endpoint');
+      final uri = _buildUri(endpoint);
       final request = http.MultipartRequest('PUT', uri);
 
       // [OWASP A01] Attach JWT for authenticated upload
@@ -273,11 +307,18 @@ class ApiService {
 
       // Determine MIME type from extension
       final ext = filePath.split('.').last.toLowerCase();
-      final mimeType = ext == 'png'
-          ? MediaType('image', 'png')
-          : MediaType('image', 'jpeg');
+      MediaType mimeType;
+      if (ext == 'png') {
+        mimeType = MediaType('image', 'png');
+      } else if (ext == 'webp') {
+        mimeType = MediaType('image', 'webp');
+      } else if (ext == 'heic' || ext == 'heif') {
+        mimeType = MediaType('image', 'heic');
+      } else {
+        mimeType = MediaType('image', 'jpeg');
+      }
 
-      // [OWASP A04] File size is enforced server-side (2 MB limit via multer).
+      // [OWASP A04] File size is enforced server-side (5 MB limit via multer).
       request.files.add(
         await http.MultipartFile.fromPath(
           fileField,
@@ -294,7 +335,7 @@ class ApiService {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Failed to upload file. Check your connection.',
+        'message': 'Failed to upload file. Check your connection ($e).',
       };
     }
   }

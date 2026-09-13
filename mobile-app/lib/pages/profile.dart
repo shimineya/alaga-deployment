@@ -125,7 +125,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    final result = await ApiService.get('/user/profile');
+    final result = await ApiService.get('/api/user/profile');
 
     if (!mounted) return;
 
@@ -209,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() => _isSaving = true);
 
       final result = await ApiService.put(
-        '/user/profile',
+        '/api/user/profile',
         body: {
           'username': _usernameController.text.trim(),
           'mobile_number': _phoneController.text.trim(),
@@ -256,7 +256,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // before accepting the credential change. Without this, a stolen JWT could
     // be used to permanently lock out the real account owner.
     final result = await ApiService.put(
-      '/user/profile',
+      '/api/user/profile',
       body: {
         'current_password': _currentPasswordController.text,
         'password': _newPasswordController.text,
@@ -307,7 +307,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     final result = await ApiService.multipartPut(
-      '/user/profile',
+      '/api/user/profile',
       filePath: picked.path,
       fileField: 'profile_picture',
     );
@@ -363,7 +363,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: ElevatedButton(
               onPressed: () async {
                 // [OWASP A07] Clear the session and notify the backend
-                await ApiService.post('/auth/logout');
+                await ApiService.post('/api/auth/logout');
                 await SessionManager.clearSession();
 
                 if (!context.mounted) return;
@@ -389,18 +389,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // Helper to format role string for display
   String _formatRole(String role) {
-    switch (role) {
-      case 'caregiver':
+    switch (role.toLowerCase()) {
+      case 'parent':
+      case 'admin':
         return 'Parent Account';
+      case 'caregiver':
       case 'medical_staff':
         return 'Caregiver Account';
-      case 'admin':
       case 'facility_admin':
         return 'Facility Admin';
       case 'system_admin':
         return 'System Admin';
       default:
-        return role;
+        return role.isNotEmpty ? '${role[0].toUpperCase()}${role.substring(1)} Account' : 'User Account';
+    }
+  }
+
+  bool _isParentRole(String role) {
+    final r = role.toLowerCase();
+    return r == 'parent' || r == 'admin';
+  }
+
+  bool _isSwitchingRole = false;
+
+  // [INTEGRATION] Switches the active role between 'parent' and 'caregiver'
+  Future<void> _handleRoleSwitch(bool toParent) async {
+    final String targetRole = toParent ? 'parent' : 'caregiver';
+    if (_role.toLowerCase() == targetRole) return;
+
+    setState(() => _isSwitchingRole = true);
+
+    final result = await ApiService.put(
+      '/api/user/profile',
+      body: {
+        'role': targetRole,
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _isSwitchingRole = false);
+
+    if (result['success'] == true) {
+      final newRole = result['profile']?['role'] ?? targetRole;
+      final newToken = result['token'] as String?;
+
+      setState(() {
+        _role = newRole;
+      });
+
+      // Update in-memory and persisted session so all screens reflect new role
+      final current = UserSession.current;
+      if (current != null) {
+        final updatedSession = current.copyWith(
+          role: newRole,
+          token: newToken ?? current.token,
+        );
+        await SessionManager.saveSession(updatedSession);
+      }
+
+      _showSnackBar("Switched to ${_formatRole(newRole)} successfully.");
+    } else {
+      _showSnackBar(result['message'] ?? 'Failed to switch account mode.', isError: true);
     }
   }
 
@@ -471,86 +520,159 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             // -- Profile Card --
             _buildSectionCard(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              child: Column(
                 children: [
-                  // [INTEGRATION] Profile picture with change overlay.
-                  // Tapping the camera badge opens the gallery picker.
-                  // Priority: local picked file > server URL > initial letter.
-                  GestureDetector(
-                    onTap: _isUploadingPicture ? null : _pickProfilePicture,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        CircleAvatar(
-                          radius: 40,
-                          backgroundColor: _teal,
-                          backgroundImage: _selectedImageFile != null
-                              ? FileImage(_selectedImageFile!) as ImageProvider
-                              : _profilePictureUrl != null
-                                  ? NetworkImage('${ApiService.serverOrigin}$_profilePictureUrl')
-                                  : null,
-                          child: (_selectedImageFile == null && _profilePictureUrl == null)
-                              ? Text(
-                                  _firstNameController.text.isNotEmpty
-                                      ? _firstNameController.text[0].toUpperCase()
-                                      : 'U',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.bold))
-                              : null,
-                        ),
-                        // Upload progress ring over the avatar
-                        if (_isUploadingPicture)
-                          const Positioned.fill(
-                            child: CircleAvatar(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // [INTEGRATION] Profile picture with change overlay.
+                      // Tapping the camera badge opens the gallery picker.
+                      // Priority: local picked file > server URL > initial letter.
+                      GestureDetector(
+                        onTap: _isUploadingPicture ? null : _pickProfilePicture,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CircleAvatar(
                               radius: 40,
-                              backgroundColor: Color(0x88000000),
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2.5, color: Colors.white),
-                              ),
+                              backgroundColor: _teal,
+                              backgroundImage: _selectedImageFile != null
+                                  ? FileImage(_selectedImageFile!) as ImageProvider
+                                  : ApiService.getImageProvider(_profilePictureUrl),
+                              child: (_selectedImageFile == null && (_profilePictureUrl == null || _profilePictureUrl!.isEmpty))
+                                  ? Text(
+                                      _firstNameController.text.isNotEmpty
+                                          ? _firstNameController.text[0].toUpperCase()
+                                          : (_usernameController.text.isNotEmpty
+                                              ? _usernameController.text[0].toUpperCase()
+                                              : 'U'),
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 32,
+                                          fontWeight: FontWeight.bold))
+                                  : null,
                             ),
-                          ),
-                        // Camera badge — hidden while uploading
-                        if (!_isUploadingPicture)
-                          Positioned(
-                            bottom: 0,
-                            right: -2,
-                            child: Container(
-                              padding: const EdgeInsets.all(5),
+                            // Upload progress ring over the avatar
+                            if (_isUploadingPicture)
+                              const Positioned.fill(
+                                child: CircleAvatar(
+                                  radius: 40,
+                                  backgroundColor: Color(0x88000000),
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2.5, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            // Camera badge — hidden while uploading
+                            if (!_isUploadingPicture)
+                              Positioned(
+                                bottom: 0,
+                                right: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: _teal,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                  child: const Icon(Icons.camera_alt,
+                                      size: 13, color: Colors.white),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "${_firstNameController.text} ${_lastNameController.text}".trim().isEmpty
+                                  ? (_usernameController.text.isNotEmpty ? _usernameController.text : "User")
+                                  : "${_firstNameController.text} ${_lastNameController.text}".trim(),
+                              style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 3),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                               decoration: BoxDecoration(
-                                color: _teal,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
+                                color: _isParentRole(_role)
+                                    ? _teal.withValues(alpha: 0.12)
+                                    : const Color(0xFF4A90E2).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: _isParentRole(_role)
+                                      ? _teal.withValues(alpha: 0.35)
+                                      : const Color(0xFF4A90E2).withValues(alpha: 0.35),
+                                  width: 1,
+                                ),
                               ),
-                              child: const Icon(Icons.camera_alt,
-                                  size: 13, color: Colors.white),
+                              child: Text(
+                                _formatRole(_role),
+                                style: GoogleFonts.albertSans(
+                                  fontSize: 11,
+                                  color: _isParentRole(_role) ? _teal : const Color(0xFF286AA8),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                          ),
-                      ],
-                    ),
+                            const SizedBox(height: 3),
+                            _iconLabel(Icons.email_outlined, _email),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "${_firstNameController.text} ${_lastNameController.text}",
-                          style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          _formatRole(_role),
-                          style: GoogleFonts.albertSans(fontSize: 12, color: _teal, fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 6),
-                        _iconLabel(Icons.email_outlined, _email),
-                      ],
-                    ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
+                  const SizedBox(height: 12),
+                  // Switch Account Toggle Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: _teal.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.switch_account_outlined, size: 20, color: _teal),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Switch Account",
+                                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
+                              ),
+                              Text(
+                                _isParentRole(_role) ? "Parent Account Active" : "Caregiver Account Active",
+                                style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      _isSwitchingRole
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: _teal),
+                            )
+                          : Switch.adaptive(
+                              value: _isParentRole(_role),
+                              activeThumbColor: _teal,
+                              activeTrackColor: _teal.withValues(alpha: 0.4),
+                              onChanged: (bool value) => _handleRoleSwitch(value),
+                            ),
+                    ],
                   ),
                 ],
               ),

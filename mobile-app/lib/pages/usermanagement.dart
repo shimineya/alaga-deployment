@@ -48,7 +48,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       _errorMessage = null;
     });
 
-    final result = await ApiService.get('/caregiver/users');
+    final result = await ApiService.get('/api/caregiver/users');
 
     if (!mounted) return;
 

@@ -36,7 +36,7 @@ class _ForgotPasswordEmailPageState extends State<ForgotPasswordEmailPage> {
     });
 
     final result = await ApiService.post(
-      '/auth/forgot-password',
+      '/api/auth/forgot-password',
       body: {'email': _emailCtrl.text.trim().toLowerCase()},
       requiresAuth: false,
     );
@@ -57,8 +57,7 @@ class _ForgotPasswordEmailPageState extends State<ForgotPasswordEmailPage> {
         ),
       );
     } else if (result['success'] == true) {
-      // [OWASP A10] Generic success message -- user_id not returned means email not found,
-      // but we show a generic message to prevent user enumeration.
+      // [OWASP A10] Generic success message
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -130,7 +129,6 @@ class ForgotPasswordOTPPage extends StatefulWidget {
 }
 
 class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
-  // [INTEGRATION] Updated to 6 digits to match the backend's OTP generation (Math.floor(100000 + ...))
   static const int _otpLength = 6;
   final List<TextEditingController> _controllers = List.generate(_otpLength, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(_otpLength, (_) => FocusNode());
@@ -138,8 +136,12 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
 
   @override
   void dispose() {
-    for (var c in _controllers) c.dispose();
-    for (var f in _focusNodes) f.dispose();
+    for (var c in _controllers) {
+      c.dispose();
+    }
+    for (var f in _focusNodes) {
+      f.dispose();
+    }
     super.dispose();
   }
 
@@ -151,9 +153,6 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
     }
   }
 
-  // [INTEGRATION] Verifies OTP and navigates to the reset password step.
-  // Uses POST /api/auth/reset-password which combines OTP verification and password update
-  // in a single transaction. We first validate the OTP here, then pass it to the next step.
   Future<void> _verify() async {
     final otpCode = _controllers.map((c) => c.text).join();
     if (otpCode.length < _otpLength) {
@@ -172,8 +171,6 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
 
     setState(() => _isLoading = true);
 
-    // We pass the OTP forward to the reset page, which will verify it
-    // alongside the new password in a single API call (POST /api/auth/reset-password).
     if (!mounted) return;
     setState(() => _isLoading = false);
 
@@ -199,16 +196,16 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
               style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           Text(
-            'Enter the code sent to ${widget.email}',
+            'Enter the code sent to\n${widget.email}',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(_otpLength, (i) => _buildOtpBox(i)),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
           _buildButton('Continue', _isLoading ? null : _verify, _isLoading),
         ],
       ),
@@ -216,33 +213,34 @@ class _ForgotPasswordOTPPageState extends State<ForgotPasswordOTPPage> {
   }
 
   Widget _buildOtpBox(int i) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      width: 44,
-      height: 44,
-      child: TextField(
-        controller: _controllers[i],
-        focusNode: _focusNodes[i],
-        textAlign: TextAlign.center,
-        keyboardType: TextInputType.number,
-        maxLength: 1,
-        style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        decoration: InputDecoration(
-          counterText: '',
-          filled: true,
-          fillColor: const Color(0xFFF5F5F0),
-          contentPadding: EdgeInsets.zero,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(50),
-            borderSide: const BorderSide(color: Colors.black, width: 1.5),
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        height: 48,
+        child: TextField(
+          controller: _controllers[i],
+          focusNode: _focusNodes[i],
+          textAlign: TextAlign.center,
+          keyboardType: TextInputType.number,
+          maxLength: 1,
+          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+            counterText: '',
+            filled: true,
+            fillColor: const Color(0xFFF5F5F0),
+            contentPadding: EdgeInsets.zero,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(50),
+              borderSide: const BorderSide(color: Colors.black, width: 1.5),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(50),
+              borderSide: const BorderSide(color: Colors.black, width: 2),
+            ),
           ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(50),
-            borderSide: const BorderSide(color: Colors.black, width: 2),
-          ),
+          onChanged: (v) => _onChanged(i, v),
         ),
-        onChanged: (v) => _onChanged(i, v),
       ),
     );
   }
@@ -273,8 +271,6 @@ class _ForgotPasswordResetPageState extends State<ForgotPasswordResetPage> {
     return true;
   }
 
-  // [INTEGRATION] Calls POST /api/auth/reset-password with user_id, otp, and new password.
-  // The backend verifies the OTP and updates the password in a single transaction.
   Future<void> _submit() async {
     if (!_isValidPassword(_passCtrl.text)) {
       setState(() {
@@ -289,7 +285,7 @@ class _ForgotPasswordResetPageState extends State<ForgotPasswordResetPage> {
     });
 
     final result = await ApiService.post(
-      '/auth/reset-password',
+      '/api/auth/reset-password',
       body: {
         'user_id': widget.userId,
         'otp': widget.otp,
@@ -302,7 +298,6 @@ class _ForgotPasswordResetPageState extends State<ForgotPasswordResetPage> {
     setState(() => _isLoading = false);
 
     if (result['success'] == true) {
-      // Close all forgot-password dialogs and return to login
       Navigator.of(context).popUntil((r) => r.isFirst);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -389,11 +384,17 @@ class _BlurredBackground extends StatelessWidget {
             child: Container(color: Colors.black.withOpacity(0.7)),
           ),
           Center(
-            child: Dialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-              backgroundColor: const Color(0xFFF5F5F0),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              child: Padding(padding: const EdgeInsets.all(24), child: child),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Dialog(
+                insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+                backgroundColor: const Color(0xFFF5F5F0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  child: child,
+                ),
+              ),
             ),
           ),
         ],

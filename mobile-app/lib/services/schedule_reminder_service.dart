@@ -8,6 +8,32 @@ class ScheduleReminderService {
   static const _storage = FlutterSecureStorage();
   static bool get supported => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  static Future<List<Map<String, String>>> getPhoneTones() async {
+    if (!supported) return const [{'title': 'System Default', 'uri': ''}];
+    final result = await _channel.invokeMethod<List<dynamic>>('getPhoneTones');
+    return (result ?? const [])
+        .map((item) => Map<String, String>.from(item as Map))
+        .toList();
+  }
+
+  static Future<void> previewAlertSound(String uri, double volume) async {
+    if (!supported) return;
+    await _channel.invokeMethod<void>('previewAlertSound', {
+      'uri': uri,
+      'volume': volume.clamp(0.0, 1.0),
+    });
+  }
+
+  static Future<void> configureAlertSound(
+      String tone, String uri, double volume) async {
+    if (!supported) return;
+    await _channel.invokeMethod<void>('configureAlertSound', {
+      'tone': tone,
+      'uri': uri,
+      'volume': volume.clamp(0.0, 1.0),
+    });
+  }
+
   static Future<void> setAccount(int? owner) async {
     if (supported) await _channel.invokeMethod<void>('setOwner', {'owner': owner ?? -1});
   }

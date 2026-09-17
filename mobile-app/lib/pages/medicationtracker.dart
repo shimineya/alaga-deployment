@@ -814,87 +814,93 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F0),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.black87),
-                onPressed: () => Navigator.pop(context),
-                padding: EdgeInsets.zero,
-                alignment: Alignment.centerLeft,
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE4F3F2),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: const Icon(Icons.medication_outlined,
+                        color: Color(0xFF5FA9A9), size: 25),
+                  ),
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Medication Tracker",
+                            style: GoogleFonts.poppins(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF2D3436))),
+                        Text("Schedules, dosage, and medicine stock",
+                            style: GoogleFonts.albertSans(
+                                fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
-
-              Text(
-                "Medication",
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  color: const Color(0xFF5FA9A9),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Text(
-                "TRACKER",
-                style: GoogleFonts.poppins(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
 
               // Add Patient Button
               InkWell(
                 onTap: _showAddMedicationModal,
-                borderRadius: BorderRadius.circular(25),
+                borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(25),
-                    border: Border.all(color: const Color(0xFF5FA9A9)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+                    color: const Color(0xFF5FA9A9),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.add_circle_outline, color: Color(0xFF5FA9A9), size: 20),
+                      const Icon(Icons.add, color: Colors.white, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        "Add Patient’s Medication Tracking",
-                        style: GoogleFonts.poppins(
+                        "Add Medication Schedule",
+                        style: GoogleFonts.albertSans(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                          color: Colors.white,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               Text(
-                "Today’s Schedule",
+                "Today's Schedule",
                 style: GoogleFonts.poppins(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF5FA9A9),
+                  color: const Color(0xFF2D3436),
                 ),
               ),
               Text(
-                "Keep track of your patient’s medication.",
-                style: GoogleFonts.poppins(
+                "Patient medication plans and remaining stock",
+                style: GoogleFonts.albertSans(
                   fontSize: 12,
                   color: Colors.black54,
                 ),

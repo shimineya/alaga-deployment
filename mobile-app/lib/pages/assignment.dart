@@ -15,7 +15,7 @@ class AssignmentScreen extends StatefulWidget {
 
 class _AssignmentScreenState extends State<AssignmentScreen> {
   static const Color _teal = Color(0xFF5FA9A9);
-  static const Color _bgColor = Color(0xFFFDFCF5);
+  static const Color _bgColor = Color(0xFFF5F5F0);
   static const Color _pendingOrange = Color(0xFFFF9F69);
   static const Color _activeGreen = Color(0xFF66CB9F);
 

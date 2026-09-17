@@ -18,7 +18,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   static const Color _caregiverGreen = Color(0xFF38C976);
   static const Color _adminOrange = Color(0xFFF58A4A);
   static const Color _dangerRed = Color(0xFFE57373);
-  static const Color _pageBg = Color(0xFFFFFDF5);
+  static const Color _pageBg = Color(0xFFF5F5F0);
 
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -30,7 +30,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchUsers();
+    if (UserSession.current?.isParent == true) {
+      _fetchUsers();
+    } else {
+      _isLoading = false;
+    }
   }
 
   @override
@@ -39,10 +43,16 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     super.dispose();
   }
 
-  // [INTEGRATION] Fetches all users visible to the logged-in user
-  // from GET /api/caregiver/users. Admins see all users;
-  // caregivers see only teammates on shared patients.
+  // [INTEGRATION] Fetches all users visible to the logged-in parent/admin user
+  // from GET /api/caregiver/users.
   Future<void> _fetchUsers() async {
+    if (UserSession.current?.isParent != true) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -106,6 +116,45 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (UserSession.current?.isParent != true) {
+      return Scaffold(
+        backgroundColor: _pageBg,
+        appBar: AppBar(
+          backgroundColor: _pageBg,
+          elevation: 0,
+          leading: IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.arrow_back, color: Colors.black),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline, size: 64, color: Colors.grey),
+                const SizedBox(height: 16),
+                Text(
+                  'Access Restricted',
+                  style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF2D3436)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'User Management is restricted to parent and admin accounts only.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.albertSans(fontSize: 14, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final filtered = _users.where((user) {
       final name =
           '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.toLowerCase();

@@ -32,6 +32,24 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "setOwner" -> { ScheduleReminders.setOwner(this, call.argument<Int>("owner") ?: -1); result.success(null) }
+                    "configureAlertSound" -> {
+                        ScheduleReminders.configureAlertSound(
+                            this,
+                            call.argument<String>("tone") ?: "System Default",
+                            call.argument<String>("uri") ?: "",
+                            call.argument<Number>("volume")?.toFloat() ?: 1f
+                        )
+                        result.success(null)
+                    }
+                    "getPhoneTones" -> result.success(ScheduleReminders.getPhoneTones(this))
+                    "previewAlertSound" -> {
+                        ScheduleReminders.previewAlertSound(
+                            this,
+                            call.argument<String>("uri") ?: "",
+                            call.argument<Number>("volume")?.toFloat() ?: 1f
+                        )
+                        result.success(null)
+                    }
                     "schedule" -> result.success(ScheduleReminders.add(this, call.argument<Int>("owner")!!, call.argument<Number>("at")!!.toLong(), call.argument<String>("title") ?: "Schedule reminder"))
                     "cancel" -> { ScheduleReminders.remove(this, call.argument<Int>("id")!!); result.success(null) }
                     else -> result.notImplemented()

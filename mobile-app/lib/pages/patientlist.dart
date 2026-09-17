@@ -40,50 +40,59 @@ class _PatientListScreenState extends State<PatientListScreen> {
       _errorMessage = null;
     });
 
-    final result = await ApiService.get('/api/caregiver/patients');
+    try {
+      final result = await ApiService.get('/api/caregiver/patients');
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    if (result['success'] == true && result['data'] != null) {
-      final List<dynamic> rawPatients = result['data'];
-      setState(() {
-        allPatients = rawPatients.map((p) {
-          final telemetry = p['latest_telemetry'] ?? {};
-          print("DEBUG TELEMETRY: $telemetry");
-          // Extract raw numbers (or null) to allow for graph calculations
-          final hr = telemetry['heart_rate'] as num?;
-          final temp = telemetry['temperature'] as num?;
-          final spo2 = telemetry['spo2'] as num?;
+      if (result['success'] == true && result['data'] != null && result['data'] is List) {
+        final List<dynamic> rawPatients = result['data'];
+        setState(() {
+          allPatients = rawPatients.map((p) {
+            final telemetry = p['latest_telemetry'] ?? {};
+            print("DEBUG TELEMETRY: $telemetry");
+            // Extract raw numbers (or null) to allow for graph calculations
+            final hr = telemetry['heart_rate'] as num?;
+            final temp = telemetry['temperature'] as num?;
+            final spo2 = telemetry['spo2'] as num?;
 
-          return <String, dynamic>{
-            'patient_id': p['patient_id'],
-            'name': p['name'] ?? 'Unknown',
-            'room': 'Room Home',
-            'status': p['vital_device_sn'] != null ? 'Stable' : 'Offline',
-            
-            // UI Labels (Strings)
-            'hr': hr?.toString() ?? '---',
-            'temp': temp != null ? "${temp.toStringAsFixed(1)}°C" : '---',
-            'spo2': spo2 != null ? "$spo2%" : '---',
-            'wetness': (telemetry['moisture'] == 100) ? 'Wet' : 'Dry',              
-            // Raw Numbers for Graphing (Use these in your CustomPainter)
-            'hr_num': hr?.toDouble() ?? 0.0,
-            'temp_num': temp?.toDouble() ?? 0.0,
-            'spo2_num': spo2?.toDouble() ?? 0.0,
-            
-            'vs_id': p['vital_device_sn'] ?? 'None',
-            'sd_id': p['diaper_device_sn'] ?? 'None',
-            'birthdate': p['birthdate'],
-            'assigned_caregiver': p['assigned_caregiver_name'] ?? 'Unassigned',
-          };
-        }).toList();
-        _isLoading = false;
-      });
-    } else {
-      setState(() {
-        _errorMessage = result['message'] ?? 'Failed to load patients.';
-        _isLoading = false;
-      });
+            return <String, dynamic>{
+              'patient_id': p['patient_id'],
+              'name': p['name'] ?? 'Unknown',
+              'room': 'Room Home',
+              'status': p['vital_device_sn'] != null ? 'Stable' : 'Offline',
+              
+              // UI Labels (Strings)
+              'hr': hr?.toString() ?? '---',
+              'temp': temp != null ? "${temp.toStringAsFixed(1)}°C" : '---',
+              'spo2': spo2 != null ? "$spo2%" : '---',
+              'wetness': (telemetry['moisture'] == 100) ? 'Wet' : 'Dry',              
+              // Raw Numbers for Graphing (Use these in your CustomPainter)
+              'hr_num': hr?.toDouble() ?? 0.0,
+              'temp_num': temp?.toDouble() ?? 0.0,
+              'spo2_num': spo2?.toDouble() ?? 0.0,
+              
+              'vs_id': p['vital_device_sn'] ?? 'None',
+              'sd_id': p['diaper_device_sn'] ?? 'None',
+              'birthdate': p['birthdate'],
+              'assigned_caregiver': p['assigned_caregiver_name'] ?? 'Unassigned',
+            };
+          }).toList();
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          allPatients = [];
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          allPatients = [];
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -97,7 +106,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
   Widget build(BuildContext context) {
     final mainTextStyle = GoogleFonts.poppins(fontWeight: FontWeight.bold, color: const Color(0xFF2D3436));
     final descriptionStyle = GoogleFonts.albertSans(color: Colors.grey, fontSize: 13);
-    const Color bgColor = Color(0xFFFDFCF5);
+    const Color bgColor = Color(0xFFF5F5F0);
 
     final filteredPatients = allPatients.where((p) {
       bool matchesFilter = selectedFilter == "All Patients" || p['status'] == "Stable";
@@ -162,7 +171,10 @@ class _PatientListScreenState extends State<PatientListScreen> {
                   style: mainTextStyle.copyWith(fontSize: 28),
                 ),
                 const SizedBox(height: 8),
-                Text("Manage and monitor all assigned patients", style: descriptionStyle),
+                Text(
+                  "Manage and monitor all assigned patients",
+                  style: descriptionStyle.copyWith(color: Colors.black),
+                ),
               ],
             ),
           ),
@@ -180,7 +192,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
                 onChanged: (value) => setState(() => searchQuery = value),
                 decoration: InputDecoration(
                   hintText: "Search patient, room, or device ID...",
-                  hintStyle: descriptionStyle.copyWith(color: Colors.grey.shade400),
+                  hintStyle: descriptionStyle.copyWith(color: Colors.grey),
                   prefixIcon: const Icon(Icons.search, color: Color(0xFF4DB6AC), size: 20),
                   suffixIcon: searchQuery.isNotEmpty
                       ? IconButton(
@@ -209,43 +221,26 @@ class _PatientListScreenState extends State<PatientListScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9)))
-                : _errorMessage != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
-                            const SizedBox(height: 16),
-                            Text(_errorMessage!, style: descriptionStyle),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: _fetchPatients,
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5FA9A9)),
-                              child: Text('Retry', style: GoogleFonts.poppins(color: Colors.white)),
-                            ),
-                          ],
+                : filteredPatients.isEmpty
+                    ? _buildEmptyState(descriptionStyle)
+                    : RefreshIndicator(
+                        onRefresh: _fetchPatients,
+                        color: const Color(0xFF5FA9A9),
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: filteredPatients.length,
+                          itemBuilder: (context, index) {
+                            return _buildPatientCard(
+                              filteredPatients[index],
+                              mainTextStyle,
+                              descriptionStyle,
+                              // [OWASP A01] Callback triggers a list refresh
+                              // after a successful removal — keeps state consistent.
+                              onRemoved: _fetchPatients,
+                            );
+                          },
                         ),
-                      )
-                    : filteredPatients.isEmpty
-                        ? _buildEmptyState(descriptionStyle)
-                        : RefreshIndicator(
-                            onRefresh: _fetchPatients,
-                            color: const Color(0xFF5FA9A9),
-                            child: ListView.builder(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: filteredPatients.length,
-                              itemBuilder: (context, index) {
-                                return _buildPatientCard(
-                                  filteredPatients[index],
-                                  mainTextStyle,
-                                  descriptionStyle,
-                                  // [OWASP A01] Callback triggers a list refresh
-                                  // after a successful removal — keeps state consistent.
-                                  onRemoved: _fetchPatients,
-                                );
-                              },
-                            ),
-                          ),
+                      ),
           ),
         ],
       ),
@@ -284,12 +279,43 @@ class _PatientListScreenState extends State<PatientListScreen> {
 
 
   Widget _buildEmptyState(TextStyle style) {
-    return Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.person_search_outlined, size: 64, color: Colors.grey.shade300),
-      const SizedBox(height: 16),
-      Text("No patients found.", style: style)
-    ]));
+    final message = searchQuery.isNotEmpty
+        ? "No patients found matching '$searchQuery'."
+        : "There are currently no patients assigned to you.";
+
+    return RefreshIndicator(
+      onRefresh: _fetchPatients,
+      color: const Color(0xFF5FA9A9),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.person_outline, size: 64, color: Colors.grey.shade400),
+                    const SizedBox(height: 16),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: style.copyWith(
+                        fontSize: 14,
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

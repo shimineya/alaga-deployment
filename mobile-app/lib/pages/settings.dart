@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service to fetch and persist settings
 import '../services/api_service.dart';
+import '../services/app_preferences.dart';
+import '../services/schedule_reminder_service.dart';
 import '../models/user_session.dart';
 import 'biometrics.dart';
 
@@ -22,17 +24,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Notification States (loaded from backend)
   bool criticalAlerts = true;
   bool warningAlerts = true;
-  bool infoNotifications = false;
-  bool emailNotifications = true;
-  bool smsNotifications = false;
 
   // Security Settings (loaded from encrypted local storage)
   bool _isBiometricEnabled = false;
   bool _isBiometricAvailable = false;
 
   // Dropdown Values
-  String selectedTimezone = "Asia/Manila (PHT)";
-  String selectedSensitivity = "Medium (Balanced)";
+  String selectedDateFormat = "MM/DD/YYYY";
+  String selectedAppearance = "System Default";
+  String selectedDataRefresh = "Automatic";
+  String selectedAlertTone = "System Default";
+  double alertVolume = 1.0;
+  List<Map<String, String>> _phoneTones = const [
+    {'title': 'System Default', 'uri': ''}
+  ];
+
+  String _text(String english, String _) => english;
 
   // [INTEGRATION] Live system info fetched from backend
   String _appVersion = "Loading...";
@@ -52,6 +59,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
 
+    await AppPreferences.load();
+    List<Map<String, String>> phoneTones;
+    try {
+      phoneTones = await ScheduleReminderService.getPhoneTones();
+      if (phoneTones.isEmpty) {
+        phoneTones = const [{'title': 'System Default', 'uri': ''}];
+      }
+    } catch (_) {
+      phoneTones = const [{'title': 'System Default', 'uri': ''}];
+    }
+
     // [INTEGRATION] Fetch current profile/preferences
     final profileResult = await ApiService.get('/user/profile');
 
@@ -68,6 +86,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
 
     setState(() {
+      selectedDateFormat = AppPreferences.dateFormat.value;
+      selectedAppearance = AppPreferences.appearance.value;
+      selectedDataRefresh = AppPreferences.dataRefresh.value;
+      selectedAlertTone = AppPreferences.alertTone.value;
+      alertVolume = AppPreferences.alertVolume.value;
+      _phoneTones = phoneTones;
+      if (!_phoneTones.any((tone) => tone['title'] == selectedAlertTone)) {
+        selectedAlertTone = _phoneTones.first['title']!;
+      }
       // App version is read from compile-time constant (package_info_plus would
       // be the ideal approach in production). For this prototype, the version
       // is declared here and matches the pubspec.yaml version field.
@@ -86,10 +113,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             enabledPrefs.contains('critical_alerts') || enabledPrefs.isEmpty;
         warningAlerts =
             enabledPrefs.contains('warning_alerts') || enabledPrefs.isEmpty;
-        infoNotifications = enabledPrefs.contains('info_notifications');
-        emailNotifications = enabledPrefs.contains('email_notifications') ||
-            enabledPrefs.isEmpty;
-        smsNotifications = enabledPrefs.contains('sms_notifications');
         _dbStatus = "Connected";
       } else {
         // [OWASP A10] Do not expose raw error from server; show a generic status
@@ -120,34 +143,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // The backend stores this as a PostgreSQL TEXT[] column.
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
-
-    // [INTEGRATION] Convert boolean toggles to a TEXT[] list of enabled keys.
-    // This matches the notification_preferences TEXT[] column in the users table.
-    final enabledPrefs = <String>[
-      if (criticalAlerts) 'critical_alerts',
-      if (warningAlerts) 'warning_alerts',
-      if (infoNotifications) 'info_notifications',
-      if (emailNotifications) 'email_notifications',
-      if (smsNotifications) 'sms_notifications',
-    ];
-
-    final result = await ApiService.put(
-      '/user/profile',
-      body: {
-        'notification_preferences': enabledPrefs,
-      },
-    );
+    Map<String, dynamic> result = {'success': false};
+    try {
+      await AppPreferences.save(
+        dateFormatValue: selectedDateFormat,
+        appearanceValue: selectedAppearance,
+        dataRefreshValue: selectedDataRefresh,
+        alertToneValue: selectedAlertTone,
+        alertVolumeValue: alertVolume,
+      );
+      final selectedTone = _phoneTones.firstWhere(
+          (tone) => tone['title'] == selectedAlertTone,
+          orElse: () => const {'title': 'System Default', 'uri': ''});
+      final toneUri = selectedTone['uri'] ?? '';
+      try {
+        await ScheduleReminderService.configureAlertSound(
+            selectedAlertTone, toneUri, alertVolume);
+      } catch (_) {
+        // Local preferences still save when native alert support is unavailable.
+      }
+      final enabledPrefs = <String>[
+        if (criticalAlerts) 'critical_alerts',
+        if (warningAlerts) 'warning_alerts',
+      ];
+      result = await ApiService.put('/user/profile',
+          body: {'notification_preferences': enabledPrefs});
+    } catch (_) {
+      result = {'success': false, 'message': 'Failed to save settings.'};
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
 
     if (!mounted) return;
-    setState(() => _isSaving = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         // [OWASP A10] Show generic success/failure without exposing internals
         content: Text(
           result['success'] == true
-              ? "Settings saved successfully."
-              : result['message'] ?? "Failed to save settings.",
+              ? _text("Settings saved successfully.",
+                  "Matagumpay na na-save ang mga setting.")
+              : result['message'] ??
+                  _text("Failed to save settings.",
+                      "Hindi na-save ang mga setting."),
           style: GoogleFonts.albertSans(),
         ),
         backgroundColor: result['success'] == true
@@ -165,7 +203,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (enable) {
       final biometricService = BiometricService();
       final authenticated = await biometricService.authenticate(
-        reason: 'Confirm your fingerprint to enable biometric login',
+        reason: _text('Confirm your fingerprint to enable biometric login',
+            'Kumpirmahin ang iyong fingerprint upang paganahin ang biometric login'),
       );
 
       if (!mounted) return;
@@ -176,7 +215,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() => _isBiometricEnabled = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Biometric login has been enabled.',
+            content: Text(_text('Biometric login has been enabled.',
+                    'Pinagana na ang biometric login.'),
                 style: GoogleFonts.albertSans()),
             backgroundColor: const Color(0xFF4DB6AC),
             behavior: SnackBarBehavior.floating,
@@ -187,7 +227,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Biometric scan was not completed. No changes were made.',
+              _text('Biometric scan was not completed. No changes were made.',
+                  'Hindi nakumpleto ang biometric scan. Walang ginawang pagbabago.'),
               style: GoogleFonts.albertSans(),
             ),
             backgroundColor: Colors.orangeAccent,
@@ -200,7 +241,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isBiometricEnabled = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Biometric login has been disabled.',
+          content: Text(_text('Biometric login has been disabled.',
+                  'Hindi na pinagana ang biometric login.'),
               style: GoogleFonts.albertSans()),
           backgroundColor: Colors.grey.shade700,
           behavior: SnackBarBehavior.floating,
@@ -222,7 +264,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content:
-              Text(result['message'] ?? 'Unable to check device firmware.'),
+              Text(result['message'] ?? _text('Unable to check device firmware.',
+                  'Hindi masuri ang firmware ng device.')),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -234,18 +277,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? rawUpdates.whereType<Map>().map(Map<String, dynamic>.from).toList()
         : <Map<String, dynamic>>[];
     if (updates.isEmpty) {
-      setState(() => _firmwareStatus = 'No update published');
+      setState(() => _firmwareStatus = _text(
+          'No update published', 'Walang inilabas na update'));
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('No firmware available'),
-          content: const Text(
-            'No compiled Arduino firmware has been published by an administrator yet.',
+          title: Text(_text('No firmware available', 'Walang available na firmware')),
+          content: Text(
+            _text('No compiled Arduino firmware has been published by an administrator yet.',
+                'Wala pang inilalabas na compiled Arduino firmware ang administrator.'),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('OK'),
+              child: Text(_text('OK', 'Sige')),
             ),
           ],
         ),
@@ -325,14 +370,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFFFFFDF5),
+        backgroundColor: Color(0xFFF5F5F0),
         body:
             Center(child: CircularProgressIndicator(color: Color(0xFF4DB6AC))),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFDF5),
+      backgroundColor: const Color(0xFFF5F5F0),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -347,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "System Configuration",
+              _text("System Configuration", "Kompigurasyon ng Sistema"),
               style: GoogleFonts.poppins(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -356,68 +401,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            Text("SETTINGS", style: headerStyle),
-            Text("Manage your application preferences.",
+            Text(_text("SETTINGS", "MGA SETTING"), style: headerStyle),
+            Text(_text("Manage your application preferences.",
+                    "Pamahalaan ang mga kagustuhan ng iyong application."),
                 style:
                     GoogleFonts.albertSans(color: Colors.black, fontSize: 14)),
             const SizedBox(height: 25),
 
             // 1. General Settings
             _buildSectionCard(
-              title: "General Settings",
+              title: _text("General Settings", "Pangkalahatang Setting"),
               icon: Icons.settings_outlined,
               children: [
                 _buildDropdown(
-                    "Timezone",
-                    selectedTimezone,
-                    ["Asia/Manila (PHT)", "UTC+0"],
-                    (val) => setState(() => selectedTimezone = val!)),
+                    "Appearance",
+                    selectedAppearance,
+                    const ["System Default"],
+                    (val) => setState(() => selectedAppearance = val!)),
+                _buildDropdown(
+                    _text("Date Format", "Format ng Petsa"),
+                    selectedDateFormat,
+                    const ["MM/DD/YYYY", "DD/MM/YYYY"],
+                    (val) => setState(() => selectedDateFormat = val!)),
+                _buildDropdown(
+                    "Data Refresh",
+                    selectedDataRefresh,
+                    const ["Automatic", "Manual", "Every 5 Mins"],
+                    (val) => setState(() => selectedDataRefresh = val!)),
               ],
             ),
 
             // 2. Notification Preferences
             _buildSectionCard(
-              title: "Notification Preferences",
+              title: _text("Notification Preferences", "Mga Kagustuhan sa Abiso"),
               icon: Icons.notifications_none_outlined,
               children: [
                 _buildSwitchTile(
-                    "Critical Alerts",
-                    "Extreme fever, heart rate anomalies",
+                    _text("Critical Alerts", "Kritikal na Babala"),
+                    _text("Extreme fever, heart rate anomalies",
+                        "Matinding lagnat, hindi normal na tibok ng puso"),
                     criticalAlerts,
                     (val) => setState(() => criticalAlerts = val)),
                 _buildSwitchTile(
-                    "Warning Alerts",
-                    "Elevated vitals, moisture detection",
+                    _text("Warning Alerts", "Mga Babala"),
+                    _text("Elevated vitals, moisture detection",
+                        "Mataas na vital signs, natukoy na pagkabasa"),
                     warningAlerts,
                     (val) => setState(() => warningAlerts = val)),
-                _buildSwitchTile(
-                    "Info Notifications",
-                    "General updates and reminders",
-                    infoNotifications,
-                    (val) => setState(() => infoNotifications = val)),
                 const Divider(height: 30),
-                Text("Notification Channels", style: labelStyle),
-                _buildSwitchTile(
-                    "Email Notifications",
-                    null,
-                    emailNotifications,
-                    (val) => setState(() => emailNotifications = val)),
-                _buildSwitchTile("SMS Notifications", null, smsNotifications,
-                    (val) => setState(() => smsNotifications = val)),
+                _buildDropdown(
+                    "Tone",
+                    selectedAlertTone,
+                    _phoneTones.map((tone) => tone['title']!).toList(),
+                    (val) async {
+                      if (val == null) return;
+                      setState(() => selectedAlertTone = val);
+                      final tone = _phoneTones.firstWhere(
+                          (item) => item['title'] == val);
+                      try {
+                        await ScheduleReminderService.previewAlertSound(
+                            tone['uri'] ?? '', alertVolume);
+                      } catch (_) {
+                        // Preview is unavailable on unsupported platforms.
+                      }
+                    }),
+                Text("Volume", style: labelStyle),
+                Row(
+                  children: [
+                    const Icon(Icons.volume_down, color: Colors.grey),
+                    Expanded(
+                      child: Slider(
+                        value: alertVolume,
+                        min: 0,
+                        max: 1,
+                        divisions: 10,
+                        activeColor: const Color(0xFF4DB6AC),
+                        label: "${(alertVolume * 100).round()}%",
+                        onChanged: (value) =>
+                            setState(() => alertVolume = value),
+                      ),
+                    ),
+                    const Icon(Icons.volume_up, color: Color(0xFF4DB6AC)),
+                    SizedBox(
+                      width: 42,
+                      child: Text("${(alertVolume * 100).round()}%",
+                          textAlign: TextAlign.end,
+                          style: const TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const Text(
+                  "Controls the sound used for alerts sent through this phone.",
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
               ],
             ),
 
-            // 3. Alert Configuration (OC-SVM Info)
+            // 3. Read-only AI baseline information
             _buildSectionCard(
-              title: "Alert Configuration",
+              title: "AI Normal Standard",
               icon: Icons.shield_outlined,
               children: [
-                _buildDropdown(
-                    "Alert Sensitivity",
-                    selectedSensitivity,
-                    ["Low", "Medium (Balanced)", "High"],
-                    (val) => setState(() => selectedSensitivity = val!)),
-                const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -427,37 +511,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Anomaly Detection (OC-SVM)",
-                          style:
-                              labelStyle.copyWith(color: Colors.blue.shade800)),
-                      const SizedBox(height: 4),
                       Text(
-                        "One-Class SVM algorithm is active for high-precision alerts and reduced false positives.",
-                        style: GoogleFonts.poppins(
-                            fontSize: 11, color: Colors.blue.shade700),
+                        "These read-only values show the standard healthy baseline used by the AI when evaluating patient vital signs. They cannot be changed in Settings.",
+                        style: GoogleFonts.albertSans(
+                            fontSize: 12, color: Colors.blue.shade800),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                _buildBaselineField("Heart rate minimum (bpm)", "50"),
+                _buildBaselineField("Heart rate maximum (bpm)", "120"),
+                _buildBaselineField("Temperature minimum (°C)", "36"),
+                _buildBaselineField("Temperature maximum (°C)", "37.5"),
+                _buildBaselineField("SpO₂ minimum (%)", "90"),
               ],
             ),
 
             // 4. Security Settings
             _buildSectionCard(
-              title: "Security",
+              title: _text("Security", "Seguridad"),
               icon: Icons.lock_outline,
               children: [
                 _isBiometricAvailable
                     ? _buildSwitchTile(
-                        "Biometric Login",
-                        "Use your fingerprint to log in instead of your password.",
+                        _text("Biometric Login", "Pag-login gamit ang Biometric"),
+                        _text("Use your fingerprint to log in instead of your password.",
+                            "Gamitin ang fingerprint sa pag-login sa halip na password."),
                         _isBiometricEnabled,
                         _toggleBiometric,
                       )
                     : Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Text(
-                          "Biometric login is not available on this device.",
+                          _text("Biometric login is not available on this device.",
+                              "Hindi available ang biometric login sa device na ito."),
                           style: GoogleFonts.poppins(
                             fontSize: 13,
                             color: Colors.grey,
@@ -469,7 +557,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // 5. Arduino device firmware update
             _buildSectionCard(
-              title: "Device Firmware",
+              title: _text("Device Firmware", "Firmware ng Device"),
               icon: Icons.system_update_outlined,
               children: [
                 Row(
@@ -479,7 +567,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("Arduino firmware", style: labelStyle),
+                          Text(_text("Arduino firmware", "Firmware ng Arduino"), style: labelStyle),
                           Text(_firmwareStatus,
                               style: const TextStyle(
                                   fontSize: 11, color: Colors.grey)),
@@ -502,8 +590,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text("Check Update",
-                              style: TextStyle(
+                          : Text(_text("Check Update", "Tingnan ang Update"),
+                              style: const TextStyle(
                                   fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                   ],
@@ -533,8 +621,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: Colors.white),
                           )
-                        : const Text("Save Changes",
-                            style: TextStyle(
+                        : Text(_text("Save Changes", "I-save ang mga Pagbabago"),
+                            style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold)),
                   ),
@@ -542,8 +630,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(width: 15),
                 TextButton(
                   onPressed: _loadSettings,
-                  child: const Text("Reset to Defaults",
-                      style: TextStyle(color: Colors.black54)),
+                  child: Text(_text("Reset to Defaults", "Ibalik sa Default"),
+                      style: const TextStyle(color: Colors.black54)),
                 ),
               ],
             ),
@@ -601,6 +689,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             value: value,
+            isExpanded: true,
+            style: GoogleFonts.albertSans(fontSize: 14, color: Colors.black87),
             decoration: InputDecoration(
               filled: true,
               fillColor: const Color(0xFFF1F2F6),
@@ -612,9 +702,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
             items: items
                 .map((i) => DropdownMenuItem(
                     value: i,
-                    child: Text(i, style: const TextStyle(fontSize: 14))))
+                    child: Text(i,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.albertSans(fontSize: 14))))
+                .toList(),
+            selectedItemBuilder: (context) => items
+                .map((i) => Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(i,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.albertSans(
+                              fontSize: 14, color: Colors.black87)),
+                    ))
                 .toList(),
             onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBaselineField(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: GoogleFonts.albertSans(
+                    fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 16),
+          Container(
+            width: 82,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F2F6),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Text(value,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.albertSans(
+                    fontSize: 14, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -642,15 +774,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text("System Information",
+        Text(_text("System Information", "Impormasyon ng Sistema"),
             style:
                 GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 15),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _infoItem("Application Version", _appVersion),
-            _infoItem("Database Status", _dbStatus,
+            _infoItem(_text("Application Version", "Bersyon ng Application"), _appVersion),
+            _infoItem(_text("Database Status", "Kalagayan ng Database"),
+                _text(_dbStatus, _dbStatus == "Connected" ? "Konektado" : "Hindi available"),
                 isStatus: _dbStatus == "Connected"),
           ],
         ),
@@ -660,8 +793,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             // [TECHNICAL DEBT] Last Backup date requires a dedicated /api/sysadmin/backup-status
             // endpoint. Currently not available in this prototype version.
-            _infoItem("Last Backup", _lastBackup),
-            _infoItem("Active Devices", _activeDevices),
+            _infoItem(_text("Last Backup", "Huling Backup"),
+                _text(_lastBackup, "Hindi available")),
+            _infoItem(_text("Active Devices", "Mga Aktibong Device"), _activeDevices),
           ],
         ),
       ],

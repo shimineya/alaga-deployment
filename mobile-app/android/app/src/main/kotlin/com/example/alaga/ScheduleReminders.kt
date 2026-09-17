@@ -3,6 +3,11 @@ package com.example.alaga
 import android.app.*
 import android.content.*
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.RingtoneManager
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -10,6 +15,7 @@ import java.util.Locale
 
 object ScheduleReminders {
     const val CHANNEL = "alaga_schedule_reminders"
+    const val ALERT_CHANNEL = "alaga_phone_alerts"
     private fun prefs(c: Context) = c.getSharedPreferences("schedule_reminders", Context.MODE_PRIVATE)
     private fun manager(c: Context) = c.getSystemService(NotificationManager::class.java)
     private fun alarm(c: Context) = c.getSystemService(AlarmManager::class.java)
@@ -21,7 +27,93 @@ object ScheduleReminders {
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             })
+            manager(c).createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "ALAGA phone alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Audible ALAGA alerts using the tone and volume selected in the app"
+                setSound(null, null)
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            })
         }
+    }
+
+    private var previewPlayer: MediaPlayer? = null
+
+    fun getPhoneTones(c: Context): List<Map<String, String>> {
+        val tones = linkedMapOf<String, String>()
+        val manager = RingtoneManager(c).apply {
+            // Phone ringtones can be full-length songs. Alerts only offer the
+            // shorter notification and alarm sounds installed on the device.
+            setType(RingtoneManager.TYPE_NOTIFICATION or RingtoneManager.TYPE_ALARM)
+        }
+        manager.cursor.use { cursor ->
+            while (cursor.moveToNext()) {
+                val title = cursor.getString(RingtoneManager.TITLE_COLUMN_INDEX)
+                tones.putIfAbsent(title, manager.getRingtoneUri(cursor.position).toString())
+            }
+        }
+        return tones.map { mapOf("title" to it.key, "uri" to it.value) }
+    }
+
+    fun previewAlertSound(c: Context, uri: String, volume: Float) {
+        previewPlayer?.release()
+        val soundUri = if (uri.isBlank())
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) else android.net.Uri.parse(uri)
+        val player = MediaPlayer().apply {
+            setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            setDataSource(c, soundUri)
+            setVolume(volume.coerceIn(0f, 1f), volume.coerceIn(0f, 1f))
+            setOnCompletionListener { it.release(); previewPlayer = null }
+            prepare()
+            start()
+        }
+        previewPlayer = player
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (previewPlayer === player) {
+                if (player.isPlaying) player.stop()
+                player.release()
+                previewPlayer = null
+            }
+        }, 5_000)
+    }
+
+    fun configureAlertSound(c: Context, tone: String, uri: String, volume: Float) {
+        prefs(c).edit()
+            .putString("alert_tone", tone)
+            .putString("alert_tone_uri", uri)
+            .putFloat("alert_volume", volume.coerceIn(0f, 1f))
+            .apply()
+    }
+
+    private fun playAlertSound(c: Context) {
+        val p = prefs(c)
+        val volume = p.getFloat("alert_volume", 1f).coerceIn(0f, 1f)
+        if (volume <= 0f) return
+        val savedUri = p.getString("alert_tone_uri", "").orEmpty()
+        val uri = if (savedUri.isBlank())
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        else android.net.Uri.parse(savedUri)
+        val player = MediaPlayer().apply {
+            setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build())
+            setDataSource(c, uri)
+            setVolume(volume, volume)
+            setOnCompletionListener { it.release() }
+            setOnErrorListener { player, _, _ -> player.release(); true }
+            prepare()
+            start()
+        }
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                if (player.isPlaying) player.stop()
+                player.release()
+            } catch (_: IllegalStateException) {
+                // Completion may have already released a short sound.
+            }
+        }, 5_000)
     }
 
     fun allowed(c: Context): Boolean {
@@ -95,7 +187,7 @@ object ScheduleReminders {
         val record = JSONObject(raw)
         if (record.getBoolean("ack") || record.getInt("owner") != prefs(c).getInt("active_owner", -1) || !allowed(c)) return
         val open = PendingIntent.getActivity(c, id, Intent(c, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(c, CHANNEL) else Notification.Builder(c)
+        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(c, ALERT_CHANNEL) else Notification.Builder(c)
         val scheduled = Calendar.getInstance().apply { timeInMillis = record.getLong("at") }
         val now = Calendar.getInstance()
         val isToday = scheduled.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
@@ -117,6 +209,7 @@ object ScheduleReminders {
             .addAction(Notification.Action.Builder(null, "Got It", intent(c, id, "ACK")).build())
             .build()
         manager(c).notify(id, notification)
+        playAlertSound(c)
         record.put("delivered", true)
         prefs(c).edit().putString("event_$id", record.toString()).commit()
     }

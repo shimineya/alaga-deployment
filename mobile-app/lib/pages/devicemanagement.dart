@@ -15,6 +15,7 @@ class DeviceManagementScreen extends StatefulWidget {
 class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
+  String _selectedStatus = "All Status";
 
   // [INTEGRATION] Live device data from the backend
   List<Map<String, dynamic>> _allDevices = [];
@@ -84,21 +85,21 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     // Silently ignore errors — the dialog will show an appropriate message.
   }
 
-  // Computed getters from API data
-  int get _totalDevices => _allDevices.length;
-  int get _activeDevices =>
-      _allDevices.where((d) => d['status'] == 'ACTIVE' && d['assigned_patient_id'] != null).length;
-  int get _unassignedDevices =>
-      _allDevices.where((d) => d['assigned_patient_id'] == null).length;
-
   List<Map<String, dynamic>> get _filteredDevices {
-    if (_searchQuery.isEmpty) return _allDevices;
     final query = _searchQuery.toLowerCase();
     return _allDevices.where((d) {
       final sn = (d['serial_number'] ?? '').toString().toLowerCase();
       final name = (d['device_name'] ?? '').toString().toLowerCase();
       final patient = (d['assigned_patient_name'] ?? '').toString().toLowerCase();
-      return sn.contains(query) || name.contains(query) || patient.contains(query);
+      final status = (d['status'] ?? 'INACTIVE').toString().toUpperCase();
+      final matchesSearch = query.isEmpty ||
+          sn.contains(query) ||
+          name.contains(query) ||
+          patient.contains(query);
+      final matchesStatus = _selectedStatus == 'All Status' ||
+          (_selectedStatus == 'Active' && status == 'ACTIVE') ||
+          (_selectedStatus == 'Inactive' && status != 'ACTIVE');
+      return matchesSearch && matchesStatus;
     }).toList();
   }
 
@@ -437,133 +438,222 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 26, color: const Color(0xFF2D3436));
     final devices = _filteredDevices;
+    final isParent = UserSession.current?.isParent == true;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFDF5),
+      backgroundColor: const Color(0xFFF5F5F0),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFF102A43)),
+            onPressed: () => Navigator.pop(context)),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9)))
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text(_errorMessage!, style: GoogleFonts.albertSans(color: Colors.grey)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _fetchDevices,
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5FA9A9)),
-                        child: Text('Retry', style: GoogleFonts.poppins(color: Colors.white)),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
+          : RefreshIndicator(
                   onRefresh: _fetchDevices,
                   color: const Color(0xFF5FA9A9),
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     clipBehavior: Clip.none,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 36),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text("Device Management",
+                              style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 24,
+                                  color: const Color(0xFF5FA9A9))),
+                          const SizedBox(height: 3),
                           Text(
-                            "Sensor Hub",
-                            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF80CBC4), letterSpacing: 1.2),
+                            "Manage connected hardware, sensors, and firmware infrastructure.",
+                            style: GoogleFonts.albertSans(
+                                color: Colors.black, fontSize: 13),
                           ),
-                          const SizedBox(height: 2),
-                          Text("Device Management", style: titleStyle),
-                          const Text("Monitor and manage active sensors", style: TextStyle(color: Colors.grey, fontSize: 14)),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(child: _buildStatCard("Total", "$_totalDevices", Colors.teal)),
-                              const SizedBox(width: 8),
-                              Expanded(child: _buildStatCard("Active", "$_activeDevices", Colors.green)),
-                              const SizedBox(width: 8),
-                              Expanded(child: _buildStatCard("Available", "$_unassignedDevices", Colors.orange)),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              // --- Add Device to Inventory ---
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () => _showNewDeviceDialog(context),
-                                  icon: const Icon(Icons.add, size: 16),
-                                  label: const Text("+ Inventory", style: TextStyle(fontSize: 13)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF4DB6AC),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF3E0),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color: const Color(0xFFFFCC80)),
+                              ),
+                              child: Row(children: [
+                                const Icon(Icons.cloud_off_outlined,
+                                    color: Color(0xFFE67E22), size: 20),
+                                const SizedBox(width: 9),
+                                Expanded(
+                                  child: Text(
+                                    "Device inventory is temporarily unavailable.",
+                                    style: GoogleFonts.albertSans(
+                                        fontSize: 12,
+                                        color: const Color(0xFF8A4B08)),
                                   ),
                                 ),
+                                TextButton(
+                                  onPressed: _fetchDevices,
+                                  child: const Text("Retry"),
+                                ),
+                              ]),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+                          Row(children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: _selectedStatus,
+                                isExpanded: true,
+                                decoration: _filterDecoration(),
+                                style: GoogleFonts.albertSans(
+                                    fontSize: 13, color: Colors.white),
+                                dropdownColor: const Color(0xFF5FA9A9),
+                                iconEnabledColor: Colors.white,
+                                items: const ['All Status', 'Active', 'Inactive']
+                                    .map((status) => DropdownMenuItem(
+                                        value: status,
+                                        child: Text(status,
+                                            overflow: TextOverflow.ellipsis)))
+                                    .toList(),
+                                onChanged: (value) =>
+                                    setState(() => _selectedStatus = value!),
                               ),
-                              const SizedBox(width: 10),
-                              // --- Register Device to Patient ---
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () => _showRegisterDeviceDialog(context),
-                                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
-                                  label: const Text("Register", style: TextStyle(fontSize: 13)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF00796B),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            const SizedBox(width: 10),
+                            Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: _fetchDevices,
+                                child: Container(
+                                  width: 48,
+                                  height: 48,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                        color: const Color(0xFFD9E3E8)),
                                   ),
+                                  child: const Icon(Icons.refresh,
+                                      color: Color(0xFF168C88), size: 21),
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
+                            ),
+                          ]),
+                          const SizedBox(height: 10),
                           TextField(
                             controller: _searchController,
                             onChanged: (val) => setState(() => _searchQuery = val),
                             decoration: InputDecoration(
-                              hintText: "Search device or patient...",
-                              prefixIcon: const Icon(Icons.search, size: 22),
+                              hintText: "Search devices...",
+                              hintStyle: GoogleFonts.albertSans(
+                                  fontSize: 13, color: const Color(0xFF829AB1)),
+                              prefixIcon: const Icon(Icons.search,
+                                  size: 20, color: Color(0xFF5FA9A9)),
                               filled: true,
                               fillColor: Colors.white,
-                              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 13),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFFD9E3E8))),
                               enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFF80CBC4), width: 1),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFF00897B), width: 2),
-                              ),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFFD9E3E8))),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          if (devices.isEmpty)
-                            Center(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 40),
-                                child: Column(
-                                  children: [
-                                    Icon(Icons.devices_other, size: 48, color: Colors.grey.shade300),
-                                    const SizedBox(height: 12),
-                                    Text("No devices found.", style: GoogleFonts.albertSans(color: Colors.grey)),
-                                  ],
+                          if (isParent) ...[
+                            const SizedBox(height: 12),
+                            Row(children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () =>
+                                      _showRegisterDeviceDialog(context),
+                                  icon: const Icon(Icons.monitor_heart_outlined,
+                                      size: 17),
+                                  label: const Text("Assign to Patient"),
+                                  style: _actionButtonStyle(
+                                      const Color(0xFF5740E8)),
                                 ),
                               ),
-                            )
-                          else
-                            ...devices.map((d) => _buildDeviceCard(d)),
-                          const SizedBox(height: 40),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _showNewDeviceDialog(context),
+                                  icon: const Icon(Icons.phone_android, size: 17),
+                                  label: const Text("Register Device"),
+                                  style: _actionButtonStyle(
+                                      const Color(0xFF3A9C98)),
+                                ),
+                              ),
+                            ]),
+                          ],
+                          const SizedBox(height: 20),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(14, 16, 14, 10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: const Color(0xFFDCE6EA)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                )
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Patients' Devices",
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.bold,
+                                        color: const Color(0xFF102A43))),
+                                const SizedBox(height: 3),
+                                Text(
+                                  "Monitor devices, battery health, and assignments",
+                                  style: GoogleFonts.albertSans(
+                                      fontSize: 12,
+                                      color: const Color(0xFF627D98)),
+                                ),
+                                const Divider(height: 24),
+                                if (devices.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 38),
+                                    child: Center(
+                                      child: Column(children: [
+                                        Icon(Icons.search,
+                                            size: 38,
+                                            color: Colors.grey.shade300),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          "No devices found matching your criteria.",
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.albertSans(
+                                              fontSize: 13,
+                                              color: const Color(0xFF627D98)),
+                                        ),
+                                      ]),
+                                    ),
+                                  )
+                                else
+                                  ...devices.map((d) => _buildDeviceCard(d)),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -572,24 +662,29 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     );
   }
 
-  Widget _buildStatCard(String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          FittedBox(child: Text(value, style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: color)))
-        ],
-      ),
-    );
-  }
+  InputDecoration _filterDecoration() => InputDecoration(
+        filled: true,
+        fillColor: const Color(0xFF5FA9A9),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF5FA9A9)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF5FA9A9)),
+        ),
+      );
+
+  ButtonStyle _actionButtonStyle(Color color) => ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        elevation: 1,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
+        textStyle: GoogleFonts.albertSans(
+            fontSize: 11.5, fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+      );
 
   Widget _buildDeviceCard(Map<String, dynamic> device) {
     final serialNumber = device['serial_number'] ?? 'Unknown';
@@ -597,6 +692,9 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     final status = device['status'] ?? 'INACTIVE';
     final patientName = device['assigned_patient_name'];
     final isAssigned = device['assigned_patient_id'] != null;
+    final battery = device['battery_level'];
+    final signal = device['signal_strength'];
+    final firmware = device['firmware_version'] ?? 'Not reported';
     final isVital = deviceName.toString().toLowerCase().contains('vital');
     final color = isVital ? Colors.blue : Colors.orange;
     // [OWASP A01] Only parent accounts can remove devices from the inventory.
@@ -639,6 +737,19 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   style: TextStyle(fontSize: 11, color: isAssigned ? const Color(0xFF00796B) : Colors.grey),
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 9),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _deviceDetailChip(Icons.battery_5_bar,
+                        battery == null ? 'Battery —' : 'Battery $battery%'),
+                    _deviceDetailChip(Icons.network_cell,
+                        signal == null ? 'Signal —' : 'Signal $signal'),
+                    _deviceDetailChip(
+                        Icons.memory, 'Firmware $firmware'),
+                  ],
+                ),
               ],
             ),
           ),
@@ -661,6 +772,26 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
               ],
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _deviceDetailChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F8F9),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: const Color(0xFF627D98)),
+          const SizedBox(width: 4),
+          Text(text,
+              style: GoogleFonts.albertSans(
+                  fontSize: 9.5, color: const Color(0xFF486581))),
         ],
       ),
     );

@@ -66,7 +66,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     const Color lightTealFill = Color(0xFFE0F2F1); // For input fields
     const Color vibrantTeal = Color(0xFF00897B);
     const Color inputWhite = Color(0xFFFFFFFF);
-    const Color yellowishWhite = Color(0xFFFFFDF5);
+    const Color yellowishWhite = Color(0xFFF5F5F0);
 
     return Scaffold(
       backgroundColor: yellowishWhite,

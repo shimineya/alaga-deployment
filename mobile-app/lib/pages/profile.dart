@@ -118,11 +118,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       // [OWASP A07] Redirect to login — do not expose a blank profile screen.
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-        (route) => false,
-      );
+      Navigator.of(context, rootNavigator: true)
+          .pushNamedAndRemoveUntil('/login', (route) => false);
       return;
     }
 
@@ -374,11 +371,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                 if (!context.mounted) return;
 
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => const LoginPage()),
-                  (route) => false,
-                );
+                Navigator.of(context, rootNavigator: true)
+                    .pushNamedAndRemoveUntil('/login', (route) => false);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,

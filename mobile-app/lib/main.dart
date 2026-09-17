@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'models/user_session.dart';
 import 'services/api_service.dart';
+import 'services/app_preferences.dart';
 
 import 'pages/start.dart';
 import 'pages/login.dart';
@@ -11,6 +12,7 @@ import 'pages/dashboard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppPreferences.load();
   
   // [DEBUG] Ensure .env is loaded before anything else
   try {

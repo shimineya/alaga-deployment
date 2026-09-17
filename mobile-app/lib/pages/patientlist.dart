@@ -111,7 +111,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
 
     return Scaffold(
       backgroundColor: bgColor,
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: UserSession.current?.role.toLowerCase() == 'caregiver' ? null : FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
             context,

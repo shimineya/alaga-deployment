@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service for backend calls
 import '../services/api_service.dart';
+import 'account_role_picker.dart';
 
 // ==================== STEP 1: Enter Email ====================
 class ForgotPasswordEmailPage extends StatefulWidget {
@@ -25,7 +26,7 @@ class _ForgotPasswordEmailPageState extends State<ForgotPasswordEmailPage> {
   }
 
   // [INTEGRATION] Calls POST /api/auth/forgot-password to send a PASSWORD_RESET OTP.
-  Future<void> _sendCode() async {
+  Future<void> _sendCode({String? role}) async {
     if (!_isValidEmail(_emailCtrl.text)) {
       setState(() => _showEmailError = true);
       return;
@@ -37,13 +38,18 @@ class _ForgotPasswordEmailPageState extends State<ForgotPasswordEmailPage> {
 
     final result = await ApiService.post(
       '/api/auth/forgot-password',
-      body: {'email': _emailCtrl.text.trim().toLowerCase()},
+      body: {'email': _emailCtrl.text.trim().toLowerCase(), if (role != null) 'role': role},
       requiresAuth: false,
     );
 
     if (!mounted) return;
     setState(() => _isLoading = false);
 
+    if (result['requiresRole'] == true) {
+      final selectedRole = await chooseAccountRole(context);
+      if (mounted && selectedRole != null) await _sendCode(role: selectedRole);
+      return;
+    }
     if (result['success'] == true && result['user_id'] != null) {
       // Backend found the user and sent an OTP
       Navigator.pushReplacement(

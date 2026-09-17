@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'profile_photo_crop.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -300,15 +301,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (picked == null || !mounted) return;
 
+    final cropped = await Navigator.of(context).push<File>(MaterialPageRoute(
+      builder: (_) => ProfilePhotoCrop(file: File(picked.path)),
+    ));
+    if (cropped == null || !mounted) return;
+
     // Show the chosen image immediately for a responsive feel.
     setState(() {
-      _selectedImageFile = File(picked.path);
+      _selectedImageFile = cropped;
       _isUploadingPicture = true;
     });
 
     final result = await ApiService.multipartPut(
       '/api/user/profile',
-      filePath: picked.path,
+      filePath: cropped.path,
       fileField: 'profile_picture',
     );
 
@@ -419,35 +425,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() => _isSwitchingRole = true);
 
-    final result = await ApiService.put(
-      '/api/user/profile',
-      body: {
-        'role': targetRole,
-      },
-    );
-
+    final result = await ApiService.get('/api/user/profile/account-role/$targetRole');
     if (!mounted) return;
     setState(() => _isSwitchingRole = false);
 
     if (result['success'] == true) {
-      final newRole = result['profile']?['role'] ?? targetRole;
-      final newToken = result['token'] as String?;
-
-      setState(() {
-        _role = newRole;
-      });
-
-      // Update in-memory and persisted session so all screens reflect new role
-      final current = UserSession.current;
-      if (current != null) {
-        final updatedSession = current.copyWith(
-          role: newRole,
-          token: newToken ?? current.token,
-        );
-        await SessionManager.saveSession(updatedSession);
-      }
-
-      _showSnackBar("Switched to ${_formatRole(newRole)} successfully.");
+      // Authenticate the separate account instead of changing this user's role.
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => LoginPage(initialUsername: result['username'] as String?),
+      ));
     } else {
       _showSnackBar(result['message'] ?? 'Failed to switch account mode.', isError: true);
     }

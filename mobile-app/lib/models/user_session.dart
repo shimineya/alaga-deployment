@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
+import '../services/schedule_reminder_service.dart';
 
 class UserSession {
   final int id;
@@ -91,31 +92,22 @@ class SessionManager {
   static const _storage = FlutterSecureStorage();
   static const _sessionKey = 'ALAGA_USER_SESSION';
 
-  // Stored separately from the session JSON so the preference survives logout.
-  // The user sets this once; it is only cleared when they explicitly disable it
-  // in Settings or when clearSession is called during an account wipe.
+  // Legacy single-account keys, read only to migrate existing enrollment.
   static const _biometricEnabledKey = 'ALAGA_BIOMETRIC_ENABLED';
 
-  // Stores a copy of the session JSON exclusively for biometric restoration.
-  // This key is intentionally NOT deleted on logout so that biometric login
-  // can reconstruct the session after the user has signed out.
-  // It is only cleared when the user disables biometrics in Settings.
+  // New enrollments use the account map below and survive normal logout.
   static const _biometricSessionKey = 'ALAGA_BIOMETRIC_SESSION';
 
   // [OWASP A07] Mitigation: securely flush tokens directly to encrypted on-device storage.
   static Future<void> saveSession(UserSession session) async {
     UserSession.current = session;
     await _storage.write(key: _sessionKey, value: jsonEncode(session.toJson()));
+    await ScheduleReminderService.setAccount(session.id);
 
-    // Keep the biometric session in sync whenever the main session is saved,
-    // but only if the user has biometrics enabled. This ensures the biometric
-    // session always reflects the most recent valid credentials.
-    final biometricEnabled = await isBiometricEnabled();
-    if (biometricEnabled) {
-      await _storage.write(
-        key: _biometricSessionKey,
-        value: jsonEncode(session.toJson()),
-      );
+    final sessions = await _readBiometricAccounts();
+    if (sessions.containsKey(session.id.toString())) {
+      sessions[session.id.toString()] = session.toJson();
+      await _writeBiometricAccounts(sessions);
     }
   }
 
@@ -133,6 +125,7 @@ class SessionManager {
           token: json['token'],
           profilePictureUrl: json['profilePictureUrl'],
         );
+        await ScheduleReminderService.setAccount(UserSession.current!.id);
         return UserSession.current;
       } catch (e) {
         // Fallback protocol: destroy corrupted state
@@ -144,67 +137,79 @@ class SessionManager {
   }
 
   static Future<void> clearSession() async {
+    await ScheduleReminderService.setAccount(null);
     UserSession.current = null;
     await _storage.delete(key: _sessionKey);
   }
 
   // ─── Biometric Preference ────────────────────────────────────────────────
 
-  /// Returns true if the user has previously chosen to enable biometric login.
-  /// [OWASP A07] Preference is stored in AES-encrypted storage, not plain SharedPreferences.
-  static Future<bool> isBiometricEnabled() async {
-    final value = await _storage.read(key: _biometricEnabledKey);
-    return value == 'true';
-  }
+  static const _biometricAccountsKey = 'ALAGA_BIOMETRIC_ACCOUNTS';
 
-  /// Persists the user's decision to use biometric login.
-  /// Also writes the current session to the biometric session key so the
-  /// user can immediately use biometrics after enabling — without re-logging in.
-  static Future<void> enableBiometrics() async {
-    await _storage.write(key: _biometricEnabledKey, value: 'true');
-
-    // If there is an active session, mirror it to the biometric session key now.
-    if (UserSession.current != null) {
-      await _storage.write(
-        key: _biometricSessionKey,
-        value: jsonEncode(UserSession.current!.toJson()),
-      );
-    }
-  }
-
-  /// Removes the biometric preference and its associated session snapshot
-  /// so login permanently falls back to credentials until re-enabled.
-  static Future<void> disableBiometrics() async {
-    await _storage.delete(key: _biometricEnabledKey);
-    await _storage.delete(key: _biometricSessionKey);
-  }
-
-  // ─── Biometric Session ───────────────────────────────────────────────────
-
-  /// Restores the session from the biometric-specific key.
-  /// This survives a normal logout because [clearSession] deliberately does
-  /// not delete [_biometricSessionKey].
-  static Future<UserSession?> loadBiometricSession() async {
-    final sessionString = await _storage.read(key: _biometricSessionKey);
-    if (sessionString != null) {
+  static Future<Map<String, dynamic>> _readBiometricAccounts() async {
+    final raw = await _storage.read(key: _biometricAccountsKey);
+    Map<String, dynamic> accounts = {};
+    if (raw != null) {
       try {
-        final json = jsonDecode(sessionString);
-        final session = UserSession(
-          id: json['id'],
-          username: json['username'],
-          email: json['email'],
-          role: json['role'],
-          name: json['name'],
-          token: json['token'],
-          profilePictureUrl: json['profilePictureUrl'],
-        );
-        return session;
-      } catch (e) {
-        // Biometric session snapshot is corrupted; clear both keys for safety.
-        await disableBiometrics();
-        return null;
+        accounts = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {
+        await _storage.delete(key: _biometricAccountsKey);
       }
     }
-    return null;
+    // Migrate the previous single-account enrollment without enrolling anyone else.
+    if (await _storage.read(key: _biometricEnabledKey) == 'true') {
+      final legacy = await _storage.read(key: _biometricSessionKey);
+      if (legacy != null) {
+        try {
+          final data = Map<String, dynamic>.from(jsonDecode(legacy));
+          accounts.putIfAbsent(data['id'].toString(), () => data);
+          await _writeBiometricAccounts(accounts);
+        } catch (_) {
+          // A corrupt legacy enrollment must be set up again.
+        }
+      }
+      await _storage.delete(key: _biometricEnabledKey);
+      await _storage.delete(key: _biometricSessionKey);
+    }
+    return accounts;
+  }
+
+  static Future<void> _writeBiometricAccounts(Map<String, dynamic> accounts) =>
+      _storage.write(key: _biometricAccountsKey, value: jsonEncode(accounts));
+
+  static Future<bool> isBiometricEnabled() async {
+    final accounts = await _readBiometricAccounts();
+    final current = UserSession.current;
+    return current == null ? accounts.isNotEmpty : accounts.containsKey(current.id.toString());
+  }
+
+  static Future<void> enableBiometrics() async {
+    final current = UserSession.current;
+    if (current == null) return;
+    final accounts = await _readBiometricAccounts();
+    accounts[current.id.toString()] = current.toJson();
+    await _writeBiometricAccounts(accounts);
+  }
+
+  static Future<void> disableBiometrics() async {
+    final current = UserSession.current;
+    if (current == null) return;
+    final accounts = await _readBiometricAccounts();
+    accounts.remove(current.id.toString());
+    await _writeBiometricAccounts(accounts);
+  }
+
+  static Future<List<UserSession>> loadBiometricSessions() async {
+    final accounts = await _readBiometricAccounts();
+    final sessions = <UserSession>[];
+    for (final value in accounts.values) {
+      try {
+        final data = Map<String, dynamic>.from(value);
+        sessions.add(UserSession.fromJson(data, data['token'] as String));
+      } catch (_) {
+        // Ignore a corrupt account without affecting other enrollments.
+      }
+    }
+    return sessions;
   }
 }

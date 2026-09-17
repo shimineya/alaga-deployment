@@ -24,6 +24,19 @@ import '../models/user_session.dart';
 // ============================================================================
 
 class ApiService {
+  /// Validate a saved biometric session before making it the active account.
+  static Future<Map<String, dynamic>> validateSession(UserSession session) async {
+    try {
+      final response = await http.get(
+        _buildUri('/auth/my-permissions'),
+        headers: {'Authorization': 'Bearer ${session.token}', 'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 15));
+      return _parseResponse(response);
+    } catch (_) {
+      return {'success': false, 'message': 'Cannot reach the server. Please try again.'};
+    }
+  }
+
   // [OWASP A02] Base URL sourced from environment file — never hard-coded.
   static String get _baseUrl {
     final url = dotenv.env['API_BASE_URL'];
@@ -127,6 +140,11 @@ class ApiService {
       return {
         'success': false,
         'message': body['message'] ?? 'An unexpected error occurred.',
+        'requiresRole': body['requiresRole'] == true,
+        'requiresOtp': body['requiresOtp'] == true,
+        'user_id': body['user_id'],
+        'email': body['email'],
+        'otpPurpose': body['otpPurpose'],
         'statusCode': response.statusCode,
       };
     } catch (_) {

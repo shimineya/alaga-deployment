@@ -18,6 +18,11 @@ class RoleScreen extends StatefulWidget {
 }
 
 class _RoleScreenState extends State<RoleScreen> {
+  static const _facilities = [
+    'Philippine General Hospital',
+    'Novaliches General Hospital',
+    'St Lukes Medical Center',
+  ];
   String? selectedRole;
   String? caregiverType; // 'facility' or 'freelance'
   String? facilityName;
@@ -53,7 +58,7 @@ class _RoleScreenState extends State<RoleScreen> {
   /// Popup dialog shown when selecting the CAREGIVER role
   Future<void> _showCaregiverAffiliationDialog() async {
     String tempCaregiverType = caregiverType ?? 'facility';
-    final facilityCtrl = TextEditingController(text: facilityName ?? '');
+    String? selectedFacility = _facilities.contains(facilityName) ? facilityName : null;
 
     final result = await showDialog<Map<String, String>>(
       context: context,
@@ -189,28 +194,42 @@ class _RoleScreenState extends State<RoleScreen> {
                                   ),
                                   if (tempCaregiverType == 'facility') ...[
                                     const SizedBox(height: 10),
-                                    TextField(
-                                      controller: facilityCtrl,
-                                      style: GoogleFonts.albertSans(fontSize: 12.5),
+                                    DropdownButtonFormField<String>(
+                                      initialValue: selectedFacility,
+                                      isExpanded: true,
+                                      dropdownColor: const Color(0xFFF0F7F7),
+                                      borderRadius: BorderRadius.circular(12),
+                                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF286464)),
+                                      items: _facilities.map((name) => DropdownMenuItem(
+                                        value: name,
+                                        child: Text(name, style: GoogleFonts.albertSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF183B3B)), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                      )).toList(),
+                                      onChanged: (value) => setModalState(() => selectedFacility = value),
+                                      style: GoogleFonts.albertSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF183B3B)),
                                       decoration: InputDecoration(
-                                        hintText: "Facility / Hospital Name (Optional)",
-                                        hintStyle: GoogleFonts.albertSans(fontSize: 12, color: Colors.black38),
+                                        hintText: "Select your hospital",
+                                        hintStyle: GoogleFonts.albertSans(fontSize: 13, color: const Color(0xFF486565)),
                                         filled: true,
-                                        fillColor: Colors.white,
+                                        fillColor: const Color(0xFFE8F3F3),
                                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                         border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(10),
-                                          borderSide: const BorderSide(color: Color(0x665FA9A9)),
+                                          borderSide: const BorderSide(color: Color(0xFF78A5A5)),
                                         ),
                                         enabledBorder: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(10),
-                                          borderSide: const BorderSide(color: Color(0x665FA9A9)),
+                                          borderSide: const BorderSide(color: Color(0xFF78A5A5)),
                                         ),
                                         focusedBorder: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(10),
                                           borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 1.5),
                                         ),
                                       ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      "Facility not listed? Contact your facility administrator to have it added before registering as an affiliated caregiver.",
+                                      style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black54),
                                     ),
                                   ],
                                 ],
@@ -320,10 +339,10 @@ class _RoleScreenState extends State<RoleScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                             ),
-                            onPressed: () {
+                            onPressed: tempCaregiverType == 'facility' && selectedFacility == null ? null : () {
                               Navigator.pop(context, {
                                 'caregiverType': tempCaregiverType,
-                                'facilityName': facilityCtrl.text.trim(),
+                                'facilityName': tempCaregiverType == 'facility' ? selectedFacility! : '',
                               });
                             },
                             child: Text(

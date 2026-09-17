@@ -155,7 +155,7 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
       SnackBar(
         content: Text(
           result['success'] == true
-              ? 'A new verification code has been sent to your email.'
+              ? 'A new verification code has been sent to ${widget.email}.'
               : (result['message'] ??
                   'Failed to resend code. Please try again.'),
           style: GoogleFonts.albertSans(),
@@ -232,10 +232,10 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Enter the code sent to your email address.',
+                          Text(
+                            'Enter the code sent to ${widget.email}.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontFamily: 'AlbertSans',
                               fontSize: 14,
                               color: Colors.black87,

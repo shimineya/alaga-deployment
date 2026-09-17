@@ -13,9 +13,11 @@ import 'forgot_password.dart';
 import 'biometrics.dart';
 import 'dashboard.dart';
 import 'otp.dart';
+import 'account_role_picker.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final String? initialUsername;
+  const LoginPage({super.key, this.initialUsername});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -32,13 +34,19 @@ class _LoginPageState extends State<LoginPage> {
   bool _isPasswordObscured = true;
 
   @override
+  void initState() {
+    super.initState();
+    _usernameCtrl.text = widget.initialUsername ?? '';
+  }
+
+  @override
   void dispose() {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _login() async {
+  Future<void> _login({String? role}) async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
@@ -48,6 +56,7 @@ class _LoginPageState extends State<LoginPage> {
       body: {
         'username': _usernameCtrl.text.trim(),
         'password': _passwordCtrl.text,
+        if (role != null) 'role': role,
       },
       requiresAuth: false,
     );
@@ -55,6 +64,11 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
     setState(() => _isLoading = false);
 
+    if (result['requiresRole'] == true) {
+      final selectedRole = await chooseAccountRole(context);
+      if (mounted && selectedRole != null) await _login(role: selectedRole);
+      return;
+    }
     if (result['success'] == true) {
       final session = UserSession.fromJson(result['user'], result['token']);
       await SessionManager.saveSession(session);
@@ -92,63 +106,35 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _loginWithBiometrics() async {
-    final isEnabled = await SessionManager.isBiometricEnabled();
-
+    final savedSessions = await SessionManager.loadBiometricSessions();
     if (!mounted) return;
-
-    if (!isEnabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Biometric login is not set up. Please log in with your credentials first, then enable it in Settings.',
-            style: GoogleFonts.albertSans(),
-          ),
-          backgroundColor: Colors.orangeAccent,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    final identifier = _usernameCtrl.text.trim().toLowerCase();
+    final candidates = savedSessions.where((session) => identifier.isEmpty ||
+        session.username.toLowerCase() == identifier ||
+        session.email.toLowerCase() == identifier).toList();
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Sign in with your password and enable biometrics in Settings for this account first.'),
+      ));
       return;
     }
-
-    final biometricSession = await SessionManager.loadBiometricSession();
-
-    if (!mounted) return;
-
-    if (biometricSession == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No saved session found. Please log in with your credentials first.',
-            style: GoogleFonts.albertSans(),
-          ),
-          backgroundColor: Colors.orangeAccent,
-          behavior: SnackBarBehavior.floating,
+    UserSession? selectedSession;
+    if (candidates.length == 1) {
+      selectedSession = candidates.first;
+    } else {
+      selectedSession = await showDialog<UserSession>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('Choose an account for biometric login'),
+          children: candidates.map((session) => SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, session),
+            child: Text('${session.email} - ${session.role} (${session.username})'),
+          )).toList(),
         ),
       );
-      return;
     }
-
-    final typedUsername = _usernameCtrl.text.trim();
-
-    if (typedUsername.isEmpty) {
-      setState(() => _usernameCtrl.text = biometricSession.username);
-    } else if (typedUsername.toLowerCase() !=
-        biometricSession.username.toLowerCase()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Biometric login is set up for "${biometricSession.username}". '
-            'To use biometrics for a different account, please log in with '
-            'your password first, then enable biometrics in Settings.',
-            style: GoogleFonts.albertSans(),
-          ),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 6),
-        ),
-      );
-      return;
-    }
+    if (!mounted || selectedSession == null) return;
+    final biometricSession = selectedSession;
 
     final authenticated = await _biometricService.authenticate(
       reason: 'Scan your fingerprint to log in as ${biometricSession.username}',
@@ -157,6 +143,16 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (authenticated) {
+      final validation = await ApiService.validateSession(biometricSession);
+      if (!mounted) return;
+      if (validation['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(validation['statusCode'] == 401
+              ? 'This account session has expired or was revoked. Sign in with your password to renew biometric access.'
+              : validation['message'] ?? 'Unable to validate this account.'),
+        ));
+        return;
+      }
       await SessionManager.saveSession(biometricSession);
       if (mounted) {
         Navigator.pushReplacement(
@@ -258,7 +254,7 @@ class _LoginPageState extends State<LoginPage> {
                         children: [
                           _buildInput(
                             controller: _usernameCtrl,
-                            hint: 'Username',
+                            hint: 'Username or email',
                             validator: (v) =>
                                 (v == null || v.isEmpty) ? "" : null,
                           ),

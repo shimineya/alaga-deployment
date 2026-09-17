@@ -30,6 +30,25 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   bool _hasInformedConsent = false;
 
+  bool _validatePatientDetails() {
+    String? message;
+    if (_firstNameCtrl.text.trim().isEmpty || _lastNameCtrl.text.trim().isEmpty) {
+      message = 'Please enter the patient\'s first and last names.';
+    } else if (_birthdateCtrl.text.trim().isEmpty) {
+      message = 'Please select the patient\'s birthdate.';
+    } else if (!_hasInformedConsent) {
+      message = 'Please confirm informed consent before proceeding.';
+    }
+    if (message == null) return true;
+    setState(() => currentStep = 1);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Colors.redAccent,
+      behavior: SnackBarBehavior.floating,
+    ));
+    return false;
+  }
+
   List<dynamic> _availableDevices = [];
   String? _selectedVitalDevice;
   String? _selectedDiaperDevice;
@@ -79,6 +98,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   // Includes patient info, optional caregiver assignment, and device serial numbers.
   Future<void> _enrollPatient() async {
     if (_isSubmitting) return;
+    if (!_validatePatientDetails()) return;
     if (!_hasInformedConsent) {
       setState(() => currentStep = 1);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -247,8 +267,9 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   _buildActionButton(
                     currentStep == 3 ? "Finish" : "Next Step",
                     isPrimary: true,
-                    onTap: currentStep == 1 && !_hasInformedConsent ? null : () {
+                    onTap: () {
                       if (_isSubmitting) return;
+                      if (currentStep == 1 && !_validatePatientDetails()) return;
                       if (currentStep < 3) {
                         if (currentStep == 1 && !_hasInformedConsent) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -538,19 +559,21 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   prefixIcon:
                       const Icon(Icons.calendar_today, size: 18, color: Color(0xFF5FA9A9))),
               const SizedBox(height: 26),
+              _buildInputLabel('Location Assignment', isRequired: false),
+              const SizedBox(height: 6),
               Text(
-                'Location Assignment',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14),
+                'Optional. Fill out only if the patient is admitted in a hospital.',
+                style: GoogleFonts.albertSans(fontSize: 14, color: Colors.black),
               ),
               const SizedBox(height: 16),
-              _buildInputLabel('Ward Name (Optional)', isRequired: false),
-              _buildTextField(_wardNameCtrl, hint: 'Enter ward name', radius: 12),
+              _buildInputLabel('Ward Name', isRequired: false),
+              _buildTextField(_wardNameCtrl, radius: 12),
               const SizedBox(height: 16),
-              _buildInputLabel('Room Name (Optional)', isRequired: false),
-              _buildTextField(_roomNameCtrl, hint: 'Enter room name', radius: 12),
+              _buildInputLabel('Room Name', isRequired: false),
+              _buildTextField(_roomNameCtrl, radius: 12),
               const SizedBox(height: 16),
-              _buildInputLabel('Bed Name (Optional)', isRequired: false),
-              _buildTextField(_bedNameCtrl, hint: 'Enter bed name', radius: 12),
+              _buildInputLabel('Bed Name', isRequired: false),
+              _buildTextField(_bedNameCtrl, radius: 12),
             ],
           ),
         ),
@@ -564,21 +587,21 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: const Color(0xFFC2D9FF),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: _hasInformedConsent ? const Color(0xFF5FA9A9) : Colors.black12,
+              color: const Color(0xFFC2D9FF),
             ),
           ),
           child: CheckboxListTile(
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            activeColor: const Color(0xFF5FA9A9),
+            activeColor: const Color(0xFF0046AD),
             value: _hasInformedConsent,
             onChanged: (value) => setState(() => _hasInformedConsent = value ?? false),
             title: Text(
               'I confirm that the patient or their legal guardian has provided informed consent for health data collection and processing as required by the Data Privacy Act of 2012 (RA 10173), Section 13.',
-              style: GoogleFonts.albertSans(fontSize: 12.5, height: 1.35),
+              style: GoogleFonts.albertSans(fontSize: 12.5, height: 1.35, color: const Color(0xFF0046AD)),
             ),
           ),
         ),
@@ -590,11 +613,15 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   List<Map<String, dynamic>> _caregiverResults = [];
   bool _isSearchingCaregivers = false;
   String? _selectedCaregiverName;
+  String? _caregiverSearchMessage;
+  int _caregiverSearchRequest = 0;
 
   // Debounce timer so we don't hammer the API on every keystroke
   // [OWASP A07] Rate limiting enforced at backend; debounce reduces noise client-side.
 
   Future<void> _searchCaregivers(String query) async {
+    final request = ++_caregiverSearchRequest;
+    _caregiverSearchMessage = null;
     if (query.trim().length < 2) {
       setState(() {
         _caregiverResults = [];
@@ -607,7 +634,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
 
     final result = await ApiService.get('/caregiver/search?query=${Uri.encodeQueryComponent(query)}');
 
-    if (!mounted) return;
+    if (!mounted || request != _caregiverSearchRequest) return;
     if (result['success'] == true) {
       final data = (result['data'] as List<dynamic>? ?? [])
           .map((u) => Map<String, dynamic>.from(u as Map))
@@ -618,17 +645,76 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       });
     } else {
       setState(() {
+        _caregiverSearchMessage = 'Search could not be completed. Please try again.';
         _caregiverResults = [];
         _isSearchingCaregivers = false;
       });
     }
   }
 
+  Future<void> _suggestCaregivers() async {
+    final request = ++_caregiverSearchRequest;
+    setState(() => _isSearchingCaregivers = true);
+    final result = await ApiService.get('/caregiver/all');
+    if (!mounted || request != _caregiverSearchRequest) return;
+    setState(() => _isSearchingCaregivers = false);
+    final suggestions = result['success'] == true
+        ? (result['data'] as List? ?? [])
+            .map((u) => Map<String, dynamic>.from(u as Map))
+            .where((u) => u['role'] == 'caregiver' && u['is_archived'] != true)
+            .toList()
+        : <Map<String, dynamic>>[];
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text('Choose a caregiver',
+          style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: suggestions.isEmpty
+              ? Text(result['success'] == true
+                  ? 'No registered caregivers are available.'
+                  : result['message']?.toString() ?? 'Could not load caregivers. Please try again.',
+                  style: GoogleFonts.albertSans(color: Colors.black87))
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: suggestions.length,
+                  separatorBuilder: (_, index) => const Divider(height: 1),
+                  itemBuilder: (_, index) {
+                    final caregiver = suggestions[index];
+                    final name = '${caregiver['first_name'] ?? ''} ${caregiver['last_name'] ?? ''}'.trim();
+                    final email = caregiver['email']?.toString() ?? '';
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.person_outline, color: Color(0xFF5FA9A9)),
+                      title: Text(name.isEmpty ? email : name,
+                        style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87)),
+                      subtitle: Text('$email • ${caregiver['role'] == 'medical_staff' ? 'Staff' : 'Caregiver'}',
+                        style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black54)),
+                      onTap: () => Navigator.pop(dialogContext, caregiver),
+                    );
+                  },
+                ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel'))],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      final name = '${selected['first_name'] ?? ''} ${selected['last_name'] ?? ''}'.trim();
+      _selectedCaregiverId = selected['user_id'];
+      _selectedCaregiverName = name.isEmpty ? selected['email']?.toString() ?? '' : name;
+      _searchCtrl.text = _selectedCaregiverName!;
+      _caregiverResults = [];
+    });
+  }
+
   Widget _buildSearchDatabaseView() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Email / Username',
+        Text('Name / Email / Username',
             style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 10),
         _buildTextField(
@@ -770,9 +856,16 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
             _selectedCaregiverId == null) ...[
           const SizedBox(height: 10),
           Center(
-            child: Text('No caregivers found matching your search.',
+            child: Text(_caregiverSearchMessage ?? 'No caregivers found matching your search.',
                 style: GoogleFonts.albertSans(
                     fontSize: 12, color: Colors.grey)),
+          ),
+          Center(
+            child: TextButton.icon(
+              onPressed: _suggestCaregivers,
+              icon: const Icon(Icons.people_outline),
+              label: const Text('Show caregiver suggestions'),
+            ),
           ),
         ],
       ],
@@ -1198,7 +1291,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    isDoubleDevice ? "PAIRED DEVICE" : "SINGLE DEVICE",
+                    isDoubleDevice ? "PARTNER DEVICE" : "SINGLE DEVICE",
                     style: GoogleFonts.poppins(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -1217,7 +1310,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: true,
-                        child: Text("Paired Device",
+                        child: Text("Partner Device",
                             style: GoogleFonts.poppins(fontSize: 13)),
                       ),
                       PopupMenuItem(

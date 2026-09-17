@@ -328,7 +328,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    isDoubleDevice ? "PAIRED DEVICE" : "SINGLE DEVICE",
+                    isDoubleDevice ? "PARTNER DEVICE" : "SINGLE DEVICE",
                     style: GoogleFonts.poppins(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -347,7 +347,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: true,
-                        child: Text("Paired Device",
+                        child: Text("Partner Device",
                             style: GoogleFonts.poppins(fontSize: 13)),
                       ),
                       PopupMenuItem(

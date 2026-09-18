@@ -58,9 +58,51 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "schedule" -> result.success(ScheduleReminders.add(this, call.argument<Int>("owner")!!, call.argument<Number>("at")!!.toLong(), call.argument<String>("title") ?: "Schedule reminder"))
                     "cancel" -> { ScheduleReminders.remove(this, call.argument<Int>("id")!!); result.success(null) }
+                    "showNotification" -> {
+                        val id = call.argument<Int>("id") ?: -1
+                        val title = call.argument<String>("title") ?: "ALAGA Notification"
+                        val message = call.argument<String>("message") ?: ""
+                        val severity = call.argument<String>("severity") ?: "Warning"
+                        val category = call.argument<String>("category") ?: "Clinical"
+                        val playSound = call.argument<Boolean>("playSound") ?: true
+                        ScheduleReminders.postAlert(this, id, title, message, severity, category, playSound)
+                        result.success(true)
+                    }
+                    "playAlertSound" -> {
+                        ScheduleReminders.playAlertSound(this)
+                        result.success(true)
+                    }
+                    "areNotificationsEnabled" -> {
+                        result.success(ScheduleReminders.allowed(this))
+                    }
                     else -> result.notImplemented()
                 }
             } catch (e: Exception) { result.error("REMINDER_ERROR", e.message, null) }
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "alaga/notifications").setMethodCallHandler { call, result ->
+            try {
+                when (call.method) {
+                    "showNotification" -> {
+                        val id = call.argument<Int>("id") ?: -1
+                        val title = call.argument<String>("title") ?: "ALAGA Notification"
+                        val message = call.argument<String>("message") ?: ""
+                        val severity = call.argument<String>("severity") ?: "Warning"
+                        val category = call.argument<String>("category") ?: "Clinical"
+                        val playSound = call.argument<Boolean>("playSound") ?: true
+                        ScheduleReminders.postAlert(this, id, title, message, severity, category, playSound)
+                        result.success(true)
+                    }
+                    "playAlertSound" -> {
+                        ScheduleReminders.playAlertSound(this)
+                        result.success(true)
+                    }
+                    "areNotificationsEnabled" -> {
+                        result.success(ScheduleReminders.allowed(this))
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) { result.error("NOTIFICATION_ERROR", e.message, null) }
         }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "alaga/downloads").setMethodCallHandler { call, result ->

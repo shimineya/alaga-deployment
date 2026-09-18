@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/app_preferences.dart';
 import '../services/schedule_reminder_service.dart';
+import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
 import 'biometrics.dart';
 
@@ -514,6 +515,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Text(
                   "Controls the sound used for alerts sent through this phone.",
                   style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await AlertNotificationService.testNotification(
+                      severity: 'Critical',
+                      customTitle: '🚨 TEST ALERT: Maria Santos',
+                      customMessage: 'Testing configured tone ($selectedAlertTone) at ${(alertVolume * 100).round()}% volume.',
+                    );
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Test notification dispatched with configured sound and vibration!'),
+                          backgroundColor: Color(0xFF2F7D7B),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.notifications_active_outlined, size: 18, color: Color(0xFF2F7D7B)),
+                  label: const Text('Test Notification & Sound', style: TextStyle(color: Color(0xFF2F7D7B), fontWeight: FontWeight.bold)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF2F7D7B)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                 ),
               ],
             ),

@@ -7,6 +7,7 @@ import '../models/user_session.dart';
 import '../services/api_service.dart';
 import '../services/schedule_reminder_service.dart';
 import '../services/app_preferences.dart';
+import '../services/alert_notification_service.dart';
 
 import 'newdevice.dart';
 import 'newpatient.dart';
@@ -97,6 +98,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     _startSlideTimer();
     _fetchDashboardData();
     _configureDataRefresh();
+    AlertNotificationService.initialize();
+    AlertNotificationService.startMonitoring();
   }
 
   void _configureDataRefresh() {
@@ -172,6 +175,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void dispose() {
+    AlertNotificationService.stopMonitoring();
     _scheduleTimer?.cancel();
     _dataRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -182,6 +186,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _fetchDashboardData() async {
     final result = await ApiService.get('/caregiver/patients');
+    // Check for any urgent clinical alerts or careteam invites
+    AlertNotificationService.checkAlerts();
     if (!mounted) return;
     setState(() {
       _isLoading = false;

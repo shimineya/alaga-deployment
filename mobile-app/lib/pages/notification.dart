@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 
 // ============================================================================
 // NotificationScreen — Displays live alerts from the OC-SVM AI pipeline
@@ -204,6 +205,126 @@ class _NotificationScreenState extends State<NotificationScreen> {
         .toUpperCase();
   }
 
+  void _showNotificationTestModal() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.notifications_active_outlined, color: Color(0xFF2F7D7B), size: 24),
+                const SizedBox(width: 10),
+                Text(
+                  'Test Sound & Push Notifications',
+                  style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Trigger a live Android system notification and test your phone\'s sound tone and vibration.',
+              style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              tileColor: Colors.red.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.red.withValues(alpha: 0.3)),
+              ),
+              leading: const Icon(Icons.emergency_outlined, color: Colors.red),
+              title: Text('Test Critical Vitals Alert', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: Text('Tachycardia (134 BPM) • Emergency Tone & Vibration', style: GoogleFonts.albertSans(fontSize: 11)),
+              trailing: const Icon(Icons.volume_up_rounded, color: Colors.red),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await AlertNotificationService.testNotification(
+                  severity: 'Critical',
+                  customTitle: '🚨 CRITICAL ALERT: Maria Santos',
+                  customMessage: 'Heart rate spiked to 134 BPM (Threshold: 100 BPM). Room 302.',
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Critical Alert sent to Android notification tray with sound!'),
+                      backgroundColor: Colors.redAccent,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              tileColor: const Color(0xFF5FA9A9).withValues(alpha: 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: Color(0xFF5FA9A9)),
+              ),
+              leading: const Icon(Icons.water_drop_outlined, color: Color(0xFF2F7D7B)),
+              title: Text('Test Diaper Wetness Alert', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: Text('Moisture 88% detected • Care Chime & Alert', style: GoogleFonts.albertSans(fontSize: 11)),
+              trailing: const Icon(Icons.volume_up_rounded, color: Color(0xFF2F7D7B)),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await AlertNotificationService.testNotification(
+                  severity: 'Warning',
+                  customTitle: '💧 DIAPER ALERT: Baby Emma',
+                  customMessage: 'Smart diaper moisture reached 88%. Diaper change recommended.',
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Diaper Alert sent to Android notification tray with sound!'),
+                      backgroundColor: Color(0xFF2F7D7B),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              tileColor: Colors.blue.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.blue.withValues(alpha: 0.3)),
+              ),
+              leading: const Icon(Icons.group_add_outlined, color: Colors.blue),
+              title: Text('Test Care Team Invite Alert', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: Text('New care assignment received • Notification tone', style: GoogleFonts.albertSans(fontSize: 11)),
+              trailing: const Icon(Icons.volume_up_rounded, color: Colors.blue),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await AlertNotificationService.testNotification(
+                  severity: 'Info',
+                  customTitle: '👥 CARE TEAM INVITATION',
+                  customMessage: 'Dr. Smith invited you to join the Care Team for Patient John Doe.',
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Care Team Invitation notification sent with sound!'),
+                      backgroundColor: Colors.blue,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // --------------------------------------------------------------------------
   // UI
   // --------------------------------------------------------------------------
@@ -235,12 +356,23 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  // Manual refresh button
-                  IconButton(
-                    icon: const Icon(Icons.refresh_rounded,
-                        color: Colors.black54, size: 26),
-                    onPressed: _fetchAlerts,
-                    tooltip: 'Refresh alerts',
+                  Row(
+                    children: [
+                      // Test sound & notification button
+                      IconButton(
+                        icon: const Icon(Icons.notifications_active_outlined,
+                            color: Color(0xFF2F7D7B), size: 24),
+                        onPressed: _showNotificationTestModal,
+                        tooltip: 'Test Sound & Notification',
+                      ),
+                      // Manual refresh button
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded,
+                            color: Colors.black54, size: 26),
+                        onPressed: _fetchAlerts,
+                        tooltip: 'Refresh alerts',
+                      ),
+                    ],
                   ),
                 ],
               ),

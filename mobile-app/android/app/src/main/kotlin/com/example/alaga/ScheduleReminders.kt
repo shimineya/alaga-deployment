@@ -16,6 +16,9 @@ import java.util.Locale
 object ScheduleReminders {
     const val CHANNEL = "alaga_schedule_reminders"
     const val ALERT_CHANNEL = "alaga_phone_alerts"
+    const val CRITICAL_CHANNEL = "alaga_critical_alerts"
+    const val CLINICAL_CHANNEL = "alaga_clinical_alerts"
+    const val CARETEAM_CHANNEL = "alaga_careteam_alerts"
     private fun prefs(c: Context) = c.getSharedPreferences("schedule_reminders", Context.MODE_PRIVATE)
     private fun manager(c: Context) = c.getSystemService(NotificationManager::class.java)
     private fun alarm(c: Context) = c.getSystemService(AlarmManager::class.java)
@@ -30,6 +33,23 @@ object ScheduleReminders {
             manager(c).createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "ALAGA phone alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Audible ALAGA alerts using the tone and volume selected in the app"
                 setSound(null, null)
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            })
+            manager(c).createNotificationChannel(NotificationChannel(CRITICAL_CHANNEL, "Critical Health Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Urgent alerts for critical patient vitals, tachycardia, hypoxemia, or emergency anomalies"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            })
+            manager(c).createNotificationChannel(NotificationChannel(CLINICAL_CHANNEL, "Clinical & Diaper Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Notifications for diaper wetness, scheduled care, and vitals warnings"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 300, 150, 300)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            })
+            manager(c).createNotificationChannel(NotificationChannel(CARETEAM_CHANNEL, "Care Team & Assignments", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Invitations, patient assignments, and team notifications"
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             })
@@ -86,7 +106,7 @@ object ScheduleReminders {
             .apply()
     }
 
-    private fun playAlertSound(c: Context) {
+    fun playAlertSound(c: Context) {
         val p = prefs(c)
         val volume = p.getFloat("alert_volume", 1f).coerceIn(0f, 1f)
         if (volume <= 0f) return
@@ -102,7 +122,7 @@ object ScheduleReminders {
             setDataSource(c, uri)
             setVolume(volume, volume)
             setOnCompletionListener { it.release() }
-            setOnErrorListener { player, _, _ -> player.release(); true }
+            setOnErrorListener { pl, _, _ -> pl.release(); true }
             prepare()
             start()
         }
@@ -114,6 +134,70 @@ object ScheduleReminders {
                 // Completion may have already released a short sound.
             }
         }, 5_000)
+    }
+
+    fun postAlert(
+        c: Context,
+        id: Int,
+        title: String,
+        message: String,
+        severity: String = "Warning",
+        category: String = "Clinical",
+        playSound: Boolean = true
+    ) {
+        initialize(c)
+        if (!allowed(c)) return
+
+        val notifId = if (id > 0) id else (System.currentTimeMillis() % 100000).toInt() + 2000
+        val targetChannel = when (severity.lowercase(Locale.ROOT)) {
+            "critical", "danger" -> CRITICAL_CHANNEL
+            "warning", "alert" -> CLINICAL_CHANNEL
+            else -> if (category.lowercase(Locale.ROOT).contains("careteam") || category.lowercase(Locale.ROOT).contains("assignment")) {
+                CARETEAM_CHANNEL
+            } else {
+                CLINICAL_CHANNEL
+            }
+        }
+
+        val openIntent = PendingIntent.getActivity(
+            c,
+            notifId,
+            Intent(c, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= 26) {
+            Notification.Builder(c, targetChannel)
+        } else {
+            Notification.Builder(c)
+        }
+
+        val notification = builder
+            .setSmallIcon(R.drawable.ic_schedule_notification)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(Notification.BigTextStyle().bigText(message))
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .setAutoCancel(true)
+            .setPriority(
+                if (severity.equals("critical", ignoreCase = true)) {
+                    Notification.PRIORITY_MAX
+                } else {
+                    Notification.PRIORITY_HIGH
+                }
+            )
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setContentIntent(openIntent)
+            .build()
+
+        manager(c).notify(notifId, notification)
+
+        if (playSound) {
+            playAlertSound(c)
+        }
     }
 
     fun allowed(c: Context): Boolean {

@@ -79,6 +79,31 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
     const [activeNavItem, setActiveNavItem] = useState(initialTab);
 
+    // Safety threshold limits configured by caregiver in Settings
+    const [safetyThresholds, setSafetyThresholds] = useState({
+        spo2Min: 90,
+        heartRateMin: 50,
+        heartRateMax: 120,
+        tempMin: 36.0,
+        tempMax: 37.5
+    });
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem('alaga_caregiver_prefs');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                setSafetyThresholds(prev => ({
+                    spo2Min: parsed.spo2Min ?? prev.spo2Min,
+                    heartRateMin: parsed.heartRateMin ?? prev.heartRateMin,
+                    heartRateMax: parsed.heartRateMax ?? prev.heartRateMax,
+                    tempMin: parsed.tempMin ?? prev.tempMin,
+                    tempMax: parsed.tempMax ?? prev.tempMax
+                }));
+            }
+        } catch {}
+    }, [activeNavItem]);
+
     useEffect(() => {
         if (isSysAdminUser && viewMode === 'profile') {
             setViewMode('dashboard');
@@ -167,14 +192,19 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
     const metrics = useMemo(() => {
         const activePatients = patients.filter(p => !((p as any).deleted) && !((p as any).archived));
-        const criticalCount = activePatients.filter(p =>
-            alerts.some(a => a.patientId === p.id && a.severity === 'critical' && !a.acknowledged)
-        ).length;
+        const criticalCount = activePatients.filter(p => {
+            const hasCriticalAlert = alerts.some(a => a.patientId === p.id && a.severity === 'critical' && !a.acknowledged);
+            const vitals: any = vitalSigns.find(v => v.patientId === p.id) || (p as any).latest_telemetry;
+            const pulse = vitals ? Number(vitals.heartRate ?? vitals.heart_rate) : null;
+            const temp = vitals ? Number(vitals.temperature) : null;
+            const spo2 = vitals ? Number(vitals.spo2) : null;
+            const pulseBreached = pulse !== null && !isNaN(pulse) && pulse > 0 && (pulse < safetyThresholds.heartRateMin || pulse > safetyThresholds.heartRateMax);
+            const tempBreached = temp !== null && !isNaN(temp) && temp > 0 && (temp < safetyThresholds.tempMin || temp > safetyThresholds.tempMax);
+            const spo2Breached = spo2 !== null && !isNaN(spo2) && spo2 > 0 && spo2 < safetyThresholds.spo2Min;
+            return hasCriticalAlert || pulseBreached || tempBreached || spo2Breached;
+        }).length;
         const unassignedCount = activePatients.filter(p => !p.deviceConnected).length;
         const stableCount = activePatients.length - criticalCount - unassignedCount;
-
-
-
 
         return {
             critical: criticalCount,
@@ -182,7 +212,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             unassigned: unassignedCount,
             total: activePatients.length
         };
-    }, [patients, alerts]);
+    }, [patients, alerts, safetyThresholds, vitalSigns]);
 
 
 
@@ -934,10 +964,24 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 const spo2Val = latestVital ? (latestVital.spo2) : null;
                                 const wetnessVal = latestVital ? (latestVital.moistureLevel ?? latestVital.moisture ?? latestVital.moisture_value) : null;
 
+                                const pulseNum = pulseVal !== null && pulseVal !== undefined ? Number(pulseVal) : null;
+                                const tempNum = tempVal !== null && tempVal !== undefined ? Number(tempVal) : null;
+                                const spo2Num = spo2Val !== null && spo2Val !== undefined ? Number(spo2Val) : null;
+
+                                const isPulseBreached = pulseNum !== null && !isNaN(pulseNum) && pulseNum > 0 && 
+                                    (pulseNum < safetyThresholds.heartRateMin || pulseNum > safetyThresholds.heartRateMax);
+                                const isTempBreached = tempNum !== null && !isNaN(tempNum) && tempNum > 0 && 
+                                    (tempNum < safetyThresholds.tempMin || tempNum > safetyThresholds.tempMax);
+                                const isSpo2Breached = spo2Num !== null && !isNaN(spo2Num) && spo2Num > 0 && 
+                                    spo2Num < safetyThresholds.spo2Min;
+
+                                const hasSafetyBreach = isPulseBreached || isTempBreached || isSpo2Breached;
+                                const isCardCritical = isCritical || hasSafetyBreach;
+
                                 return (
                                     <Card
                                         key={patient.id}
-                                        className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCritical ? 'border-red-200 bg-red-50/50' : 'border-slate-100'}`}
+                                        className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCardCritical ? 'border-red-300 bg-red-50/40 ring-1 ring-red-200' : 'border-slate-100'}`}
                                         onClick={() => {
                                             setSelectedPatient(patient);
                                             setViewMode('profile');
@@ -955,45 +999,47 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         </div>
                                                     )}
                                                 </div>
-                                                <Badge variant="outline" className={`text-[10px] h-5 ${isCritical ? 'text-red-600 border-red-200 bg-red-50' :
+                                                <Badge variant="outline" className={`text-[10px] h-5 font-semibold ${
+                                                    hasSafetyBreach ? 'text-red-700 border-red-300 bg-red-100/80 animate-pulse' :
+                                                    isCritical ? 'text-red-600 border-red-200 bg-red-50' :
                                                     isUnassigned ? 'text-slate-600 border-slate-200 bg-slate-50' :
                                                         'text-emerald-600 border-emerald-200 bg-emerald-50'
                                                     }`}>
-                                                    {isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
+                                                    {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
                                                 </Badge>
                                             </div>
                                         </CardHeader>
 
                                         <CardContent className="p-3 pt-0 space-y-2">
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                <div className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-800' : 'bg-slate-50 border-slate-100'} p-1.5 rounded text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Heart className="w-3 h-3 text-rose-500" />
-                                                        <span className="text-[9px] text-slate-400 font-medium">PULSE</span>
+                                                        <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : 'text-rose-500'}`} />
+                                                        <span className={`text-[9px] font-semibold ${isPulseBreached ? 'text-rose-700' : 'text-slate-400'}`}>PULSE</span>
                                                     </div>
-                                                    <span className="text-xs font-bold text-slate-700">
+                                                    <span className={`text-xs font-bold ${isPulseBreached ? 'text-rose-900' : 'text-slate-700'}`}>
                                                         {pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--'}
                                                     </span>
                                                 </div>
 
-                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                <div className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-900' : 'bg-slate-50 border-slate-100'} p-1.5 rounded text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Thermometer className="w-3 h-3 text-amber-500" />
-                                                        <span className="text-[9px] text-slate-400 font-medium">TEMP</span>
+                                                        <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : 'text-amber-500'}`} />
+                                                        <span className={`text-[9px] font-semibold ${isTempBreached ? 'text-amber-800' : 'text-slate-400'}`}>TEMP</span>
                                                     </div>
-                                                    <span className="text-xs font-bold text-slate-700">
+                                                    <span className={`text-xs font-bold ${isTempBreached ? 'text-amber-950' : 'text-slate-700'}`}>
                                                         {tempVal !== null && tempVal !== undefined ? Number(tempVal).toFixed(1) : '--'}
                                                     </span>
                                                 </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                <div className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-800' : 'bg-slate-50 border-slate-100'} p-1.5 rounded text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Activity className="w-3 h-3 text-blue-500" />
-                                                        <span className="text-[9px] text-slate-400 font-medium">SPO2</span>
+                                                        <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : 'text-blue-500'}`} />
+                                                        <span className={`text-[9px] font-semibold ${isSpo2Breached ? 'text-rose-700' : 'text-slate-400'}`}>SPO2</span>
                                                     </div>
-                                                    <span className="text-xs font-bold text-slate-700">
+                                                    <span className={`text-xs font-bold ${isSpo2Breached ? 'text-rose-900' : 'text-slate-700'}`}>
                                                         {spo2Val !== null && spo2Val !== undefined ? Math.round(Number(spo2Val)) : '--'}
                                                     </span>
                                                 </div>

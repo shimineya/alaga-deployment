@@ -169,19 +169,24 @@ class ApiService {
     String endpoint, {
     Map<String, String>? queryParams,
     bool requiresAuth = true,
+    int timeoutSeconds = 45,
   }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
 
       final response = await http
           .get(uri, headers: _buildHeaders(requiresAuth: requiresAuth))
-          .timeout(const Duration(seconds: 15));
+          .timeout(Duration(seconds: timeoutSeconds));
 
       return _parseResponse(response);
     } catch (e) {
+      print('ApiService GET Error [$endpoint]: $e');
+      final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,
-        'message': 'Network error. Cannot reach the server. Check your connection.',
+        'message': isTimeout
+            ? 'Server is waking up (Render cold-start). Please wait a moment and try again.'
+            : 'Network error: Cannot reach the server. Please check your internet connection.',
       };
     }
   }
@@ -191,7 +196,7 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool requiresAuth = true,
-    int timeoutSeconds = 15,
+    int timeoutSeconds = 45,
   }) async {
     try {
       final uri = _buildUri(endpoint);
@@ -206,9 +211,13 @@ class ApiService {
 
       return _parseResponse(response);
     } catch (e) {
+      print('ApiService POST Error [$endpoint]: $e');
+      final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,
-        'message': 'Network error. Cannot reach the server. Check your connection.',
+        'message': isTimeout
+            ? 'Server is waking up (Render cold-start). Please wait a moment and try again.'
+            : 'Network error: Cannot reach the server. Please check your internet connection.',
       };
     }
   }
@@ -218,6 +227,7 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool requiresAuth = true,
+    int timeoutSeconds = 45,
   }) async {
     try {
       final uri = _buildUri(endpoint);
@@ -228,13 +238,17 @@ class ApiService {
             headers: _buildHeaders(requiresAuth: requiresAuth),
             body: body != null ? jsonEncode(body) : null,
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(Duration(seconds: timeoutSeconds));
 
       return _parseResponse(response);
     } catch (e) {
+      print('ApiService PUT Error [$endpoint]: $e');
+      final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,
-        'message': 'Network error. Cannot reach the server. Check your connection.',
+        'message': isTimeout
+            ? 'Server is waking up (Render cold-start). Please wait a moment and try again.'
+            : 'Network error: Cannot reach the server. Please check your internet connection.',
       };
     }
   }

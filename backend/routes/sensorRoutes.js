@@ -558,16 +558,19 @@ router.get(
         }
 
         try {
+            const reqLimit = parseInt(req.query.limit, 10);
+            const limit = (!isNaN(reqLimit) && reqLimit > 0) ? Math.min(reqLimit, 500) : 20;
+
             const result = await pool.query(
                 `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
                  FROM sensor_readings
                  WHERE patient_id = $1
                  ORDER BY recorded_at DESC
-                 LIMIT 20`,
-                [patientId]
+                 LIMIT $2`,
+                [patientId, limit]
             );
 
-            await logPhiAccess('SENSOR_HISTORY_ACCESSED', patientId, clientIp, { limit: 20 });
+            await logPhiAccess('SENSOR_HISTORY_ACCESSED', patientId, clientIp, { limit });
 
             const chronologicalData = result.rows.reverse();
 

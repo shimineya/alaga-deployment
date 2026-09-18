@@ -4,9 +4,15 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.os.Build
+import android.os.Environment
+import android.content.ContentValues
+import android.content.Context
+import android.app.DownloadManager
+import android.provider.MediaStore
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
     private var permissionResult: MethodChannel.Result? = null
@@ -55,6 +61,66 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             } catch (e: Exception) { result.error("REMINDER_ERROR", e.message, null) }
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "alaga/downloads").setMethodCallHandler { call, result ->
+            try {
+                when (call.method) {
+                    "saveToDownloads" -> {
+                        val fileName = call.argument<String>("fileName") ?: "ALAGA_Report.txt"
+                        val content = call.argument<String>("content") ?: ""
+                        val mimeType = call.argument<String>("mimeType") ?: "text/plain"
+                        var savedPath = ""
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val contentValues = ContentValues().apply {
+                                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                            }
+                            val resolver = contentResolver
+                            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                            if (uri != null) {
+                                resolver.openOutputStream(uri)?.use { stream ->
+                                    stream.write(content.toByteArray(Charsets.UTF_8))
+                                }
+                                savedPath = "Downloads/$fileName"
+                            } else {
+                                throw Exception("Could not create entry in MediaStore Downloads")
+                            }
+                        } else {
+                            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                            if (!downloadDir.exists()) downloadDir.mkdirs()
+                            val file = File(downloadDir, fileName)
+                            file.writeText(content, Charsets.UTF_8)
+                            savedPath = file.absolutePath
+                            val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                            dm.addCompletedDownload(
+                                file.name, file.name, true, mimeType,
+                                file.absolutePath, file.length(), true
+                            )
+                        }
+                        result.success(mapOf("success" to true, "path" to savedPath))
+                    }
+                    "shareReport" -> {
+                        val title = call.argument<String>("title") ?: "ALAGA Health Report"
+                        val content = call.argument<String>("content") ?: ""
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TITLE, title)
+                            putExtra(Intent.EXTRA_SUBJECT, title)
+                            putExtra(Intent.EXTRA_TEXT, content)
+                            type = "text/plain"
+                        }
+                        val shareIntent = Intent.createChooser(sendIntent, "Share Report")
+                        shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(shareIntent)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) {
+                result.error("DOWNLOAD_ERROR", e.message, null)
+            }
         }
     }
 

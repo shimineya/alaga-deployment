@@ -870,7 +870,8 @@ router.post('/patients', async (req, res) => {
         };
 
         // 1. Insert Patient
-        const patientFacilityId = req.user.facility_id || null;
+        const isParentOrGuardian = ['parent', 'guardian'].includes(req.user.role?.toLowerCase());
+        const patientFacilityId = isParentOrGuardian ? null : (req.user.facility_id || null);
         const patientType = patient_type || (patientFacilityId ? 'facility' : 'at_home');
         const patientRes = await client.query(
             `INSERT INTO patients (name, birthdate, baseline_data, facility_id, patient_type, created_at)
@@ -1207,8 +1208,8 @@ router.put('/patients/:id', async (req, res) => {
         const { role } = req.user;
 
         // [OWASP A01] Verify the caller has Edit or Admin access to this specific patient.
-        // Admins, parents, and medical_staff bypass the access table check.
-        if (role !== 'admin' && role !== 'medical_staff' && role !== 'parent') {
+        const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(role?.toLowerCase());
+        if (!isSysAdmin) {
             const accessCheck = await client.query(
                 `SELECT access_level FROM patient_access
                  WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
@@ -1328,7 +1329,8 @@ router.patch('/patients/:id/toggle-monitoring', async (req, res) => {
         const { role } = req.user;
 
         // [OWASP A01] Check access rights
-        if (role !== 'admin' && role !== 'system_admin' && role !== 'sysadmin' && role !== 'medical_staff' && role !== 'parent') {
+        const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(role?.toLowerCase());
+        if (!isSysAdmin) {
             const accessCheck = await pool.query(
                 `SELECT access_level FROM patient_access
                  WHERE patient_id = $1 AND user_id = $2 AND access_level IN ('Edit', 'Admin')`,
@@ -1525,140 +1527,8 @@ router.get('/patients', async (req, res) => {
                 ORDER BY p.patient_id, p.created_at DESC
             `;
             params = [];
-        } else if (role === 'medical_staff' && userFacilityId) {
-            query = `
-                SELECT DISTINCT ON (p.patient_id) 
-                    p.*, 
-                    f.facility_name,
-                    'Medical Staff' as access_level,
-                    (
-                        SELECT u.user_id
-                        FROM patient_access pa2 
-                        JOIN users u ON pa2.user_id = u.user_id 
-                        WHERE pa2.patient_id = p.patient_id 
-                        AND (
-                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
-                            OR pa2.relationship ILIKE '%Caregiver%'
-                            OR u.role IN ('caregiver', 'medical_staff')
-                        )
-                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
-                        AND pa2.is_archived IS DISTINCT FROM TRUE
-                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
-                        LIMIT 1
-                    ) as assigned_caregiver_id,
-                    (
-                        SELECT COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username, u.email)
-                        FROM patient_access pa2 
-                        JOIN users u ON pa2.user_id = u.user_id 
-                        WHERE pa2.patient_id = p.patient_id 
-                        AND (
-                            pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
-                            OR pa2.relationship ILIKE '%Caregiver%'
-                            OR u.role IN ('caregiver', 'medical_staff')
-                        )
-                        AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
-                        AND pa2.is_archived IS DISTINCT FROM TRUE
-                        ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
-                        LIMIT 1
-                    ) as assigned_caregiver_name,
-                    (
-                        SELECT serial_number 
-                        FROM device_whitelist 
-                        WHERE assigned_patient_id = p.patient_id 
-                        AND device_name ILIKE '%Vital%'
-                        LIMIT 1
-                    ) as vital_device_sn,
-                    (
-                        SELECT serial_number 
-                        FROM device_whitelist 
-                        WHERE assigned_patient_id = p.patient_id 
-                        AND device_name ILIKE '%Diaper%'
-                        LIMIT 1
-                    ) as diaper_device_sn,
-                    (
-                        SELECT json_build_object(
-                            'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0)
-                        )
-                    ) as latest_telemetry,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'user_id', u.user_id,
-                                    'username', COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username),
-                                    'first_name', u.first_name,
-                                    'last_name', u.last_name,
-                                    'email', u.email,
-                                    'role', u.role,
-                                    'relationship', pa2.relationship,
-                                    'invite_status', pa2.invite_status
-                                )
-                            )
-                            FROM patient_access pa2 
-                            JOIN users u ON pa2.user_id = u.user_id 
-                            WHERE pa2.patient_id = p.patient_id 
-                            AND pa2.is_archived IS DISTINCT FROM TRUE
-                            AND (pa2.invite_status = 'Active' OR pa2.invite_status = 'Accepted' OR u.role NOT IN ('caregiver', 'medical_staff'))
-                        ),
-                        '[]'::json
-                    ) as assigned_users,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'serial_number', dw.serial_number,
-                                    'device_name', dw.device_name,
-                                    'status', dw.status
-                                )
-                            )
-                            FROM device_whitelist dw
-                            WHERE dw.assigned_patient_id = p.patient_id
-                            AND dw.is_archived IS DISTINCT FROM TRUE
-                        ),
-                        '[]'::json
-                    ) as paired_devices,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'user_id', u.user_id,
-                                    'username', COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username),
-                                    'invite_status', pa2.invite_status
-                                )
-                            )
-                            FROM patient_access pa2 
-                            JOIN users u ON pa2.user_id = u.user_id 
-                            WHERE pa2.patient_id = p.patient_id 
-                            AND pa2.is_archived IS DISTINCT FROM TRUE
-                            AND u.role IN ('caregiver', 'medical_staff')
-                        ),
-                        '[]'::json
-                    ) as caregivers,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'serial_number', dw.serial_number,
-                                    'device_name', dw.device_name
-                                )
-                            )
-                            FROM device_whitelist dw
-                            WHERE dw.assigned_patient_id = p.patient_id
-                            AND dw.is_archived IS DISTINCT FROM TRUE
-                        ),
-                        '[]'::json
-                    ) as devices
-                FROM patients p
-                LEFT JOIN facilities f ON p.facility_id = f.facility_id
-                WHERE p.is_archived IS DISTINCT FROM TRUE AND p.facility_id = $1
-                ORDER BY p.patient_id, p.created_at DESC
-            `;
-            params = [userFacilityId];
         } else {
-            // [Caregiver / Parent / Guardian View] Only assigned patients that they accepted
+            // [Caregiver / Medical Staff / Parent / Guardian View] Strictly assigned patients that they accepted
             query = `
                 SELECT DISTINCT ON (p.patient_id) 
                     p.*, 
@@ -1789,7 +1659,7 @@ router.get('/patients', async (req, res) => {
                 LEFT JOIN facilities f ON p.facility_id = f.facility_id
                 WHERE pa.user_id = $1 
                   AND p.is_archived IS DISTINCT FROM TRUE 
-                  AND (pa.invite_status = 'Active' OR pa.invite_status = 'Accepted' OR (pa.invite_status IS NULL AND $2 != 'caregiver'))
+                  AND (pa.invite_status = 'Active' OR pa.invite_status = 'Accepted' OR (pa.invite_status IS NULL AND $2 NOT IN ('caregiver', 'medical_staff')))
                 ORDER BY p.patient_id, p.created_at DESC
             `;
             params = [userId, role];
@@ -1915,59 +1785,8 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                   AND ((p.baseline_data->>'created_by') = $1::text OR pa.user_id = $1)
                 ORDER BY p.patient_id, p.created_at DESC
             `;
-            params = [userId];
-        } else if (isMedicalStaff) {
-            // Medical staff in facility
-            query = `
-                SELECT DISTINCT ON (p.patient_id) 
-                    p.*, 
-                    f.facility_name,
-                    'Medical Staff' as access_level,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'user_id', u.user_id,
-                                    'username', CONCAT(u.first_name, ' ', u.last_name),
-                                    'first_name', u.first_name,
-                                    'last_name', u.last_name,
-                                    'email', u.email,
-                                    'role', u.role,
-                                    'relationship', pa2.relationship,
-                                    'invite_status', pa2.invite_status
-                                )
-                            )
-                            FROM patient_access pa2 
-                            JOIN users u ON pa2.user_id = u.user_id 
-                            WHERE pa2.patient_id = p.patient_id 
-                            AND pa2.is_archived IS DISTINCT FROM TRUE
-                        ),
-                        '[]'::json
-                    ) as assigned_users,
-                    COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'serial_number', dw.serial_number,
-                                    'device_name', dw.device_name,
-                                    'status', dw.status
-                                )
-                            )
-                            FROM device_whitelist dw
-                            WHERE dw.assigned_patient_id = p.patient_id
-                            AND dw.is_archived IS DISTINCT FROM TRUE
-                        ),
-                        '[]'::json
-                    ) as paired_devices
-                FROM patients p
-                LEFT JOIN facilities f ON p.facility_id = f.facility_id
-                WHERE p.is_archived IS DISTINCT FROM TRUE
-                  AND (p.facility_id = $1 OR (p.baseline_data->>'created_by') = $2::text)
-                ORDER BY p.patient_id, p.created_at DESC
-            `;
-            params = [userFacilityId, userId];
         } else {
-            // Caregiver: only accepted assignments
+            // Caregiver / Medical Staff: strictly accepted assignments via patient_access
             query = `
                 SELECT DISTINCT ON (p.patient_id) 
                     p.*, 

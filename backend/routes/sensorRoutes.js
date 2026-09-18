@@ -311,7 +311,7 @@ router.post('/flag-normal', verifyToken, flagValidation, async (req, res) => {
     const clientIp  = req.ip || req.connection.remoteAddress;
 
     // [OWASP A01] IDOR Prevention
-    const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
+    const accessRoles = ['admin', 'system_admin', 'sysadmin', 'facility_admin'];
     let hasAccess = accessRoles.includes(req.user.role);
 
     if (!hasAccess) {
@@ -404,7 +404,7 @@ router.get(
             return res.status(403).json({ success: false, message: 'Access denied. This patient record has been archived.' });
         }
 
-        const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
+        const accessRoles = ['admin', 'system_admin', 'sysadmin', 'facility_admin'];
         let hasAccess = accessRoles.includes(req.user.role);
 
         if (!hasAccess) {
@@ -539,7 +539,7 @@ router.get(
             return res.status(403).json({ success: false, message: 'Access denied. This patient record has been archived.' });
         }
 
-        const accessRoles = ['admin', 'system_admin', 'sysadmin', 'medical_staff', 'facility_admin'];
+        const accessRoles = ['admin', 'system_admin', 'sysadmin', 'facility_admin'];
         let hasAccess = accessRoles.includes(req.user.role);
 
         if (!hasAccess) {

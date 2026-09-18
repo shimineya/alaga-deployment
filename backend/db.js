@@ -63,6 +63,19 @@ pool.connect((err, client, release) => {
       ALTER TABLE public.patient_baselines 
       ALTER COLUMN vital_name TYPE VARCHAR(100)
     `).catch(err => console.error('Failed to run patient_baselines vital_name migration:', err));
+
+    // Auto-migration: Clean up any parent/guardian facility_id associations so home patients remain private
+    pool.query(`
+      UPDATE public.users 
+      SET facility_id = NULL 
+      WHERE role IN ('parent', 'guardian') AND facility_id IS NOT NULL;
+      
+      UPDATE public.patients 
+      SET facility_id = NULL 
+      WHERE patient_id IN (
+          SELECT patient_id FROM public.patient_access WHERE relationship IN ('Parent', 'Guardian')
+      ) AND facility_id IS NOT NULL;
+    `).catch(err => console.error('Failed to run parent facility_id cleanup migration:', err));
   }
   if (release) release();
 });

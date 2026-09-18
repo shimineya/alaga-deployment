@@ -5,6 +5,7 @@ import { mockPatients, mockAlerts, mockUsers, generateMockVitalSigns } from '../
 import { generateAlertsFromDoctorsOrders, checkVitalSignThresholds } from '../lib/alert-generator';
 import { DashboardSidebar, MobileBottomNav, MobileNavDrawer } from './DashboardSidebar';
 import { NotificationPanel } from './NotificationPanel';
+import { UserManualButton } from './UserManualButton';
 import { DoctorsOrders } from './DoctorsOrders';
 import { Bulletin } from './Bulletin';
 import { PatientProfile } from './PatientProfile';
@@ -1992,6 +1993,7 @@ export const MedicalStaffDashboard: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 sm:gap-3">
+                <UserManualButton />
                 <NotificationPanel
                   alerts={alerts}
                   onAcknowledge={handleAcknowledgeAlert}

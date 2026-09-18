@@ -4,6 +4,7 @@ import { Patient, Alert, VitalSign, DoctorsOrdersData } from '../types';
 import { generateAlertsFromDoctorsOrders, checkVitalSignThresholds } from '../lib/alert-generator';
 import { DashboardSidebar, MobileBottomNav, MobileNavDrawer } from './DashboardSidebar';
 import { NotificationPanel } from './NotificationPanel';
+import { UserManualButton } from './UserManualButton';
 import { PatientProfile } from './PatientProfile';
 import { AddNewPatient } from './AddNewPatient';
 import { PatientList } from './PatientList';
@@ -1245,6 +1246,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 sm:gap-3">
+                                <UserManualButton />
                                 <NotificationPanel alerts={alerts} onAcknowledge={handleAcknowledgeAlert} onMarkAllRead={handleMarkAllRead} patientNames={patientNamesMap} />
                                 <div className="h-8 w-8 rounded-full bg-teal-100/90 border border-teal-200 flex items-center justify-center text-teal-800 font-bold text-xs shadow-sm">
                                     {(user as any)?.name?.[0] || 'C'}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import { GlobalNotificationBell } from '../GlobalNotificationBell';
+import { UserManualButton } from '../UserManualButton';
 
 export default function MainLayout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -16,7 +17,8 @@ export default function MainLayout() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         <header className="h-14 border-b border-slate-200 bg-white px-6 flex items-center justify-end shrink-0 z-10">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <UserManualButton />
             <GlobalNotificationBell />
           </div>
         </header>

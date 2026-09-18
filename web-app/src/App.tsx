@@ -7,6 +7,7 @@ import { LoginEmailVerification } from './components/LoginEmailVerification';
 import { SignUp } from './components/SignUp';
 import { UserTypeSelection } from './components/UserTypeSelection';
 import { EmailVerification } from './components/EmailVerification';
+import { LandingPage } from './components/LandingPage';
 import { Toaster } from './components/ui/sonner';
 
 // [OWASP A01] Unified Layout — single source of truth for authenticated navigation
@@ -61,6 +62,8 @@ function AppContent() {
       {/* ============================================================ */}
       {/* PUBLIC ROUTES                                                 */}
       {/* ============================================================ */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/home" element={<LandingPage />} />
       <Route
         path="/login"
         element={
@@ -121,11 +124,9 @@ function AppContent() {
       </Route>
 
       {/* ============================================================ */}
-      {/* REDIRECTS                                                     */}
-      {/* Root and catch-all route to /dashboard                       */}
+      {/* CATCH-ALL ROUTE                                               */}
       {/* ============================================================ */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? defaultAuthRedirect : "/"} replace />} />
     </Routes>
   );
 }

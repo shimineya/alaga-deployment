@@ -91,7 +91,7 @@ export const UserTypeSelection: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="text-center pt-4">
+                    <div className="text-center pt-4 space-y-2">
                         <p className="text-sm" style={{ color: '#7F8C8D' }}>
                             Already have an account?{' '}
                             <button
@@ -102,6 +102,14 @@ export const UserTypeSelection: React.FC = () => {
                                 Log In
                             </button>
                         </p>
+                        <div>
+                            <button
+                                onClick={() => navigate('/')}
+                                className="text-xs text-slate-400 hover:text-teal-600 transition-colors inline-flex items-center gap-1 font-medium"
+                            >
+                                <span>&larr;</span> Back to Home
+                            </button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>

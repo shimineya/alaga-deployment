@@ -162,7 +162,7 @@ export const LoginPage: React.FC = () => {
               {loading ? 'Verifying...' : 'Sign In'}
             </Button>
 
-            <div className="text-center mt-3">
+            <div className="text-center mt-3 space-y-2">
               <p className="text-xs text-gray-500">
                 New user?{' '}
                 <button
@@ -173,6 +173,15 @@ export const LoginPage: React.FC = () => {
                   Create account
                 </button>
               </p>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="text-[11px] text-slate-400 hover:text-teal-600 transition-colors inline-flex items-center gap-1 font-medium"
+                >
+                  <span>&larr;</span> Back to Home
+                </button>
+              </div>
             </div>
           </form>
         </CardContent>

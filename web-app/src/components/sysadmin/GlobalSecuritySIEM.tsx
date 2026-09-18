@@ -181,7 +181,7 @@ export default function GlobalSecuritySIEM() {
         return (
             <div className="flex flex-col items-center justify-center min-h-[500px] gap-2">
                 <RefreshCw className="w-8 h-8 text-teal-600 animate-spin" />
-                <p className="text-xs text-slate-500">Synchronizing security operations telemetry...</p>
+                <p className="text-xs text-slate-500">Synchronizing security operations monitoring...</p>
             </div>
         );
     }

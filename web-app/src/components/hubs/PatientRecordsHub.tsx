@@ -82,7 +82,7 @@ export default function PatientRecordsHub() {
                 <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Patient Records (PHI)</h1>
                 <p className="text-sm text-slate-500 mt-1">
                     {isCaregiver
-                        ? 'View clinical records and telemetry for patients assigned to your care.'
+                        ? 'View clinical records and vital signs monitoring for patients assigned to your care.'
                         : isParentOrGuardian
                         ? 'Register family members, manage patient records, and assign caregivers.'
                         : 'Manage patient admissions and view assigned medical charts.'}

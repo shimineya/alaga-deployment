@@ -8,7 +8,7 @@ export const MODULE_REGISTRY: { group: string; modules: { id: string; label: str
     {
         group: 'Dashboard (Overview Hub)',
         modules: [
-            { id: 'dashboard', label: 'System Admin Dashboard', description: 'Global telemetry command center view.' },
+            { id: 'dashboard', label: 'System Admin Dashboard', description: 'Global monitoring command center view.' },
             { id: 'facility-dashboard', label: 'Facility Admin Dashboard', description: 'Ward-level operational dashboard.' },
             { id: 'caregiver-dashboard', label: 'Caregiver Dashboard', description: 'Live patient vitals monitoring view.' },
         ]
@@ -60,7 +60,7 @@ export const MODULE_REGISTRY: { group: string; modules: { id: string; label: str
         group: 'Reports Hub',
         modules: [
             { id: 'clinical-reports', label: 'Clinical Reports Hub (PHI)', description: 'Daily summary, anomaly log, moisture tracker, weekly trends, data export.' },
-            { id: 'reports', label: 'System Observability Reports', description: 'System ledger, security, audit trails, and infrastructure telemetry.' },
+            { id: 'reports', label: 'System Observability Reports', description: 'System ledger, security, audit trails, and infrastructure monitoring.' },
         ]
     },
     {

@@ -281,8 +281,8 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
     const handleToggleMonitoring = async (patient: ScopedPatient) => {
         const isDisabling = !patient.is_monitoring_disabled;
         const confirmMsg = isDisabling
-            ? `Disable live telemetry monitoring for ${patient.name}? Active clinical alerts will be paused.`
-            : `Re-enable live telemetry monitoring for ${patient.name}?`;
+            ? `Disable live monitoring for ${patient.name}? Active clinical alerts will be paused.`
+            : `Re-enable live monitoring for ${patient.name}?`;
         
         if (!confirm(confirmMsg)) return;
 

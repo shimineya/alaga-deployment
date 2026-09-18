@@ -100,7 +100,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         title: 'Understanding Vitals & Normal Ranges',
                         category: 'vitals',
                         icon: Heart,
-                        summary: 'How to read the patient telemetry cards and understand what the colors mean.',
+                        summary: 'How to read the patient vital signs monitoring cards and understand what the colors mean.',
                         steps: [
                             'Heart Rate (HR): Normal resting range is 60 - 100 bpm. Green indicates normal, amber indicates mild elevation (e.g. crying or moving), and red indicates tachycardia (>130 bpm) or bradycardia (<50 bpm).',
                             'Oxygen Saturation (SpO₂): Normal range is 95% - 100%. If SpO₂ drops below 92%, an immediate warning will trigger. A reading below 90% is a critical medical event.',
@@ -151,7 +151,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         icon: Cpu,
                         summary: 'Pairing, battery charging, and sensor connection guides.',
                         steps: [
-                            'Checking Connection: Look for the WiFi signal icon. If it shows "Streaming", live telemetry is active. If it says "Waiting for device", the sensor is either asleep or out of range.',
+                            'Checking Connection: Look for the WiFi signal icon. If it shows "Streaming", live monitoring is active. If it says "Waiting for device", the sensor is either asleep or out of range.',
                             'Battery Level: Recharge the sensor using the magnetic USB cable when battery drops below 20%. A full charge lasts 18-24 hours.',
                             'Attaching the Diaper Clip: Fasten the clip securely to the outer front fold of the diaper. Ensure the conductive sensing pads touch the absorbent core without pressing uncomfortably into the patient’s skin.'
                         ],
@@ -178,7 +178,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         steps: [
                             'Q: Why is the SpO₂ reading showing 0% or dashes?\nA: The optical pulse oximeter clip may have shifted or is not making full contact with warm skin. Reposition the sensor gently.',
                             'Q: Can I share access with another family member?\nA: Contact your Facility Administrator to link a secondary caregiver account to your patient.',
-                            'Q: Does the app work without internet?\nA: Telemetry requires connection to the local ward WiFi network or cloud server. If offline, the sensor device will beep locally for critical emergencies.'
+                            'Q: Does the app work without internet?\nA: Real-time monitoring requires connection to the local ward WiFi network or cloud server. If offline, the sensor device will beep locally for critical emergencies.'
                         ]
                     }
                 ]
@@ -186,9 +186,9 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
             medical_staff: {
                 roleLabel: 'Medical Staff & Clinical Guide',
                 roleBadgeColor: 'bg-sky-100 text-sky-800 border-sky-300',
-                roleDesc: 'Clinical protocols for telemetry review, anomaly classification, issuing doctor’s orders, and exporting PHI health reports.',
+                roleDesc: 'Clinical protocols for vital signs monitoring review, anomaly classification, issuing doctor’s orders, and exporting PHI health reports.',
                 quickStartSteps: [
-                    { title: '1. Review Ward Telemetry', desc: 'View live vital sign telemetry streams across assigned patients. Check for amber/red threshold alerts.' },
+                    { title: '1. Review Ward Monitoring', desc: 'View live vital signs monitoring streams across assigned patients. Check for amber/red threshold alerts.' },
                     { title: '2. Triage Anomaly Log', desc: 'Inspect OC-SVM deviation events to differentiate motion artifacts from physiological distress.' },
                     { title: '3. Issue Doctor’s Orders', desc: 'Write medication schedules and clinical care directives that sync directly to caregiver rosters.' },
                     { title: '4. Export Clinical Summaries', desc: 'Generate PDF/CSV weekly trend reports and moisture exposure metrics for medical rounds.' },
@@ -278,7 +278,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         steps: [
                             'Go to Device Management Hub > Add New Device.',
                             'Enter the device MAC address and assign a hardware label (e.g., "Smart Diaper Bed 4B").',
-                            'Pair the device to the admitted patient. The live telemetry stream will route automatically.',
+                            'Pair the device to the admitted patient. The live monitoring stream will route automatically.',
                             'View Ward Diagnostics to identify sensors with low battery (<20%) or weak WiFi signal (RSSI < -75 dBm).'
                         ]
                     },
@@ -298,9 +298,9 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
             system_admin: {
                 roleLabel: 'System Administrator & DevOps Guide',
                 roleBadgeColor: 'bg-purple-100 text-purple-800 border-purple-300',
-                roleDesc: 'Platform telemetry, SIEM security threats, forensic audit trails, RBAC module toggles, and ESP32 OTA firmware deployments.',
+                roleDesc: 'Platform system monitoring, SIEM security threats, forensic audit trails, RBAC module toggles, and ESP32 OTA firmware deployments.',
                 quickStartSteps: [
-                    { title: '1. Telemetry Health', desc: 'Verify API latency, WebSocket connection pools, and Neon Postgres database health.' },
+                    { title: '1. System Health Monitoring', desc: 'Verify API latency, WebSocket connection pools, and Neon Postgres database health.' },
                     { title: '2. SIEM & Security', desc: 'Monitor the brute-force threat feed and review forensic audit logs for PHI compliance.' },
                     { title: '3. RBAC Permissions', desc: 'Use the User Permissions Manager to toggle module access per role or user.' },
                     { title: '4. Firmware OTA', desc: 'Upload and stage ESP32 firmware binaries for over-the-air deployment.' },
@@ -623,7 +623,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                     {/* Footer */}
                     <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center justify-between shrink-0">
                         <p className="text-[11px] text-slate-500 hidden sm:block">
-                            ALAGA Smart Healthcare System &bull; Version 2.4 Active Telemetry
+                            ALAGA Smart Healthcare System &bull; Version 2.4 Active Monitoring
                         </p>
                         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                             <Button

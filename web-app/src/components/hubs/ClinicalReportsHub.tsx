@@ -148,7 +148,7 @@ export default function ClinicalReportsHub() {
                 <div className="flex items-center justify-center h-[400px]">
                     <div className="flex flex-col items-center gap-3 text-slate-500">
                         <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
-                        <p className="text-sm font-medium">Loading clinical patient telemetry records...</p>
+                        <p className="text-sm font-medium">Loading clinical patient monitoring records...</p>
                     </div>
                 </div>
             ) : patients.length === 0 ? (
@@ -156,7 +156,7 @@ export default function ClinicalReportsHub() {
                     <ActivitySquare className="w-12 h-12 text-slate-300 mb-3" />
                     <h3 className="text-base font-bold text-slate-800">No Patient Records Available</h3>
                     <p className="text-xs text-slate-500 max-w-sm mt-1">
-                        There are currently no active patients enrolled in your facility or department. Once patients are enrolled, their clinical telemetry summaries will appear here.
+                        There are currently no active patients enrolled in your facility or department. Once patients are enrolled, their clinical monitoring summaries will appear here.
                     </p>
                 </div>
             ) : (

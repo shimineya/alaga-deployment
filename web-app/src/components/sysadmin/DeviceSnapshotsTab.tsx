@@ -204,7 +204,7 @@ export default function DeviceSnapshotsTab() {
                                     <th className="px-4 py-3">Device & Serial</th>
                                     <th className="px-4 py-3">Last Assignment</th>
                                     <th className="px-4 py-3">Facility</th>
-                                    <th className="px-4 py-3 text-center">Telemetry Collected</th>
+                                    <th className="px-4 py-3 text-center">Monitoring Data Collected</th>
                                     <th className="px-4 py-3 text-center">Alerts</th>
                                     <th className="px-4 py-3">Deleted By</th>
                                     <th className="px-4 py-3">Snapshot Timestamp</th>
@@ -327,7 +327,7 @@ export default function DeviceSnapshotsTab() {
                                     <p className="text-xs font-bold text-slate-800 mt-0.5">{selectedSnapshot.device_name || 'N/A'}</p>
                                 </div>
                                 <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                                    <p className="text-[10px] font-semibold text-slate-400 uppercase">Telemetry Count</p>
+                                    <p className="text-[10px] font-semibold text-slate-400 uppercase">Monitoring Samples Count</p>
                                     <p className="text-xs font-bold text-slate-800 mt-0.5">{selectedSnapshot.telemetry_count.toLocaleString()}</p>
                                 </div>
                                 <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">

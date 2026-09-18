@@ -273,7 +273,7 @@ export default function CommandCenterDashboard() {
         return (
             <div className="flex flex-col items-center justify-center min-h-[500px] gap-2">
                 <RefreshCw className="w-8 h-8 text-teal-600 animate-spin" />
-                <p className="text-xs text-slate-500">Synchronizing global command center telemetry...</p>
+                <p className="text-xs text-slate-500">Synchronizing global command center monitoring...</p>
             </div>
         );
     }
@@ -285,7 +285,7 @@ export default function CommandCenterDashboard() {
                     <h2 className="text-lg font-bold text-teal-900 tracking-tight">Command Center Dashboard</h2>
                     <p className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
                         <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                        Aggregated Global Telemetry. PHI access is restricted in this zone.
+                        Aggregated Global Monitoring. PHI access is restricted in this zone.
                     </p>
                 </div>
                 <Button

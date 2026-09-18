@@ -41,7 +41,7 @@ export default function SystemSettings() {
         content: `ALAGA HEALTH CARE MONITORING SYSTEM - DATA PRIVACY & LEGAL BASELINES
 
 1. DATA PROCESSING PRINCIPLES (RA 10173 § 11)
-Patient vital signs telemetry (SpO2, heart rate, temperature) and caregiver access trails are processed strictly for clinical monitoring and emergency response. All telemetry is encrypted in transit and at rest.
+Patient vital signs monitoring data (SpO2, heart rate, temperature) and caregiver access trails are processed strictly for clinical monitoring and emergency response. All monitoring data is encrypted in transit and at rest.
 
 2. GDPR COMPLIANT DATA RETENTION
 Under GDPR Article 17, soft-deleted patient records are retained in an archival state for exactly 1 year to prevent accidental loss, after which they are permanently purged.
@@ -148,7 +148,7 @@ Emergency "break-glass" access overrides must be justified. User audits store on
         if (target === 'both') {
             setNewAnnouncement({
                 title: `Firmware Update Available: Partnered Devices (${sdVer} & ${vsVer})`,
-                message: `An official firmware update is available for partnered monitoring devices.\n\nIncluded Firmware Packages:\n• Smart Diaper Firmware: ${sdVer} (${smartDiaperFile})\n• Vital Signs Monitor Firmware: ${vsVer} (${vitalSignsFile})\n\nThis update optimizes telemetry ingestion, power efficiency, and BLE reconnection protocols.`
+                message: `An official firmware update is available for partnered monitoring devices.\n\nIncluded Firmware Packages:\n• Smart Diaper Firmware: ${sdVer} (${smartDiaperFile})\n• Vital Signs Monitor Firmware: ${vsVer} (${vitalSignsFile})\n\nThis update optimizes sensor monitoring ingestion, power efficiency, and BLE reconnection protocols.`
             });
         } else if (target === 'diaper') {
             setNewAnnouncement({
@@ -158,7 +158,7 @@ Emergency "break-glass" access overrides must be justified. User audits store on
         } else {
             setNewAnnouncement({
                 title: `Firmware Update Available: Vital Signs Monitor (${vsVer})`,
-                message: `An official firmware update is available for Vital Signs monitors.\n\nIncluded Firmware Packages:\n• Vital Signs Monitor Firmware: ${vsVer} (${vitalSignsFile})\n\nThis update improves pulse-oximeter calibration and real-time vital telemetry accuracy.`
+                message: `An official firmware update is available for Vital Signs monitors.\n\nIncluded Firmware Packages:\n• Vital Signs Monitor Firmware: ${vsVer} (${vitalSignsFile})\n\nThis update improves pulse-oximeter calibration and real-time vital signs monitoring accuracy.`
             });
         }
     };

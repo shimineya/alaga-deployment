@@ -1054,7 +1054,7 @@ export default function SystemAdminReportsHub() {
                             </div>
 
                             <div>
-                                <span className="font-bold text-slate-700 block mb-1.5">Structured Telemetry & Details Snapshot</span>
+                                <span className="font-bold text-slate-700 block mb-1.5">Structured Monitoring & Details Snapshot</span>
                                 <pre className="p-3.5 bg-slate-900 text-teal-300 font-mono text-[11px] rounded-xl overflow-x-auto max-h-60">
                                     {JSON.stringify(selectedReportForView.details, null, 2)}
                                 </pre>
@@ -1196,7 +1196,7 @@ export default function SystemAdminReportsHub() {
                             <label className="font-semibold text-slate-700 block mb-1">Summary / Executive Finding</label>
                             <textarea
                                 rows={3}
-                                placeholder="Describe findings, telemetry notes, and evaluation results..."
+                                placeholder="Describe findings, monitoring notes, and evaluation results..."
                                 value={genSummary}
                                 onChange={(e) => setGenSummary(e.target.value)}
                                 required

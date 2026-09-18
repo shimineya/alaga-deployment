@@ -139,7 +139,7 @@ export default function SystemAdminClinicalAnalytics() {
                 toast.error(data.message || 'Failed to query patient details');
             }
         } catch {
-            toast.error('Network error loading subject telemetry');
+            toast.error('Network error loading subject monitoring data');
         } finally {
             setIsLoadingDetail(false);
         }
@@ -163,7 +163,7 @@ export default function SystemAdminClinicalAnalytics() {
                             </Badge>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
-                            Patient identities are masked as anonymous tokens. System administrators view clinical telemetry and statistical cohort interpretations.
+                            Patient identities are masked as anonymous tokens. System administrators view clinical monitoring data and statistical cohort interpretations.
                         </p>
                     </div>
                 </div>
@@ -251,7 +251,7 @@ export default function SystemAdminClinicalAnalytics() {
                         <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-white to-teal-50/20">
                             <CardContent className="p-3.5 flex items-center justify-between">
                                 <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Telemetry Ingested</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Monitoring Data Ingested</p>
                                     <h3 className="text-xl font-black text-teal-700 mt-0.5">
                                         {(analytics?.cohort_summary?.total_telemetry_packets || 0).toLocaleString()}
                                     </h3>
@@ -338,7 +338,7 @@ export default function SystemAdminClinicalAnalytics() {
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-xs font-bold text-slate-800 flex items-center gap-2">
                                     <TrendingUp className="w-4 h-4 text-teal-600" />
-                                    Recent Telemetry Moving Averages
+                                    Recent Monitoring Moving Averages
                                 </CardTitle>
                                 <CardDescription className="text-[11px] text-slate-400">
                                     Chronological time buckets with mean SpO2 and Heart Rate
@@ -347,7 +347,7 @@ export default function SystemAdminClinicalAnalytics() {
                             <CardContent>
                                 {(!analytics?.time_series || analytics.time_series.length === 0) ? (
                                     <div className="h-36 flex items-center justify-center text-xs text-slate-400">
-                                        No recent telemetry recorded in the last 48 hours.
+                                        No recent monitoring data recorded in the last 48 hours.
                                     </div>
                                 ) : (
                                     <div className="space-y-2 max-h-48 overflow-auto pr-1">
@@ -395,7 +395,7 @@ export default function SystemAdminClinicalAnalytics() {
                                         <th className="px-4 py-3">Condition Profile</th>
                                         <th className="px-4 py-3">Facility</th>
                                         <th className="px-4 py-3">Latest Vitals</th>
-                                        <th className="px-4 py-3 text-center">Telemetry Data</th>
+                                        <th className="px-4 py-3 text-center">Monitoring Data</th>
                                         <th className="px-4 py-3 text-right">Details</th>
                                     </tr>
                                 </thead>
@@ -426,7 +426,7 @@ export default function SystemAdminClinicalAnalytics() {
                                                         <span className="text-amber-600 font-semibold">{p.latest_vitals.temperature || '--'}°C</span>
                                                     </div>
                                                 ) : (
-                                                    <span className="text-slate-400 italic text-[10px]">No telemetry stream</span>
+                                                    <span className="text-slate-400 italic text-[10px]">No monitoring stream</span>
                                                 )}
                                             </td>
                                             <td className="px-4 py-3 text-center font-mono font-semibold">
@@ -460,7 +460,7 @@ export default function SystemAdminClinicalAnalytics() {
                             {patientDetail?.patient?.anonymous_identifier || `Subject #${selectedPatientId}`}
                         </DialogTitle>
                         <DialogDescription className="text-xs text-slate-500">
-                            De-identified telemetry history and anomaly events ledger.
+                            De-identified monitoring history and anomaly events ledger.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -486,7 +486,7 @@ export default function SystemAdminClinicalAnalytics() {
                             </div>
 
                             <div>
-                                <h4 className="text-xs font-bold text-slate-800 mb-2">Recent Telemetry Readings (Last 100)</h4>
+                                <h4 className="text-xs font-bold text-slate-800 mb-2">Recent Monitoring Readings (Last 100)</h4>
                                 <div className="max-h-48 overflow-auto border border-slate-200 rounded-lg">
                                     <table className="min-w-full divide-y divide-slate-100 text-left text-xs">
                                         <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase sticky top-0">

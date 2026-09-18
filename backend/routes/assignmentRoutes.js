@@ -223,6 +223,16 @@ router.post('/respond-invite', async (req, res) => {
                  VALUES ($1, $2, 'CAREGIVER_INVITE_DECLINED', $3)`,
                 [req.user.id, patient_id, `Caregiver declined assignment as ${relationship}`]
             );
+
+            // [NOTIFICATION] Notify the user who invited that their assignment was declined
+            if (invite.rows[0].invited_by) {
+                const caregiverName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'A caregiver';
+                await client.query(
+                    `INSERT INTO alert_notifications (target_patient_id, alert_category, severity, status, message, sent_at)
+                     VALUES ($1, 'System', 'Medium', 'Active', $2, NOW())`,
+                    [patient_id, `${caregiverName} declined the care assignment invitation.`]
+                ).catch(err => console.error("Error inserting alert on decline:", err.message));
+            }
         }
 
         await client.query('COMMIT');

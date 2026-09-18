@@ -328,13 +328,13 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("Assign Primary Caregiver",
+                    Text("Invite Caregiver to Care Team",
                         style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
                             color: const Color(0xFF0046AD))),
                     Text(
-                        "Optional. You can search for an existing nurse/doctor or caregiver.",
+                        "Optional. Sends a pending invitation. The caregiver must accept in their Assignment Command Center before becoming an active member.",
                         style: GoogleFonts.albertSans(
                             fontSize: 12, color: const Color(0xFF0046AD))),
                   ],

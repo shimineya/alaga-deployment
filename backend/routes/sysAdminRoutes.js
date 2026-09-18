@@ -1615,16 +1615,12 @@ router.get('/anonymized-patients', async (req, res) => {
                 (SELECT COUNT(*) FROM anomaly_events ae WHERE ae.patient_id = p.patient_id) AS total_anomalies_count,
                 (
                     SELECT json_build_object(
-                        'heart_rate', sr.heart_rate,
-                        'spo2', sr.spo2,
-                        'temperature', sr.temperature,
-                        'moisture', sr.moisture_value,
-                        'recorded_at', sr.recorded_at
+                        'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                        'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                        'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                        'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                        'recorded_at', (SELECT sr.recorded_at FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1)
                     )
-                    FROM sensor_readings sr 
-                    WHERE sr.patient_id = p.patient_id 
-                    ORDER BY sr.recorded_at DESC 
-                    LIMIT 1
                 ) AS latest_vitals
             FROM patients p
             LEFT JOIN facilities f ON p.facility_id = f.facility_id

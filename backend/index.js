@@ -1144,11 +1144,39 @@ app.post('/api/device/data', async (req, res) => {
             });
         }
 
-        // 2. Insert the readings into the database
+        let hr = heart_rate !== undefined && heart_rate !== null ? parseFloat(heart_rate) : 0;
+        let temp = temperature !== undefined && temperature !== null ? parseFloat(temperature) : 0;
+        let sp = spo2 !== undefined && spo2 !== null ? parseFloat(spo2) : 0;
+        let moist = moisture !== undefined && moisture !== null ? parseInt(moisture, 10) : 0;
+
+        // Carry forward previous complementary sensor readings so Vital Signs and Moisture sensors co-exist simultaneously
+        const lastSnapshot = await pool.query(
+            `SELECT heart_rate, temperature, spo2, moisture_value 
+             FROM sensor_readings 
+             WHERE patient_id = $1 
+             ORDER BY recorded_at DESC LIMIT 1`,
+            [patientId]
+        );
+
+        if (lastSnapshot.rows.length > 0) {
+            const prev = lastSnapshot.rows[0];
+            // If current payload is only moisture (vitals are 0 or unset), retain previous valid vitals
+            if (hr <= 0 && temp <= 0 && sp <= 0) {
+                hr = parseFloat(prev.heart_rate) || 0;
+                temp = parseFloat(prev.temperature) || 0;
+                sp = parseFloat(prev.spo2) || 0;
+            }
+            // If current payload is only vitals (moisture is 0), retain previous valid moisture
+            if (moist <= 0 && prev.moisture_value !== undefined && prev.moisture_value !== null) {
+                moist = parseInt(prev.moisture_value, 10) || 0;
+            }
+        }
+
+        // 2. Insert the combined readings into the database
         const insertRes = await pool.query(
             `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
              VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING reading_id`,
-            [patientId, heart_rate || 0, temperature || 0, spo2 || 0, moisture || 0]
+            [patientId, hr, temp, sp, moist]
         );
         const readingId = insertRes.rows[0]?.reading_id;
 

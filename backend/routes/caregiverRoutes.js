@@ -1419,15 +1419,11 @@ router.get('/patients', async (req, res) => {
                     ) as diaper_device_sn,
                     (
                         SELECT json_build_object(
-                            'heart_rate', sr.heart_rate,
-                            'temperature', sr.temperature,
-                            'spo2', sr.spo2,
-                            'moisture', sr.moisture_value
+                            'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0)
                         )
-                        FROM sensor_readings sr
-                        WHERE sr.patient_id = p.patient_id
-                        ORDER BY sr.recorded_at DESC
-                        LIMIT 1
                     ) as latest_telemetry,
                     COALESCE(
                         (
@@ -1555,15 +1551,11 @@ router.get('/patients', async (req, res) => {
                     ) as diaper_device_sn,
                     (
                         SELECT json_build_object(
-                            'heart_rate', sr.heart_rate,
-                            'temperature', sr.temperature,
-                            'spo2', sr.spo2,
-                            'moisture', sr.moisture_value
+                            'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0)
                         )
-                        FROM sensor_readings sr
-                        WHERE sr.patient_id = p.patient_id
-                        ORDER BY sr.recorded_at DESC
-                        LIMIT 1
                     ) as latest_telemetry,
                     COALESCE(
                         (
@@ -1692,15 +1684,11 @@ router.get('/patients', async (req, res) => {
                     ) as diaper_device_sn,
                     (
                         SELECT json_build_object(
-                            'heart_rate', sr.heart_rate,
-                            'temperature', sr.temperature,
-                            'spo2', sr.spo2,
-                            'moisture', sr.moisture_value
+                            'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
+                            'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0)
                         )
-                        FROM sensor_readings sr
-                        WHERE sr.patient_id = p.patient_id
-                        ORDER BY sr.recorded_at DESC
-                        LIMIT 1
                     ) as latest_telemetry,
                     COALESCE(
                         (

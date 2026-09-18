@@ -424,15 +424,20 @@ router.get(
 
         try {
             const readingResult = await pool.query(
-                `SELECT sr.reading_id, sr.heart_rate, sr.spo2, sr.temperature,
-                        sr.moisture_value, sr.recorded_at,
-                        ae.anomaly_type, ae.ocsvm_score,
-                        an.message AS latest_alert, an.severity AS alert_severity
-                 FROM sensor_readings sr
-                 LEFT JOIN anomaly_events ae ON ae.reading_id = sr.reading_id
+                `SELECT 
+                    (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1) AS reading_id,
+                    COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS heart_rate,
+                    COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS spo2,
+                    COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS temperature,
+                    COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS moisture_value,
+                    (SELECT sr.recorded_at FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1) AS recorded_at,
+                    ae.anomaly_type, ae.ocsvm_score,
+                    an.message AS latest_alert, an.severity AS alert_severity
+                 FROM sensor_readings sr2
+                 LEFT JOIN anomaly_events ae ON ae.reading_id = (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1)
                  LEFT JOIN alert_notifications an ON an.event_id = ae.event_id
-                 WHERE sr.patient_id = $1
-                 ORDER BY sr.recorded_at DESC
+                 WHERE sr2.patient_id = $1
+                 ORDER BY sr2.recorded_at DESC
                  LIMIT 1`,
                 [patientId]
             );

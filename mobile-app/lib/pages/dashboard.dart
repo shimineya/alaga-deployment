@@ -1025,25 +1025,109 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 ...dayEvents.asMap().entries.map((entry) {
                                   final e = entry.value;
                                   return _buildEventTile(e, onDelete: () async {
-                                    try {
-                                      await ScheduleReminderService.delete(
-                                          UserSession.current!.id,
-                                          key,
-                                          e['id']!);
-                                    } catch (_) {
-                                      if (mounted)
-                                        ScaffoldMessenger.of(this.context)
-                                            .showSnackBar(const SnackBar(
-                                                content: Text(
-                                                    'Could not delete this reminder. Please try again.')));
-                                      return;
+                                    final seriesId = e['seriesId'];
+                                    final isSeries = seriesId != null &&
+                                        seriesId.isNotEmpty &&
+                                        (e['totalOccurrences'] ?? '1') != '1';
+
+                                    if (isSeries) {
+                                      final choice = await showDialog<String>(
+                                        context: context,
+                                        builder: (dialogCtx) => AlertDialog(
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(16)),
+                                          title: Text(
+                                              'Delete Recurring Appointment',
+                                              style: GoogleFonts.poppins(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16)),
+                                          content: Text(
+                                            'This appointment repeats ${e['recurrence'] ?? 'periodically'}. What would you like to delete?',
+                                            style: GoogleFonts.albertSans(
+                                                fontSize: 13),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(dialogCtx, 'cancel'),
+                                              child: Text('Cancel',
+                                                  style: GoogleFonts.poppins(
+                                                      color: Colors.black54)),
+                                            ),
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(dialogCtx, 'one'),
+                                              child: Text('This Event Only',
+                                                  style: GoogleFonts.poppins(
+                                                      color: Colors.orange.shade800,
+                                                      fontWeight: FontWeight.w600)),
+                                            ),
+                                            ElevatedButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(dialogCtx, 'all'),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.redAccent,
+                                                shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(8)),
+                                              ),
+                                              child: Text('All Occurrences',
+                                                  style: GoogleFonts.poppins(
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.bold)),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+
+                                      if (choice == null ||
+                                          choice == 'cancel' ||
+                                          !mounted ||
+                                          !context.mounted) return;
+
+                                      try {
+                                        if (choice == 'all') {
+                                          await ScheduleReminderService.deleteSeries(
+                                              UserSession.current!.id, seriesId);
+                                        } else {
+                                          await ScheduleReminderService.delete(
+                                              UserSession.current!.id,
+                                              key,
+                                              e['id']!);
+                                        }
+                                        await _loadSchedules();
+                                        if (!mounted || !context.mounted) return;
+                                        setDialogState(() {});
+                                        setState(() {});
+                                      } catch (_) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(this.context)
+                                              .showSnackBar(const SnackBar(
+                                                  content: Text(
+                                                      'Could not delete reminder. Please try again.')));
+                                        }
+                                      }
+                                    } else {
+                                      try {
+                                        await ScheduleReminderService.delete(
+                                            UserSession.current!.id,
+                                            key,
+                                            e['id']!);
+                                        await _loadSchedules();
+                                        if (!mounted || !context.mounted) return;
+                                        setDialogState(() {});
+                                        setState(() {});
+                                      } catch (_) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(this.context)
+                                              .showSnackBar(const SnackBar(
+                                                  content: Text(
+                                                      'Could not delete this reminder. Please try again.')));
+                                        }
+                                      }
                                     }
-                                    if (!mounted || !context.mounted) return;
-                                    setDialogState(() {
-                                      _events[key]?.removeWhere(
-                                          (event) => event['id'] == e['id']);
-                                    });
-                                    setState(() {});
                                   });
                                 }),
                               const SizedBox(height: 16),
@@ -1081,15 +1165,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   child: ElevatedButton.icon(
                                     onPressed: () async {
                                       if (!_eventsReady) return;
-                                      final newEvent = await _showAddEventForm(
+                                      final newEvents = await _showAddEventForm(
                                           context, selectedDay);
-                                      if (newEvent != null &&
+                                      if (newEvents != null &&
+                                          newEvents.isNotEmpty &&
                                           mounted &&
                                           context.mounted) {
-                                        setDialogState(() {
-                                          _events.putIfAbsent(key, () => []);
-                                          _events[key]!.add(newEvent);
-                                        });
+                                        await _loadSchedules();
+                                        setDialogState(() {});
                                         setState(() {});
                                       }
                                     },
@@ -1211,7 +1294,34 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                     ],
                   ),
-                ]
+                ],
+                if (event['recurrence']?.isNotEmpty == true &&
+                    event['recurrence'] != 'Does not repeat') ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF5FA9A9).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF5FA9A9).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.repeat_rounded, size: 12, color: Color(0xFF2F7D7B)),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Repeats: ${event['recurrence']}${event['occurrenceIndex'] != null ? ' (${event['occurrenceIndex']}/${event['totalOccurrences']})' : ''}',
+                          style: GoogleFonts.albertSans(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF2F7D7B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1228,10 +1338,28 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  String _getRecurrenceDescription(String recurrence, DateTime targetDay) {
+    final rec = recurrence.toLowerCase();
+    if (rec.contains('daily')) {
+      return 'Repeats every day for the next 30 days (30 reminders scheduled).';
+    } else if (rec.contains('weekly')) {
+      final weekday = DateFormat('EEEE').format(targetDay);
+      return 'Repeats weekly on every $weekday for 12 weeks (12 reminders scheduled).';
+    } else if (rec.contains('monthly')) {
+      return 'Repeats on day ${targetDay.day} of every month for 12 months (12 reminders scheduled).';
+    } else if (rec.contains('6 month') || rec.contains('semi')) {
+      return 'Repeats every 6 months for the next 3 years (6 reminders scheduled).';
+    } else if (rec.contains('annual') || rec.contains('year')) {
+      final dateStr = DateFormat('MMMM d').format(targetDay);
+      return 'Repeats on $dateStr once every year for 5 years (5 reminders scheduled).';
+    }
+    return '';
+  }
+
   // ─────────────────────────────────────────────────────────
-  // Add Event Form with Time Picker and Patient Input Field
+  // Add Event Form with Time Picker, Patient Input, and Recurrence
   // ─────────────────────────────────────────────────────────
-  Future<Map<String, String>?> _showAddEventForm(
+  Future<List<Map<String, String>>?> _showAddEventForm(
       BuildContext context, DateTime day) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -1267,9 +1395,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         text: DateFormat('h:mm a').format(DateTime.now()));
     final whereController = TextEditingController();
     String? selectedScheduleType;
+    String selectedRecurrence = 'Does not repeat';
+    final List<String> recurrenceOptions = const [
+      'Does not repeat',
+      'Daily',
+      'Weekly',
+      'Monthly',
+      'Every 6 Months',
+      'Annually',
+    ];
     bool saving = false;
 
-    return showModalBottomSheet<Map<String, String>>(
+    return showModalBottomSheet<List<Map<String, String>>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1554,6 +1691,72 @@ class _DashboardScreenState extends State<DashboardScreen>
                             hint: 'e.g. Room 204, City Hospital',
                             prefixIcon: const Icon(Icons.location_on_outlined,
                                 color: Color(0xFF5FA9A9), size: 20)),
+                        const SizedBox(height: 12),
+                        // Repeat / Recurrence Selector
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Repeat / Recurrence',
+                                style: GoogleFonts.poppins(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 5),
+                            DropdownButtonFormField<String>(
+                              initialValue: selectedRecurrence,
+                              isExpanded: true,
+                              icon: const Icon(Icons.repeat_rounded,
+                                  color: Color(0xFF5FA9A9)),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                        color: Colors.black12)),
+                                enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                        color: Colors.black12)),
+                              ),
+                              items: recurrenceOptions.map((r) {
+                                String subtitle = '';
+                                if (r == 'Daily') subtitle = ' (Every day)';
+                                if (r == 'Weekly') subtitle = ' (Every week)';
+                                if (r == 'Monthly') subtitle = ' (Every month)';
+                                if (r == 'Every 6 Months') subtitle = ' (Every 6 months)';
+                                if (r == 'Annually') subtitle = ' (Every year)';
+                                return DropdownMenuItem<String>(
+                                  value: r,
+                                  child: Text(
+                                    '$r$subtitle',
+                                    style: GoogleFonts.albertSans(fontSize: 13.5),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: saving
+                                  ? null
+                                  : (val) {
+                                      if (val != null) {
+                                        setSheetState(
+                                            () => selectedRecurrence = val);
+                                      }
+                                    },
+                            ),
+                            if (selectedRecurrence != 'Does not repeat') ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _getRecurrenceDescription(
+                                    selectedRecurrence, targetDay),
+                                style: GoogleFonts.albertSans(
+                                    fontSize: 11,
+                                    color: const Color(0xFF2F7D7B),
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ],
+                        ),
                         const SizedBox(height: 20),
                         SizedBox(
                           width: double.infinity,
@@ -1678,33 +1881,42 @@ class _DashboardScreenState extends State<DashboardScreen>
                                           return;
                                         }
                                       }
-                                      final saved =
-                                          await ScheduleReminderService.save(
-                                              UserSession.current!.id,
-                                              DateFormat('yyyy-MM-dd')
-                                                  .format(targetDay),
-                                              at,
-                                              {
-                                            'type': selectedScheduleType!,
-                                            'patient': enteredPatient,
-                                            if (isCaregiver &&
-                                                selectedPatientId != null &&
-                                                !manualPatient)
-                                              'patientId': selectedPatientId!,
-                                            'what': whatController.text.trim(),
-                                            'when': whenController.text.trim(),
-                                            'where':
-                                                whereController.text.trim(),
-                                          });
+
+                                      final baseEvent = {
+                                        'type': selectedScheduleType!,
+                                        'patient': enteredPatient,
+                                        if (isCaregiver &&
+                                            selectedPatientId != null &&
+                                            !manualPatient)
+                                          'patientId': selectedPatientId!,
+                                        'what': whatController.text.trim(),
+                                        'when': whenController.text.trim(),
+                                        'where':
+                                            whereController.text.trim(),
+                                      };
+
+                                      final savedList =
+                                          await ScheduleReminderService
+                                              .saveAppointmentSeries(
+                                        UserSession.current!.id,
+                                        at,
+                                        baseEvent,
+                                        selectedRecurrence,
+                                      );
+
                                       if (!mounted || !context.mounted) return;
-                                      Navigator.pop(context, saved);
+                                      Navigator.pop(context, savedList);
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(SnackBar(
-                                              content: Text(
-                                        ScheduleReminderService.supported
-                                            ? 'Appointment saved with a phone reminder.'
-                                            : 'Appointment saved. Phone reminders are available on Android.',
-                                      )));
+                                        content: Text(
+                                          selectedRecurrence == 'Does not repeat'
+                                              ? (ScheduleReminderService.supported
+                                                  ? 'Appointment saved with a phone reminder.'
+                                                  : 'Appointment saved. Phone reminders are available on Android.')
+                                              : 'Recurring appointment ($selectedRecurrence) saved with ${savedList.length} reminders scheduled!',
+                                        ),
+                                        backgroundColor: const Color(0xFF2F7D7B),
+                                      ));
                                     } catch (error) {
                                       if (!context.mounted) return;
                                       setSheetState(() => saving = false);

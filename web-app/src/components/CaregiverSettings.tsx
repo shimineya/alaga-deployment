@@ -12,6 +12,9 @@ import {
   Shield,
   RefreshCw,
   Languages,
+  Volume2,
+  BellRing,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -212,33 +215,129 @@ export const CaregiverSettings: React.FC = () => {
       </div>
 
       {/* 1. Alert Preferences: Volume & Tone */}
-      <Card className="shadow-sm border-slate-100">
-        <CardHeader className="py-2 px-4 border-b border-slate-50">
-          <CardTitle className="text-xs flex items-center gap-2">
-            <Bell className="w-3.5 h-3.5 text-teal-600" />
+      <Card className="shadow-sm border-slate-200/80 overflow-hidden rounded-xl">
+        <CardHeader className="py-3 px-4 bg-slate-50/70 border-b border-slate-100">
+          <CardTitle className="text-xs font-bold text-slate-800 flex items-center gap-2">
+            <Bell className="w-4 h-4 text-teal-600" />
             {t('Alert Preferences', 'Mga Kagustuhan sa Alert')}
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-3 space-y-3">
+        <CardContent className="p-4 space-y-4">
           <div>
-            <Label className="text-[11px] text-slate-600">{t('Volume & tone', 'Lakas at tono')}</Label>
-            <RadioGroup value={alertTone} onValueChange={(v) => setAlertTone(v as 'gentle' | 'high')} className="flex gap-4 mt-1">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <RadioGroupItem value="gentle" className="size-3.5" />
-                <span className="text-xs text-slate-700">{t('Gentle Chime (home)', 'Malumanay na tunog (bahay)')}</span>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs font-semibold text-slate-700">{t('Volume & tone', 'Lakas at tono')}</Label>
+              <span className="text-[11px] font-medium text-slate-500">
+                {alertTone === 'gentle'
+                  ? t('Selected: Gentle Chime', 'Napili: Malumanay na tunog')
+                  : t('Selected: High Urgency', 'Napili: Mataas na urgency')}
+              </span>
+            </div>
+
+            <RadioGroup
+              value={alertTone}
+              onValueChange={(v) => setAlertTone(v as 'gentle' | 'high')}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+            >
+              {/* Option 1: Gentle Chime */}
+              <label
+                htmlFor="tone-gentle"
+                className={`relative flex items-start gap-3.5 p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-200 select-none ${
+                  alertTone === 'gentle'
+                    ? 'border-teal-600 bg-teal-50/80 shadow-xs ring-2 ring-teal-500/20'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70'
+                }`}
+              >
+                <div className="pt-0.5">
+                  <RadioGroupItem
+                    value="gentle"
+                    id="tone-gentle"
+                    className={`size-5 border-2 transition-colors ${
+                      alertTone === 'gentle'
+                        ? 'border-teal-600 text-teal-600 bg-white'
+                        : 'border-slate-300 bg-white'
+                    }`}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Volume2 className={`w-4 h-4 shrink-0 ${alertTone === 'gentle' ? 'text-teal-700' : 'text-slate-500'}`} />
+                    <span className={`text-xs font-bold ${alertTone === 'gentle' ? 'text-teal-950' : 'text-slate-800'}`}>
+                      {t('Gentle Chime (home)', 'Malumanay na tunog (bahay)')}
+                    </span>
+                    {alertTone === 'gentle' && (
+                      <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-600 text-white">
+                        <Check className="w-2.5 h-2.5" />
+                        {t('Active', 'Aktibo')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    {t('Soft, pleasant chime suitable for calm home environments.', 'Malumanay at mahinahong tunog na angkop sa tahimik na bahay.')}
+                  </p>
+                </div>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <RadioGroupItem value="high" className="size-3.5" />
-                <span className="text-xs text-slate-700">{t('High Urgency (noisy)', 'Mataas na urgency (maingay)')}</span>
+
+              {/* Option 2: High Urgency */}
+              <label
+                htmlFor="tone-high"
+                className={`relative flex items-start gap-3.5 p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-200 select-none ${
+                  alertTone === 'high'
+                    ? 'border-amber-600 bg-amber-50/80 shadow-xs ring-2 ring-amber-500/20'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70'
+                }`}
+              >
+                <div className="pt-0.5">
+                  <RadioGroupItem
+                    value="high"
+                    id="tone-high"
+                    className={`size-5 border-2 transition-colors ${
+                      alertTone === 'high'
+                        ? 'border-amber-600 text-amber-600 bg-white'
+                        : 'border-slate-300 bg-white'
+                    }`}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <BellRing className={`w-4 h-4 shrink-0 ${alertTone === 'high' ? 'text-amber-700' : 'text-slate-500'}`} />
+                    <span className={`text-xs font-bold ${alertTone === 'high' ? 'text-amber-950' : 'text-slate-800'}`}>
+                      {t('High Urgency (noisy)', 'Mataas na urgency (maingay)')}
+                    </span>
+                    {alertTone === 'high' && (
+                      <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600 text-white">
+                        <Check className="w-2.5 h-2.5" />
+                        {t('Active', 'Aktibo')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    {t('Louder, prominent alarm for busy facilities or noisy settings.', 'Mas malakas at kapansin-pansing tunog para sa maingay o abalang lugar.')}
+                  </p>
+                </div>
               </label>
             </RadioGroup>
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Smartphone className="w-3.5 h-3.5 text-slate-500" />
-              <Label className="text-[11px] text-slate-600">{t('Notification vibration (wearable/phone)', 'Vibration sa notipikasyon (wearable/phone)')}</Label>
+
+          {/* Vibration Switch */}
+          <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg border shadow-2xs transition-colors ${
+                vibrationEnabled ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-white border-slate-200 text-slate-400'
+              }`}>
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-slate-800 cursor-pointer" htmlFor="vibration-toggle">
+                  {t('Notification vibration (wearable/phone)', 'Vibration sa notipikasyon (wearable/phone)')}
+                </Label>
+                <p className="text-[11px] text-slate-500">
+                  {vibrationEnabled
+                    ? t('Vibration is enabled for incoming alerts', 'Naka-on ang vibration para sa mga alert')
+                    : t('Vibration is disabled', 'Naka-off ang vibration')}
+                </p>
+              </div>
             </div>
-            <Switch checked={vibrationEnabled} onCheckedChange={setVibrationEnabled} />
+            <Switch id="vibration-toggle" checked={vibrationEnabled} onCheckedChange={setVibrationEnabled} className="data-[state=checked]:bg-teal-600" />
           </div>
         </CardContent>
       </Card>

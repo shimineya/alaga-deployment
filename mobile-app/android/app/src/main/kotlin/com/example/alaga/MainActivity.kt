@@ -109,9 +109,11 @@ class MainActivity : FlutterFragmentActivity() {
             try {
                 when (call.method) {
                     "saveToDownloads" -> {
-                        val fileName = call.argument<String>("fileName") ?: "ALAGA_Report.txt"
+                        val fileName = call.argument<String>("fileName") ?: "ALAGA_Report.pdf"
+                        val bytes = call.argument<ByteArray>("bytes")
                         val content = call.argument<String>("content") ?: ""
-                        val mimeType = call.argument<String>("mimeType") ?: "text/plain"
+                        val mimeType = call.argument<String>("mimeType") ?: "application/pdf"
+                        val dataToWrite = bytes ?: content.toByteArray(Charsets.UTF_8)
                         var savedPath = ""
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             val contentValues = ContentValues().apply {
@@ -123,7 +125,7 @@ class MainActivity : FlutterFragmentActivity() {
                             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                             if (uri != null) {
                                 resolver.openOutputStream(uri)?.use { stream ->
-                                    stream.write(content.toByteArray(Charsets.UTF_8))
+                                    stream.write(dataToWrite)
                                 }
                                 savedPath = "Downloads/$fileName"
                             } else {
@@ -133,7 +135,7 @@ class MainActivity : FlutterFragmentActivity() {
                             val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                             if (!downloadDir.exists()) downloadDir.mkdirs()
                             val file = File(downloadDir, fileName)
-                            file.writeText(content, Charsets.UTF_8)
+                            file.writeBytes(dataToWrite)
                             savedPath = file.absolutePath
                             val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                             dm.addCompletedDownload(
@@ -145,13 +147,26 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "shareReport" -> {
                         val title = call.argument<String>("title") ?: "ALAGA Health Report"
+                        val bytes = call.argument<ByteArray>("bytes")
                         val content = call.argument<String>("content") ?: ""
+                        val fileName = call.argument<String>("fileName") ?: "ALAGA_Report.pdf"
+                        val mimeType = call.argument<String>("mimeType") ?: (if (bytes != null) "application/pdf" else "text/plain")
+                        
                         val sendIntent = Intent().apply {
                             action = Intent.ACTION_SEND
                             putExtra(Intent.EXTRA_TITLE, title)
                             putExtra(Intent.EXTRA_SUBJECT, title)
-                            putExtra(Intent.EXTRA_TEXT, content)
-                            type = "text/plain"
+                            if (bytes != null) {
+                                val cacheFile = File(cacheDir, fileName)
+                                cacheFile.writeBytes(bytes)
+                                val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "${applicationContext.packageName}.fileprovider", cacheFile)
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                type = mimeType
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            } else {
+                                putExtra(Intent.EXTRA_TEXT, content)
+                                type = mimeType
+                            }
                         }
                         val shareIntent = Intent.createChooser(sendIntent, "Share Report")
                         shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

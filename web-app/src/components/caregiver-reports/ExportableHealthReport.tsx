@@ -868,7 +868,7 @@ ${d.assessmentNotes}
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
       {/* Configuration Header Card */}
-      <Card className="border-slate-200 shadow-sm bg-white">
+      <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
         <CardHeader className="py-3 px-4 border-b border-slate-100 flex flex-row items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-teal-50 text-teal-700 rounded-lg">
@@ -905,7 +905,7 @@ ${d.assessmentNotes}
         </CardHeader>
         <CardContent className="p-4 space-y-4">
           {/* Controls Bar: Timeframe & Report Type */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {/* Timeframe Selector */}
             <div>
               <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1 mb-1.5 uppercase tracking-wider">
@@ -953,48 +953,48 @@ ${d.assessmentNotes}
             </div>
 
             {/* Export Format Selector */}
-            <div>
+            <div className="min-w-0">
               <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1 mb-1.5 uppercase tracking-wider">
                 <FileDown className="w-3 h-3 text-teal-600" /> Export Format
               </label>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setSelectedFormat('pdf')}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all shrink-0 ${
                     selectedFormat === 'pdf'
                       ? 'bg-rose-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <Printer className="w-3 h-3" /> PDF (.pdf)
+                  <Printer className="w-3 h-3" /> PDF
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedFormat('csv')}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all shrink-0 ${
                     selectedFormat === 'csv'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <FileSpreadsheet className="w-3 h-3" /> CSV (.csv)
+                  <FileSpreadsheet className="w-3 h-3" /> CSV
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedFormat('txt')}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all shrink-0 ${
                     selectedFormat === 'txt'
                       ? 'bg-slate-700 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <FileText className="w-3 h-3" /> TXT (.txt)
+                  <FileText className="w-3 h-3" /> TXT
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedFormat('html')}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all shrink-0 ${
                     selectedFormat === 'html'
                       ? 'bg-purple-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1159,8 +1159,8 @@ ${d.assessmentNotes}
           <div className="text-[10px] font-bold text-teal-800 uppercase tracking-wide mb-1.5">
             Telemetry Data Packets (Latest Samples)
           </div>
-          <div className="border border-slate-200 rounded-lg overflow-hidden mb-4">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="border border-slate-200 rounded-lg overflow-x-auto mb-4">
+            <table className="w-full text-left text-xs border-collapse min-w-[500px]">
               <thead>
                 <tr className="bg-teal-700 text-white text-[11px]">
                   <th className="p-2 font-semibold">Timestamp</th>

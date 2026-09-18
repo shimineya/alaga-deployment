@@ -19,14 +19,7 @@ export default function ClinicalReportsHub() {
     const isParentOrGuardian = role === 'parent' || role === 'guardian';
 
     const isAllowed = isSysAdminUser || isFacilityAdmin || isMedStaff || role === 'admin' || isCaregiver || isParentOrGuardian;
-
-    // Default to the mobile-aligned Health Reports Center for caregivers, parents, and guardians
-    const [activeTab, setActiveTab] = useState<'reports-center' | 'clinical-analytics'>(() => {
-        if (isCaregiver || isParentOrGuardian) {
-            return 'reports-center';
-        }
-        return 'reports-center';
-    });
+    const isCaregiverOrFamily = isCaregiver || isParentOrGuardian;
 
     const [patients, setPatients] = useState<Patient[]>([]);
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
@@ -133,69 +126,48 @@ export default function ClinicalReportsHub() {
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
                         <ActivitySquare className="w-6 h-6 text-teal-600" />
-                        Clinical Reports & Analytics Hub
+                        {isCaregiverOrFamily ? 'Health Reports Center' : 'Clinical Reports & Analytics Hub'}
                         {isSysAdminUser && (
                             <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-900 text-teal-300 font-bold">
                                 Anonymized Governance Mode
                             </span>
                         )}
-                        {(isCaregiver || isParentOrGuardian) && (
+                        {isFacilityAdmin && (
+                            <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                Facility Administrator
+                            </span>
+                        )}
+                        {isMedStaff && (
+                            <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                Medical Staff
+                            </span>
+                        )}
+                        {isCaregiverOrFamily && (
                             <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
                                 {isParentOrGuardian ? 'Parent & Guardian View' : 'Caregiver View'}
                             </span>
                         )}
                     </h1>
                     <p className="text-xs text-slate-500 mt-1">
-                        Comprehensive health analytics, mobile-aligned telemetry reports, multi-format export center (PDF, CSV, TXT, HTML), and ML vital anomaly tracking.
+                        {isCaregiverOrFamily
+                            ? 'Generate mobile-aligned health summaries, view past telemetry reports, and export multi-format records (PDF, CSV, TXT, HTML).'
+                            : 'In-depth clinical patient monitoring: Daily health summaries, ML anomaly logs, moisture & hygiene trends, weekly vital analytics, and physician exports.'}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-2 self-start sm:self-auto">
-                    {/* View Switcher Tabs */}
-                    <div className="inline-flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 shadow-inner">
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('reports-center')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                                activeTab === 'reports-center'
-                                    ? 'bg-white text-teal-700 shadow-sm'
-                                    : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="Quick mobile-aligned report generator and archives"
-                        >
-                            <FileText className="w-3.5 h-3.5" />
-                            Health Reports Center
-                            <span className="hidden md:inline-flex text-[9px] px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 font-medium">
-                                Mobile-Aligned
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('clinical-analytics')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                                activeTab === 'clinical-analytics'
-                                    ? 'bg-white text-teal-700 shadow-sm'
-                                    : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="Detailed clinical charts, anomaly logs, and weekly trends"
-                        >
-                            <BarChart3 className="w-3.5 h-3.5" />
-                            Clinical Analytics & Trends
-                        </button>
-                    </div>
-
                     <Button
                         variant="outline"
                         size="sm"
                         onClick={fetchPatients}
                         className="border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold h-9"
                     >
-                        <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+                        <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Records
                     </Button>
                 </div>
             </div>
 
-            {/* Content Body */}
+            {/* Content Body: Role-specific rendering */}
             {isLoading ? (
                 <div className="flex items-center justify-center h-[400px]">
                     <div className="flex flex-col items-center gap-3 text-slate-500">
@@ -213,7 +185,8 @@ export default function ClinicalReportsHub() {
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden">
-                    {activeTab === 'reports-center' ? (
+                    {isCaregiverOrFamily ? (
+                        /* Parent/Guardian and Caregivers exclusively see the Mobile-Aligned HealthReportsCenter */
                         <HealthReportsCenter
                             patients={patients}
                             vitalSigns={vitalSigns}
@@ -221,6 +194,7 @@ export default function ClinicalReportsHub() {
                             onRefreshPatients={fetchPatients}
                         />
                     ) : (
+                        /* Medical Staff, Facility Admin, and System Admin see ClinicalReportsShell (Clinical Analytics & Trends) */
                         <ClinicalReportsShell
                             patients={patients}
                             vitalSigns={vitalSigns}

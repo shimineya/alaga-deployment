@@ -11,7 +11,6 @@ import {
   Smartphone,
   Shield,
   RefreshCw,
-  Languages,
   Volume2,
   BellRing,
   Check,
@@ -21,7 +20,7 @@ import { toast } from 'sonner';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export const CaregiverSettings: React.FC = () => {
-  const { language, setLanguage, t } = useCaregiverLanguage();
+  const { t } = useCaregiverLanguage();
 
   const [isOtaChecking, setIsOtaChecking] = useState(false);
 
@@ -400,38 +399,7 @@ export const CaregiverSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* 4. Language & accessibility */}
-      <Card className="shadow-sm border-slate-100">
-        <CardHeader className="py-2 px-4 border-b border-slate-50">
-          <CardTitle className="text-xs flex items-center gap-2">
-            <Languages className="w-3.5 h-3.5 text-indigo-600" />
-            {t('Language & accessibility', 'Wika at accessibility')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-[11px] text-slate-600">{t('Interface language', 'Wika ng interface')}</Label>
-            <div className="flex rounded-md border border-slate-200 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setLanguage('en')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${language === 'en' ? 'bg-teal-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-              >
-                English
-              </button>
-              <button
-                type="button"
-                onClick={() => setLanguage('fil')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${language === 'fil' ? 'bg-teal-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-              >
-                Filipino
-              </button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 5. Firmware OTA Update */}
+      {/* 4. Firmware OTA Update */}
       <Card className="shadow-sm border-slate-100">
         <CardHeader className="py-2 px-4 border-b border-slate-50">
           <CardTitle className="text-xs flex items-center gap-2">

@@ -1,35 +1,28 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
 
 const STORAGE_KEY = 'alaga_caregiver_language';
 
-export type CaregiverLanguage = 'en' | 'fil';
+export type CaregiverLanguage = 'en';
 
 interface CaregiverLanguageContextValue {
   language: CaregiverLanguage;
   setLanguage: (lang: CaregiverLanguage) => void;
-  t: (en: string, fil: string) => string;
+  t: (en: string, fil?: string) => string;
 }
 
 const CaregiverLanguageContext = createContext<CaregiverLanguageContextValue | null>(null);
 
 export function CaregiverLanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<CaregiverLanguage>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return (stored === 'fil' || stored === 'en') ? stored : 'en';
-    } catch {
-      return 'en';
-    }
-  });
-
+  // Clear any legacy saved Filipino preference from localStorage to ensure all users are on English
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, language);
+      localStorage.removeItem(STORAGE_KEY);
     } catch {}
-  }, [language]);
+  }, []);
 
-  const setLanguage = (lang: CaregiverLanguage) => setLanguageState(lang);
-  const t = (en: string, fil: string) => (language === 'fil' ? fil : en);
+  const language: CaregiverLanguage = 'en';
+  const setLanguage = () => {};
+  const t = (en: string, _fil?: string) => en;
 
   return (
     <CaregiverLanguageContext.Provider value={{ language, setLanguage, t }}>
@@ -42,3 +35,4 @@ export function useCaregiverLanguage() {
   const ctx = useContext(CaregiverLanguageContext);
   return ctx ?? { language: 'en' as CaregiverLanguage, setLanguage: () => {}, t: (en: string, _fil?: string) => en };
 }
+

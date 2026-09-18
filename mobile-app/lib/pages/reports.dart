@@ -241,7 +241,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final hrStatus = (avgHr >= 60 && avgHr <= 100)
           ? 'Normal / Stable'
           : (avgHr < 60 ? 'Bradycardia Range' : 'Elevated / Tachycardia');
-      final spo2Status = avgSpo2 >= 95 ? 'Optimal Oxygenation (≥95%)' : 'Desaturation Risk (<95%)';
+      final spo2Status = avgSpo2 >= 95 ? 'Optimal Oxygenation (>= 95%)' : 'Desaturation Risk (< 95%)';
       final tempStatus = (double.tryParse(avgTemp) ?? 36.5) <= 37.5
           ? 'Normothermic'
           : 'Elevated / Low-grade pyrexia';
@@ -252,12 +252,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final assessmentNotes = 'Longitudinal analysis for $patientDisplayName covering the past $_timeFrame. '
           'Average heart rate is $avgHr BPM (range: $dispMinHr-$dispMaxHr BPM, $hrStatus). '
           'SpO2 averaged $avgSpo2% (range: $dispMinSpo2-$dispMaxSpo2%, $spo2Status). '
-          'Body temperature averaged $avgTemp°C ($tempStatus). '
+          'Body temperature averaged $avgTemp C ($tempStatus). '
           'Diaper moisture monitoring recorded $diaperStatus. '
           'Clinical alert notifications in this timeframe: $totalAlerts incident(s). '
           'Telemetry stream integrity: Verified with AES-256 edge encryption.';
 
-      final reportTimestamp = DateFormat('MMMM dd, yyyy • hh:mm a').format(DateTime.now());
+      final reportTimestamp = DateFormat('MMMM dd, yyyy, hh:mm a').format(DateTime.now());
       final safePatientSlug = patientDisplayName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
       final baseFileName = 'ALAGA_${safePatientSlug}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}';
 
@@ -276,22 +276,22 @@ Verified By: ALAGA Edge Telemetry Platform (HIPAA Compliant)
 1. VITAL SIGNS TELEMETRY SUMMARY
 ------------------------------------------------------------
 Packets Analyzed: ${readings.length} readings
-• Heart Rate:
+- Heart Rate:
   - Average: $avgHr BPM
   - Minimum: $dispMinHr BPM | Maximum: $dispMaxHr BPM
   - Status: $hrStatus
-• Blood Oxygen Saturation (SpO2):
+- Blood Oxygen Saturation (SpO2):
   - Average: $avgSpo2%
   - Minimum: $dispMinSpo2% | Maximum: $dispMaxSpo2%
   - Status: $spo2Status
-• Body Temperature:
-  - Average: $avgTemp °C
-  - Range: $dispMinTemp - $dispMaxTemp °C
+- Body Temperature:
+  - Average: $avgTemp C
+  - Range: $dispMinTemp - $dispMaxTemp C
   - Status: $tempStatus
-• Diaper Moisture Monitoring:
+- Diaper Moisture Monitoring:
   - Wetness Soak Events: $wetnessCount
   - Status: $diaperStatus
-• Clinical Anomaly Alerts:
+- Clinical Anomaly Alerts:
   - Total Alerts Flagged: $totalAlerts
 
 ------------------------------------------------------------
@@ -448,6 +448,23 @@ $assessmentNotes
   // ---------------------------------------------------------------------------
   // CLINICAL PDF GENERATOR
   // ---------------------------------------------------------------------------
+  static String _cleanPdfText(String text) {
+    return text
+        .replaceAll('•', '-')
+        .replaceAll('≥', '>=')
+        .replaceAll('≤', '<=')
+        .replaceAll('°C', ' C')
+        .replaceAll('°', ' ')
+        .replaceAll('–', '-')
+        .replaceAll('—', '-')
+        .replaceAll('’', "'")
+        .replaceAll('‘', "'")
+        .replaceAll('”', '"')
+        .replaceAll('“', '"')
+        .replaceAll(RegExp(r'[^\x20-\x7E\n\r\t]'), ' ')
+        .trim();
+  }
+
   static Future<Uint8List> _buildClinicalPdf({
     required String baseFileName,
     required String patientDisplayName,
@@ -475,6 +492,18 @@ $assessmentNotes
     required List<dynamic> readings,
   }) async {
     final pdf = pw.Document();
+
+    final safePatientName = _cleanPdfText(patientDisplayName);
+    final safeScope = _cleanPdfText(reportScope);
+    final safeType = _cleanPdfText(reportType);
+    final safeTimeFrame = _cleanPdfText(timeFrame);
+    final safeTimestamp = _cleanPdfText(reportTimestamp);
+    final safeHrStatus = _cleanPdfText(hrStatus);
+    final safeSpo2Status = _cleanPdfText(spo2Status);
+    final safeTempStatus = _cleanPdfText(tempStatus);
+    final safeDiaperStatus = _cleanPdfText(diaperStatus);
+    final safeAssessment = _cleanPdfText(assessmentNotes);
+    final safeBaseFileName = _cleanPdfText(baseFileName);
 
     final primaryTeal = PdfColor.fromInt(0xFF2F7D7B);
     final lightBg = PdfColor.fromInt(0xFFF8FAFC);
@@ -544,8 +573,8 @@ $assessmentNotes
                       ),
                     ),
                     pw.SizedBox(height: 3),
-                    pw.Text('Report ID: $baseFileName', style: pw.TextStyle(fontSize: 7.5, color: mutedText)),
-                    pw.Text('Generated: $reportTimestamp', style: pw.TextStyle(fontSize: 7.5, color: mutedText)),
+                    pw.Text('Report ID: $safeBaseFileName', style: pw.TextStyle(fontSize: 7.5, color: mutedText)),
+                    pw.Text('Generated: $safeTimestamp', style: pw.TextStyle(fontSize: 7.5, color: mutedText)),
                   ],
                 ),
               ],
@@ -570,7 +599,7 @@ $assessmentNotes
                     children: [
                       pw.Text('PATIENT / SUBJECT', style: pw.TextStyle(fontSize: 7.5, color: mutedText, fontWeight: pw.FontWeight.bold)),
                       pw.SizedBox(height: 2),
-                      pw.Text(patientDisplayName, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text(safePatientName, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
                 ),
@@ -581,7 +610,7 @@ $assessmentNotes
                     children: [
                       pw.Text('MONITORING SCOPE', style: pw.TextStyle(fontSize: 7.5, color: mutedText, fontWeight: pw.FontWeight.bold)),
                       pw.SizedBox(height: 2),
-                      pw.Text(reportScope, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text(safeScope, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
                 ),
@@ -592,7 +621,7 @@ $assessmentNotes
                     children: [
                       pw.Text('TIMEFRAME', style: pw.TextStyle(fontSize: 7.5, color: mutedText, fontWeight: pw.FontWeight.bold)),
                       pw.SizedBox(height: 2),
-                      pw.Text(timeFrame, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: primaryTeal)),
+                      pw.Text(safeTimeFrame, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: primaryTeal)),
                     ],
                   ),
                 ),
@@ -636,7 +665,7 @@ $assessmentNotes
                       pw.Text('$avgHr BPM', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
                       pw.SizedBox(height: 2),
                       pw.Text('Range: $dispMinHr - $dispMaxHr BPM', style: pw.TextStyle(fontSize: 7, color: mutedText)),
-                      pw.Text(hrStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text(safeHrStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
                 ),
@@ -658,7 +687,7 @@ $assessmentNotes
                       pw.Text('$avgSpo2%', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
                       pw.SizedBox(height: 2),
                       pw.Text('Range: $dispMinSpo2 - $dispMaxSpo2%', style: pw.TextStyle(fontSize: 7, color: mutedText)),
-                      pw.Text(spo2Status, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text(safeSpo2Status, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
                 ),
@@ -677,10 +706,10 @@ $assessmentNotes
                     children: [
                       pw.Text('BODY TEMPERATURE', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFFD97706))),
                       pw.SizedBox(height: 2),
-                      pw.Text('$avgTemp °C', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text('$avgTemp C', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
                       pw.SizedBox(height: 2),
-                      pw.Text('Range: $dispMinTemp - $dispMaxTemp °C', style: pw.TextStyle(fontSize: 7, color: mutedText)),
-                      pw.Text(tempStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text('Range: $dispMinTemp - $dispMaxTemp C', style: pw.TextStyle(fontSize: 7, color: mutedText)),
+                      pw.Text(safeTempStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
                 ),
@@ -702,7 +731,7 @@ $assessmentNotes
                       pw.Text('$wetnessCount', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
                       pw.SizedBox(height: 2),
                       pw.Text('Soak Events Logged', style: pw.TextStyle(fontSize: 7, color: mutedText)),
-                      pw.Text(diaperStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text(safeDiaperStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
                 ),
@@ -735,14 +764,14 @@ $assessmentNotes
                       style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: primaryTeal),
                     ),
                     pw.Text(
-                      'Type: $reportType',
+                      'Type: $safeType',
                       style: pw.TextStyle(fontSize: 8, color: mutedText),
                     ),
                   ],
                 ),
                 pw.SizedBox(height: 5),
                 pw.Text(
-                  assessmentNotes,
+                  safeAssessment,
                   style: pw.TextStyle(fontSize: 8.5, color: darkText, lineSpacing: 2),
                 ),
               ],
@@ -763,16 +792,16 @@ $assessmentNotes
             cellStyle: pw.TextStyle(fontSize: 7.5, color: darkText),
             cellAlignment: pw.Alignment.centerLeft,
             cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            headers: ['Timestamp', 'Heart Rate', 'SpO2', 'Body Temp', 'Moisture', 'Condition'],
+            headers: ['Timestamp', 'Heart Rate', 'SpO2', 'Body Temp (C)', 'Moisture', 'Condition'],
             data: sampleReadings.isEmpty
                 ? [
-                    [reportTimestamp, '$avgHr BPM', '$avgSpo2%', '$avgTemp °C', '150 ADC', 'Normal / Dry']
+                    [safeTimestamp, '$avgHr BPM', '$avgSpo2%', '$avgTemp C', '150 ADC', 'Normal / Dry']
                   ]
                 : sampleReadings.map((r) {
-                    final t = (r['recorded_at'] ?? reportTimestamp).toString();
+                    final t = _cleanPdfText((r['recorded_at'] ?? reportTimestamp).toString());
                     final h = r['heart_rate'] != null ? '${r['heart_rate']} BPM' : '--';
                     final s = r['spo2'] != null ? '${r['spo2']}%' : '--';
-                    final temp = r['temperature'] != null ? '${r['temperature']} °C' : '--';
+                    final temp = r['temperature'] != null ? '${r['temperature']} C' : '--';
                     final mVal = r['moisture_value'] ?? 0;
                     final isWet = ((mVal as num?)?.toInt() ?? 0) > 200;
                     final cond = isWet ? 'Wetness Detected' : 'Normal / Dry';
@@ -797,9 +826,9 @@ $assessmentNotes
                   children: [
                     pw.Text('SECURITY & COMPLIANCE VERIFICATION', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: primaryTeal)),
                     pw.SizedBox(height: 2),
-                    pw.Text('• Telemetry verified with AES-256 edge-to-cloud telemetry encryption.', style: pw.TextStyle(fontSize: 7, color: mutedText)),
-                    pw.Text('• OCSVM machine learning anomaly detection audit verified.', style: pw.TextStyle(fontSize: 7, color: mutedText)),
-                    pw.Text('• Digital Auth Hash: ALAGA-MED-AUTH-${DateTime.now().millisecondsSinceEpoch}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
+                    pw.Text('- Telemetry verified with AES-256 edge-to-cloud telemetry encryption.', style: pw.TextStyle(fontSize: 7, color: mutedText)),
+                    pw.Text('- OCSVM machine learning anomaly detection audit verified.', style: pw.TextStyle(fontSize: 7, color: mutedText)),
+                    pw.Text('- Digital Auth Hash: ALAGA-MED-AUTH-${DateTime.now().millisecondsSinceEpoch}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
                   ],
                 ),
                 pw.Column(
@@ -870,7 +899,7 @@ $assessmentNotes
         pdfBytes = await _buildClinicalPdf(
           baseFileName: baseName,
           patientDisplayName: report['patient'] ?? 'All Patients',
-          reportTimestamp: report['date'] ?? DateFormat('MMMM dd, yyyy • hh:mm a').format(DateTime.now()),
+          reportTimestamp: report['date'] ?? DateFormat('MMMM dd, yyyy, hh:mm a').format(DateTime.now()),
           reportScope: report['scope'] ?? 'In General',
           reportType: report['type'] ?? 'Comprehensive (Both)',
           timeFrame: report['timeFrame'] ?? '7 Days',

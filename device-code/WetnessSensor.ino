@@ -30,16 +30,24 @@ void __attribute__((constructor(101))) disable_brownout() {
 // ==============================================================================
 // HARDWARE PIN DEFINITIONS & CALIBRATION
 // ==============================================================================
-const int WATER_PIN       = 4;   // Moisture sensor input (supports Analog ADC and Digital input)
+// ESP32 Hardware Pin Notes:
+// - GPIO 4 is ADC2_CH0. On ESP32, when Wi-Fi is active, analogRead() on ADC2 pins
+//   is blocked by the Wi-Fi SAR controller. However, digitalRead(4) works 100%!
+// - GPIO 34 is ADC1_CH6 (Input-only, Wi-Fi safe). Recommended for Analog A0 moisture!
+// - Both GPIO 4 and GPIO 34 can be selected via the Setup Web Portal or below.
+int water_pin             = 4;   // Active moisture sensor pin (Default: 4. Move to 34 for analog gradient)
+int sensor_type           = 0;   // 0 = Standard LM393 / FC-28 / Rain Sensor (Active LOW D0 / Inverted Analog A0)
+                                 // 1 = Non-Inverted Analog (Voltage rises when wet, e.g. 3-wire water sensor)
+                                 // 2 = Digital 2-wire conductive probe (Active HIGH with pull-down)
 const int BATTERY_PIN     = 35;  // Battery voltage ADC (GPIO 35 is ADC1, WiFi-safe)
 const int CONFIG_BTN_PIN  = 0;   // ESP32 onboard BOOT button (Hold 3s to enter AP/Reset)
 
-// Analog Moisture Sensor Calibration:
-// Enables continuous intermediate readings (0% to 100%) rather than binary 0/100%
-const int WETNESS_ADC_SAMPLES  = 16;   // Number of multi-samples to filter electrical noise
-const int WETNESS_DRY_RAW      = 200;  // Baseline ADC reading when completely dry (0%)
-const int WETNESS_WET_RAW      = 3200; // Saturated ADC reading when heavily wet (100%)
-const bool INVERT_WETNESS_ADC  = false; // Set true if your sensor board pulls DOWN when wet
+// Analog Moisture Sensor Calibration (LM393 / FC-28 / Capacitive standard):
+// Dry surface (in air): High voltage / high ADC (~3400 - 4095)
+// Wet surface (moisture): Low voltage / low ADC (~200 - 1000)
+const int WETNESS_ADC_SAMPLES  = 16;   // Multi-sample filtering
+const int WETNESS_DRY_RAW      = 3400; // Baseline ADC when completely dry (3.3V)
+const int WETNESS_WET_RAW      = 800;  // Saturated ADC when wet (<0.8V)
 
 // ==============================================================================
 // DEFAULT FACTORY SETTINGS (Saved in NVS; overridable via Captive Portal)
@@ -66,6 +74,7 @@ const long sendInterval    = 5000; // Send telemetry every 5 seconds
 int waterState         = 0;
 int wetnessPercent     = 0;
 int rawMoistureADC     = 0;
+int rawDigitalVal      = 1;
 String wetnessLevel    = "DRY";
 float batteryVoltage   = 0.0;
 int batteryPercent     = 100;
@@ -134,34 +143,66 @@ void readBattery() {
 //  71% - 100%: HEAVY WETNESS / SOAKED (Diaper saturated - immediate action required)
 // ==============================================================================
 int calculateWetnessPercentage() {
-  // 1. Take multi-sampled ADC readings to filter high-frequency noise
+  // 1. Multi-sampled ADC readings to filter high-frequency noise
   long rawSum = 0;
   for (int i = 0; i < WETNESS_ADC_SAMPLES; i++) {
-    rawSum += analogRead(WATER_PIN);
+    rawSum += analogRead(water_pin);
     delay(2);
   }
   rawMoistureADC = (int)(rawSum / WETNESS_ADC_SAMPLES);
+  rawDigitalVal  = digitalRead(water_pin);
 
   int percent = 0;
 
-  if (INVERT_WETNESS_ADC) {
-    // Sensor voltage drops when wet (common on comparator analog pins)
-    int clamped = constrain(rawMoistureADC, WETNESS_DRY_RAW, WETNESS_WET_RAW);
-    percent = map(clamped, WETNESS_WET_RAW, WETNESS_DRY_RAW, 0, 100);
-  } else {
-    // Sensor voltage rises when wet (conductive tracks bridge to VCC)
-    int clamped = constrain(rawMoistureADC, WETNESS_DRY_RAW, WETNESS_WET_RAW);
-    percent = map(clamped, WETNESS_DRY_RAW, WETNESS_WET_RAW, 0, 100);
+  if (sensor_type == 0) {
+    // -------------------------------------------------------------------------
+    // SENSOR TYPE 0: Standard LM393 / FC-28 / Rain Sensor / Capacitive
+    // Characteristics:
+    //   - Inverted Analog: Dry ~ 3400-4095 ADC (3.3V) | Wet ~ 200-1200 ADC (<1.0V)
+    //   - Active-LOW Digital (D0): Dry = HIGH (1) | Wet = LOW (0)
+    // -------------------------------------------------------------------------
+    
+    // Analog calculation (continuous gradient on ADC1 pins such as GPIO 34, 32)
+    // Only calculate if raw ADC is valid (> 100, not dead zero from ESP32 WiFi ADC2 conflict)
+    if (rawMoistureADC > 100) {
+      int clamped = constrain(rawMoistureADC, WETNESS_WET_RAW, WETNESS_DRY_RAW);
+      // Map: WETNESS_DRY_RAW (3400) -> 0%, WETNESS_WET_RAW (800) -> 100%
+      percent = map(clamped, WETNESS_DRY_RAW, WETNESS_WET_RAW, 0, 100);
+      percent = constrain(percent, 0, 100);
+    }
+
+    // Digital comparator detection:
+    // On LM393 boards, the onboard comparator trips and drives D0 LOW when wet!
+    if (rawDigitalVal == LOW) {
+      // If digital confirms wetness, guarantee at least 100% alert status
+      if (percent < 75) {
+        percent = 100;
+      }
+    } else if (rawMoistureADC <= 100 && rawDigitalVal == HIGH) {
+      // Pin is HIGH and ADC is ~0 (e.g. GPIO 4 ADC2 disabled by WiFi): clean & dry
+      percent = 0;
+    }
+  } else if (sensor_type == 1) {
+    // -------------------------------------------------------------------------
+    // SENSOR TYPE 1: Non-Inverted Analog Sensor (3-wire Water Sensor)
+    // Voltage rises when water is present: Dry ~ 0-200 | Wet ~ 1500-3200
+    // -------------------------------------------------------------------------
+    int clamped = constrain(rawMoistureADC, 200, 3200);
+    percent = map(clamped, 200, 3200, 0, 100);
+    percent = constrain(percent, 0, 100);
+
+    if (rawDigitalVal == HIGH && percent < 50) {
+      percent = 100;
+    }
+  } else if (sensor_type == 2) {
+    // -------------------------------------------------------------------------
+    // SENSOR TYPE 2: Digital 2-Wire Conductive Diaper Probe (Active HIGH)
+    // Dry = LOW (0) with internal pulldown | Wet = HIGH (1)
+    // -------------------------------------------------------------------------
+    percent = (rawDigitalVal == HIGH) ? 100 : 0;
   }
 
   percent = constrain(percent, 0, 100);
-
-  // 2. Intelligent Fallback:
-  // If the user connects to a digital-only comparator board pin, check digitalRead:
-  if (percent < 10 && digitalRead(WATER_PIN) == HIGH) {
-    percent = 100;
-  }
-
   return percent;
 }
 
@@ -380,6 +421,7 @@ void handleDashboard() {
   page += "<div class='stat-value' id='metric-wetness' style='color: " + wetColor + ";'>" + String(wetnessPercent) + "<span style='font-size:16px;'>%</span></div>";
   page += "<div class='meter-bar'><div id='metric-wetness-bar' class='meter-fill' style='width: " + String(wetnessPercent) + "%; background: " + wetColor + ";'></div></div>";
   page += "<div class='stat-sub' id='metric-wetness-sub' style='color: " + wetColor + ";'>" + wetnessLevel + "</div>";
+  page += "<div style='font-size: 11px; color: #64748B; margin-top: 6px; font-weight: 500;'>Raw ADC: <b id='metric-adc' style='color:#1E293B;'>" + String(rawMoistureADC) + "</b> &bull; Pin " + String(water_pin) + ": <b id='metric-dig' style='color:#1E293B;'>" + (rawDigitalVal == HIGH ? "HIGH (1)" : "LOW (0)") + "</b></div>";
   page += "</div>";
 
   // Battery Box
@@ -455,6 +497,8 @@ void handleDashboard() {
   page += "      document.getElementById('metric-wetness-bar').style.background = wColor;";
   page += "      document.getElementById('metric-wetness-sub').innerText = d.wetState || (p > 35 ? 'WET' : 'DRY');";
   page += "      document.getElementById('metric-wetness-sub').style.color = wColor;";
+  page += "      if (document.getElementById('metric-adc')) document.getElementById('metric-adc').innerText = d.rawAdc;";
+  page += "      if (document.getElementById('metric-dig')) document.getElementById('metric-dig').innerText = (d.digitalVal == 1 ? 'HIGH (1)' : 'LOW (0)');";
   page += "      var bColor = d.battery > 50 ? '#10B981' : (d.battery > 20 ? '#F59E0B' : '#EF4444');";
   page += "      document.getElementById('metric-battery').innerHTML = d.battery + '<span style=\"font-size:16px;\">%</span>';";
   page += "      document.getElementById('metric-battery').style.color = bColor;";
@@ -489,6 +533,9 @@ void handleStatus() {
   json += "\"wetness\":" + String(wetnessPercent) + ",";
   json += "\"wetState\":\"" + wetnessLevel + "\",";
   json += "\"rawAdc\":" + String(rawMoistureADC) + ",";
+  json += "\"digitalVal\":" + String(rawDigitalVal) + ",";
+  json += "\"sensorType\":" + String(sensor_type) + ",";
+  json += "\"sensorPin\":" + String(water_pin) + ",";
   json += "\"battery\":" + String(batteryPercent) + ",";
   json += "\"voltage\":" + String(batteryVoltage, 2) + ",";
   json += "\"isAP\":" + String(isAPMode ? "true" : "false") + ",";
@@ -598,6 +645,27 @@ void handleSetup() {
   page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "' required>";
   page += "</div>";
 
+  // Moisture Sensor Hardware Type
+  page += "<div class='form-group'>";
+  page += "<label for='sensor_type'>Moisture Sensor Hardware Type</label>";
+  page += "<select id='sensor_type' name='sensor_type'>";
+  page += "<option value='0' " + String(sensor_type == 0 ? "selected" : "") + ">Standard LM393 / FC-28 / Rain Sensor (Active LOW D0 / Inverted A0) [Default]</option>";
+  page += "<option value='1' " + String(sensor_type == 1 ? "selected" : "") + ">Non-Inverted Analog Sensor (Voltage Rises When Wet)</option>";
+  page += "<option value='2' " + String(sensor_type == 2 ? "selected" : "") + ">Digital 2-Wire Conductive Diaper Probe (Active HIGH / Pulldown)</option>";
+  page += "</select>";
+  page += "</div>";
+
+  // Moisture Sensor GPIO Pin
+  page += "<div class='form-group'>";
+  page += "<label for='sensor_pin'>Moisture Sensor GPIO Pin</label>";
+  page += "<select id='sensor_pin' name='sensor_pin'>";
+  page += "<option value='4' " + String(water_pin == 4 ? "selected" : "") + ">GPIO 4 (Standard / Default Wiring)</option>";
+  page += "<option value='34' " + String(water_pin == 34 ? "selected" : "") + ">GPIO 34 (Recommended for smooth 0-100% analog curve on ESP32)</option>";
+  page += "<option value='32' " + String(water_pin == 32 ? "selected" : "") + ">GPIO 32 (Alternate ADC1 Pin)</option>";
+  page += "</select>";
+  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Tip: On ESP32, GPIO 34 is ADC1 (WiFi-safe analog). GPIO 4 is ADC2, ideal for digital comparator signals.</p>";
+  page += "</div>";
+
   // Submit Button
   page += "<button type='submit' class='btn btn-primary'>Save Credentials & Connect</button>";
   page += "</form>";
@@ -666,6 +734,13 @@ void handleSave() {
   String new_dev_id  = server.arg("device_id");
   new_dev_id.trim();
 
+  if (server.hasArg("sensor_type")) {
+    sensor_type = server.arg("sensor_type").toInt();
+  }
+  if (server.hasArg("sensor_pin")) {
+    water_pin = server.arg("sensor_pin").toInt();
+  }
+
   Serial.print("[HTTP] Received Target SSID: "); Serial.println(new_ssid);
   Serial.print("[HTTP] Password Provided    : "); Serial.println(new_pass.length() > 0 ? "YES (" + String(new_pass.length()) + " chars)" : "BLANK (Keep Saved)");
 
@@ -701,6 +776,8 @@ void handleSave() {
   preferences.putString("pass", wifi_password);
   preferences.putString("url", server_url);
   preferences.putString("devid", device_id);
+  preferences.putInt("senstype", sensor_type);
+  preferences.putInt("senspin", water_pin);
   preferences.end();
 
   Serial.println("[NVS] Credentials successfully saved to Flash.");
@@ -909,7 +986,6 @@ void setup() {
 
   // 1. Initialize Hardware Pins
   analogSetAttenuation(ADC_11db); // Full 0 - 3.3V range on analog ADC channels
-  pinMode(WATER_PIN, INPUT);
   pinMode(BATTERY_PIN, INPUT);
   pinMode(CONFIG_BTN_PIN, INPUT_PULLUP);
 
@@ -919,6 +995,8 @@ void setup() {
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
+  sensor_type   = preferences.getInt("senstype", 0);
+  water_pin     = preferences.getInt("senspin", 4);
 
   // Auto-migrate legacy local server IP to production Render cloud URL
   if (server_url.indexOf("192.168.254.") >= 0 || server_url.indexOf("localhost") >= 0) {
@@ -928,7 +1006,18 @@ void setup() {
   }
   preferences.end();
 
+  // Configure moisture pin input mode based on loaded sensor type
+  if (sensor_type == 2) {
+    pinMode(water_pin, INPUT_PULLDOWN);
+  } else if (sensor_type == 0) {
+    pinMode(water_pin, INPUT_PULLUP);
+  } else {
+    pinMode(water_pin, INPUT);
+  }
+
   Serial.print("[NVS] Loaded Device ID  : "); Serial.println(device_id);
+  Serial.print("[NVS] Loaded Sensor Pin : GPIO "); Serial.println(water_pin);
+  Serial.print("[NVS] Loaded Sensor Type: "); Serial.println(sensor_type == 0 ? "LM393 Inverted (Standard)" : (sensor_type == 1 ? "Non-Inverted Analog" : "Digital Active-HIGH"));
   Serial.print("[NVS] Loaded Target SSID: "); Serial.println(wifi_ssid.length() > 0 ? wifi_ssid : "(None)");
   Serial.print("[NVS] Loaded Backend URL: "); Serial.println(server_url);
 
@@ -1015,17 +1104,14 @@ void loop() {
     readSensors();
 
     // Print to Serial Monitor
-    Serial.print("[MONITOR] Wetness: ");
-    Serial.print(wetnessPercent);
-    Serial.print("% (");
-    Serial.print(wetnessLevel);
-    Serial.print(", ADC=");
-    Serial.print(rawMoistureADC);
-    Serial.print(") | Battery: ");
-    Serial.print(batteryPercent);
-    Serial.print("% (");
-    Serial.print(batteryVoltage, 2);
-    Serial.println("V)");
+    Serial.printf("[MONITOR] Wetness: %d%% (%s) | Raw ADC: %d | Digital Pin %d: %s | Battery: %d%% (%.2fV)\n",
+                  wetnessPercent,
+                  wetnessLevel.c_str(),
+                  rawMoistureADC,
+                  water_pin,
+                  (rawDigitalVal == HIGH ? "HIGH (1)" : "LOW (0)"),
+                  batteryPercent,
+                  batteryVoltage);
 
     // Transmit to Backend if connected in Station mode
     sendToBackend();

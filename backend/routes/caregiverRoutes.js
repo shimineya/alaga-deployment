@@ -809,9 +809,10 @@ router.post('/patients', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Patient name is required.' });
     }
 
-    if (!room || !room.trim()) {
-        return res.status(400).json({ success: false, message: 'Room name is required.' });
-    }
+    const resolvedRoom = (room || req.body.roomName || req.body.room_name || req.body.room_number || '').trim() || 
+                         (['parent', 'guardian'].includes(req.user.role?.toLowerCase()) ? 'Home' : 'Room 1');
+    const resolvedWard = (ward || req.body.wardName || req.body.ward_name || '').trim() || null;
+    const resolvedBed = (bed || req.body.bedName || req.body.bed_name || '').trim() || null;
 
     let patientBirthdate = birthdate;
     if (!patientBirthdate && age) {
@@ -847,9 +848,9 @@ router.post('/patients', async (req, res) => {
             diagnosis: diagnosis || medicalCondition || illness || '',
             condition: medicalCondition || conditions || diagnosis || null,
             created_by: req.user.id,
-            ward: ward ? ward.trim() : null,
-            room: room.trim(),
-            bed: bed && bed.trim() ? bed.trim() : null,
+            ward: resolvedWard,
+            room: resolvedRoom,
+            bed: resolvedBed,
             illness: illness || null,
             medicalConditions: conditions ? (Array.isArray(conditions) ? conditions : conditions.split(',').map(c => c.trim()).filter(Boolean)) : [],
             emergencyContact: emergencyContact || null

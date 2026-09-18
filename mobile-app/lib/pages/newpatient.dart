@@ -114,13 +114,20 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
 
     final patientName = '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'.trim();
 
+    final roomVal = _roomNameCtrl.text.trim().isNotEmpty ? _roomNameCtrl.text.trim() : 'Home';
+    final wardVal = _wardNameCtrl.text.trim();
+    final bedVal = _bedNameCtrl.text.trim();
+
     final body = <String, dynamic>{
       'name': patientName,
       'birthdate': _birthdateCtrl.text.trim(),
       'medicalCondition': _medicalNotesCtrl.text.trim(),
-      'wardName': _wardNameCtrl.text.trim(),
-      'roomName': _roomNameCtrl.text.trim(),
-      'bedName': _bedNameCtrl.text.trim(),
+      'room': roomVal,
+      'roomName': roomVal,
+      'ward': wardVal,
+      'wardName': wardVal,
+      'bed': bedVal,
+      'bedName': bedVal,
       'consentGiven': _hasInformedConsent,
     };
 

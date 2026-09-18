@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -22,6 +23,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   static const Color _pageBg = Color(0xFFF5F5F0);
 
   late TabController _tabController;
+  Timer? _realtimeTimer;
 
   // Directory state
   final TextEditingController _searchController = TextEditingController();
@@ -43,10 +45,20 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadAll();
+    _startRealtimePolling();
+  }
+
+  void _startRealtimePolling() {
+    _realtimeTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) {
+        _pollRealtimeUpdates();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _realtimeTimer?.cancel();
     _tabController.dispose();
     _searchController.dispose();
     _assignmentSearchController.dispose();
@@ -58,6 +70,51 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       _fetchUsers(),
       _fetchAssignmentsData(),
     ]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // REAL-TIME SILENT POLLING (Background)
+  // ---------------------------------------------------------------------------
+  Future<void> _pollRealtimeUpdates() async {
+    try {
+      final results = await Future.wait([
+        ApiService.get('/api/caregiver/patients'),
+        ApiService.get('/api/assignments/pending-invites'),
+      ]);
+
+      if (!mounted) return;
+
+      final patientRes = results[0];
+      final inviteRes = results[1];
+
+      bool hasUpdates = false;
+
+      if (patientRes['success'] == true) {
+        final newPatients = (patientRes['data'] as List<dynamic>? ?? [])
+            .map((p) => Map<String, dynamic>.from(p as Map))
+            .toList();
+        if (newPatients.length != _patients.length) {
+          _patients = newPatients;
+          hasUpdates = true;
+        }
+      }
+
+      if (inviteRes['success'] == true) {
+        final newInvites = (inviteRes['data'] as List<dynamic>? ?? [])
+            .map((i) => Map<String, dynamic>.from(i as Map))
+            .toList();
+        if (newInvites.length != _pendingInvites.length) {
+          _pendingInvites = newInvites;
+          hasUpdates = true;
+        }
+      }
+
+      if (hasUpdates && mounted) {
+        setState(() {});
+      }
+    } catch (_) {
+      // Silent polling errors do not interrupt UI
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -142,7 +199,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            action == 'accept' ? 'Invitation accepted!' : 'Invitation declined.',
+            action == 'accept' ? 'Invitation accepted! Telemetry active.' : 'Invitation declined.',
             style: GoogleFonts.albertSans(),
           ),
           backgroundColor: action == 'accept' ? _caregiverGreen : Colors.grey[700],
@@ -223,6 +280,250 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   }
 
   // ---------------------------------------------------------------------------
+  // INVITE MEMBER MODAL (WEB-APP PARITY)
+  // ---------------------------------------------------------------------------
+  void _showInviteMemberModal(BuildContext context) {
+    final emailCtrl = TextEditingController();
+    String? selectedPatient = _patients.isNotEmpty
+        ? (_patients.first['name'] ?? _patients.first['patient_id']?.toString())
+        : null;
+    String selectedRole = 'Assigned Caregiver';
+    bool isSending = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: _teal.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.person_add_alt_1, color: _darkTeal, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Invite Care Team Member',
+                          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Grant real-time vital & diaper telemetry access.',
+                          style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.grey),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+
+              Text(
+                'Member Email Address',
+                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  hintText: 'e.g. nurse.santos@hospital.com',
+                  prefixIcon: const Icon(Icons.email_outlined, color: _teal, size: 20),
+                  filled: true,
+                  fillColor: const Color(0xFFE0F2F1).withValues(alpha: 0.4),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF4DB6AC)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              Text(
+                'Assign to Patient',
+                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0F2F1).withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedPatient,
+                    isExpanded: true,
+                    hint: const Text('Choose patient...'),
+                    items: _patients.map((p) {
+                      final name = p['name'] ?? 'Patient #${p['patient_id']}';
+                      return DropdownMenuItem<String>(
+                        value: name,
+                        child: Text(name, style: GoogleFonts.albertSans(fontWeight: FontWeight.w600)),
+                      );
+                    }).toList(),
+                    onChanged: (val) => setModalState(() => selectedPatient = val),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              Text(
+                'Care Team Role',
+                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0F2F1).withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedRole,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(value: 'Assigned Caregiver', child: Text('Assigned Caregiver')),
+                      DropdownMenuItem(value: 'Primary Caregiver', child: Text('Primary Caregiver')),
+                      DropdownMenuItem(value: 'Attending Medical Staff', child: Text('Attending Medical Staff')),
+                      DropdownMenuItem(value: 'Parent / Guardian', child: Text('Parent / Guardian')),
+                      DropdownMenuItem(value: 'Secondary Caregiver', child: Text('Secondary Caregiver')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setModalState(() => selectedRole = val);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: isSending
+                      ? null
+                      : () async {
+                          final email = emailCtrl.text.trim();
+                          if (email.isEmpty || !email.contains('@')) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please enter a valid email address.')),
+                            );
+                            return;
+                          }
+                          if (selectedPatient == null || selectedPatient!.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please select a patient to assign.')),
+                            );
+                            return;
+                          }
+
+                          final messenger = ScaffoldMessenger.of(context);
+                          final navigator = Navigator.of(modalCtx);
+
+                          setModalState(() => isSending = true);
+
+                          final result = await ApiService.post(
+                            '/api/caregiver/patients/invite-by-email',
+                            body: {
+                              'caregiverEmail': email,
+                              'patientName': selectedPatient,
+                            },
+                          );
+
+                          if (!mounted) return;
+                          setModalState(() => isSending = false);
+
+                          if (result['success'] == true) {
+                            navigator.pop();
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(result['message'] ?? 'Invitation sent successfully!'),
+                                backgroundColor: _caregiverGreen,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                            _loadAll();
+                          } else {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(result['message'] ?? 'Failed to send invitation.'),
+                                backgroundColor: Colors.redAccent,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                  icon: isSending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                  label: Text(
+                    isSending ? 'Sending Invitation...' : 'Send Care Invitation',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _teal,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // HELPERS
   // ---------------------------------------------------------------------------
   String _formatRole(String role) {
@@ -290,6 +591,11 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add_alt_1_outlined, color: _darkTeal),
+            tooltip: 'Invite Member',
+            onPressed: () => _showInviteMemberModal(context),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_outlined, color: Colors.black54),
             tooltip: 'Refresh',
@@ -423,6 +729,26 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                 prefixIcon: Icon(Icons.search, color: Colors.grey),
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Quick Action: Invite Member Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _showInviteMemberModal(context),
+              icon: const Icon(Icons.person_add_alt_1, color: Colors.white, size: 18),
+              label: Text(
+                'Invite Caregiver / Member',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _teal,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                elevation: 0,
               ),
             ),
           ),
@@ -778,35 +1104,76 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            'Care Assignments',
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              fontSize: 22,
-              color: const Color(0xFF2D3436),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Care Assignments',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                  color: const Color(0xFF2D3436),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _caregiverGreen.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _caregiverGreen.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                        color: _caregiverGreen,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'LIVE SYNC',
+                      style: GoogleFonts.poppins(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: _caregiverGreen,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           Text(
-            'Manage patient links, sensor hardware pairings, and invitations.',
+            'Real-time patient telemetry links, hardware sensors, and invitations.',
             style: GoogleFonts.albertSans(color: Colors.grey[600], fontSize: 13),
           ),
           const SizedBox(height: 16),
 
-          // PENDING INVITATIONS BANNER
+          // PENDING INVITATIONS BANNER (REAL TIME)
           if (_pendingInvites.isNotEmpty) ...[
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: const Color(0xFFFFF9E6),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _adminOrange.withValues(alpha: 0.5)),
+                border: Border.all(color: _adminOrange.withValues(alpha: 0.6), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: _adminOrange.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.notification_important_outlined, color: _adminOrange, size: 20),
+                      const Icon(Icons.notification_important, color: _adminOrange, size: 22),
                       const SizedBox(width: 8),
                       Text(
                         'Pending Invitations (${_pendingInvites.length})',
@@ -818,9 +1185,9 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
-                    'You have pending invitations to join care teams. Accept to enable monitoring.',
+                    'You have been invited to join patient care teams. Accept to activate live vitals streaming.',
                     style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black87),
                   ),
                   const SizedBox(height: 12),
@@ -831,23 +1198,42 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             const SizedBox(height: 20),
           ],
 
-          // Search Field
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: TextField(
-              controller: _assignmentSearchController,
-              onChanged: (v) => setState(() => _assignmentSearchQuery = v),
-              decoration: const InputDecoration(
-                hintText: 'Filter patients or hardware serials...',
-                prefixIcon: Icon(Icons.search, color: Colors.grey),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 12),
+          // Search Field & Invite Action Row
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: TextField(
+                    controller: _assignmentSearchController,
+                    onChanged: (v) => setState(() => _assignmentSearchQuery = v),
+                    decoration: const InputDecoration(
+                      hintText: 'Filter patients or serials...',
+                      prefixIcon: Icon(Icons.search, color: Colors.grey),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: () => _showInviteMemberModal(context),
+                icon: const Icon(Icons.person_add_alt_1, color: _teal),
+                tooltip: 'Invite Member',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade300),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
 

@@ -15,6 +15,7 @@
  */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
@@ -42,7 +43,7 @@ const int CONFIG_BTN_PIN  = 0;   // ESP32 onboard BOOT button (Hold 3s to enter 
 // DEFAULT FACTORY SETTINGS (Saved in NVS; overridable via Captive Portal)
 // ==============================================================================
 const char* DEFAULT_AP_SSID    = "ALAGA-VitalSigns-Setup";
-const char* DEFAULT_SERVER_URL = "http://192.168.254.113:3000/api/device/data";
+const char* DEFAULT_SERVER_URL = "https://alaga-backend.onrender.com/api/device/data";
 const char* DEFAULT_DEVICE_ID  = "VS-2026-0001";
 
 // ==============================================================================
@@ -154,9 +155,17 @@ void readThermistor() {
 void sendToBackend() {
   if (WiFi.status() == WL_CONNECTED && !isAPMode) {
     HTTPClient http;
-    http.begin(server_url);
+    WiFiClientSecure client;
+
+    if (server_url.startsWith("https://")) {
+      client.setInsecure(); // Bypass CA check for Render cloud HTTPS
+      http.begin(client, server_url);
+    } else {
+      http.begin(server_url);
+    }
+
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(4000);
+    http.setTimeout(10000); // 10s timeout for cloud TLS handshake
 
     // Determine Wi-Fi Signal Strength rating from RSSI
     int rssi = WiFi.RSSI();
@@ -832,6 +841,13 @@ void setup() {
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
+
+  // Auto-migrate legacy local server IP to production Render cloud URL
+  if (server_url.indexOf("192.168.254.") >= 0 || server_url.indexOf("localhost") >= 0) {
+    Serial.println("[MIGRATION] Updating local server URL to Render Cloud: " + String(DEFAULT_SERVER_URL));
+    server_url = DEFAULT_SERVER_URL;
+    preferences.putString("url", DEFAULT_SERVER_URL);
+  }
   preferences.end();
 
   Serial.print("[NVS] Loaded Device ID  : "); Serial.println(device_id);

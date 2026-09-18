@@ -61,7 +61,9 @@ export default function ClinicalReportsHub() {
                             ? new Date().getFullYear() - new Date(p.birthdate).getFullYear()
                             : (p.age ? parseInt(p.age, 10) : 0),
                         gender: p.gender || p.baseline_data?.gender || 'Unknown',
-                        roomNumber: isFacilityAdmin ? (p.room || p.baseline_data?.room || 'Facility') : 'Home',
+                        roomNumber: isSysAdminUser
+                            ? (p.room ? `Inpatient Telemetry (Room ${p.room})` : 'De-identified Inpatient Telemetry')
+                            : (isFacilityAdmin ? (p.room ? `Inpatient Telemetry (Room ${p.room})` : (p.baseline_data?.room || 'Facility')) : (p.room ? `Room ${p.room}` : 'Home')),
                         condition: p.condition || p.baseline_data?.condition || 'Stable',
                         status: 'Stable',
                         medicalConditions: p.medical_history || p.medicalConditions || [],

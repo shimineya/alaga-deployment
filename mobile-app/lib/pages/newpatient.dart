@@ -19,6 +19,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
 
   // [INTEGRATION] Track selected caregiver and device serial numbers
   int? _selectedCaregiverId;
+  String? _selectedCaregiverEmail;
 
   final TextEditingController _firstNameCtrl = TextEditingController();
   final TextEditingController _lastNameCtrl = TextEditingController();
@@ -131,8 +132,17 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       'consentGiven': _hasInformedConsent,
     };
 
+    final enteredCaregiverEmail = _selectedCaregiverEmail ??
+        (_searchCtrl.text.trim().contains('@') ? _searchCtrl.text.trim() : null);
+
     if (_selectedCaregiverId != null) {
       body['assignedCaregiverId'] = _selectedCaregiverId;
+    }
+    if (enteredCaregiverEmail != null && enteredCaregiverEmail.isNotEmpty) {
+      body['assignedCaregiverEmail'] = enteredCaregiverEmail;
+    }
+    if (_selectedCaregiverName != null && _selectedCaregiverName!.isNotEmpty) {
+      body['assignedCaregiverName'] = _selectedCaregiverName;
     }
     if (_selectedVitalDevice != null) {
       body['vitalDeviceNo'] = _selectedVitalDevice;
@@ -710,8 +720,10 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
     if (!mounted || selected == null) return;
     setState(() {
       final name = '${selected['first_name'] ?? ''} ${selected['last_name'] ?? ''}'.trim();
-      _selectedCaregiverId = selected['user_id'];
-      _selectedCaregiverName = name.isEmpty ? selected['email']?.toString() ?? '' : name;
+      final uId = selected['user_id'] ?? selected['id'];
+      _selectedCaregiverId = uId is int ? uId : int.tryParse(uId?.toString() ?? '');
+      _selectedCaregiverEmail = selected['email']?.toString();
+      _selectedCaregiverName = name.isEmpty ? (_selectedCaregiverEmail ?? '') : name;
       _searchCtrl.text = _selectedCaregiverName!;
       _caregiverResults = [];
     });
@@ -769,6 +781,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   onTap: () {
                     setState(() {
                       _selectedCaregiverId = null;
+                      _selectedCaregiverEmail = null;
                       _selectedCaregiverName = null;
                       _searchCtrl.clear();
                       _caregiverResults = [];
@@ -804,7 +817,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                     '${caregiver['first_name'] ?? ''} ${caregiver['last_name'] ?? ''}'.trim();
                 final email = caregiver['email'] ?? '';
                 final role = caregiver['role'] ?? '';
-                final userId = caregiver['user_id'];
+                final userId = caregiver['user_id'] ?? caregiver['id'];
 
                 return Column(
                   children: [
@@ -843,7 +856,8 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                       ),
                       onTap: () {
                         setState(() {
-                          _selectedCaregiverId = userId;
+                          _selectedCaregiverId = userId is int ? userId : int.tryParse(userId?.toString() ?? '');
+                          _selectedCaregiverEmail = email.isNotEmpty ? email : null;
                           _selectedCaregiverName = name.isNotEmpty ? name : email;
                           _searchCtrl.text = _selectedCaregiverName!;
                           _caregiverResults = [];

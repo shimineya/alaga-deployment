@@ -828,30 +828,32 @@ router.post('/patients', async (req, res) => {
         await client.query('BEGIN');
 
         let resolvedCaregiverId = null;
-        if (req.body.assignedCaregiverId) {
-            const parsedId = parseInt(req.body.assignedCaregiverId, 10);
+        const candidateCaregiverId = req.body.assignedCaregiverId || req.body.assigned_caregiver_id;
+        const candidateCaregiverEmail = (assignedCaregiverEmail || req.body.assigned_caregiver_email || req.body.caregiverEmail || req.body.email || '').toString().trim();
+
+        if (candidateCaregiverId) {
+            const parsedId = parseInt(candidateCaregiverId, 10);
             if (!isNaN(parsedId)) {
                 const idCheck = await client.query(
-                    `SELECT user_id FROM users WHERE user_id = $1 AND role IN ('caregiver', 'medical_staff')`,
+                    `SELECT user_id, first_name, last_name, email FROM users WHERE user_id = $1`,
                     [parsedId]
                 );
                 if (idCheck.rows.length > 0) {
                     resolvedCaregiverId = idCheck.rows[0].user_id;
                 }
             }
-        } else if (assignedCaregiverEmail) {
+        }
+
+        if (!resolvedCaregiverId && candidateCaregiverEmail) {
             const caregiverRes = await client.query(
-                `SELECT user_id FROM users WHERE LOWER(email) = LOWER($1) AND role IN ('caregiver', 'medical_staff')`,
-                [assignedCaregiverEmail.trim()]
+                `SELECT user_id, first_name, last_name, email FROM users WHERE LOWER(email) = LOWER($1)`,
+                [candidateCaregiverEmail]
             );
-            if (caregiverRes.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(404).json({
-                    success: false,
-                    message: `Caregiver/Med Staff user with email "${assignedCaregiverEmail}" not found.`
-                });
+            if (caregiverRes.rows.length > 0) {
+                resolvedCaregiverId = caregiverRes.rows[0].user_id;
+            } else {
+                console.warn(`[ENROLL_PATIENT] Caregiver email "${candidateCaregiverEmail}" not found in database.`);
             }
-            resolvedCaregiverId = caregiverRes.rows[0].user_id;
         }
 
         const baselineData = {
@@ -893,9 +895,21 @@ router.post('/patients', async (req, res) => {
         if (resolvedCaregiverId) {
             await client.query(
                 `INSERT INTO patient_access (user_id, patient_id, relationship, access_level, invite_status, invited_by)
-                 VALUES ($1, $2, 'Assigned Caregiver', 'View', 'Pending', $3)`,
+                 VALUES ($1, $2, 'Assigned Caregiver', 'View', 'Pending', $3)
+                 ON CONFLICT DO NOTHING`,
                 [resolvedCaregiverId, newPatientId, req.user.id]
             );
+
+            // Audit log
+            try {
+                await client.query(
+                    `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected) 
+                     VALUES ($1, $2, 'CAREGIVER_INVITE_PENDING', $3)`,
+                    [req.user.id, newPatientId, `Invited user ID ${resolvedCaregiverId} as Assigned Caregiver during patient enrollment`]
+                );
+            } catch (auditErr) {
+                console.warn('[AUDIT] Could not record enrollment invite log:', auditErr.message);
+            }
         }
 
         // 4. Assign Devices (if provided)

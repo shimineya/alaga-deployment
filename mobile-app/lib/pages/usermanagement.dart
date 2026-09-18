@@ -34,6 +34,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   // Data lists
   List<Map<String, dynamic>> _patients = [];
   List<Map<String, dynamic>> _pendingInvites = [];
+  List<Map<String, dynamic>> _sentPendingInvites = [];
+  String _pendingFilter = 'all'; // 'all', 'received', 'sent'
   Map<int, List<Map<String, dynamic>>> _careTeams = {};
   bool _isLoading = true;
   String? _errorMessage;
@@ -76,12 +78,14 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       final results = await Future.wait([
         ApiService.get('/api/caregiver/patients'),
         ApiService.get('/api/assignments/pending-invites'),
+        ApiService.get('/api/assignments/sent-invites'),
       ]);
 
       if (!mounted) return;
 
       final patientRes = results[0];
       final inviteRes = results[1];
+      final sentInviteRes = results[2];
 
       if (patientRes['success'] == true) {
         _patients = (patientRes['data'] as List<dynamic>? ?? [])
@@ -114,6 +118,45 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             .toList();
       }
 
+      // Collect sent pending invitations
+      final List<Map<String, dynamic>> sentList = [];
+      if (sentInviteRes['success'] == true && sentInviteRes['data'] != null) {
+        sentList.addAll((sentInviteRes['data'] as List<dynamic>)
+            .map((s) => Map<String, dynamic>.from(s as Map)));
+      }
+
+      // Fallback/sync: check _careTeams for any pending members
+      final currentUserId = UserSession.current?.id;
+      for (final patient in _patients) {
+        final pId = patient['patient_id'];
+        final pName = patient['name'] ?? 'Patient';
+        final team = _careTeams[pId] ?? [];
+        for (final member in team) {
+          final mStatus = (member['invite_status'] ?? '').toString().toLowerCase();
+          final mUserId = member['user_id'];
+          if (mStatus == 'pending' && mUserId != currentUserId) {
+            final alreadyPresent = sentList.any((s) =>
+                (s['patient_id'] == pId && s['invitee_user_id'] == mUserId) ||
+                (s['access_id'] != null && member['access_id'] != null && s['access_id'] == member['access_id']));
+            if (!alreadyPresent) {
+              sentList.add({
+                'access_id': member['access_id'] ?? 0,
+                'patient_id': pId,
+                'patient_name': pName,
+                'relationship': member['relationship'] ?? 'Caregiver',
+                'access_level': member['access_level'] ?? 'View',
+                'invitee_user_id': mUserId,
+                'invitee_first_name': member['first_name'] ?? '',
+                'invitee_last_name': member['last_name'] ?? '',
+                'invitee_email': member['email'] ?? '',
+                'invitee_role': member['system_role'] ?? member['role'] ?? 'Caregiver',
+              });
+            }
+          }
+        }
+      }
+      _sentPendingInvites = sentList;
+
       setState(() => _isLoading = false);
     } catch (err) {
       if (!mounted) return;
@@ -129,12 +172,14 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       final results = await Future.wait([
         ApiService.get('/api/caregiver/patients'),
         ApiService.get('/api/assignments/pending-invites'),
+        ApiService.get('/api/assignments/sent-invites'),
       ]);
 
       if (!mounted) return;
 
       final patientRes = results[0];
       final inviteRes = results[1];
+      final sentInviteRes = results[2];
 
       bool hasUpdates = false;
 
@@ -156,6 +201,16 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
         if (newInvites.length != _pendingInvites.length) {
           _pendingInvites = newInvites;
+          hasUpdates = true;
+        }
+      }
+
+      if (sentInviteRes['success'] == true && sentInviteRes['data'] != null) {
+        final newSent = (sentInviteRes['data'] as List<dynamic>)
+            .map((s) => Map<String, dynamic>.from(s as Map))
+            .toList();
+        if (newSent.length != _sentPendingInvites.length) {
+          _sentPendingInvites = newSent;
           hasUpdates = true;
         }
       }
@@ -196,6 +251,74 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result['message'] ?? 'Failed to respond to invitation.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // REVOKE / CANCEL SENT INVITATION (BY INVITER)
+  // ---------------------------------------------------------------------------
+  Future<void> _handleRevokeSentInvite(Map<String, dynamic> invite) async {
+    final patientName = invite['patient_name'] ?? 'Patient';
+    final inviteeName = '${invite['invitee_first_name'] ?? ''} ${invite['invitee_last_name'] ?? ''}'.trim();
+    final displayName = inviteeName.isNotEmpty ? inviteeName : (invite['invitee_email'] ?? 'Caregiver');
+    final accessId = invite['access_id'];
+    final patientId = invite['patient_id'];
+    final inviteeUserId = invite['invitee_user_id'];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Revoke Invitation?",
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: _dangerRed),
+        ),
+        content: Text(
+          "Are you sure you want to cancel the pending invitation sent to $displayName for $patientName's care team?",
+          style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[700]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Keep")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: _dangerRed),
+            child: const Text("Revoke", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    Map<String, dynamic> result = {'success': false};
+
+    if (accessId != null && accessId != 0) {
+      result = await ApiService.delete('/api/assignments/revoke-invite/$accessId');
+    }
+
+    if (result['success'] != true && patientId != null && inviteeUserId != null) {
+      result = await ApiService.delete('/api/caregiver/patients/$patientId/care-team/$inviteeUserId');
+    }
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Invitation for $displayName has been revoked.'),
+          backgroundColor: Colors.grey[800],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _loadAll();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Failed to revoke invitation.'),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),
@@ -600,29 +723,34 @@ class _UserManagementScreenState extends State<UserManagementScreen>
               icon: const Icon(Icons.groups_outlined, size: 20),
               text: 'Care Teams (${_patients.length})',
             ),
-            Tab(
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.mail_outline, size: 20),
-                  if (_pendingInvites.isNotEmpty)
-                    Positioned(
-                      top: -4,
-                      right: -8,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: const BoxDecoration(color: _dangerRed, shape: BoxShape.circle),
-                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                        child: Text(
-                          '${_pendingInvites.length}',
-                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center,
+            Builder(
+              builder: (context) {
+                final totalPending = _pendingInvites.length + _sentPendingInvites.length;
+                return Tab(
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(Icons.mail_outline, size: 20),
+                      if (totalPending > 0)
+                        Positioned(
+                          top: -4,
+                          right: -8,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(color: _dangerRed, shape: BoxShape.circle),
+                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                            child: Text(
+                              '$totalPending',
+                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-              text: 'Pending (${_pendingInvites.length})',
+                    ],
+                  ),
+                  text: 'Pending ($totalPending)',
+                );
+              },
             ),
             Tab(
               icon: const Icon(Icons.link, size: 20),
@@ -954,44 +1082,301 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   // ---------------------------------------------------------------------------
   // TAB 2: PENDING ASSIGNMENTS (DEDICATED SEPARATE TAB)
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // TAB 2: PENDING ASSIGNMENTS (RECEIVED & SENT INVITATIONS)
+  // ---------------------------------------------------------------------------
   Widget _buildPendingAssignmentsTab() {
+    final totalPending = _pendingInvites.length + _sentPendingInvites.length;
+
+    final showReceived = _pendingFilter == 'all' || _pendingFilter == 'received';
+    final showSent = _pendingFilter == 'all' || _pendingFilter == 'sent';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Pending Care Team Invitations (${_pendingInvites.length})',
-            style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF2D3436)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pending Care Team Invitations ($totalPending)',
+                      style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF2D3436)),
+                    ),
+                    Text(
+                      'Accept incoming care team invites or track invites you dispatched.',
+                      style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _loadAll,
+                icon: const Icon(Icons.refresh, color: _darkTeal, size: 20),
+                tooltip: 'Refresh Invitations',
+              ),
+            ],
           ),
-          Text(
-            'You have been invited to join the care team of these patients. Accept to activate live vitals monitoring.',
-            style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
-          if (_pendingInvites.isEmpty)
+          // Segmented Filter Pills
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip('all', 'All ($totalPending)'),
+                const SizedBox(width: 8),
+                _buildFilterChip('received', 'Received (${_pendingInvites.length})'),
+                const SizedBox(width: 8),
+                _buildFilterChip('sent', 'Sent by You (${_sentPendingInvites.length})'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          if (totalPending == 0)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
                 color: const Color(0xFFFFF9E6),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: _adminOrange.withValues(alpha: 0.4)),
               ),
               child: Column(
                 children: [
-                  const Icon(Icons.mail_outline, color: _adminOrange, size: 36),
-                  const SizedBox(height: 10),
+                  const Icon(Icons.mail_outline, color: _adminOrange, size: 40),
+                  const SizedBox(height: 12),
                   Text(
                     'No pending invitations at this time.',
-                    style: GoogleFonts.albertSans(color: Colors.grey[700], fontStyle: FontStyle.italic, fontSize: 13),
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.grey[800], fontSize: 14),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'When you invite caregivers or receive care team invites, they will appear here.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.albertSans(color: Colors.grey[600], fontSize: 12),
                   ),
                 ],
               ),
             )
-          else
-            ..._pendingInvites.map((invite) => _buildPendingInviteCard(invite)),
+          else ...[
+            // SECTION 1: INVITATIONS RECEIVED (TO JOIN OTHER TEAMS)
+            if (showReceived) ...[
+              Row(
+                children: [
+                  const Icon(Icons.inbox_outlined, size: 18, color: _teal),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Invitations Received (${_pendingInvites.length})',
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF2D3436)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Care teams that invited you to join. Accept to begin monitoring vitals.',
+                style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 10),
+
+              if (_pendingInvites.isEmpty)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Text(
+                    'No incoming invitations waiting for your response.',
+                    style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey[500], fontStyle: FontStyle.italic),
+                  ),
+                )
+              else ...[
+                ..._pendingInvites.map((invite) => _buildPendingInviteCard(invite)),
+                const SizedBox(height: 14),
+              ],
+            ],
+
+            // SECTION 2: INVITATIONS SENT (TO YOUR CAREGIVERS/STAFF)
+            if (showSent) ...[
+              Row(
+                children: [
+                  const Icon(Icons.send_outlined, size: 18, color: _adminOrange),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Invitations Sent to Caregivers (${_sentPendingInvites.length})',
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF2D3436)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Caregivers you enrolled or invited. Awaiting their acceptance before access is granted.',
+                style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 10),
+
+              if (_sentPendingInvites.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Text(
+                    'No pending invitations sent to caregivers.',
+                    style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey[500], fontStyle: FontStyle.italic),
+                  ),
+                )
+              else
+                ..._sentPendingInvites.map((invite) => _buildSentPendingInviteCard(invite)),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String key, String label) {
+    final isSelected = _pendingFilter == key;
+    return InkWell(
+      onTap: () => setState(() => _pendingFilter = key),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected ? _darkTeal : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? _darkTeal : Colors.grey.shade300),
+          boxShadow: isSelected
+              ? [BoxShadow(color: _darkTeal.withValues(alpha: 0.25), blurRadius: 4, offset: const Offset(0, 2))]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected ? Colors.white : Colors.grey[700],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSentPendingInviteCard(Map<String, dynamic> invite) {
+    final patientName = invite['patient_name'] ?? 'Patient';
+    final firstName = invite['invitee_first_name'] ?? '';
+    final lastName = invite['invitee_last_name'] ?? '';
+    final fullName = '$firstName $lastName'.trim();
+    final email = invite['invitee_email'] ?? '';
+    final inviteeDisplayName = fullName.isNotEmpty ? fullName : (email.isNotEmpty ? email : 'Invited Caregiver');
+    final relationship = invite['relationship'] ?? 'Assigned Caregiver';
+
+    final initial = inviteeDisplayName.isNotEmpty ? inviteeDisplayName[0].toUpperCase() : 'C';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: _adminOrange.withValues(alpha: 0.15),
+                child: Text(
+                  initial,
+                  style: const TextStyle(color: _adminOrange, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      inviteeDisplayName,
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF2D3436)),
+                    ),
+                    if (email.isNotEmpty && email != inviteeDisplayName)
+                      Text(
+                        email,
+                        style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    Text(
+                      'Patient: $patientName • $relationship',
+                      style: GoogleFonts.albertSans(fontSize: 12, color: _darkTeal, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF9E6),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: _adminOrange),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.access_time, size: 12, color: _adminOrange),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'PENDING',
+                      style: TextStyle(color: _adminOrange, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Waiting for caregiver to accept...',
+                style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey[500], fontStyle: FontStyle.italic),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _handleRevokeSentInvite(invite),
+                icon: const Icon(Icons.close, size: 14, color: _dangerRed),
+                label: const Text('Cancel Invite', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _dangerRed,
+                  side: const BorderSide(color: _dangerRed),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -168,6 +168,63 @@ router.get('/pending-invites', async (req, res) => {
 });
 
 // ==========================================
+// 2a.2 GET SENT INVITATIONS (Awaiting invitee response)
+// Returns all invitations sent by the requesting user that are still 'Pending'.
+// ==========================================
+router.get('/sent-invites', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT pa.access_id, pa.patient_id, p.name AS patient_name,
+                    pa.relationship, pa.access_level, pa.assigned_at AS invited_at,
+                    pa.user_id AS invitee_user_id,
+                    u.first_name AS invitee_first_name, u.last_name AS invitee_last_name,
+                    u.email AS invitee_email, u.role AS invitee_role
+             FROM patient_access pa
+             JOIN patients p ON p.patient_id = pa.patient_id
+             JOIN users u ON u.user_id = pa.user_id
+             WHERE pa.invited_by = $1
+               AND pa.invite_status = 'Pending'
+               AND p.is_archived IS DISTINCT FROM TRUE
+             ORDER BY pa.assigned_at DESC`,
+            [req.user.id]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Sent Invites Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch sent invitations.' });
+    }
+});
+
+// ==========================================
+// 2a.3 REVOKE SENT INVITATION
+// Allows the inviter to cancel a pending invitation.
+// ==========================================
+router.delete('/revoke-invite/:accessId', async (req, res) => {
+    try {
+        const { accessId } = req.params;
+        const parsedAccessId = parseInt(accessId, 10);
+        if (isNaN(parsedAccessId)) {
+            return res.status(400).json({ success: false, message: 'Invalid access ID' });
+        }
+
+        const check = await pool.query(
+            `SELECT access_id, patient_id, user_id FROM patient_access 
+             WHERE access_id = $1 AND (invited_by = $2 OR access_level != 'Edit') AND invite_status = 'Pending'`,
+            [parsedAccessId, req.user.id]
+        );
+        if (check.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Pending invitation not found or unauthorized.' });
+        }
+
+        await pool.query('DELETE FROM patient_access WHERE access_id = $1', [parsedAccessId]);
+        res.json({ success: true, message: 'Invitation revoked successfully.' });
+    } catch (err) {
+        console.error('Revoke Invite Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to revoke invitation.' });
+    }
+});
+
+// ==========================================
 // 2b. RESPOND TO INVITATION (Accept or Decline)
 // [DPA Principle] The caregiver gives explicit, informed consent
 // before their data is linked to a patient record.

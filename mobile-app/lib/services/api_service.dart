@@ -34,7 +34,7 @@ class ApiService {
             headers: _buildHeaders(requiresAuth: false),
             body: jsonEncode({'biometricToken': session.biometricToken}),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 75));
       return _parseResponse(response);
     } catch (_) {
       return {
@@ -54,7 +54,7 @@ class ApiService {
       return url.trim();
     }
     // Fallback to online default if .env is missing/empty
-    return 'https://alaga-backend.onrender.com/api'; 
+    return 'https://alaga-backend.onrender.com/api';
   }
 
   /// Public accessor for constructing full API URLs.
@@ -182,7 +182,7 @@ class ApiService {
     String endpoint, {
     Map<String, String>? queryParams,
     bool requiresAuth = true,
-    int timeoutSeconds = 45,
+    int timeoutSeconds = 75,
   }) async {
     try {
       final uri = _buildUri(endpoint, queryParams);
@@ -198,7 +198,7 @@ class ApiService {
       return {
         'success': false,
         'message': isTimeout
-            ? 'Server is waking up (Render cold-start). Please wait a moment and try again.'
+            ? 'The server did not respond after 75 seconds. It may be starting up or temporarily unavailable. Please try again.'
             : 'Network error: Cannot reach the server. Please check your internet connection.',
       };
     }
@@ -209,7 +209,7 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool requiresAuth = true,
-    int timeoutSeconds = 45,
+    int timeoutSeconds = 75,
   }) async {
     try {
       final uri = _buildUri(endpoint);
@@ -229,7 +229,7 @@ class ApiService {
       return {
         'success': false,
         'message': isTimeout
-            ? 'Server is waking up (Render cold-start). Please wait a moment and try again.'
+            ? 'The server did not respond after 75 seconds. It may be starting up or temporarily unavailable. Please try again.'
             : 'Network error: Cannot reach the server. Please check your internet connection.',
       };
     }
@@ -240,7 +240,7 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
     bool requiresAuth = true,
-    int timeoutSeconds = 45,
+    int timeoutSeconds = 75,
   }) async {
     try {
       final uri = _buildUri(endpoint);
@@ -260,7 +260,7 @@ class ApiService {
       return {
         'success': false,
         'message': isTimeout
-            ? 'Server is waking up (Render cold-start). Please wait a moment and try again.'
+            ? 'The server did not respond after 75 seconds. It may be starting up or temporarily unavailable. Please try again.'
             : 'Network error: Cannot reach the server. Please check your internet connection.',
       };
     }

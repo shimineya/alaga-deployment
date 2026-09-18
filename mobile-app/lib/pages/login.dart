@@ -33,6 +33,19 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   bool _isPasswordObscured = true;
 
+  void _showUnsupportedRoleMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'This account cannot sign in to the mobile app. Only parent and caregiver accounts are supported. Please use the web app for administrative accounts.',
+          style: GoogleFonts.albertSans(),
+        ),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +84,10 @@ class _LoginPageState extends State<LoginPage> {
     }
     if (result['success'] == true) {
       final session = UserSession.fromJson(result['user'], result['token']);
+      if (!session.canUseMobileApp) {
+        _showUnsupportedRoleMessage();
+        return;
+      }
       final renewBiometric =
           await SessionManager.isAccountBiometricEnabled(session.id);
       await SessionManager.saveSession(session);
@@ -121,9 +138,10 @@ class _LoginPageState extends State<LoginPage> {
     final identifier = _usernameCtrl.text.trim().toLowerCase();
     final candidates = savedSessions
         .where((session) =>
-            identifier.isEmpty ||
-            session.username.toLowerCase() == identifier ||
-            session.email.toLowerCase() == identifier)
+            session.canUseMobileApp &&
+            (identifier.isEmpty ||
+                session.username.toLowerCase() == identifier ||
+                session.email.toLowerCase() == identifier))
         .toList();
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -175,6 +193,10 @@ class _LoginPageState extends State<LoginPage> {
         validation['user'],
         validation['token'],
       ).copyWith(biometricToken: biometricSession.biometricToken);
+      if (!refreshedSession.canUseMobileApp) {
+        _showUnsupportedRoleMessage();
+        return;
+      }
       await SessionManager.saveSession(refreshedSession);
       if (mounted) {
         Navigator.pushReplacement(

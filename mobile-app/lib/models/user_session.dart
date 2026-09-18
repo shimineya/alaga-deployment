@@ -34,6 +34,13 @@ class UserSession {
   // in widget code — it prevents the 'admin' or 'parent' magic strings from scattering.
   bool get isParent => role == 'admin' || role == 'parent';
 
+  /// Only these account types are supported by the mobile application.
+  /// Administrative and facility accounts must use the web application.
+  bool get canUseMobileApp {
+    final normalizedRole = role.trim().toLowerCase();
+    return normalizedRole == 'parent' || normalizedRole == 'caregiver';
+  }
+
   // Global static referencing instance for Prototype session tracking constraints
   static UserSession? current;
 
@@ -141,6 +148,12 @@ class SessionManager {
           biometricToken: json['biometricToken'],
           profilePictureUrl: json['profilePictureUrl'],
         );
+        // Prevent a web-only account saved by an older app version from
+        // bypassing the role check when the application starts again.
+        if (!UserSession.current!.canUseMobileApp) {
+          await clearSession();
+          return null;
+        }
         await ScheduleReminderService.setAccount(UserSession.current!.id);
         return UserSession.current;
       } catch (e) {

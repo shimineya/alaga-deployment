@@ -439,18 +439,18 @@ const AlertsHub: React.FC = () => {
                         </Card>
                     ) : (
                         displayedClinicalAlerts.map(alert => (
-                            <Card key={alert.alert_id} className={`overflow-hidden transition-all duration-200 bg-white rounded-2xl ${alert.status === 'Acknowledged' ? 'opacity-75 border-slate-200' : 'border-red-100 shadow-sm'}`}>
+                            <Card key={alert.alert_id} className={`overflow-hidden transition-all duration-200 bg-white rounded-2xl border ${alert.status === 'Acknowledged' ? 'opacity-80 bg-slate-50/50 border-slate-200' : 'border-red-200 shadow-sm ring-1 ring-red-100 hover:shadow-md'}`}>
                                 <div className={`h-1.5 w-full ${alert.status === 'Acknowledged' ? 'bg-slate-300' : 'bg-red-500'}`}></div>
-                                <CardContent className="p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-                                    <div className="flex gap-4 items-start flex-1">
-                                        <div className={`p-3.5 rounded-2xl mt-0.5 ${alert.status === 'Acknowledged' ? 'bg-slate-100 text-slate-400' : 'bg-red-50 text-red-600'}`}>
+                                <CardContent className="p-4 sm:p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 sm:gap-6">
+                                    <div className="flex gap-3 sm:gap-4 items-start flex-1">
+                                        <div className={`p-3 rounded-2xl mt-0.5 shrink-0 ${alert.status === 'Acknowledged' ? 'bg-slate-100 text-slate-500' : 'bg-red-50 text-red-600 ring-1 ring-red-100'}`}>
                                             <Activity className="h-6 w-6" />
                                         </div>
-                                        <div className="space-y-1.5 flex-1">
+                                        <div className="space-y-1.5 flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
-                                                <h3 className="font-bold text-lg text-slate-800">{alert.patient_name}</h3>
+                                                <h3 className="font-bold text-base sm:text-lg text-slate-800">{alert.patient_name}</h3>
                                                 {alert.is_anonymized && (
-                                                    <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 text-[10px] font-mono">
+                                                    <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 text-[10px] font-mono">
                                                         De-identified Governance
                                                     </Badge>
                                                 )}
@@ -458,18 +458,18 @@ const AlertsHub: React.FC = () => {
                                                     {alert.severity}
                                                 </Badge>
                                                 {alert.status === 'Acknowledged' && (
-                                                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs flex items-center gap-1">
+                                                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs flex items-center gap-1 font-semibold">
                                                         <CheckCircle2 className="w-3 h-3" /> Acknowledged
                                                     </Badge>
                                                 )}
                                                 {(alert.flag_count || 0) >= 5 && (
-                                                    <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-200 text-xs flex items-center gap-1">
-                                                        <Sparkles className="w-3 h-3" /> AI Baseline Learned (Suppressed)
+                                                    <Badge variant="outline" className="bg-teal-50 text-teal-800 border-teal-200 text-xs flex items-center gap-1 font-semibold">
+                                                        <Sparkles className="w-3 h-3 text-teal-600" /> AI Baseline Learned
                                                     </Badge>
                                                 )}
                                             </div>
-                                            <p className="text-slate-700 font-medium">{alert.message}</p>
-                                            <p className="text-xs text-slate-400">
+                                            <p className="text-slate-800 font-semibold text-sm leading-relaxed">{alert.message}</p>
+                                            <p className="text-xs text-slate-600 font-medium">
                                                 Triggered: {new Date(alert.sent_at).toLocaleString()}
                                             </p>
 

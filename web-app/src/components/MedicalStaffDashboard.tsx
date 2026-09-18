@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth-context';
 import { Patient, Alert, VitalSign, DoctorsOrdersData } from '../types';
 import { mockPatients, mockAlerts, mockUsers, generateMockVitalSigns } from '../lib/mock-data';
 import { generateAlertsFromDoctorsOrders, checkVitalSignThresholds } from '../lib/alert-generator';
-import { DashboardSidebar } from './DashboardSidebar';
+import { DashboardSidebar, MobileBottomNav, MobileNavDrawer } from './DashboardSidebar';
 import { NotificationPanel } from './NotificationPanel';
 import { DoctorsOrders } from './DoctorsOrders';
 import { Bulletin } from './Bulletin';
@@ -23,6 +23,7 @@ import {
   Download,
   TrendingUp,
   Users,
+  Menu,
   Activity,
   AlertTriangle,
   UserPlus,
@@ -64,6 +65,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>(mockPatients);
   const [alerts, setAlerts] = useState<Alert[]>(mockAlerts);
   const [activeNavItem, setActiveNavItem] = useState('dashboard');
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [detailView, setDetailView] = useState<'list' | 'detail'>('list');
@@ -1966,18 +1968,30 @@ export const MedicalStaffDashboard: React.FC = () => {
         userRole="medical_staff"
       />
 
-      <div className="ml-60">
-        <header className="bg-white border-b sticky top-0 z-40" style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)' }}>
-          <div className="px-6 py-4">
+      <div className="ml-0 md:ml-64 flex-1 flex flex-col min-h-screen">
+        <header className="bg-white border-b sticky top-0 z-40 shadow-sm border-slate-200">
+          <div className="px-4 sm:px-6 py-3 sm:py-4">
             <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl" style={{ color: '#2C3E50' }}>Dashboard</h2>
-                <p className="text-sm" style={{ color: '#7F8C8D' }}>
-                  Medical Staff Dashboard
-                </p>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => setIsMobileDrawerOpen(true)}
+                  className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+                  aria-label="Open Navigation Menu"
+                >
+                  <Menu className="w-5 h-5 text-slate-700" />
+                </button>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                    <span className="md:hidden text-teal-700 italic font-black">ALAGA</span>
+                    <span className="hidden md:inline">Dashboard</span>
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-600">
+                    Medical Staff Dashboard
+                  </p>
+                </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <NotificationPanel
                   alerts={alerts}
                   onAcknowledge={handleAcknowledgeAlert}
@@ -1985,12 +1999,12 @@ export const MedicalStaffDashboard: React.FC = () => {
                   patientNames={patientNamesMap}
                 />
 
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted">
-                  <User className="w-4 h-4" />
-                  <span className="text-sm">{user?.name}</span>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-semibold text-xs sm:text-sm">
+                  <User className="w-4 h-4 text-teal-600" />
+                  <span>{user?.name}</span>
                 </div>
 
-                <Button variant="outline" size="sm" onClick={logout}>
+                <Button variant="outline" size="sm" onClick={logout} className="hidden sm:flex border-slate-200 hover:text-rose-600 hover:bg-rose-50 font-semibold">
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
                 </Button>
@@ -1999,9 +2013,30 @@ export const MedicalStaffDashboard: React.FC = () => {
           </div>
         </header>
 
-        <main className="p-6">
+        <main className="p-3 sm:p-6 flex-1 pb-24 md:pb-6">
           {renderContent()}
         </main>
+
+        <MobileBottomNav
+          activeItem={activeNavItem}
+          onItemClick={(item) => {
+            setActiveNavItem(item);
+            setDetailView('list');
+          }}
+          onOpenDrawer={() => setIsMobileDrawerOpen(true)}
+          alertsCount={alerts.filter(a => !a.acknowledged).length}
+        />
+
+        <MobileNavDrawer
+          isOpen={isMobileDrawerOpen}
+          onClose={() => setIsMobileDrawerOpen(false)}
+          activeItem={activeNavItem}
+          onItemClick={(item) => {
+            setActiveNavItem(item);
+            setDetailView('list');
+          }}
+          userRole="medical_staff"
+        />
       </div>
     </div>
   );

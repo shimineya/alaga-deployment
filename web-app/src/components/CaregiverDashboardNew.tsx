@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { Patient, Alert, VitalSign, DoctorsOrdersData } from '../types';
 import { generateAlertsFromDoctorsOrders, checkVitalSignThresholds } from '../lib/alert-generator';
-import { DashboardSidebar } from './DashboardSidebar';
+import { DashboardSidebar, MobileBottomNav, MobileNavDrawer } from './DashboardSidebar';
 import { NotificationPanel } from './NotificationPanel';
 import { PatientProfile } from './PatientProfile';
 import { AddNewPatient } from './AddNewPatient';
@@ -28,7 +28,7 @@ import { Input } from './ui/input';
 import {
     Users, Activity, Bell, Heart, Thermometer, Droplets, Wifi,
     AlertTriangle, Check, User, LogOut, Search, TrendingUp, AlertCircle, ChevronLeft, ChevronRight,
-    HelpCircle,
+    HelpCircle, Menu,
     Link2Off, Calendar as CalendarIcon, X, Plus, Repeat, Trash2, Edit
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -78,6 +78,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const [alerts, setAlerts] = useState<Alert[]>([]);
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
     const [activeNavItem, setActiveNavItem] = useState(initialTab);
+    const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
     // Safety threshold limits configured by caregiver in Settings
     const [safetyThresholds, setSafetyThresholds] = useState({
@@ -821,21 +822,21 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const renderDashboard = () => (
         <div className="space-y-4">
             {!isSysAdminUser && renderPendingInvitesBanner()}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                 {[
-                    { label: 'Critical', value: metrics.critical, color: 'text-red-600', icon: AlertCircle, bg: 'bg-red-50' },
-                    { label: 'Stable', value: metrics.stable, color: 'text-emerald-600', icon: Activity, bg: 'bg-emerald-50' },
-                    { label: 'Unassigned', value: metrics.unassigned, color: 'text-slate-600', icon: Link2Off, bg: 'bg-slate-100' },
-                    { label: 'Total', value: metrics.total, color: 'text-blue-600', icon: Users, bg: 'bg-blue-50' },
+                    { label: 'Critical', value: metrics.critical, color: 'text-red-700', icon: AlertCircle, bg: 'bg-red-100/80 ring-1 ring-red-200' },
+                    { label: 'Stable', value: metrics.stable, color: 'text-emerald-700', icon: Activity, bg: 'bg-emerald-100/80 ring-1 ring-emerald-200' },
+                    { label: 'Unassigned', value: metrics.unassigned, color: 'text-slate-700', icon: Link2Off, bg: 'bg-slate-100 ring-1 ring-slate-200' },
+                    { label: 'Total', value: metrics.total, color: 'text-teal-800', icon: Users, bg: 'bg-teal-100/80 ring-1 ring-teal-200' },
                 ].map((stat, i) => (
-                    <Card key={i} className="shadow-sm border-slate-100">
-                        <CardContent className="p-3 flex justify-between items-center">
+                    <Card key={i} className="shadow-sm border border-slate-200/90 hover:shadow-md transition-shadow bg-white rounded-xl">
+                        <CardContent className="p-3 sm:p-4 flex justify-between items-center">
                             <div>
-                                <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{stat.label}</p>
-                                <h3 className={`text-xl font-bold ${stat.color}`}>{stat.value}</h3>
+                                <p className="text-[10px] sm:text-[11px] font-bold text-slate-600 uppercase tracking-wider">{stat.label}</p>
+                                <h3 className={`text-xl sm:text-2xl font-black ${stat.color}`}>{stat.value}</h3>
                             </div>
-                            <div className={`p-2 rounded-full ${stat.bg}`}>
-                                <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                            <div className={`p-2 sm:p-2.5 rounded-xl ${stat.bg} shadow-sm`}>
+                                <stat.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${stat.color}`} />
                             </div>
                         </CardContent>
                     </Card>
@@ -843,18 +844,18 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             </div>
 
             {!isSysAdminUser && (
-                <Card className="shadow-sm border-slate-100 bg-gradient-to-r from-teal-50/50 to-white">
-                    <CardContent className="p-4 flex items-center justify-between">
+                <Card className="shadow-sm border border-slate-200/90 bg-gradient-to-r from-teal-50/70 via-teal-50/30 to-white rounded-xl">
+                    <CardContent className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-xl bg-teal-100 text-teal-700">
+                            <div className="p-2.5 rounded-xl bg-teal-600 text-white shadow-sm shrink-0">
                                 <CalendarIcon className="w-5 h-5" />
                             </div>
                             <div>
                                 <h4 className="text-sm font-bold text-slate-800">Care Calendar & Reminders</h4>
-                                <p className="text-xs text-slate-500">Manage daily schedules, medication intake, and care tasks.</p>
+                                <p className="text-xs text-slate-600">Manage daily schedules, medication intake, and care tasks.</p>
                             </div>
                         </div>
-                        <Button onClick={() => setIsCalendarModalOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-sm">
+                        <Button onClick={() => setIsCalendarModalOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-sm h-9 w-full sm:w-auto">
                             Open Calendar
                         </Button>
                     </CardContent>
@@ -1226,31 +1227,62 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
                 <div className="flex-1 flex flex-col h-full overflow-hidden relative">
                     {!hideNavigation && (
-                        <header className="bg-white border-b border-slate-200 flex-shrink-0 px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between">
-                            <div>
-                                <h2 className="text-lg font-bold text-teal-900 tracking-tight">Dashboard</h2>
-                                <p className="text-[10px] text-slate-500 font-medium">Welcome back, {(user as any)?.name || 'Caregiver'}</p>
+                        <header className="bg-white border-b border-slate-200/90 flex-shrink-0 px-4 sm:px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <button
+                                    onClick={() => setIsMobileDrawerOpen(true)}
+                                    className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
+                                    aria-label="Open Navigation Menu"
+                                >
+                                    <Menu className="w-5 h-5 text-slate-700" />
+                                </button>
+                                <div>
+                                    <h2 className="text-base sm:text-lg font-black text-teal-900 tracking-tight flex items-center gap-2">
+                                        <span className="md:hidden text-teal-700 italic font-black">ALAGA</span>
+                                        <span className="hidden md:inline">Dashboard</span>
+                                    </h2>
+                                    <p className="text-[10px] sm:text-[11px] text-slate-600 font-medium">Welcome back, {(user as any)?.name || 'Caregiver'}</p>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 sm:gap-3">
                                 <NotificationPanel alerts={alerts} onAcknowledge={handleAcknowledgeAlert} onMarkAllRead={handleMarkAllRead} patientNames={patientNamesMap} />
-                                <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-xs">
+                                <div className="h-8 w-8 rounded-full bg-teal-100/90 border border-teal-200 flex items-center justify-center text-teal-800 font-bold text-xs shadow-sm">
                                     {(user as any)?.name?.[0] || 'C'}
                                 </div>
-                                <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8 text-slate-400 hover:text-red-500">
+                                <Button variant="ghost" size="icon" onClick={logout} className="hidden md:flex h-8 w-8 text-slate-500 hover:text-rose-600 hover:bg-rose-50">
                                     <LogOut className="w-4 h-4" />
                                 </Button>
                             </div>
                         </header>
                     )}
 
-
-
-
-                    <main className={`flex-1 overflow-y-auto p-4 scroll-smooth ${hideNavigation ? 'h-full' : ''}`}>
-                        <div className="w-full min-h-full pb-20">
+                    <main className={`flex-1 overflow-y-auto p-3 sm:p-5 scroll-smooth ${hideNavigation ? 'h-full' : ''}`}>
+                        <div className="w-full min-h-full pb-24 md:pb-6">
                             {renderContent()}
                         </div>
                     </main>
+
+                    {/* Mobile Bottom Navigation Bar (< 768px) */}
+                    {!hideNavigation && (
+                        <MobileBottomNav
+                            activeItem={activeNavItem}
+                            onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
+                            onOpenDrawer={() => setIsMobileDrawerOpen(true)}
+                            onOpenCalendar={() => setIsCalendarModalOpen(true)}
+                            alertsCount={alerts.filter(a => !a.acknowledged).length}
+                        />
+                    )}
+
+                    {/* Mobile Slide-Over Drawer (< 768px) */}
+                    {!hideNavigation && (
+                        <MobileNavDrawer
+                            isOpen={isMobileDrawerOpen}
+                            onClose={() => setIsMobileDrawerOpen(false)}
+                            activeItem={activeNavItem}
+                            onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
+                            userRole="caregiver"
+                        />
+                    )}
                 </div>
             </div>
 

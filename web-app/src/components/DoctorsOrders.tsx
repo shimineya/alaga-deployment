@@ -59,7 +59,7 @@ export interface CalendarEvent {
   title: string;
   description?: string;
   dateTime: Date;
-  recurring?: 'daily' | 'weekly' | 'every2hours' | 'every4hours';
+  recurring?: 'daily' | 'weekly' | 'monthly' | '6months' | 'annually' | 'every2hours' | 'every4hours';
   color: string;
 }
 
@@ -828,6 +828,9 @@ export const DoctorsOrders: React.FC<DoctorsOrdersProps> = ({
                     <option value="">One-time only</option>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="6months">Every 6 Months</option>
+                    <option value="annually">Annually</option>
                     <option value="every2hours">Every 2 Hours</option>
                     <option value="every4hours">Every 4 Hours</option>
                   </select>

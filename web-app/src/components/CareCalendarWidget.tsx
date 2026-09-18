@@ -509,6 +509,8 @@ export const CareCalendarWidget: React.FC = () => {
                                         <option value="Daily">Daily</option>
                                         <option value="Weekly">Weekly</option>
                                         <option value="Monthly">Monthly</option>
+                                        <option value="Every 6 Months">Every 6 Months</option>
+                                        <option value="Annually">Annually</option>
                                     </select>
                                 </div>
                             )}
@@ -626,6 +628,9 @@ export const CareCalendarWidget: React.FC = () => {
                                         <option value="Hourly (Every 2 Hours)">Hourly (Every 2 Hours)</option>
                                         <option value="Daily">Daily</option>
                                         <option value="Weekly">Weekly</option>
+                                        <option value="Monthly">Monthly</option>
+                                        <option value="Every 6 Months">Every 6 Months</option>
+                                        <option value="Annually">Annually</option>
                                     </select>
                                 </div>
                             )}

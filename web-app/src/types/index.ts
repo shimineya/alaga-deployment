@@ -82,7 +82,7 @@ export interface DoctorsOrdersData {
     title: string;
     description?: string;
     dateTime: Date;
-    recurring?: 'daily' | 'weekly' | 'every2hours' | 'every4hours';
+    recurring?: 'daily' | 'weekly' | 'monthly' | '6months' | 'annually' | 'every2hours' | 'every4hours';
     color: string;
   }>;
 }

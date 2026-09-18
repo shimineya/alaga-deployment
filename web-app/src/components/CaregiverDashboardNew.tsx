@@ -721,6 +721,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             return diffDays >= 0 && diffDays % 7 === 0;
         } else if (item.recurrence_interval === 'Monthly') {
             return targetDate.getDate() === baseDate.getDate() && targetDate >= baseDate;
+        } else if (item.recurrence_interval === 'Every 6 Months' || item.recurrence_interval === '6 Months' || item.recurrence_interval === '6months') {
+            const monthsDiff = (targetDate.getFullYear() - baseDate.getFullYear()) * 12 + (targetDate.getMonth() - baseDate.getMonth());
+            return monthsDiff >= 0 && monthsDiff % 6 === 0 && targetDate.getDate() === baseDate.getDate();
+        } else if (item.recurrence_interval === 'Annually' || item.recurrence_interval === 'Yearly' || item.recurrence_interval === 'annually') {
+            return targetDate >= baseDate && targetDate.getMonth() === baseDate.getMonth() && targetDate.getDate() === baseDate.getDate();
         }
         return false;
     };
@@ -1508,6 +1513,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                         <option value="Daily">Daily</option>
                                         <option value="Weekly">Weekly</option>
                                         <option value="Monthly">Monthly</option>
+                                        <option value="Every 6 Months">Every 6 Months</option>
+                                        <option value="Annually">Annually</option>
                                     </select>
                                 </div>
                             )}
@@ -1648,6 +1655,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                             <option value="Daily">Daily</option>
                                             <option value="Weekly">Weekly</option>
                                             <option value="Monthly">Monthly</option>
+                                            <option value="Every 6 Months">Every 6 Months</option>
+                                            <option value="Annually">Annually</option>
                                         </select>
                                     </div>
                                 )}

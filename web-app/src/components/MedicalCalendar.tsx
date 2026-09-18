@@ -12,7 +12,7 @@ interface CalendarEvent {
   title: string;
   description?: string;
   dateTime: Date;
-  recurring?: 'daily' | 'weekly' | 'every2hours' | 'every4hours';
+  recurring?: 'daily' | 'weekly' | 'monthly' | '6months' | 'annually' | 'every2hours' | 'every4hours';
   color: string;
 }
 
@@ -48,7 +48,7 @@ export const MedicalCalendar: React.FC<MedicalCalendarProps> = ({ events, onAddE
     description: '',
     dateTime: '',
     time: '',
-    recurring: '' as '' | 'daily' | 'weekly' | 'every2hours' | 'every4hours'
+    recurring: '' as '' | 'daily' | 'weekly' | 'monthly' | '6months' | 'annually' | 'every2hours' | 'every4hours'
   });
 
   const handleAddEvent = () => {
@@ -177,6 +177,9 @@ export const MedicalCalendar: React.FC<MedicalCalendarProps> = ({ events, onAddE
                     <SelectItem value="">One-time</SelectItem>
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="6months">Every 6 Months</SelectItem>
+                    <SelectItem value="annually">Annually</SelectItem>
                     <SelectItem value="every2hours">Every 2 Hours</SelectItem>
                     <SelectItem value="every4hours">Every 4 Hours</SelectItem>
                   </SelectContent>

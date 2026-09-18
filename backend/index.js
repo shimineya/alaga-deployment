@@ -29,6 +29,7 @@ const transporter = nodemailer.createTransport({
 
 const { Resend } = require('resend');
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const { runPrediction } = require('./services/alagarAIService');
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -1144,11 +1145,76 @@ app.post('/api/device/data', async (req, res) => {
         }
 
         // 2. Insert the readings into the database
-        await pool.query(
+        const insertRes = await pool.query(
             `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
-             VALUES ($1, $2, $3, $4, $5, NOW())`,
+             VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING reading_id`,
             [patientId, heart_rate || 0, temperature || 0, spo2 || 0, moisture || 0]
         );
+        const readingId = insertRes.rows[0]?.reading_id;
+
+        // 2b. Run AI Anomaly Evaluation & Clinical Notification Generation
+        try {
+            const patientRow = await pool.query(
+                'SELECT patient_type, is_monitoring_disabled FROM patients WHERE patient_id = $1',
+                [patientId]
+            );
+            const isMonitoringDisabled = !!patientRow.rows[0]?.is_monitoring_disabled;
+            if (!isMonitoringDisabled) {
+                const patientType = patientRow.rows[0]?.patient_type || 'adult';
+                const baselinesRes = await pool.query(
+                    'SELECT vital_name, flag_count, flagged_values, mean_value, upper_bound, lower_bound FROM patient_baselines WHERE patient_id = $1',
+                    [patientId]
+                ).catch(() => ({ rows: [] }));
+                const patientBaselines = baselinesRes.rows || [];
+
+                const hr = parseFloat(heart_rate) || 0;
+                const temp = parseFloat(temperature) || 0;
+                const sp = parseFloat(spo2) || 0;
+                const moist = parseInt(moisture, 10) || 0;
+
+                // Run AI prediction when there are valid physiological vitals or moisture
+                if (hr > 30 || temp > 25 || sp > 50 || moist > 0) {
+                    const aiResult = await runPrediction({
+                        patient_id  : patientId,
+                        heart_rate  : hr,
+                        temperature : temp,
+                        spo2        : sp,
+                        moisture    : moist >= 35 ? 1 : 0, // 35%+ is moderate/heavy wetness
+                        patient_type: patientType,
+                        baselines   : patientBaselines
+                    });
+
+                    // If AI flags an anomaly, write to anomaly_events and alert_notifications
+                    if (aiResult && aiResult.alerts && aiResult.alerts.length > 0) {
+                        for (const alert of aiResult.alerts) {
+                            const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
+                            const anomalyType = alert.vital === 'multi_feature' ? 'ocsvm_anomaly' : `rule_${alert.vital}`;
+
+                            const eventResult = await pool.query(
+                                `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
+                                 VALUES ($1, $2, $3, $4) RETURNING event_id`,
+                                [patientId, readingId, anomalyType, ocsvmScore]
+                            );
+                            const eventId = eventResult.rows[0]?.event_id;
+
+                            if (eventId) {
+                                await pool.query(
+                                    `INSERT INTO alert_notifications (event_id, status, message, severity, alert_category)
+                                     VALUES ($1, 'Sent', $2, $3, 'Clinical')`,
+                                    [
+                                        eventId,
+                                        alert.message,
+                                        alert.severity === 'critical' ? 'Critical' : 'Warning'
+                                    ]
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (aiErr) {
+            console.error('[DEVICE_DATA] AI evaluation error:', aiErr.message);
+        }
 
         // 3. Update device heartbeat, battery level, signal strength, and IP address
         const batteryVal = req.body.battery !== undefined && req.body.battery !== null ? parseInt(req.body.battery, 10) : null;

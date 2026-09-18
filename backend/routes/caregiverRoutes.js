@@ -828,7 +828,18 @@ router.post('/patients', async (req, res) => {
         await client.query('BEGIN');
 
         let resolvedCaregiverId = null;
-        if (assignedCaregiverEmail) {
+        if (req.body.assignedCaregiverId) {
+            const parsedId = parseInt(req.body.assignedCaregiverId, 10);
+            if (!isNaN(parsedId)) {
+                const idCheck = await client.query(
+                    `SELECT user_id FROM users WHERE user_id = $1 AND role IN ('caregiver', 'medical_staff')`,
+                    [parsedId]
+                );
+                if (idCheck.rows.length > 0) {
+                    resolvedCaregiverId = idCheck.rows[0].user_id;
+                }
+            }
+        } else if (assignedCaregiverEmail) {
             const caregiverRes = await client.query(
                 `SELECT user_id FROM users WHERE LOWER(email) = LOWER($1) AND role IN ('caregiver', 'medical_staff')`,
                 [assignedCaregiverEmail.trim()]

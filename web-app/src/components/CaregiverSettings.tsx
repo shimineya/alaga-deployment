@@ -16,6 +16,7 @@ import {
   Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { playAlertToneSample } from '../lib/alert-sound';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -234,7 +235,11 @@ export const CaregiverSettings: React.FC = () => {
 
             <RadioGroup
               value={alertTone}
-              onValueChange={(v) => setAlertTone(v as 'gentle' | 'high')}
+              onValueChange={(v) => {
+                const newTone = v as 'gentle' | 'high';
+                setAlertTone(newTone);
+                playAlertToneSample(newTone);
+              }}
               className="grid grid-cols-1 sm:grid-cols-2 gap-3"
             >
               {/* Option 1: Gentle Chime */}
@@ -273,6 +278,18 @@ export const CaregiverSettings: React.FC = () => {
                   <p className="text-[11px] text-slate-500 mt-1 leading-snug">
                     {t('Soft, pleasant chime suitable for calm home environments.', 'Malumanay at mahinahong tunog na angkop sa tahimik na bahay.')}
                   </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      playAlertToneSample('gentle');
+                    }}
+                    className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-white text-teal-800 border border-teal-200 shadow-2xs hover:bg-teal-100/60 transition-all cursor-pointer"
+                  >
+                    <Volume2 className="w-3 h-3 text-teal-600" />
+                    {t('Play Preview', 'Pakinggan ang Tunog')}
+                  </button>
                 </div>
               </label>
 
@@ -312,6 +329,18 @@ export const CaregiverSettings: React.FC = () => {
                   <p className="text-[11px] text-slate-500 mt-1 leading-snug">
                     {t('Louder, prominent alarm for busy facilities or noisy settings.', 'Mas malakas at kapansin-pansing tunog para sa maingay o abalang lugar.')}
                   </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      playAlertToneSample('high');
+                    }}
+                    className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-white text-amber-800 border border-amber-200 shadow-2xs hover:bg-amber-100/60 transition-all cursor-pointer"
+                  >
+                    <BellRing className="w-3 h-3 text-amber-600" />
+                    {t('Play Preview', 'Pakinggan ang Alarm')}
+                  </button>
                 </div>
               </label>
             </RadioGroup>
@@ -336,7 +365,17 @@ export const CaregiverSettings: React.FC = () => {
                 </p>
               </div>
             </div>
-            <Switch id="vibration-toggle" checked={vibrationEnabled} onCheckedChange={setVibrationEnabled} className="data-[state=checked]:bg-teal-600" />
+            <Switch
+              id="vibration-toggle"
+              checked={vibrationEnabled}
+              onCheckedChange={(checked) => {
+                setVibrationEnabled(checked);
+                if (checked && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                  navigator.vibrate([150]);
+                }
+              }}
+              className="data-[state=checked]:bg-teal-600"
+            />
           </div>
         </CardContent>
       </Card>

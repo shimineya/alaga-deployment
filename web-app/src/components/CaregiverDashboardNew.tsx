@@ -20,6 +20,7 @@ import { ExportableHealthReport } from './caregiver-reports/ExportableHealthRepo
 import { CaregiverSettings } from './CaregiverSettings';
 import { CaregiverProfile } from './CaregiverProfile';
 import { CaregiverLanguageProvider } from '../lib/caregiver-language-context';
+import { playAlertTone } from '../lib/alert-sound';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -314,21 +315,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const startAlarmSound = () => {
         if (audioIntervalRef.current) return;
         const playBeep = () => {
-            if (!audioContext) return;
-            try {
-                const osc = audioContext.createOscillator();
-                const gainNode = audioContext.createGain();
-                osc.connect(gainNode);
-                gainNode.connect(audioContext.destination);
-                osc.frequency.setValueAtTime(880, audioContext.currentTime);
-                osc.type = 'sine';
-                gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.8);
-                osc.start();
-                osc.stop(audioContext.currentTime + 0.8);
-            } catch (err) {
-                console.log("Audio play error", err);
-            }
+            playAlertTone('critical');
         };
         playBeep();
         audioIntervalRef.current = setInterval(playBeep, 1500);

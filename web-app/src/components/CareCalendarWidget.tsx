@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { Calendar as CalendarIcon, Clock, Bell, Plus, X, Edit, Trash2, Repeat } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { toast } from 'sonner';
+import { playAlertTone } from '../lib/alert-sound';
 
 interface ScheduleItem {
     schedule_id: number;
@@ -123,24 +124,7 @@ export const CareCalendarWidget: React.FC = () => {
         if (audioIntervalRef.current) return;
         
         const playBeep = () => {
-            if (!audioContext) return;
-            try {
-                const osc = audioContext.createOscillator();
-                const gainNode = audioContext.createGain();
-                osc.connect(gainNode);
-                gainNode.connect(audioContext.destination);
-
-                osc.frequency.setValueAtTime(880, audioContext.currentTime);
-                osc.type = 'sine';
-
-                gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.8);
-
-                osc.start();
-                osc.stop(audioContext.currentTime + 0.8);
-            } catch (err) {
-                console.log("Audio play error", err);
-            }
+            playAlertTone('warning');
         };
 
         playBeep();

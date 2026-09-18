@@ -8,6 +8,7 @@ import { useAuth } from '../../lib/auth-context';
 import { AcknowledgeModal } from '../ui/AcknowledgeModal';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
+import { playAlertTone } from '../../lib/alert-sound';
 
 interface ClinicalAlert {
     alert_id: number;
@@ -144,64 +145,7 @@ const AlertsHub: React.FC = () => {
 
     const playEmergencySound = (level: 'critical' | 'warning') => {
         if (isMuted) return;
-        try {
-            let ctx = audioContext;
-            if (!ctx) {
-                ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                setAudioContext(ctx);
-            }
-            if (ctx.state === 'suspended') {
-                ctx.resume().catch(() => {});
-            }
-
-            const now = ctx.currentTime;
-
-            if (level === 'critical') {
-                // Urgent clinical alarm pulse: 3 rapid high-frequency bursts (880Hz, 880Hz, 1046.5Hz)
-                const freqs = [880, 880, 1046.5];
-                freqs.forEach((freq, idx) => {
-                    const start = now + idx * 0.15;
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(freq, start);
-                    
-                    gain.gain.setValueAtTime(0, start);
-                    gain.gain.linearRampToValueAtTime(0.7, start + 0.02);
-                    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.13);
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    
-                    osc.start(start);
-                    osc.stop(start + 0.14);
-                });
-            } else if (level === 'warning') {
-                // Cautionary chime: dual harmonic tone (587.33Hz, 783.99Hz)
-                const freqs = [587.33, 783.99];
-                freqs.forEach((freq, idx) => {
-                    const start = now + idx * 0.20;
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(freq, start);
-                    
-                    gain.gain.setValueAtTime(0, start);
-                    gain.gain.linearRampToValueAtTime(0.45, start + 0.03);
-                    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.32);
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    
-                    osc.start(start);
-                    osc.stop(start + 0.35);
-                });
-            }
-        } catch (err) {
-            console.warn("Audio alert error:", err);
-        }
+        playAlertTone(level);
     };
 
     useEffect(() => {

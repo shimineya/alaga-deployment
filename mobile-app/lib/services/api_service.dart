@@ -43,8 +43,8 @@ class ApiService {
     if (url != null && url.trim().isNotEmpty) {
       return url.trim();
     }
-    // Fallback to local default if .env is missing/empty
-    return 'http://192.168.254.113:3000'; 
+    // Fallback to online default if .env is missing/empty
+    return 'https://alaga-backend.onrender.com/api'; 
   }
 
   /// Public accessor for constructing full API URLs.

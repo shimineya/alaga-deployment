@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Patient, VitalSign, Alert } from '@/types';
 import { ClinicalReportsShell } from '../caregiver-reports/ClinicalReportsShell';
-import { Loader2, Lock, ActivitySquare, RefreshCw } from 'lucide-react';
+import { HealthReportsCenter } from '../caregiver-reports/HealthReportsCenter';
+import { Loader2, Lock, ActivitySquare, RefreshCw, FileText, BarChart3, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { generateAlertsFromDoctorsOrders } from '@/lib/alert-generator';
@@ -14,8 +15,18 @@ export default function ClinicalReportsHub() {
     const isSysAdminUser = role === 'system_admin' || role === 'sysadmin';
     const isFacilityAdmin = role === 'facility_admin';
     const isMedStaff = role === 'medical_staff' || role === 'medstaff';
+    const isCaregiver = role === 'caregiver';
+    const isParentOrGuardian = role === 'parent' || role === 'guardian';
 
-    const isAllowed = isSysAdminUser || isFacilityAdmin || isMedStaff || role === 'admin' || role === 'caregiver' || role === 'parent';
+    const isAllowed = isSysAdminUser || isFacilityAdmin || isMedStaff || role === 'admin' || isCaregiver || isParentOrGuardian;
+
+    // Default to the mobile-aligned Health Reports Center for caregivers, parents, and guardians
+    const [activeTab, setActiveTab] = useState<'reports-center' | 'clinical-analytics'>(() => {
+        if (isCaregiver || isParentOrGuardian) {
+            return 'reports-center';
+        }
+        return 'reports-center';
+    });
 
     const [patients, setPatients] = useState<Patient[]>([]);
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
@@ -109,16 +120,16 @@ export default function ClinicalReportsHub() {
                 </div>
                 <h2 className="text-xl font-bold text-slate-800 tracking-tight">Access Restricted (PHI)</h2>
                 <p className="text-sm text-slate-500 max-w-md mt-2">
-                    Clinical Reports containing Protected Health Information (PHI) are strictly restricted to <strong>Facility Administrators</strong>, <strong>Medical Staff</strong>, and <strong>System Administrators</strong>.
+                    Clinical Reports containing Protected Health Information (PHI) are strictly restricted to <strong>Facility Administrators</strong>, <strong>Medical Staff</strong>, <strong>Caregivers</strong>, and <strong>Parents/Guardians</strong>.
                 </p>
             </div>
         );
     }
 
     return (
-        <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
+        <div className="w-full h-full animate-in fade-in duration-300 flex flex-col space-y-4">
             {/* Hub Header */}
-            <div className="mb-4 flex-shrink-0 flex items-center justify-between">
+            <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
                         <ActivitySquare className="w-6 h-6 text-teal-600" />
@@ -128,19 +139,60 @@ export default function ClinicalReportsHub() {
                                 Anonymized Governance Mode
                             </span>
                         )}
+                        {(isCaregiver || isParentOrGuardian) && (
+                            <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                                {isParentOrGuardian ? 'Parent & Guardian View' : 'Caregiver View'}
+                            </span>
+                        )}
                     </h1>
                     <p className="text-xs text-slate-500 mt-1">
-                        Comprehensive patient clinical monitoring: Daily health summaries, ML anomaly logs, moisture & hygiene trends, weekly vital analytics, and PDF physician exports.
+                        Comprehensive health analytics, mobile-aligned telemetry reports, multi-format export center (PDF, CSV, TXT, HTML), and ML vital anomaly tracking.
                     </p>
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={fetchPatients}
-                    className="border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold h-9"
-                >
-                    <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Records
-                </Button>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                    {/* View Switcher Tabs */}
+                    <div className="inline-flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 shadow-inner">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('reports-center')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                                activeTab === 'reports-center'
+                                    ? 'bg-white text-teal-700 shadow-sm'
+                                    : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="Quick mobile-aligned report generator and archives"
+                        >
+                            <FileText className="w-3.5 h-3.5" />
+                            Health Reports Center
+                            <span className="hidden md:inline-flex text-[9px] px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 font-medium">
+                                Mobile-Aligned
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('clinical-analytics')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                                activeTab === 'clinical-analytics'
+                                    ? 'bg-white text-teal-700 shadow-sm'
+                                    : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="Detailed clinical charts, anomaly logs, and weekly trends"
+                        >
+                            <BarChart3 className="w-3.5 h-3.5" />
+                            Clinical Analytics & Trends
+                        </button>
+                    </div>
+
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchPatients}
+                        className="border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold h-9"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+                    </Button>
+                </div>
             </div>
 
             {/* Content Body */}
@@ -156,18 +208,28 @@ export default function ClinicalReportsHub() {
                     <ActivitySquare className="w-12 h-12 text-slate-300 mb-3" />
                     <h3 className="text-base font-bold text-slate-800">No Patient Records Available</h3>
                     <p className="text-xs text-slate-500 max-w-sm mt-1">
-                        There are currently no active patients enrolled in your facility or department. Once patients are enrolled, their clinical monitoring summaries will appear here.
+                        There are currently no active patients enrolled in your roster. Once patients are enrolled or assigned, their clinical monitoring summaries will appear here.
                     </p>
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden">
-                    <ClinicalReportsShell
-                        patients={patients}
-                        vitalSigns={vitalSigns}
-                        alerts={alerts}
-                    />
+                    {activeTab === 'reports-center' ? (
+                        <HealthReportsCenter
+                            patients={patients}
+                            vitalSigns={vitalSigns}
+                            alerts={alerts}
+                            onRefreshPatients={fetchPatients}
+                        />
+                    ) : (
+                        <ClinicalReportsShell
+                            patients={patients}
+                            vitalSigns={vitalSigns}
+                            alerts={alerts}
+                        />
+                    )}
                 </div>
             )}
         </div>
     );
 }
+

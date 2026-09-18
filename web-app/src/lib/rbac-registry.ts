@@ -97,7 +97,7 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
     // [OWASP A01] 'parent' is the consumer-facing home-monitoring role.
     // Backend caregiverRoutes.js explicitly permits parent for device registration,
     // patient enrollment, and patient/device removal alongside 'admin'.
-    const isParent        = r === 'parent';
+    const isParent        = r === 'parent' || r === 'guardian';
     const isMedStaff      = r === 'medical_staff' || r === 'medstaff';
     const isClinical      = r === 'caregiver' || isMedStaff || isParent;
     const isFacilityAdmin = r === 'facility_admin';
@@ -156,8 +156,8 @@ export function computeRoleDefaults(role: string): Record<string, boolean> {
         'alert-config':            isFacilityAdmin && !isAdminTier,
 
         // --- Reports Hubs ---
-        // Clinical Reports (PHI): accessible strictly to Facility Admin, Medical Staff, and System Admin
-        'clinical-reports':        isFacilityAdmin || isMedStaff || isAdminTier,
+        // Clinical Reports (PHI): accessible to Facility Admin, Medical Staff, System Admin, Caregivers, and Parents
+        'clinical-reports':        isFacilityAdmin || isClinical || isAdminTier,
         'reports':                 isAdminTier,
 
         // --- Settings Hub ---

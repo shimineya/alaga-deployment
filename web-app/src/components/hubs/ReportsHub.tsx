@@ -1,7 +1,8 @@
 import React from 'react';
 import { useAuth } from '@/lib/auth-context';
 import SystemAdminReportsHub from '../sysadmin/SystemAdminReportsHub';
-import { Lock, FileSpreadsheet } from 'lucide-react';
+import { Lock } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 
 export default function ReportsHub() {
     const { user, isSysAdmin } = useAuth();
@@ -9,6 +10,9 @@ export default function ReportsHub() {
     const isSysAdminUser = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(role);
 
     if (!isSysAdminUser) {
+        if (['caregiver', 'parent', 'guardian', 'medical_staff', 'medstaff', 'facility_admin'].includes(role)) {
+            return <Navigate to="/clinical-reports" replace />;
+        }
         return (
             <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-white rounded-xl border border-slate-200">
                 <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-4">

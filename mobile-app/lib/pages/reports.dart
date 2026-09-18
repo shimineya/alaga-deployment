@@ -72,9 +72,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final List<dynamic> decoded = jsonDecode(jsonStr);
         if (mounted) {
           setState(() {
-            _recentReports = decoded
-                .map((r) => Map<String, dynamic>.from(r as Map))
-                .toList();
+            _recentReports = decoded.map((r) {
+              final map = Map<String, dynamic>.from(r as Map);
+              // Invalidate any legacy pre-fix PDF bytes that might contain crossed-box tofu glyphs
+              if (map['pdfVersion'] != 2) {
+                map['pdfBytesBase64'] = null;
+                map['pdfBytes'] = null;
+              }
+              return map;
+            }).toList();
           });
         }
       }
@@ -409,6 +415,7 @@ $assessmentNotes
         'summary': assessmentNotes,
         'pdfBytes': pdfBytes,
         'pdfBytesBase64': base64Encode(pdfBytes),
+        'pdfVersion': 2,
         'plainTextContent': plainText,
         'csvContent': csvText,
         'htmlContent': htmlText,
@@ -446,22 +453,39 @@ $assessmentNotes
   }
 
   // ---------------------------------------------------------------------------
-  // CLINICAL PDF GENERATOR
+  // CLINICAL PDF GENERATOR & SANITIZER
   // ---------------------------------------------------------------------------
   static String _cleanPdfText(String text) {
+    if (text.isEmpty) return text;
     return text
         .replaceAll('•', '-')
+        .replaceAll('●', '-')
+        .replaceAll('▪', '-')
+        .replaceAll('■', '-')
+        .replaceAll('□', '[ ]')
+        .replaceAll('☒', '[X]')
+        .replaceAll('☑', '[X]')
+        .replaceAll('✓', '[v]')
+        .replaceAll('✔', '[v]')
+        .replaceAll('✕', '[x]')
+        .replaceAll('✖', '[x]')
         .replaceAll('≥', '>=')
         .replaceAll('≤', '<=')
+        .replaceAll('≠', '!=')
+        .replaceAll('±', '+/-')
+        .replaceAll('×', 'x')
+        .replaceAll('÷', '/')
         .replaceAll('°C', ' C')
         .replaceAll('°', ' ')
         .replaceAll('–', '-')
         .replaceAll('—', '-')
+        .replaceAll('…', '...')
         .replaceAll('’', "'")
         .replaceAll('‘', "'")
         .replaceAll('”', '"')
         .replaceAll('“', '"')
-        .replaceAll(RegExp(r'[^\x20-\x7E\n\r\t]'), ' ')
+        .replaceAll(RegExp(r'[^\x20-\x7E\n\r\t]'), '')
+        .replaceAll(RegExp(r'[ ]{2,}'), ' ')
         .trim();
   }
 
@@ -504,6 +528,9 @@ $assessmentNotes
     final safeDiaperStatus = _cleanPdfText(diaperStatus);
     final safeAssessment = _cleanPdfText(assessmentNotes);
     final safeBaseFileName = _cleanPdfText(baseFileName);
+    final safeAvgTemp = _cleanPdfText(avgTemp);
+    final safeDispMinTemp = _cleanPdfText(dispMinTemp);
+    final safeDispMaxTemp = _cleanPdfText(dispMaxTemp);
 
     final primaryTeal = PdfColor.fromInt(0xFF2F7D7B);
     final lightBg = PdfColor.fromInt(0xFFF8FAFC);
@@ -706,9 +733,9 @@ $assessmentNotes
                     children: [
                       pw.Text('BODY TEMPERATURE', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFFD97706))),
                       pw.SizedBox(height: 2),
-                      pw.Text('$avgTemp C', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
+                      pw.Text('$safeAvgTemp C', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: darkText)),
                       pw.SizedBox(height: 2),
-                      pw.Text('Range: $dispMinTemp - $dispMaxTemp C', style: pw.TextStyle(fontSize: 7, color: mutedText)),
+                      pw.Text('Range: $safeDispMinTemp - $safeDispMaxTemp C', style: pw.TextStyle(fontSize: 7, color: mutedText)),
                       pw.Text(safeTempStatus, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: darkText)),
                     ],
                   ),
@@ -795,13 +822,14 @@ $assessmentNotes
             headers: ['Timestamp', 'Heart Rate', 'SpO2', 'Body Temp (C)', 'Moisture', 'Condition'],
             data: sampleReadings.isEmpty
                 ? [
-                    [safeTimestamp, '$avgHr BPM', '$avgSpo2%', '$avgTemp C', '150 ADC', 'Normal / Dry']
+                    [safeTimestamp, '$avgHr BPM', '$avgSpo2%', '$safeAvgTemp C', '150 ADC', 'Normal / Dry']
                   ]
                 : sampleReadings.map((r) {
                     final t = _cleanPdfText((r['recorded_at'] ?? reportTimestamp).toString());
-                    final h = r['heart_rate'] != null ? '${r['heart_rate']} BPM' : '--';
-                    final s = r['spo2'] != null ? '${r['spo2']}%' : '--';
-                    final temp = r['temperature'] != null ? '${r['temperature']} C' : '--';
+                    final h = _cleanPdfText(r['heart_rate'] != null ? '${r['heart_rate']} BPM' : '--');
+                    final s = _cleanPdfText(r['spo2'] != null ? '${r['spo2']}%' : '--');
+                    final rawTemp = (r['temperature'] ?? '').toString().replaceAll('°C', '').replaceAll('°', '').trim();
+                    final temp = rawTemp.isNotEmpty ? _cleanPdfText('$rawTemp C') : '--';
                     final mVal = r['moisture_value'] ?? 0;
                     final isWet = ((mVal as num?)?.toInt() ?? 0) > 200;
                     final cond = isWet ? 'Wetness Detected' : 'Normal / Dry';
@@ -858,17 +886,54 @@ $assessmentNotes
     return pdf.save();
   }
 
-  Uint8List? _getPdfBytes(Map<String, dynamic> report) {
-    if (report['pdfBytes'] is Uint8List) {
+  Future<Uint8List> _ensurePdfBytes(Map<String, dynamic> report) async {
+    // If the report already has cleanly generated v2 bytes, use them
+    if (report['pdfVersion'] == 2 && report['pdfBytes'] is Uint8List) {
       return report['pdfBytes'] as Uint8List;
     }
-    final b64 = report['pdfBytesBase64'];
-    if (b64 is String && b64.isNotEmpty) {
+    if (report['pdfVersion'] == 2 && report['pdfBytesBase64'] is String && (report['pdfBytesBase64'] as String).isNotEmpty) {
       try {
-        return base64Decode(b64);
+        final decoded = base64Decode(report['pdfBytesBase64'] as String);
+        report['pdfBytes'] = decoded;
+        return decoded;
       } catch (_) {}
     }
-    return null;
+
+    // Otherwise, rebuild cleanly to guarantee zero crossed-box tofu glyphs!
+    final baseName = report['baseName'] ?? (report['title'] ?? 'ALAGA_Report').replaceAll(RegExp(r'\.[^.]+$'), '');
+    final metrics = (report['metrics'] as Map<String, dynamic>?) ?? {};
+    final freshBytes = await _buildClinicalPdf(
+      baseFileName: baseName,
+      patientDisplayName: report['patient'] ?? 'All Patients',
+      reportTimestamp: report['date'] ?? DateFormat('MMMM dd, yyyy, hh:mm a').format(DateTime.now()),
+      reportScope: report['scope'] ?? 'In General',
+      reportType: report['type'] ?? 'Comprehensive (Both)',
+      timeFrame: report['timeFrame'] ?? '7 Days',
+      startDateStr: DateFormat('yyyy-MM-dd').format(_startDate),
+      avgHr: (metrics['avgHr'] as num?)?.toInt() ?? 75,
+      dispMinHr: (metrics['minHr'] as num?)?.toInt() ?? 65,
+      dispMaxHr: (metrics['maxHr'] as num?)?.toInt() ?? 88,
+      hrStatus: ((metrics['avgHr'] as num?)?.toInt() ?? 75) <= 100 ? 'Normal / Stable' : 'Attention Required',
+      avgSpo2: (metrics['avgSpo2'] as num?)?.toInt() ?? 98,
+      dispMinSpo2: (metrics['minSpo2'] as num?)?.toInt() ?? 96,
+      dispMaxSpo2: (metrics['maxSpo2'] as num?)?.toInt() ?? 99,
+      spo2Status: ((metrics['avgSpo2'] as num?)?.toInt() ?? 98) >= 95 ? 'Optimal Oxygenation (>= 95%)' : 'Attention Required',
+      avgTemp: (metrics['avgTemp'] ?? '36.5').toString(),
+      dispMinTemp: (metrics['minTemp'] ?? '36.2').toString(),
+      dispMaxTemp: (metrics['maxTemp'] ?? '37.1').toString(),
+      tempStatus: 'Normothermic',
+      wetnessCount: (metrics['wetEvents'] as num?)?.toInt() ?? 0,
+      diaperStatus: ((metrics['wetEvents'] as num?)?.toInt() ?? 0) == 0 ? 'Dry / No soak events logged' : 'Moisture logged',
+      totalAlerts: (metrics['alerts'] as num?)?.toInt() ?? 0,
+      assessmentNotes: report['summary'] ?? '',
+      readings: const [],
+    );
+
+    report['pdfBytes'] = freshBytes;
+    report['pdfBytesBase64'] = base64Encode(freshBytes);
+    report['pdfVersion'] = 2;
+    _persistRecentReports();
+    return freshBytes;
   }
 
   // ---------------------------------------------------------------------------
@@ -893,36 +958,7 @@ $assessmentNotes
     String contentToSave = '';
 
     if (format == 'pdf') {
-      pdfBytes = _getPdfBytes(report);
-      if (pdfBytes == null) {
-        final metrics = (report['metrics'] as Map<String, dynamic>?) ?? {};
-        pdfBytes = await _buildClinicalPdf(
-          baseFileName: baseName,
-          patientDisplayName: report['patient'] ?? 'All Patients',
-          reportTimestamp: report['date'] ?? DateFormat('MMMM dd, yyyy, hh:mm a').format(DateTime.now()),
-          reportScope: report['scope'] ?? 'In General',
-          reportType: report['type'] ?? 'Comprehensive (Both)',
-          timeFrame: report['timeFrame'] ?? '7 Days',
-          startDateStr: DateFormat('yyyy-MM-dd').format(_startDate),
-          avgHr: (metrics['avgHr'] as num?)?.toInt() ?? 75,
-          dispMinHr: (metrics['minHr'] as num?)?.toInt() ?? 65,
-          dispMaxHr: (metrics['maxHr'] as num?)?.toInt() ?? 88,
-          hrStatus: ((metrics['avgHr'] as num?)?.toInt() ?? 75) <= 100 ? 'Normal / Stable' : 'Attention Required',
-          avgSpo2: (metrics['avgSpo2'] as num?)?.toInt() ?? 98,
-          dispMinSpo2: (metrics['minSpo2'] as num?)?.toInt() ?? 96,
-          dispMaxSpo2: (metrics['maxSpo2'] as num?)?.toInt() ?? 99,
-          spo2Status: ((metrics['avgSpo2'] as num?)?.toInt() ?? 98) >= 95 ? 'Optimal Oxygenation' : 'Attention Required',
-          avgTemp: (metrics['avgTemp'] ?? '36.5').toString(),
-          dispMinTemp: (metrics['minTemp'] ?? '36.2').toString(),
-          dispMaxTemp: (metrics['maxTemp'] ?? '37.1').toString(),
-          tempStatus: 'Normothermic',
-          wetnessCount: (metrics['wetEvents'] as num?)?.toInt() ?? 0,
-          diaperStatus: ((metrics['wetEvents'] as num?)?.toInt() ?? 0) == 0 ? 'Dry / No soak events' : 'Moisture logged',
-          totalAlerts: (metrics['alerts'] as num?)?.toInt() ?? 0,
-          assessmentNotes: report['summary'] ?? '',
-          readings: const [],
-        );
-      }
+      pdfBytes = await _ensurePdfBytes(report);
     } else if (format == 'csv') {
       contentToSave = report['csvContent'] ?? report['plainTextContent'] ?? '';
     } else if (format == 'html') {
@@ -1344,11 +1380,12 @@ $assessmentNotes
                     IconButton(
                       icon: const Icon(Icons.share_outlined, color: _darkTeal),
                       tooltip: 'Share Report',
-                      onPressed: () {
+                      onPressed: () async {
                         final outFileName = '${report['baseName'] ?? 'ALAGA_Report'}.$selectedFormat';
+                        final bytes = selectedFormat == 'pdf' ? await _ensurePdfBytes(report) : null;
                         _shareReport(
                           title,
-                          bytes: selectedFormat == 'pdf' ? _getPdfBytes(report) : null,
+                          bytes: bytes,
                           content: selectedFormat != 'pdf' ? activeContent : null,
                           fileName: outFileName,
                         );
@@ -1818,7 +1855,7 @@ $assessmentNotes
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: Colors.grey, size: 20),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              onSelected: (val) {
+              onSelected: (val) async {
                 if (val == 'view') {
                   _showReportPreviewModal(report);
                 } else if (val == 'pdf') {
@@ -1830,9 +1867,10 @@ $assessmentNotes
                 } else if (val == 'html') {
                   _saveReportToDownloads(report, format: 'html');
                 } else if (val == 'share') {
+                  final bytes = await _ensurePdfBytes(report);
                   _shareReport(
                     report['title'] ?? 'ALAGA Report',
-                    bytes: _getPdfBytes(report),
+                    bytes: bytes,
                     content: report['plainTextContent'] ?? report['summary'] ?? '',
                     fileName: report['title'] ?? 'ALAGA_Report.pdf',
                   );

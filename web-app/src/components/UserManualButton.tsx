@@ -36,7 +36,9 @@ import {
     Stethoscope,
     Building2,
     Server,
-    ExternalLink
+    ExternalLink,
+    Compass,
+    Play
 } from 'lucide-react';
 
 type RoleCategory = 'caregiver' | 'medical_staff' | 'facility_admin' | 'system_admin';
@@ -489,6 +491,37 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                                 <h4 className="font-bold text-teal-950">{manualContent.roleLabel} Overview</h4>
                                 <p className="text-teal-800 text-xs mt-0.5 leading-relaxed">{manualContent.roleDesc}</p>
                             </div>
+                        </div>
+
+                        {/* Interactive Tutorial Replay Banner */}
+                        <div className="bg-gradient-to-r from-teal-900 via-teal-800 to-teal-950 rounded-xl p-4 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md border border-teal-700">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                                    <Compass className="w-5 h-5 text-teal-300" />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-black text-white flex items-center gap-2">
+                                        Interactive Onboarding Tour
+                                        <Badge className="bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider py-0 px-1.5">
+                                            {manualContent.roleLabel}
+                                        </Badge>
+                                    </h4>
+                                    <p className="text-xs text-teal-100/90 mt-0.5">
+                                        Replay the step-by-step interactive walkthrough tailored to your permissions anytime.
+                                    </p>
+                                </div>
+                            </div>
+                            <Button
+                                type="button"
+                                onClick={() => {
+                                    setIsOpen(false);
+                                    window.dispatchEvent(new CustomEvent('alaga:start-tutorial'));
+                                }}
+                                className="w-full sm:w-auto h-9 px-4 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-lg shrink-0 shadow-sm flex items-center justify-center gap-1.5 alaga-btn-tactile transition-all"
+                            >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span>Replay Interactive Tutorial</span>
+                            </Button>
                         </div>
 
                         {/* Quick Start Card (Shown on 'all' or 'quickstart' tab when not searching) */}

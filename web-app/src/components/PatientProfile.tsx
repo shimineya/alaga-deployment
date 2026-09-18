@@ -273,44 +273,191 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
 
         {/* TAB: OVERVIEW */}
         <TabsContent value="overview" className="space-y-6 mt-6">
-          {/* Quick Vitals Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="border-l-4 border-l-rose-500 shadow-sm">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">Heart Rate</p>
-                  <p className="text-2xl font-bold text-slate-800">{latestVital ? Math.round(latestVital.heartRate) : '--'} <span className="text-sm font-normal text-slate-400">bpm</span></p>
-                </div>
-                <Heart className="w-8 h-8 text-rose-100 fill-rose-500" />
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-amber-500 shadow-sm">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">Body Temp</p>
-                  <p className="text-2xl font-bold text-slate-800">{latestVital ? latestVital.temperature.toFixed(1) : '--'} <span className="text-sm font-normal text-slate-400">°C</span></p>
-                </div>
-                <Thermometer className="w-8 h-8 text-amber-100 fill-amber-500" />
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-blue-500 shadow-sm">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">SpO2</p>
-                  <p className="text-2xl font-bold text-slate-800">{latestVital ? Math.round(latestVital.spo2) : '--'} <span className="text-sm font-normal text-slate-400">%</span></p>
-                </div>
-                <Activity className="w-8 h-8 text-blue-100 fill-blue-500" />
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-teal-500 shadow-sm">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">Moisture</p>
-                  <p className="text-2xl font-bold text-slate-800">{latestVital ? Math.round(latestVital.moistureLevel) : '--'} <span className="text-sm font-normal text-slate-400">%</span></p>
-                </div>
-                <Droplets className="w-8 h-8 text-teal-100 fill-teal-500" />
-              </CardContent>
-            </Card>
+          {/* Quick Vitals Grid - Breathe & Glow Design System */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            {/* Heart Rate Card */}
+            {(() => {
+              const hr = latestVital ? Math.round(latestVital.heartRate) : null;
+              const isCrit = hr !== null && (hr > 130 || hr < 50);
+              const isWarn = hr !== null && (hr > 100 || hr < 60) && !isCrit;
+              const statusText = hr === null ? 'No Data' : isCrit ? 'Critical' : isWarn ? 'Elevated' : 'Normal';
+              const statusBadge = isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              return (
+                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                  <CardContent className="p-3.5 sm:p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="p-1.5 rounded-lg bg-rose-50 border border-rose-200/70 text-rose-600">
+                          <Heart className="w-4 h-4 fill-rose-500/20" />
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Heart Rate</span>
+                      </div>
+                      <span className="flex h-2 w-2 rounded-full bg-emerald-500 alaga-streaming-radar" title="Live Streaming" />
+                    </div>
+
+                    <div className="flex items-baseline gap-1.5 pt-0.5">
+                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                        {hr !== null ? hr : '--'}
+                      </span>
+                      <span className="text-xs font-medium text-slate-500">bpm</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
+                        {statusText}
+                      </Badge>
+                      <span className="text-[10px] font-semibold text-slate-500 hidden sm:inline">60-100 bpm</span>
+                    </div>
+
+                    {/* Micro-range bar */}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`}
+                        style={{ width: hr ? `${Math.min(100, Math.max(15, (hr / 160) * 100))}%` : '0%' }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* Body Temperature Card */}
+            {(() => {
+              const temp = latestVital ? latestVital.temperature : null;
+              const isCrit = temp !== null && (temp > 38.5 || temp < 35.0);
+              const isWarn = temp !== null && (temp > 37.5 || temp < 36.0) && !isCrit;
+              const statusText = temp === null ? 'No Data' : isCrit ? 'Fever / High' : isWarn ? 'Elevated' : 'Normal';
+              const statusBadge = isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              return (
+                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                  <CardContent className="p-3.5 sm:p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="p-1.5 rounded-lg bg-amber-50 border border-amber-200/70 text-amber-600">
+                          <Thermometer className="w-4 h-4 fill-amber-500/20" />
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Body Temp</span>
+                      </div>
+                      <span className="flex h-2 w-2 rounded-full bg-emerald-500 alaga-streaming-radar" title="Live Streaming" />
+                    </div>
+
+                    <div className="flex items-baseline gap-1.5 pt-0.5">
+                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                        {temp !== null ? temp.toFixed(1) : '--'}
+                      </span>
+                      <span className="text-xs font-medium text-slate-500">°C</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
+                        {statusText}
+                      </Badge>
+                      <span className="text-[10px] font-semibold text-slate-500 hidden sm:inline">36.5-37.5°C</span>
+                    </div>
+
+                    {/* Micro-range bar */}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`}
+                        style={{ width: temp ? `${Math.min(100, Math.max(15, ((temp - 34) / 7) * 100))}%` : '0%' }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* SpO2 Oxygen Saturation Card */}
+            {(() => {
+              const spo2 = latestVital ? Math.round(latestVital.spo2) : null;
+              const isCrit = spo2 !== null && spo2 < 90;
+              const isWarn = spo2 !== null && spo2 < 95 && !isCrit;
+              const statusText = spo2 === null ? 'No Data' : isCrit ? 'Hypoxia' : isWarn ? 'Low SpO₂' : 'Optimal';
+              const statusBadge = isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              return (
+                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                  <CardContent className="p-3.5 sm:p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="p-1.5 rounded-lg bg-sky-50 border border-sky-200/70 text-sky-600">
+                          <Activity className="w-4 h-4" />
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">SpO₂ Oxygen</span>
+                      </div>
+                      <span className="flex h-2 w-2 rounded-full bg-emerald-500 alaga-streaming-radar" title="Live Streaming" />
+                    </div>
+
+                    <div className="flex items-baseline gap-1.5 pt-0.5">
+                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                        {spo2 !== null ? spo2 : '--'}
+                      </span>
+                      <span className="text-xs font-medium text-slate-500">%</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
+                        {statusText}
+                      </Badge>
+                      <span className="text-[10px] font-semibold text-slate-500 hidden sm:inline">95-100%</span>
+                    </div>
+
+                    {/* Micro-range bar */}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`}
+                        style={{ width: spo2 ? `${Math.min(100, Math.max(10, spo2))}%` : '0%' }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* Diaper Moisture Card */}
+            {(() => {
+              const moisture = latestVital ? Math.round(latestVital.moistureLevel) : null;
+              const isWet = moisture !== null && moisture >= 70;
+              const isDamp = moisture !== null && moisture >= 30 && !isWet;
+              const statusText = moisture === null ? 'No Data' : isWet ? 'Change Diaper' : isDamp ? 'Damp' : 'Dry & Clean';
+              const statusBadge = isWet ? 'bg-rose-50 text-rose-900 border-rose-300' : isDamp ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              return (
+                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                  <CardContent className="p-3.5 sm:p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="p-1.5 rounded-lg bg-teal-50 border border-teal-200/70 text-teal-600">
+                          <Droplets className="w-4 h-4 fill-teal-500/20" />
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Diaper Wetness</span>
+                      </div>
+                      <span className="flex h-2 w-2 rounded-full bg-emerald-500 alaga-streaming-radar" title="Live Streaming" />
+                    </div>
+
+                    <div className="flex items-baseline gap-1.5 pt-0.5">
+                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                        {moisture !== null ? moisture : '--'}
+                      </span>
+                      <span className="text-xs font-medium text-slate-500">%</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
+                        {statusText}
+                      </Badge>
+                      <span className="text-[10px] font-semibold text-slate-500 hidden sm:inline">&lt; 30% Ideal</span>
+                    </div>
+
+                    {/* Micro-range bar */}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`}
+                        style={{ width: moisture ? `${Math.min(100, Math.max(5, moisture))}%` : '0%' }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

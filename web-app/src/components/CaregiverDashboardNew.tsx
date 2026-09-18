@@ -825,19 +825,22 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             {!isSysAdminUser && renderPendingInvitesBanner()}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                 {[
-                    { label: 'Critical', value: metrics.critical, color: 'text-red-700', icon: AlertCircle, bg: 'bg-red-100/80 ring-1 ring-red-200' },
-                    { label: 'Stable', value: metrics.stable, color: 'text-emerald-700', icon: Activity, bg: 'bg-emerald-100/80 ring-1 ring-emerald-200' },
-                    { label: 'Unassigned', value: metrics.unassigned, color: 'text-slate-700', icon: Link2Off, bg: 'bg-slate-100 ring-1 ring-slate-200' },
-                    { label: 'Total', value: metrics.total, color: 'text-teal-800', icon: Users, bg: 'bg-teal-100/80 ring-1 ring-teal-200' },
+                    { label: 'Critical', value: metrics.critical, color: 'text-rose-700', icon: AlertCircle, bg: 'bg-rose-50 border border-rose-200 text-rose-600', dot: 'bg-rose-500' },
+                    { label: 'Stable', value: metrics.stable, color: 'text-emerald-700', icon: Activity, bg: 'bg-emerald-50 border border-emerald-200 text-emerald-600', dot: 'bg-emerald-500' },
+                    { label: 'Unassigned', value: metrics.unassigned, color: 'text-slate-700', icon: Link2Off, bg: 'bg-slate-100 border border-slate-200 text-slate-600', dot: 'bg-slate-400' },
+                    { label: 'Total Patients', value: metrics.total, color: 'text-teal-900', icon: Users, bg: 'bg-teal-50 border border-teal-200 text-teal-700', dot: 'bg-teal-600' },
                 ].map((stat, i) => (
-                    <Card key={i} className="shadow-sm border border-slate-200/90 hover:shadow-md transition-shadow bg-white rounded-xl">
-                        <CardContent className="p-3 sm:p-4 flex justify-between items-center">
+                    <Card key={i} className="alaga-card alaga-card-interactive rounded-2xl overflow-hidden">
+                        <CardContent className="p-3.5 sm:p-4 flex justify-between items-center">
                             <div>
-                                <p className="text-[10px] sm:text-[11px] font-bold text-slate-600 uppercase tracking-wider">{stat.label}</p>
-                                <h3 className={`text-xl sm:text-2xl font-black ${stat.color}`}>{stat.value}</h3>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <span className={`w-1.5 h-1.5 rounded-full ${stat.dot}`} />
+                                    <p className="text-[10px] sm:text-[11px] font-bold text-slate-600 uppercase tracking-wider">{stat.label}</p>
+                                </div>
+                                <h3 className={`text-2xl sm:text-3xl font-black tracking-tight ${stat.color}`}>{stat.value}</h3>
                             </div>
-                            <div className={`p-2 sm:p-2.5 rounded-xl ${stat.bg} shadow-sm`}>
-                                <stat.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${stat.color}`} />
+                            <div className={`p-2.5 sm:p-3 rounded-xl ${stat.bg} shadow-xs`}>
+                                <stat.icon className="w-5 h-5" />
                             </div>
                         </CardContent>
                     </Card>
@@ -845,18 +848,21 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             </div>
 
             {!isSysAdminUser && (
-                <Card className="shadow-sm border border-slate-200/90 bg-gradient-to-r from-teal-50/70 via-teal-50/30 to-white rounded-xl">
+                <Card className="alaga-card alaga-card-interactive bg-gradient-to-r from-teal-50/90 via-teal-50/40 to-white rounded-2xl border-teal-200/90">
                     <CardContent className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-xl bg-teal-600 text-white shadow-sm shrink-0">
+                            <div className="p-2.5 rounded-xl bg-gradient-to-br from-teal-700 to-teal-800 text-white shadow-sm shrink-0">
                                 <CalendarIcon className="w-5 h-5" />
                             </div>
                             <div>
-                                <h4 className="text-sm font-bold text-slate-800">Care Calendar & Reminders</h4>
-                                <p className="text-xs text-slate-600">Manage daily schedules, medication intake, and care tasks.</p>
+                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                    Care Calendar & Reminders
+                                    <span className="text-[10px] font-semibold bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full border border-teal-200 hidden sm:inline">Active Schedule</span>
+                                </h4>
+                                <p className="text-xs text-slate-600 leading-relaxed mt-0.5">Manage daily schedules, medication intake, diaper checks, and care tasks.</p>
                             </div>
                         </div>
-                        <Button onClick={() => setIsCalendarModalOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-sm h-9 w-full sm:w-auto">
+                        <Button onClick={() => setIsCalendarModalOpen(true)} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs h-9 w-full sm:w-auto alaga-btn-tactile">
                             Open Calendar
                         </Button>
                     </CardContent>
@@ -983,85 +989,95 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 return (
                                     <Card
                                         key={patient.id}
-                                        className={`border shadow-sm hover:shadow-md transition-all cursor-pointer group ${isCardCritical ? 'border-red-300 bg-red-50/40 ring-1 ring-red-200' : 'border-slate-100'}`}
+                                        className={`alaga-card alaga-card-interactive rounded-2xl overflow-hidden cursor-pointer group transition-all ${
+                                            isCardCritical
+                                                ? 'border-rose-300 bg-rose-50/50 ring-1 ring-rose-200'
+                                                : 'border-teal-100/90 hover:border-teal-300'
+                                        }`}
                                         onClick={() => {
                                             setSelectedPatient(patient);
                                             setViewMode('profile');
                                         }}
                                     >
-                                        <CardHeader className="p-3 pb-2">
+                                        <CardHeader className="p-3.5 pb-2">
                                             <div className="flex justify-between items-start">
                                                 <div>
-                                                    <CardTitle className="text-sm font-bold text-slate-800 group-hover:text-teal-600 transition-colors">{patient.name}</CardTitle>
-                                                    <CardDescription className="text-[11px] text-slate-500">Room {(patient as any).roomNumber || 'Home'}</CardDescription>
+                                                    <CardTitle className="text-sm font-black text-slate-900 group-hover:text-teal-700 transition-colors">
+                                                        {patient.name}
+                                                    </CardTitle>
+                                                    <CardDescription className="text-[11px] text-slate-500 font-medium">
+                                                        Room {(patient as any).roomNumber || 'Home'}
+                                                    </CardDescription>
                                                     {patient.assignedCaregiverName && (
-                                                        <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-600 font-medium">
-                                                            <Users className="w-3 h-3" />
+                                                        <div className="flex items-center gap-1 mt-1 text-[10px] text-teal-800 font-semibold">
+                                                            <Users className="w-3 h-3 text-teal-600" />
                                                             {patient.assignedCaregiverName}
                                                         </div>
                                                     )}
                                                 </div>
-                                                <Badge variant="outline" className={`text-[10px] h-5 font-semibold ${
-                                                    hasSafetyBreach ? 'text-red-700 border-red-300 bg-red-100/80 animate-pulse' :
-                                                    isCritical ? 'text-red-600 border-red-200 bg-red-50' :
-                                                    isUnassigned ? 'text-slate-600 border-slate-200 bg-slate-50' :
-                                                        'text-emerald-600 border-emerald-200 bg-emerald-50'
+                                                <Badge variant="outline" className={`text-[10px] h-5 px-2 font-bold uppercase tracking-wider ${
+                                                    hasSafetyBreach ? 'text-rose-900 border-rose-300 bg-rose-100/90 animate-pulse' :
+                                                    isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
+                                                    isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
+                                                        'text-emerald-900 border-emerald-200 bg-emerald-50'
                                                     }`}>
                                                     {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
                                                 </Badge>
                                             </div>
                                         </CardHeader>
 
-                                        <CardContent className="p-3 pt-0 space-y-2">
+                                        <CardContent className="p-3.5 pt-0 space-y-2.5">
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-800' : 'bg-slate-50 border-slate-100'} p-1.5 rounded text-center border transition-colors`}>
+                                                <div className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
                                                         <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : 'text-rose-500'}`} />
-                                                        <span className={`text-[9px] font-semibold ${isPulseBreached ? 'text-rose-700' : 'text-slate-400'}`}>PULSE</span>
+                                                        <span className={`text-[9px] font-bold ${isPulseBreached ? 'text-rose-800' : 'text-slate-600'}`}>PULSE</span>
                                                     </div>
-                                                    <span className={`text-xs font-bold ${isPulseBreached ? 'text-rose-900' : 'text-slate-700'}`}>
+                                                    <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : 'text-slate-900'}`}>
                                                         {pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--'}
                                                     </span>
                                                 </div>
 
-                                                <div className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-900' : 'bg-slate-50 border-slate-100'} p-1.5 rounded text-center border transition-colors`}>
+                                                <div className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-950' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
                                                         <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : 'text-amber-500'}`} />
-                                                        <span className={`text-[9px] font-semibold ${isTempBreached ? 'text-amber-800' : 'text-slate-400'}`}>TEMP</span>
+                                                        <span className={`text-[9px] font-bold ${isTempBreached ? 'text-amber-900' : 'text-slate-600'}`}>TEMP</span>
                                                     </div>
-                                                    <span className={`text-xs font-bold ${isTempBreached ? 'text-amber-950' : 'text-slate-700'}`}>
+                                                    <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : 'text-slate-900'}`}>
                                                         {tempVal !== null && tempVal !== undefined ? Number(tempVal).toFixed(1) : '--'}
                                                     </span>
                                                 </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-800' : 'bg-slate-50 border-slate-100'} p-1.5 rounded text-center border transition-colors`}>
+                                                <div className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
                                                         <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : 'text-blue-500'}`} />
-                                                        <span className={`text-[9px] font-semibold ${isSpo2Breached ? 'text-rose-700' : 'text-slate-400'}`}>SPO2</span>
+                                                        <span className={`text-[9px] font-bold ${isSpo2Breached ? 'text-rose-800' : 'text-slate-600'}`}>SPO2</span>
                                                     </div>
-                                                    <span className={`text-xs font-bold ${isSpo2Breached ? 'text-rose-900' : 'text-slate-700'}`}>
+                                                    <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : 'text-slate-900'}`}>
                                                         {spo2Val !== null && spo2Val !== undefined ? Math.round(Number(spo2Val)) : '--'}
                                                     </span>
                                                 </div>
 
-                                                <div className="bg-slate-50 p-1.5 rounded text-center border border-slate-100">
+                                                <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-200/80">
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Droplets className="w-3 h-3 text-teal-500" />
-                                                        <span className="text-[9px] text-slate-400 font-medium">WETNESS</span>
+                                                        <Droplets className="w-3 h-3 text-teal-600" />
+                                                        <span className="text-[9px] text-slate-600 font-bold">WETNESS</span>
                                                     </div>
-                                                    <span className="text-xs font-bold text-slate-700">
+                                                    <span className="text-xs font-black text-slate-900">
                                                         {wetnessVal !== null && wetnessVal !== undefined ? `${Math.round(Number(wetnessVal))}%` : '--'}
                                                     </span>
                                                 </div>
                                             </div>
 
                                             {activeAlerts.length > 0 && (
-                                                <Button size="sm" variant="destructive" className="w-full h-6 text-[10px] bg-red-500 hover:bg-red-600 text-white"
+                                                <Button
+                                                    size="sm"
+                                                    className="w-full h-7 text-xs bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-lg alaga-btn-tactile shadow-xs flex items-center justify-center gap-1.5"
                                                     onClick={(e) => { e.stopPropagation(); handleAcknowledgeAlert(activeAlerts[0].id); }}
                                                 >
-                                                    <Check className="w-3 h-3 mr-1" /> Acknowledge
+                                                    <Check className="w-3.5 h-3.5" /> Acknowledge Alert
                                                 </Button>
                                             )}
                                         </CardContent>
@@ -1214,7 +1230,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
     return (
         <CaregiverLanguageProvider>
-            <div className="flex h-screen bg-slate-50/50">
+            <div className="flex h-screen alaga-ambient-bg">
                 {!hideNavigation && (
                     <DashboardSidebar
                         activeItem={activeNavItem}
@@ -1223,12 +1239,9 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     />
                 )}
 
-
-
-
                 <div className="flex-1 flex flex-col h-full overflow-hidden relative">
                     {!hideNavigation && (
-                        <header className="bg-white border-b border-slate-200/90 flex-shrink-0 px-4 sm:px-6 py-2 shadow-sm z-20 h-14 flex items-center justify-between">
+                        <header className="bg-white/90 backdrop-blur-md border-b border-teal-100/90 flex-shrink-0 px-4 sm:px-6 py-2 shadow-xs z-20 h-14 flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                                 <button
                                     onClick={() => setIsMobileDrawerOpen(true)}

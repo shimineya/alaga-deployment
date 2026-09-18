@@ -1959,7 +1959,7 @@ export const MedicalStaffDashboard: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen alaga-ambient-bg">
       <DashboardSidebar
         activeItem={activeNavItem}
         onItemClick={(item) => {
@@ -1970,7 +1970,7 @@ export const MedicalStaffDashboard: React.FC = () => {
       />
 
       <div className="ml-0 md:ml-64 flex-1 flex flex-col min-h-screen">
-        <header className="bg-white border-b sticky top-0 z-40 shadow-sm border-slate-200">
+        <header className="bg-white/90 backdrop-blur-md border-b sticky top-0 z-40 shadow-xs border-teal-100/90">
           <div className="px-4 sm:px-6 py-3 sm:py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">

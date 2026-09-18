@@ -204,60 +204,66 @@ export const MobileBottomNav: React.FC<{
   alertsCount?: number;
 }> = ({ activeItem, onItemClick, onOpenDrawer, onOpenCalendar, alertsCount = 0 }) => {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] px-2 py-1.5 flex items-center justify-around">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-teal-100/90 shadow-[0_-4px_20px_rgba(13,148,136,0.08)] px-2 py-1.5 pb-safe flex items-center justify-around h-16">
       <button
         onClick={() => onItemClick?.('dashboard')}
-        className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[56px] rounded-lg transition-colors ${
-          activeItem === 'dashboard' ? 'text-teal-700 font-bold' : 'text-slate-600 hover:text-slate-900 font-medium'
+        className={`flex flex-col items-center justify-center py-1 px-3 min-w-[58px] rounded-xl transition-all alaga-btn-tactile ${
+          activeItem === 'dashboard'
+            ? 'bg-teal-50 text-teal-900 font-black border border-teal-200 shadow-xs'
+            : 'text-slate-700 hover:text-slate-900 font-semibold'
         }`}
       >
-        <LayoutDashboard className={`w-5 h-5 ${activeItem === 'dashboard' ? 'text-teal-600' : 'text-slate-500'}`} />
-        <span className="text-[10px] mt-0.5">Home</span>
+        <LayoutDashboard className={`w-5 h-5 ${activeItem === 'dashboard' ? 'text-teal-700' : 'text-slate-600'}`} />
+        <span className="text-[10px] mt-0.5 tracking-tight">Home</span>
       </button>
 
       <button
         onClick={() => onItemClick?.('patient-list')}
-        className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[56px] rounded-lg transition-colors ${
-          activeItem === 'patient-list' ? 'text-teal-700 font-bold' : 'text-slate-600 hover:text-slate-900 font-medium'
+        className={`flex flex-col items-center justify-center py-1 px-3 min-w-[58px] rounded-xl transition-all alaga-btn-tactile ${
+          activeItem === 'patient-list'
+            ? 'bg-teal-50 text-teal-900 font-black border border-teal-200 shadow-xs'
+            : 'text-slate-700 hover:text-slate-900 font-semibold'
         }`}
       >
-        <List className={`w-5 h-5 ${activeItem === 'patient-list' ? 'text-teal-600' : 'text-slate-500'}`} />
-        <span className="text-[10px] mt-0.5">Patients</span>
+        <List className={`w-5 h-5 ${activeItem === 'patient-list' ? 'text-teal-700' : 'text-slate-600'}`} />
+        <span className="text-[10px] mt-0.5 tracking-tight">Patients</span>
       </button>
 
       {onOpenCalendar && (
         <button
           onClick={onOpenCalendar}
-          className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[56px] rounded-lg text-slate-600 hover:text-slate-900 font-medium transition-colors"
+          className="flex flex-col items-center justify-center py-1 px-3 min-w-[58px] rounded-xl text-slate-700 hover:text-slate-900 font-semibold transition-all alaga-btn-tactile hover:bg-slate-50"
         >
-          <CalendarIcon className="w-5 h-5 text-slate-500" />
-          <span className="text-[10px] mt-0.5">Calendar</span>
+          <CalendarIcon className="w-5 h-5 text-slate-600" />
+          <span className="text-[10px] mt-0.5 tracking-tight">Calendar</span>
         </button>
       )}
 
       <button
         onClick={() => onItemClick?.('alerts-hub')}
-        className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[56px] rounded-lg transition-colors relative ${
-          activeItem === 'alerts-hub' ? 'text-teal-700 font-bold' : 'text-slate-600 hover:text-slate-900 font-medium'
+        className={`flex flex-col items-center justify-center py-1 px-3 min-w-[58px] rounded-xl transition-all relative alaga-btn-tactile ${
+          activeItem === 'alerts-hub'
+            ? 'bg-teal-50 text-teal-900 font-black border border-teal-200 shadow-xs'
+            : 'text-slate-700 hover:text-slate-900 font-semibold'
         }`}
       >
         <div className="relative">
-          <Bell className={`w-5 h-5 ${activeItem === 'alerts-hub' ? 'text-teal-600' : 'text-slate-500'}`} />
+          <Bell className={`w-5 h-5 ${activeItem === 'alerts-hub' ? 'text-teal-700' : 'text-slate-600'}`} />
           {alertsCount > 0 && (
-            <span className="absolute -top-1 -right-2 bg-rose-600 text-white text-[9px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
+            <span className="absolute -top-1 -right-2 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
               {alertsCount > 9 ? '9+' : alertsCount}
             </span>
           )}
         </div>
-        <span className="text-[10px] mt-0.5">Alerts</span>
+        <span className="text-[10px] mt-0.5 tracking-tight">Alerts</span>
       </button>
 
       <button
         onClick={onOpenDrawer}
-        className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[56px] rounded-lg text-slate-600 hover:text-slate-900 font-medium transition-colors"
+        className="flex flex-col items-center justify-center py-1 px-3 min-w-[58px] rounded-xl text-slate-700 hover:text-slate-900 font-semibold transition-all alaga-btn-tactile hover:bg-slate-50"
       >
-        <Menu className="w-5 h-5 text-slate-500" />
-        <span className="text-[10px] mt-0.5">More</span>
+        <Menu className="w-5 h-5 text-slate-600" />
+        <span className="text-[10px] mt-0.5 tracking-tight">More</span>
       </button>
     </nav>
   );

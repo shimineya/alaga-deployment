@@ -179,27 +179,41 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                 <div ref={scrollRef} onScroll={handleScroll} className="overflow-y-auto custom-scrollbar" style={{ maxHeight: notificationCount > 6 ? '400px' : 'auto', scrollBehavior: 'smooth' }}>
                   <div className="p-3 space-y-3">
                     {unacknowledgedAlerts.map((alert, index) => {
-                      const severityColors = getSeverityColor(alert.severity);
                       const patientName = patientNames[alert.patientId];
+                      const isCritical = alert.severity === 'critical';
+                      const isWarning = alert.severity === 'warning';
+                      const borderStrip = isCritical ? 'border-l-4 border-l-rose-500 bg-rose-50/70 border-rose-200' : isWarning ? 'border-l-4 border-l-amber-500 bg-amber-50/70 border-amber-200' : 'border-l-4 border-l-teal-500 bg-teal-50/50 border-teal-200';
+
                       return (
-                        <div key={alert.id} className="p-3 rounded-lg border transition-all hover:shadow-md"
-                          style={{ backgroundColor: severityColors.bg, borderColor: severityColors.border, animation: `slideInNotification 300ms ease-out ${index * 50}ms both` }}>
+                        <div
+                          key={alert.id}
+                          className={`p-3 rounded-xl border shadow-xs transition-all hover:shadow-md ${borderStrip}`}
+                          style={{ animation: `slideInNotification 300ms ease-out ${index * 50}ms both` }}
+                        >
                           <div className="flex items-start gap-3">
-                            <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--card)', color: severityColors.text }}>{getAlertIcon(alert.type)}</div>
+                            <div className={`p-2 rounded-lg shrink-0 ${isCritical ? 'bg-rose-100 text-rose-700' : isWarning ? 'bg-amber-100 text-amber-800' : 'bg-teal-100 text-teal-800'}`}>
+                              {getAlertIcon(alert.type)}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-start justify-between gap-2 mb-1">
-                                <h4 className="text-sm line-clamp-1">{alert.title || 'Alert'}</h4>
+                                <h4 className="text-xs sm:text-sm font-bold text-slate-900 line-clamp-1">{alert.title || 'Alert'}</h4>
                                 {getSeverityBadge(alert.severity)}
                               </div>
-                              <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{alert.message}</p>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  {patientName && <><span>{patientName}</span><span>•</span></>}
+                              <p className="text-xs text-slate-600 mb-2.5 line-clamp-2 leading-relaxed">{alert.message}</p>
+                              <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                                <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                                  {patientName && <><span className="font-bold text-slate-700">{patientName}</span><span>•</span></>}
                                   <span>{formatTimestamp(alert.timestamp)}</span>
                                 </div>
-                                <button onClick={() => onAcknowledge(String(alert.id))} className="p-1 rounded hover:bg-card transition-colors" title="Acknowledge">
-                                  <Check className="w-4 h-4" style={{ color: 'var(--teal-600)' }} />
-                                </button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => onAcknowledge(String(alert.id))}
+                                  className="h-7 px-2.5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg shadow-xs alaga-btn-tactile flex items-center gap-1"
+                                  title="Acknowledge Alert"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Acknowledge</span>
+                                </Button>
                               </div>
                             </div>
                           </div>

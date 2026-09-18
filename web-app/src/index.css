@@ -2659,4 +2659,85 @@ button[role="tab"][data-state="active"] {
   color: #99f6e4 !important;
 }
 
+/* ==========================================================================
+   BREATHE & GLOW DESIGN SYSTEM: PASTEL TEAL, GRADIENTS & CONTRASTING LINEWORK
+   ========================================================================== */
+
+/* Ambient Luminous Canvas */
+.alaga-ambient-bg {
+  background: radial-gradient(at 0% 0%, rgba(204, 251, 241, 0.45) 0px, transparent 50%),
+              radial-gradient(at 100% 0%, rgba(240, 253, 250, 0.6) 0px, transparent 50%),
+              radial-gradient(at 50% 100%, rgba(230, 255, 250, 0.3) 0px, transparent 50%),
+              #f8fafc;
+}
+
+/* Frosted High-Contrast Cards */
+.alaga-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(204, 251, 241, 0.9);
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+}
+
+.alaga-card-interactive {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+}
+
+.alaga-card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: rgba(94, 234, 212, 0.9);
+  box-shadow: 0 8px 25px -4px rgba(13, 148, 136, 0.12), 0 4px 6px -2px rgba(13, 148, 136, 0.05);
+}
+
+/* Contrasting Linework Dividers */
+.alaga-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(153, 246, 228, 0.9) 25%, rgba(13, 148, 136, 0.4) 50%, rgba(153, 246, 228, 0.9) 75%, transparent 100%);
+}
+
+/* Pulsing Radar Streaming Indicator */
+@keyframes alaga-radar-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.alaga-streaming-radar {
+  animation: alaga-radar-pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+/* Mobile Safe Area Bottom Padding */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+/* Tactile Button Feedback */
+.alaga-btn-tactile {
+  transition: transform 0.1s ease, filter 0.15s ease;
+}
+
+.alaga-btn-tactile:active {
+  transform: scale(0.97);
+}
+
+/* Signature Header Gradients */
+.alaga-hero-gradient {
+  background: linear-gradient(135deg, #134e4a 0%, #0f766e 50%, #0d9488 100%);
+}
+
+.alaga-accent-gradient {
+  background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+}
+
+
 

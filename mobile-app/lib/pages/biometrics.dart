@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
 import '../models/user_session.dart';
+import '../services/api_service.dart';
 import 'login.dart';
 
 class BiometricService {
@@ -108,9 +109,12 @@ class RegistrationSuccessPage extends StatelessWidget {
                       width: 200,
                       child: ElevatedButton(
                         onPressed: () async {
-                          final canUse = await biometricService.canCheckBiometrics();
-                          final isSupported = await biometricService.isDeviceSupported();
-                          final available = await biometricService.getAvailableBiometrics();
+                          final canUse =
+                              await biometricService.canCheckBiometrics();
+                          final isSupported =
+                              await biometricService.isDeviceSupported();
+                          final available =
+                              await biometricService.getAvailableBiometrics();
 
                           if (!context.mounted) return;
 
@@ -128,24 +132,49 @@ class RegistrationSuccessPage extends StatelessWidget {
                               ),
                             );
                             Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(builder: (_) => const LoginPage()),
+                              MaterialPageRoute(
+                                  builder: (_) => const LoginPage()),
                               (route) => false,
                             );
                             return;
                           }
 
-                          final authenticated = await biometricService.authenticate(
-                            reason: 'Scan your fingerprint to enable biometric login',
+                          final authenticated =
+                              await biometricService.authenticate(
+                            reason:
+                                'Scan your fingerprint to enable biometric login',
                           );
 
                           if (!context.mounted) return;
 
                           if (authenticated) {
+                            final enrollment =
+                                await ApiService.enrollBiometric();
+                            if (!context.mounted) return;
+                            if (enrollment['success'] != true ||
+                                enrollment['biometricToken'] == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    enrollment['message'] ??
+                                        'Could not enable biometric login. Please try again in Settings.',
+                                    style: GoogleFonts.albertSans(),
+                                  ),
+                                  backgroundColor: Colors.redAccent,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                              return;
+                            }
                             // [OWASP A07] Persist the opt-in flag in AES-encrypted storage.
                             // This is the single source of truth for whether biometric
                             // login is available on the login screen.
-                            await SessionManager.enableBiometrics();
+                            await SessionManager.enableBiometrics(
+                              biometricToken:
+                                  enrollment['biometricToken'] as String,
+                            );
 
+                            if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
@@ -172,7 +201,8 @@ class RegistrationSuccessPage extends StatelessWidget {
 
                           if (context.mounted) {
                             Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(builder: (_) => const LoginPage()),
+                              MaterialPageRoute(
+                                  builder: (_) => const LoginPage()),
                               (route) => false,
                             );
                           }
@@ -203,14 +233,16 @@ class RegistrationSuccessPage extends StatelessWidget {
                       child: OutlinedButton(
                         onPressed: () {
                           Navigator.of(context).pushAndRemoveUntil(
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
+                            MaterialPageRoute(
+                                builder: (_) => const LoginPage()),
                             (route) => false,
                           );
                         },
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           backgroundColor: Colors.transparent,
-                          side: const BorderSide(color: Colors.black26, width: 1.2),
+                          side: const BorderSide(
+                              color: Colors.black26, width: 1.2),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(25),
                           ),

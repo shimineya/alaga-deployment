@@ -64,10 +64,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       phoneTones = await ScheduleReminderService.getPhoneTones();
       if (phoneTones.isEmpty) {
-        phoneTones = const [{'title': 'System Default', 'uri': ''}];
+        phoneTones = const [
+          {'title': 'System Default', 'uri': ''}
+        ];
       }
     } catch (_) {
-      phoneTones = const [{'title': 'System Default', 'uri': ''}];
+      phoneTones = const [
+        {'title': 'System Default', 'uri': ''}
+      ];
     }
 
     // [INTEGRATION] Fetch current profile/preferences
@@ -210,12 +214,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
 
       if (authenticated) {
+        final enrollment = await ApiService.enrollBiometric();
+        if (!mounted) return;
+        if (enrollment['success'] != true) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                enrollment['message'] ?? 'Could not enable biometric login.'),
+            backgroundColor: Colors.redAccent,
+          ));
+          return;
+        }
         // [OWASP A07] Write to AES-encrypted storage only after the OS confirms identity.
-        await SessionManager.enableBiometrics();
+        await SessionManager.enableBiometrics(
+          biometricToken: enrollment['biometricToken'] as String?,
+        );
+        if (!mounted) return;
         setState(() => _isBiometricEnabled = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_text('Biometric login has been enabled.',
+            content: Text(
+                _text('Biometric login has been enabled.',
                     'Pinagana na ang biometric login.'),
                 style: GoogleFonts.albertSans()),
             backgroundColor: const Color(0xFF4DB6AC),
@@ -241,7 +259,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isBiometricEnabled = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_text('Biometric login has been disabled.',
+          content: Text(
+              _text('Biometric login has been disabled.',
                   'Hindi na pinagana ang biometric login.'),
               style: GoogleFonts.albertSans()),
           backgroundColor: Colors.grey.shade700,
@@ -263,8 +282,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (result['success'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text(result['message'] ?? _text('Unable to check device firmware.',
+          content: Text(result['message'] ??
+              _text('Unable to check device firmware.',
                   'Hindi masuri ang firmware ng device.')),
           backgroundColor: Colors.redAccent,
         ),
@@ -277,14 +296,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? rawUpdates.whereType<Map>().map(Map<String, dynamic>.from).toList()
         : <Map<String, dynamic>>[];
     if (updates.isEmpty) {
-      setState(() => _firmwareStatus = _text(
-          'No update published', 'Walang inilabas na update'));
+      setState(() => _firmwareStatus =
+          _text('No update published', 'Walang inilabas na update'));
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(_text('No firmware available', 'Walang available na firmware')),
+          title: Text(
+              _text('No firmware available', 'Walang available na firmware')),
           content: Text(
-            _text('No compiled Arduino firmware has been published by an administrator yet.',
+            _text(
+                'No compiled Arduino firmware has been published by an administrator yet.',
                 'Wala pang inilalabas na compiled Arduino firmware ang administrator.'),
           ),
           actions: [
@@ -402,7 +423,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 4),
             Text(_text("SETTINGS", "MGA SETTING"), style: headerStyle),
-            Text(_text("Manage your application preferences.",
+            Text(
+                _text("Manage your application preferences.",
                     "Pamahalaan ang mga kagustuhan ng iyong application."),
                 style:
                     GoogleFonts.albertSans(color: Colors.black, fontSize: 14)),
@@ -433,7 +455,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // 2. Notification Preferences
             _buildSectionCard(
-              title: _text("Notification Preferences", "Mga Kagustuhan sa Abiso"),
+              title:
+                  _text("Notification Preferences", "Mga Kagustuhan sa Abiso"),
               icon: Icons.notifications_none_outlined,
               children: [
                 _buildSwitchTile(
@@ -449,22 +472,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     warningAlerts,
                     (val) => setState(() => warningAlerts = val)),
                 const Divider(height: 30),
-                _buildDropdown(
-                    "Tone",
-                    selectedAlertTone,
+                _buildDropdown("Tone", selectedAlertTone,
                     _phoneTones.map((tone) => tone['title']!).toList(),
                     (val) async {
-                      if (val == null) return;
-                      setState(() => selectedAlertTone = val);
-                      final tone = _phoneTones.firstWhere(
-                          (item) => item['title'] == val);
-                      try {
-                        await ScheduleReminderService.previewAlertSound(
-                            tone['uri'] ?? '', alertVolume);
-                      } catch (_) {
-                        // Preview is unavailable on unsupported platforms.
-                      }
-                    }),
+                  if (val == null) return;
+                  setState(() => selectedAlertTone = val);
+                  final tone =
+                      _phoneTones.firstWhere((item) => item['title'] == val);
+                  try {
+                    await ScheduleReminderService.previewAlertSound(
+                        tone['uri'] ?? '', alertVolume);
+                  } catch (_) {
+                    // Preview is unavailable on unsupported platforms.
+                  }
+                }),
                 Text("Volume", style: labelStyle),
                 Row(
                   children: [
@@ -535,8 +556,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _isBiometricAvailable
                     ? _buildSwitchTile(
-                        _text("Biometric Login", "Pag-login gamit ang Biometric"),
-                        _text("Use your fingerprint to log in instead of your password.",
+                        _text(
+                            "Biometric Login", "Pag-login gamit ang Biometric"),
+                        _text(
+                            "Use your fingerprint to log in instead of your password.",
                             "Gamitin ang fingerprint sa pag-login sa halip na password."),
                         _isBiometricEnabled,
                         _toggleBiometric,
@@ -544,7 +567,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Text(
-                          _text("Biometric login is not available on this device.",
+                          _text(
+                              "Biometric login is not available on this device.",
                               "Hindi available ang biometric login sa device na ito."),
                           style: GoogleFonts.poppins(
                             fontSize: 13,
@@ -567,7 +591,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(_text("Arduino firmware", "Firmware ng Arduino"), style: labelStyle),
+                          Text(_text("Arduino firmware", "Firmware ng Arduino"),
+                              style: labelStyle),
                           Text(_firmwareStatus,
                               style: const TextStyle(
                                   fontSize: 11, color: Colors.grey)),
@@ -621,7 +646,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: Colors.white),
                           )
-                        : Text(_text("Save Changes", "I-save ang mga Pagbabago"),
+                        : Text(
+                            _text("Save Changes", "I-save ang mga Pagbabago"),
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold)),
@@ -781,9 +807,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _infoItem(_text("Application Version", "Bersyon ng Application"), _appVersion),
-            _infoItem(_text("Database Status", "Kalagayan ng Database"),
-                _text(_dbStatus, _dbStatus == "Connected" ? "Konektado" : "Hindi available"),
+            _infoItem(_text("Application Version", "Bersyon ng Application"),
+                _appVersion),
+            _infoItem(
+                _text("Database Status", "Kalagayan ng Database"),
+                _text(_dbStatus,
+                    _dbStatus == "Connected" ? "Konektado" : "Hindi available"),
                 isStatus: _dbStatus == "Connected"),
           ],
         ),
@@ -795,7 +824,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // endpoint. Currently not available in this prototype version.
             _infoItem(_text("Last Backup", "Huling Backup"),
                 _text(_lastBackup, "Hindi available")),
-            _infoItem(_text("Active Devices", "Mga Aktibong Device"), _activeDevices),
+            _infoItem(
+                _text("Active Devices", "Mga Aktibong Device"), _activeDevices),
           ],
         ),
       ],

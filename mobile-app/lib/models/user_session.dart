@@ -9,6 +9,9 @@ class UserSession {
   final String role;
   final String name;
   final String token;
+  // Long-lived, biometric-scoped credential. It can only be exchanged for a
+  // short-lived access token after the OS biometric prompt succeeds.
+  final String? biometricToken;
   // [INTEGRATION] Persisted so the dashboard avatar survives app restarts
   // without a round-trip to the server. Nullable — not all users have a picture.
   final String? profilePictureUrl;
@@ -20,6 +23,7 @@ class UserSession {
     required this.role,
     required this.name,
     required this.token,
+    this.biometricToken,
     this.profilePictureUrl,
   });
 
@@ -41,11 +45,13 @@ class UserSession {
       role: json['role'] ?? 'caregiver',
       name: json['name'] ?? '',
       token: token,
+      biometricToken: json['biometricToken'],
       // [FIX] The backend login route sends the field as camelCase
       // ('profilePictureUrl'). The profile route returns snake_case
       // ('profile_picture_url'). Check both so the session is always
       // hydrated correctly regardless of which endpoint produced the JSON.
-      profilePictureUrl: json['profilePictureUrl'] ?? json['profile_picture_url'],
+      profilePictureUrl:
+          json['profilePictureUrl'] ?? json['profile_picture_url'],
     );
   }
 
@@ -57,6 +63,7 @@ class UserSession {
       'role': role,
       'name': name,
       'token': token,
+      if (biometricToken != null) 'biometricToken': biometricToken,
       'profilePictureUrl': profilePictureUrl,
     };
   }
@@ -66,6 +73,7 @@ class UserSession {
     String? role,
     String? name,
     String? token,
+    String? biometricToken,
     String? profilePictureUrl,
     // Pass the sentinel value _clearPicture to explicitly null-out the picture.
     bool clearProfilePicture = false,
@@ -77,6 +85,7 @@ class UserSession {
       role: role ?? this.role,
       name: name ?? this.name,
       token: token ?? this.token,
+      biometricToken: biometricToken ?? this.biometricToken,
       profilePictureUrl: clearProfilePicture
           ? null
           : (profilePictureUrl ?? this.profilePictureUrl),
@@ -100,11 +109,17 @@ class SessionManager {
 
   // [OWASP A07] Mitigation: securely flush tokens directly to encrypted on-device storage.
   static Future<void> saveSession(UserSession session) async {
+    final sessions = await _readBiometricAccounts();
+    final existing = sessions[session.id.toString()];
+    if (session.biometricToken == null && existing is Map) {
+      session = session.copyWith(
+        biometricToken: existing['biometricToken'] as String?,
+      );
+    }
     UserSession.current = session;
     await _storage.write(key: _sessionKey, value: jsonEncode(session.toJson()));
     await ScheduleReminderService.setAccount(session.id);
 
-    final sessions = await _readBiometricAccounts();
     if (sessions.containsKey(session.id.toString())) {
       sessions[session.id.toString()] = session.toJson();
       await _writeBiometricAccounts(sessions);
@@ -123,6 +138,7 @@ class SessionManager {
           role: json['role'],
           name: json['name'],
           token: json['token'],
+          biometricToken: json['biometricToken'],
           profilePictureUrl: json['profilePictureUrl'],
         );
         await ScheduleReminderService.setAccount(UserSession.current!.id);
@@ -180,14 +196,23 @@ class SessionManager {
   static Future<bool> isBiometricEnabled() async {
     final accounts = await _readBiometricAccounts();
     final current = UserSession.current;
-    return current == null ? accounts.isNotEmpty : accounts.containsKey(current.id.toString());
+    return current == null
+        ? accounts.isNotEmpty
+        : accounts.containsKey(current.id.toString());
   }
 
-  static Future<void> enableBiometrics() async {
+  static Future<bool> isAccountBiometricEnabled(int userId) async =>
+      (await _readBiometricAccounts()).containsKey(userId.toString());
+
+  static Future<void> enableBiometrics({String? biometricToken}) async {
     final current = UserSession.current;
     if (current == null) return;
     final accounts = await _readBiometricAccounts();
-    accounts[current.id.toString()] = current.toJson();
+    final enrolled = current.copyWith(biometricToken: biometricToken);
+    UserSession.current = enrolled;
+    await _storage.write(
+        key: _sessionKey, value: jsonEncode(enrolled.toJson()));
+    accounts[current.id.toString()] = enrolled.toJson();
     await _writeBiometricAccounts(accounts);
   }
 

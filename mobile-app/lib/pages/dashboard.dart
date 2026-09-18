@@ -125,8 +125,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not load your saved appointments. Reopen the dashboard to retry.'),
-      ));
+          content: Text(
+              'Could not load your saved appointments. Reopen the dashboard to retry.'),
+        ));
       }
     }
   }
@@ -220,18 +221,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                 children: [
                   _drawerItem(
                       'home', 'Dashboard', const DashboardScreen(), true),
-                  if (UserSession.current?.role.toLowerCase() != 'caregiver') _drawerItem(
-                      'add', 'Enroll Patient', const NewPatientScreen(), false,
-                      onReturn: _fetchDashboardData),
-                  _drawerItem(
-                      'device', 'Register Device', const NewDeviceScreen(), false,
+                  if (UserSession.current?.role.toLowerCase() != 'caregiver')
+                    _drawerItem('add', 'Enroll Patient',
+                        const NewPatientScreen(), false,
+                        onReturn: _fetchDashboardData),
+                  _drawerItem('device', 'Register Device',
+                      const NewDeviceScreen(), false,
                       onReturn: _fetchDashboardData),
                   _drawerItem(
                       'list', 'Patient List', PatientListScreen(), false),
-                  if (UserSession.current?.role.toLowerCase() != 'caregiver') _drawerItem('assignment', 'Assignment Tracker',
-                      const AssignmentScreen(), false),
-                  if (UserSession.current?.isParent == true) _drawerItem('userM', 'User Management',
-                      const UserManagementScreen(), false),
+                  if (UserSession.current?.role.toLowerCase() != 'caregiver')
+                    _drawerItem('assignment', 'Assignment Tracker',
+                        const AssignmentScreen(), false),
+                  if (UserSession.current?.isParent == true)
+                    _drawerItem('userM', 'User Management',
+                        const UserManagementScreen(), false),
                   _drawerItem('deviceM', 'Device Management',
                       const DeviceManagementScreen(), false),
                   _drawerItem('report', 'AI Insights (OC-SVM)',
@@ -716,15 +720,25 @@ class _DashboardScreenState extends State<DashboardScreen>
     final missedCutoff = now.subtract(const Duration(minutes: 5));
     final missed = _events.values.expand((day) => day).where((event) {
       final at = DateTime.tryParse(event['scheduledAt'] ?? '');
-      return event['ignored'] != 'true' && at != null && !at.isAfter(missedCutoff);
-    }).toList()..sort((a, b) => a['scheduledAt']!.compareTo(b['scheduledAt']!));
+      return event['ignored'] != 'true' &&
+          at != null &&
+          !at.isAfter(missedCutoff);
+    }).toList()
+      ..sort((a, b) => a['scheduledAt']!.compareTo(b['scheduledAt']!));
     if (missed.isNotEmpty) {
       return Column(
         children: missed.map((event) {
           final at = DateTime.parse(event['scheduledAt']!).toLocal();
-          final details = [event['type'], event['patient'], event['what'],
-            DateFormat('MMM d, yyyy • h:mm a').format(at), event['where']]
-              .whereType<String>().where((text) => text.trim().isNotEmpty).join(' • ');
+          final details = [
+            event['type'],
+            event['patient'],
+            event['what'],
+            DateFormat('MMM d, yyyy • h:mm a').format(at),
+            event['where']
+          ]
+              .whereType<String>()
+              .where((text) => text.trim().isNotEmpty)
+              .join(' • ');
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Dismissible(
@@ -732,12 +746,14 @@ class _DashboardScreenState extends State<DashboardScreen>
               direction: DismissDirection.horizontal,
               confirmDismiss: (_) async {
                 try {
-                  await ScheduleReminderService.ignore(UserSession.current!.id, event['id']!);
+                  await ScheduleReminderService.ignore(
+                      UserSession.current!.id, event['id']!);
                   return true;
                 } catch (_) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not ignore this reminder. Please try again.')));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text(
+                            'Could not ignore this reminder. Please try again.')));
                   }
                   return false;
                 }
@@ -745,7 +761,8 @@ class _DashboardScreenState extends State<DashboardScreen>
               onDismissed: (_) => setState(() => event['ignored'] = 'true'),
               background: Container(
                 alignment: Alignment.center,
-                child: const Text('Ignore', style: TextStyle(color: Colors.red)),
+                child:
+                    const Text('Ignore', style: TextStyle(color: Colors.red)),
               ),
               child: Material(
                 color: const Color(0xFFB71C1C),
@@ -754,8 +771,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                   onTap: _openCalendarPopup,
                   leading: const Icon(Icons.event_busy, color: Colors.white),
                   title: Text('Schedule Missed: $details',
-                    style: GoogleFonts.albertSans(color: Colors.white, fontSize: 13)),
-                  subtitle: const Text('Swipe to ignore', style: TextStyle(color: Colors.white70)),
+                      style: GoogleFonts.albertSans(
+                          color: Colors.white, fontSize: 13)),
+                  subtitle: const Text('Swipe to ignore',
+                      style: TextStyle(color: Colors.white70)),
                 ),
               ),
             ),
@@ -765,23 +784,34 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     final upcomingEvents = _events.values.expand((day) => day).where((event) {
       final at = DateTime.tryParse(event['scheduledAt'] ?? '');
-      return event['ignored'] != 'true' && at != null && at.isAfter(missedCutoff);
-    }).toList()..sort((a, b) => (a['scheduledAt'] ?? '').compareTo(b['scheduledAt'] ?? ''));
+      return event['ignored'] != 'true' &&
+          at != null &&
+          at.isAfter(missedCutoff);
+    }).toList()
+      ..sort(
+          (a, b) => (a['scheduledAt'] ?? '').compareTo(b['scheduledAt'] ?? ''));
 
     String bannerText;
     if (upcomingEvents.isNotEmpty) {
       final next = upcomingEvents.first;
-      final nextAt = DateTime.tryParse(next['scheduledAt'] ?? '')?.toLocal() ?? now;
+      final nextAt =
+          DateTime.tryParse(next['scheduledAt'] ?? '')?.toLocal() ?? now;
       final patient = next['patient']?.trim() ?? '';
       final what = (next['what']?.trim().isNotEmpty == true)
           ? next['what']!.trim()
-          : (next['type']?.trim().isNotEmpty == true ? next['type']!.trim() : 'Scheduled Appointment');
+          : (next['type']?.trim().isNotEmpty == true
+              ? next['type']!.trim()
+              : 'Scheduled Appointment');
       final when = next['when']?.trim() ?? DateFormat('h:mm a').format(nextAt);
 
       String dateText;
-      final isSameDay = nextAt.year == now.year && nextAt.month == now.month && nextAt.day == now.day;
+      final isSameDay = nextAt.year == now.year &&
+          nextAt.month == now.month &&
+          nextAt.day == now.day;
       final tomorrow = now.add(const Duration(days: 1));
-      final isTomorrow = nextAt.year == tomorrow.year && nextAt.month == tomorrow.month && nextAt.day == tomorrow.day;
+      final isTomorrow = nextAt.year == tomorrow.year &&
+          nextAt.month == tomorrow.month &&
+          nextAt.day == tomorrow.day;
 
       if (isSameDay) {
         dateText = 'today at $when';
@@ -992,14 +1022,22 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   final e = entry.value;
                                   return _buildEventTile(e, onDelete: () async {
                                     try {
-                                      await ScheduleReminderService.delete(UserSession.current!.id, key, e['id']!);
+                                      await ScheduleReminderService.delete(
+                                          UserSession.current!.id,
+                                          key,
+                                          e['id']!);
                                     } catch (_) {
-                                      if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Could not delete this reminder. Please try again.')));
+                                      if (mounted)
+                                        ScaffoldMessenger.of(this.context)
+                                            .showSnackBar(const SnackBar(
+                                                content: Text(
+                                                    'Could not delete this reminder. Please try again.')));
                                       return;
                                     }
                                     if (!mounted || !context.mounted) return;
                                     setDialogState(() {
-                                      _events[key]?.removeWhere((event) => event['id'] == e['id']);
+                                      _events[key]?.removeWhere(
+                                          (event) => event['id'] == e['id']);
                                     });
                                     setState(() {});
                                   });
@@ -1041,7 +1079,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       if (!_eventsReady) return;
                                       final newEvent = await _showAddEventForm(
                                           context, selectedDay);
-                                      if (newEvent != null && mounted && context.mounted) {
+                                      if (newEvent != null &&
+                                          mounted &&
+                                          context.mounted) {
                                         setDialogState(() {
                                           _events.putIfAbsent(key, () => []);
                                           _events[key]!.add(newEvent);
@@ -1162,7 +1202,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                             style: GoogleFonts.albertSans(
                                 fontSize: 11.5,
                                 color: const Color(0xFF5FA9A9),
-                        fontWeight: FontWeight.w600),
+                                fontWeight: FontWeight.w600),
                             overflow: TextOverflow.ellipsis),
                       ),
                     ],
@@ -1275,8 +1315,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                         fontWeight: FontWeight.bold)),
                                 Text(DateFormat('EEEE, MMMM d, y').format(day),
                                     style: GoogleFonts.albertSans(
-                                        fontSize: 11.5,
-                                        color: Colors.black54)),
+                                        fontSize: 11.5, color: Colors.black54)),
                               ],
                             ),
                             IconButton(
@@ -1328,7 +1367,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                         const SizedBox(height: 12),
                         if (isCaregiver && assignedPatients.isNotEmpty) ...[
                           DropdownButtonFormField<String>(
-                            initialValue: manualPatient ? 'manual' : selectedPatientId,
+                            initialValue:
+                                manualPatient ? 'manual' : selectedPatientId,
                             isExpanded: true,
                             dropdownColor: Colors.white,
                             style: GoogleFonts.albertSans(
@@ -1352,11 +1392,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                               const DropdownMenuItem(
                                   value: 'manual',
                                   child: Text('Enter patient manually')),
-                              ...assignedPatients.map((patient) => DropdownMenuItem(
-                                    value: patient['patient_id'].toString(),
-                                    child: Text(patient['name']?.toString() ??
-                                        'Patient ${patient['patient_id']}'),
-                                  ))
+                              ...assignedPatients
+                                  .map((patient) => DropdownMenuItem(
+                                        value: patient['patient_id'].toString(),
+                                        child: Text(patient['name']
+                                                ?.toString() ??
+                                            'Patient ${patient['patient_id']}'),
+                                      ))
                             ],
                             onChanged: saving
                                 ? null
@@ -1368,8 +1410,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                                         return;
                                       }
                                       selectedPatientId = id;
-                                      final patient = assignedPatients.firstWhere(
-                                          (p) =>
+                                      final patient =
+                                          assignedPatients.firstWhere((p) =>
                                               p['patient_id'].toString() == id);
                                       patientController.text =
                                           patient['name']?.toString() ??
@@ -1503,7 +1545,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _formField('Location / Clinic (Optional)', whereController,
+                        _formField(
+                            'Location / Clinic (Optional)', whereController,
                             hint: 'e.g. Room 204, City Hospital',
                             prefixIcon: const Icon(Icons.location_on_outlined,
                                 color: Color(0xFF5FA9A9), size: 20)),
@@ -1511,105 +1554,161 @@ class _DashboardScreenState extends State<DashboardScreen>
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: saving ? null : () async {
-                              final enteredPatient = patientController.text.trim();
-                              if (selectedScheduleType == null ||
-                                  enteredPatient.isEmpty ||
-                                  whatController.text.trim().isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Please select a schedule type, enter patient name, and event purpose.')),
-                                );
-                                return;
-                              }
-                              DateTime at;
-                              try {
-                                final time = DateFormat('h:mm a').parseStrict(whenController.text.trim());
-                                at = DateTime(targetDay.year, targetDay.month, targetDay.day, time.hour, time.minute);
-                                if (!at.isAfter(DateTime.now())) throw const FormatException();
-                              } catch (_) {
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a future date and time for the reminder.')));
-                                return;
-                              }
-                              setSheetState(() => saving = true);
-                              try {
-                                bool isRegistered = false;
-                                if (isCaregiver) {
-                                  if (!manualPatient && selectedPatientId != null) {
-                                    isRegistered = true;
-                                  } else {
-                                    isRegistered = assignedPatients.any((p) =>
-                                        p['name']?.toString().trim().toLowerCase() ==
-                                        enteredPatient.toLowerCase());
-                                  }
-                                } else {
-                                  isRegistered = _patients.any((p) =>
-                                      p['name']?.toString().trim().toLowerCase() ==
-                                      enteredPatient.toLowerCase());
-                                }
+                            onPressed: saving
+                                ? null
+                                : () async {
+                                    final enteredPatient =
+                                        patientController.text.trim();
+                                    if (selectedScheduleType == null ||
+                                        enteredPatient.isEmpty ||
+                                        whatController.text.trim().isEmpty) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Please select a schedule type, enter patient name, and event purpose.')),
+                                      );
+                                      return;
+                                    }
+                                    DateTime at;
+                                    try {
+                                      final time = DateFormat('h:mm a')
+                                          .parseStrict(
+                                              whenController.text.trim());
+                                      at = DateTime(
+                                          targetDay.year,
+                                          targetDay.month,
+                                          targetDay.day,
+                                          time.hour,
+                                          time.minute);
+                                      if (!at.isAfter(DateTime.now()))
+                                        throw const FormatException();
+                                    } catch (_) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'Choose a future date and time for the reminder.')));
+                                      return;
+                                    }
+                                    setSheetState(() => saving = true);
+                                    try {
+                                      bool isRegistered = false;
+                                      if (isCaregiver) {
+                                        if (!manualPatient &&
+                                            selectedPatientId != null) {
+                                          isRegistered = true;
+                                        } else {
+                                          isRegistered = assignedPatients.any(
+                                              (p) =>
+                                                  p['name']
+                                                      ?.toString()
+                                                      .trim()
+                                                      .toLowerCase() ==
+                                                  enteredPatient.toLowerCase());
+                                        }
+                                      } else {
+                                        isRegistered = _patients.any((p) =>
+                                            p['name']
+                                                ?.toString()
+                                                .trim()
+                                                .toLowerCase() ==
+                                            enteredPatient.toLowerCase());
+                                      }
 
-                                if (!isRegistered) {
-                                  final proceed = await showDialog<bool>(
-                                    context: context,
-                                    builder: (dialogContext) => AlertDialog(
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16)),
-                                      title: Text('Confirm Appointment',
-                                          style: GoogleFonts.poppins(
-                                              fontWeight: FontWeight.bold)),
-                                      content: Text(
-                                        'Patient is not registered in the system, they cannot be monitored. Continue?',
-                                        style: GoogleFonts.albertSans(fontSize: 14),
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(dialogContext, false),
-                                            child: Text('Cancel',
+                                      if (!isRegistered) {
+                                        final proceed = await showDialog<bool>(
+                                          context: context,
+                                          builder: (dialogContext) =>
+                                              AlertDialog(
+                                            shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(16)),
+                                            title: Text('Confirm Appointment',
                                                 style: GoogleFonts.poppins(
-                                                    color: Colors.black54))),
-                                        ElevatedButton(
-                                            onPressed: () =>
-                                                Navigator.pop(dialogContext, true),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(0xFF5FA9A9),
-                                              shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(8)),
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                            content: Text(
+                                              'Patient is not registered in the system, they cannot be monitored. Continue?',
+                                              style: GoogleFonts.albertSans(
+                                                  fontSize: 14),
                                             ),
-                                            child: Text('Continue',
-                                                style: GoogleFonts.poppins(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.w600))),
-                                      ],
-                                    ),
-                                  );
-                                  if (!context.mounted) return;
-                                  if (proceed != true) {
-                                    setSheetState(() => saving = false);
-                                    return;
-                                  }
-                                }
-                                final saved = await ScheduleReminderService.save(UserSession.current!.id, DateFormat('yyyy-MM-dd').format(targetDay), at, {
-                                'type': selectedScheduleType!,
-                                'patient': enteredPatient,
-                                if (isCaregiver && selectedPatientId != null && !manualPatient) 'patientId': selectedPatientId!,
-                                'what': whatController.text.trim(),
-                                'when': whenController.text.trim(),
-                                'where': whereController.text.trim(),
-                                });
-                                if (!mounted || !context.mounted) return;
-                                Navigator.pop(context, saved);
-                                ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text(
-                                  ScheduleReminderService.supported ? 'Appointment saved with a phone reminder.' : 'Appointment saved. Phone reminders are available on Android.',
-                                )));
-                              } catch (error) {
-                                if (!context.mounted) return;
-                                setSheetState(() => saving = false);
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-                              }
-                            },
+                                            actions: [
+                                              TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                          dialogContext, false),
+                                                  child: Text('Cancel',
+                                                      style:
+                                                          GoogleFonts.poppins(
+                                                              color: Colors
+                                                                  .black54))),
+                                              ElevatedButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                          dialogContext, true),
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        const Color(0xFF5FA9A9),
+                                                    shape:
+                                                        RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                        8)),
+                                                  ),
+                                                  child: Text('Continue',
+                                                      style:
+                                                          GoogleFonts.poppins(
+                                                              color:
+                                                                  Colors.white,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600))),
+                                            ],
+                                          ),
+                                        );
+                                        if (!context.mounted) return;
+                                        if (proceed != true) {
+                                          setSheetState(() => saving = false);
+                                          return;
+                                        }
+                                      }
+                                      final saved =
+                                          await ScheduleReminderService.save(
+                                              UserSession.current!.id,
+                                              DateFormat('yyyy-MM-dd')
+                                                  .format(targetDay),
+                                              at,
+                                              {
+                                            'type': selectedScheduleType!,
+                                            'patient': enteredPatient,
+                                            if (isCaregiver &&
+                                                selectedPatientId != null &&
+                                                !manualPatient)
+                                              'patientId': selectedPatientId!,
+                                            'what': whatController.text.trim(),
+                                            'when': whenController.text.trim(),
+                                            'where':
+                                                whereController.text.trim(),
+                                          });
+                                      if (!mounted || !context.mounted) return;
+                                      Navigator.pop(context, saved);
+                                      ScaffoldMessenger.of(this.context)
+                                          .showSnackBar(SnackBar(
+                                              content: Text(
+                                        ScheduleReminderService.supported
+                                            ? 'Appointment saved with a phone reminder.'
+                                            : 'Appointment saved. Phone reminders are available on Android.',
+                                      )));
+                                    } catch (error) {
+                                      if (!context.mounted) return;
+                                      setSheetState(() => saving = false);
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
+                                              content: Text(error.toString())));
+                                    }
+                                  },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF5FA9A9),
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1801,8 +1900,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                       color: Colors.black)),
             ])),
             Text(date,
-                style: GoogleFonts.albertSans(
-                    fontSize: 11, color: Colors.black)),
+                style:
+                    GoogleFonts.albertSans(fontSize: 11, color: Colors.black)),
           ],
         ),
         const SizedBox(width: 10),
@@ -1812,17 +1911,37 @@ class _DashboardScreenState extends State<DashboardScreen>
           final initial = (session?.name.isNotEmpty == true)
               ? session!.name[0].toUpperCase()
               : 'U';
-          return CircleAvatar(
-            radius: 22,
-            backgroundColor: const Color(0xFF5FA9A9),
-            backgroundImage: ApiService.getImageProvider(picUrl),
-            child: (picUrl == null || picUrl.isEmpty)
-                ? Text(initial,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 17))
-                : null,
+          return Tooltip(
+            message: 'Open profile',
+            child: Semantics(
+              button: true,
+              label: 'Open profile',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ProfileScreen(),
+                    ),
+                  );
+                  // Refresh the greeting avatar after profile edits.
+                  if (mounted) setState(() {});
+                },
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: const Color(0xFF5FA9A9),
+                  backgroundImage: ApiService.getImageProvider(picUrl),
+                  child: (picUrl == null || picUrl.isEmpty)
+                      ? Text(initial,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 17))
+                      : null,
+                ),
+              ),
+            ),
           );
         }),
       ],
@@ -1853,7 +1972,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
   }
-
 
   Widget _drawerItem(
       String icon, String title, Widget destination, bool isSelected,

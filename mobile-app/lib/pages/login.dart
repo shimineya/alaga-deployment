@@ -71,7 +71,17 @@ class _LoginPageState extends State<LoginPage> {
     }
     if (result['success'] == true) {
       final session = UserSession.fromJson(result['user'], result['token']);
+      final renewBiometric =
+          await SessionManager.isAccountBiometricEnabled(session.id);
       await SessionManager.saveSession(session);
+      if (renewBiometric) {
+        final enrollment = await ApiService.enrollBiometric();
+        if (enrollment['success'] == true) {
+          await SessionManager.enableBiometrics(
+            biometricToken: enrollment['biometricToken'] as String?,
+          );
+        }
+      }
 
       if (!mounted) return;
 
@@ -109,12 +119,16 @@ class _LoginPageState extends State<LoginPage> {
     final savedSessions = await SessionManager.loadBiometricSessions();
     if (!mounted) return;
     final identifier = _usernameCtrl.text.trim().toLowerCase();
-    final candidates = savedSessions.where((session) => identifier.isEmpty ||
-        session.username.toLowerCase() == identifier ||
-        session.email.toLowerCase() == identifier).toList();
+    final candidates = savedSessions
+        .where((session) =>
+            identifier.isEmpty ||
+            session.username.toLowerCase() == identifier ||
+            session.email.toLowerCase() == identifier)
+        .toList();
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Sign in with your password and enable biometrics in Settings for this account first.'),
+        content: Text(
+            'Sign in with your password and enable biometrics in Settings for this account first.'),
       ));
       return;
     }
@@ -126,10 +140,13 @@ class _LoginPageState extends State<LoginPage> {
         context: context,
         builder: (context) => SimpleDialog(
           title: const Text('Choose an account for biometric login'),
-          children: candidates.map((session) => SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, session),
-            child: Text('${session.email} - ${session.role} (${session.username})'),
-          )).toList(),
+          children: candidates
+              .map((session) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(context, session),
+                    child: Text(
+                        '${session.email} - ${session.role} (${session.username})'),
+                  ))
+              .toList(),
         ),
       );
     }
@@ -143,17 +160,22 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (authenticated) {
-      final validation = await ApiService.validateSession(biometricSession);
+      final validation = await ApiService.loginWithBiometric(biometricSession);
       if (!mounted) return;
       if (validation['success'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(validation['statusCode'] == 401
-              ? 'This account session has expired or was revoked. Sign in with your password to renew biometric access.'
-              : validation['message'] ?? 'Unable to validate this account.'),
+          content: Text(
+            validation['message'] ??
+                'Unable to validate this biometric account. Sign in with your password and enable biometrics again.',
+          ),
         ));
         return;
       }
-      await SessionManager.saveSession(biometricSession);
+      final refreshedSession = UserSession.fromJson(
+        validation['user'],
+        validation['token'],
+      ).copyWith(biometricToken: biometricSession.biometricToken);
+      await SessionManager.saveSession(refreshedSession);
       if (mounted) {
         Navigator.pushReplacement(
           context,

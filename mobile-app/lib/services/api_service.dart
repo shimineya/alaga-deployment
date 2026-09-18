@@ -24,18 +24,28 @@ import '../models/user_session.dart';
 // ============================================================================
 
 class ApiService {
-  /// Validate a saved biometric session before making it the active account.
-  static Future<Map<String, dynamic>> validateSession(UserSession session) async {
+  /// Exchange the biometric-scoped credential for a fresh short-lived session.
+  static Future<Map<String, dynamic>> loginWithBiometric(
+      UserSession session) async {
     try {
-      final response = await http.get(
-        _buildUri('/auth/my-permissions'),
-        headers: {'Authorization': 'Bearer ${session.token}', 'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 15));
+      final response = await http
+          .post(
+            _buildUri('/auth/biometric/login'),
+            headers: _buildHeaders(requiresAuth: false),
+            body: jsonEncode({'biometricToken': session.biometricToken}),
+          )
+          .timeout(const Duration(seconds: 15));
       return _parseResponse(response);
     } catch (_) {
-      return {'success': false, 'message': 'Cannot reach the server. Please try again.'};
+      return {
+        'success': false,
+        'message': 'Cannot reach the server. Please try again.'
+      };
     }
   }
+
+  static Future<Map<String, dynamic>> enrollBiometric() =>
+      post('/auth/biometric/enroll');
 
   // [OWASP A02] Base URL sourced from environment file — never hard-coded.
   static String get _baseUrl {
@@ -62,7 +72,9 @@ class ApiService {
       raw = raw.substring(0, raw.length - 4);
     }
     final uri = Uri.parse(raw);
-    final portSuffix = (uri.hasPort && uri.port != 80 && uri.port != 443) ? ':${uri.port}' : '';
+    final portSuffix = (uri.hasPort && uri.port != 80 && uri.port != 443)
+        ? ':${uri.port}'
+        : '';
     return '${uri.scheme}://${uri.host}$portSuffix';
   }
 
@@ -151,7 +163,8 @@ class ApiService {
       // Safety fallback for malformed JSON from the server.
       return {
         'success': false,
-        'message': 'Server returned an unreadable response (Status ${response.statusCode}).',
+        'message':
+            'Server returned an unreadable response (Status ${response.statusCode}).',
         'statusCode': response.statusCode,
       };
     }
@@ -274,7 +287,8 @@ class ApiService {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Network error. Cannot reach the server. Check your connection.',
+        'message':
+            'Network error. Cannot reach the server. Check your connection.',
       };
     }
   }
@@ -300,7 +314,8 @@ class ApiService {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Network error. Cannot reach the server. Check your connection.',
+        'message':
+            'Network error. Cannot reach the server. Check your connection.',
       };
     }
   }

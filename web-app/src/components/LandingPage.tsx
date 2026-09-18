@@ -196,13 +196,13 @@ export const LandingPage: React.FC = () => {
                             </Button>
                         ) : (
                             <>
-                                <Button
-                                    variant="outline"
+                                <button
+                                    type="button"
                                     onClick={() => navigate('/login')}
-                                    className="h-10 px-4 sm:px-5 border-white/20 text-white hover:bg-white/10 hover:border-amber-400 hover:text-amber-400 font-bold rounded-xl text-xs transition-all alaga-btn-tactile"
+                                    className="h-10 px-4 sm:px-5 bg-white hover:bg-teal-50 text-teal-950 font-black rounded-xl text-xs tracking-wide transition-all shadow-sm border border-white flex items-center justify-center alaga-btn-tactile"
                                 >
                                     Log In
-                                </Button>
+                                </button>
                                 <Button
                                     onClick={() => navigate('/signup')}
                                     className="h-10 px-4 sm:px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-md text-xs tracking-tight flex items-center gap-1.5 alaga-btn-tactile"
@@ -251,9 +251,8 @@ export const LandingPage: React.FC = () => {
                                     <ArrowRight className="w-4 h-4" />
                                 </Button>
                                 <Button
-                                    variant="outline"
                                     onClick={() => navigate('/login')}
-                                    className="w-full sm:w-auto h-12 px-6 border-slate-300 hover:bg-white/80 hover:border-teal-400 text-slate-800 font-bold rounded-xl text-sm alaga-btn-tactile bg-white/70"
+                                    className="w-full sm:w-auto h-12 px-6 bg-white hover:bg-slate-50 border-2 border-slate-300 text-slate-900 font-bold rounded-xl text-sm alaga-btn-tactile shadow-sm"
                                 >
                                     <span>Sign In to Portal</span>
                                 </Button>
@@ -625,20 +624,21 @@ export const LandingPage: React.FC = () => {
                         </div>
 
                         <div className="relative z-10 flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                            <Button
+                            <button
+                                type="button"
                                 onClick={() => navigate('/signup')}
-                                className="w-full sm:w-auto h-12 px-8 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black rounded-xl text-sm shadow-md flex items-center justify-center gap-2 alaga-btn-tactile"
+                                className="w-full sm:w-auto h-12 px-8 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-sm shadow-lg flex items-center justify-center gap-2 alaga-btn-tactile transition-all"
                             >
                                 <span>Get Started for Free</span>
                                 <ArrowRight className="w-4 h-4" />
-                            </Button>
-                            <Button
-                                variant="outline"
+                            </button>
+                            <button
+                                type="button"
                                 onClick={() => navigate('/login')}
-                                className="w-full sm:w-auto h-12 px-8 border-white/30 hover:bg-white/10 text-white font-bold rounded-xl text-sm alaga-btn-tactile"
+                                className="w-full sm:w-auto h-12 px-8 bg-white hover:bg-teal-50 text-teal-950 font-black rounded-xl text-sm shadow-lg border-2 border-white flex items-center justify-center gap-2 alaga-btn-tactile transition-all"
                             >
                                 <span>Sign In to Account</span>
-                            </Button>
+                            </button>
                         </div>
                     </div>
                 </div>

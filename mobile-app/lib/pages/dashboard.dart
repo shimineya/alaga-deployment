@@ -230,12 +230,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                       onReturn: _fetchDashboardData),
                   _drawerItem(
                       'list', 'Patient List', PatientListScreen(), false),
-                  if (UserSession.current?.role.toLowerCase() != 'caregiver')
-                    _drawerItem('assignment', 'Assignment Tracker',
-                        const AssignmentScreen(), false),
-                  if (UserSession.current?.isParent == true)
-                    _drawerItem('userM', 'User Management',
-                        const UserManagementScreen(), false),
+                  _drawerItem('assignment', 'Care Assignments',
+                      const AssignmentScreen(), false),
+                  _drawerItem('userM', 'User Management',
+                      const UserManagementScreen(), false),
                   _drawerItem('deviceM', 'Device Management',
                       const DeviceManagementScreen(), false),
                   _drawerItem('report', 'AI Insights (OC-SVM)',

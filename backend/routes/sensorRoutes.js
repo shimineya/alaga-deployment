@@ -202,7 +202,9 @@ router.post('/reading', readingValidation, async (req, res) => {
         aiResult = {
             status      : 'UNKNOWN',
             alerts      : [],
-            ocsvm_result: 'unknown'
+            ocsvm_result: 'unavailable',
+            ocsvm_label : null,
+            ocsvm_score : null
         };
     }
 
@@ -217,7 +219,9 @@ router.post('/reading', readingValidation, async (req, res) => {
             const suppressedBaselines = baselinesCheck.rows || [];
 
             for (const alert of aiResult.alerts) {
-                const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
+                // Store the frozen model's signed decision_function, not a placeholder.
+                const ocsvmScore = alert.vital === 'multi_feature'
+                    ? aiResult.ocsvm_score : 0.0;
                 const anomalyType = alert.vital === 'multi_feature'
                     ? 'ocsvm_anomaly'
                     : `rule_${alert.vital}`;
@@ -283,7 +287,10 @@ router.post('/reading', readingValidation, async (req, res) => {
     return res.status(200).json({
         success: true,
         status : aiResult.status,
-        alerts : aiResult.alerts
+        alerts : aiResult.alerts,
+        ocsvm_result: aiResult.ocsvm_result,
+        ocsvm_label: aiResult.ocsvm_label,
+        ocsvm_score: aiResult.ocsvm_score
     });
 });
 
@@ -431,7 +438,13 @@ router.get(
                     COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS temperature,
                     COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS moisture_value,
                     (SELECT sr.recorded_at FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1) AS recorded_at,
-                    ae.anomaly_type, ae.ocsvm_score,
+                    (SELECT p.patient_type FROM patients p WHERE p.patient_id = $1) AS patient_type,
+                    (SELECT model_event.ocsvm_score
+                     FROM anomaly_events model_event
+                     WHERE model_event.reading_id = (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1)
+                       AND model_event.anomaly_type = 'ocsvm_anomaly'
+                     ORDER BY model_event.event_id DESC LIMIT 1) AS model_score,
+                    ae.anomaly_type,
                     an.message AS latest_alert, an.severity AS alert_severity
                  FROM sensor_readings sr2
                  LEFT JOIN anomaly_events ae ON ae.reading_id = (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1)
@@ -460,8 +473,13 @@ router.get(
                 temperature  : row.temperature,
                 moisture     : row.moisture_value,
                 recorded_at  : row.recorded_at,
-                ocsvm_result : row.anomaly_type ? 'anomaly' : 'normal',
-                ocsvm_score  : row.ocsvm_score,
+                ocsvm_result : row.patient_type === 'adult'
+                    ? (row.model_score !== null ? 'anomaly' : 'normal')
+                    : 'not_applicable',
+                ocsvm_label  : row.patient_type === 'adult'
+                    ? (row.model_score !== null ? -1 : 1)
+                    : null,
+                ocsvm_score  : row.model_score,
                 latest_alert : row.latest_alert,
                 alert_severity: row.alert_severity
             });

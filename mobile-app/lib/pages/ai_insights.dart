@@ -247,10 +247,23 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
       );
 
   Widget _modelSummary() {
-    final isAnomaly = _status?['ocsvm_result'] == 'anomaly';
+    final modelResult = _status?['ocsvm_result']?.toString().toLowerCase();
+    final isAnomaly = modelResult == 'anomaly';
+    final isNotApplicable = modelResult == 'not_applicable';
+    final isUnavailable = modelResult == 'unavailable';
     final hasData = _status != null;
-    final color =
-        !hasData ? Colors.blueGrey : (isAnomaly ? Colors.deepOrange : _teal);
+    final color = !hasData || isNotApplicable || isUnavailable
+        ? Colors.blueGrey
+        : (isAnomaly ? Colors.deepOrange : _teal);
+    final modelLabel = !hasData
+        ? 'NO DATA'
+        : isNotApplicable
+            ? 'RULE-ONLY'
+            : isUnavailable
+                ? 'UNAVAILABLE'
+                : isAnomaly
+                    ? 'ANOMALY'
+                    : 'NORMAL';
     final patientName = _selectedPatient?['name']?.toString() ?? 'Patient';
     return Container(
       padding: const EdgeInsets.all(18),
@@ -293,15 +306,17 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
                               fontSize: 17)),
                     ]),
               ),
-              _statusPill(
-                  hasData ? (isAnomaly ? 'ANOMALY' : 'NORMAL') : 'NO DATA',
-                  color),
+              _statusPill(modelLabel, color),
             ],
           ),
           const SizedBox(height: 16),
           Text(
             !hasData
                 ? (_error ?? 'Waiting for the first sensor reading.')
+                : isNotApplicable
+                    ? 'Infant monitoring uses the existing rule-based alerts; the adult OC-SVM is not applied.'
+                    : isUnavailable
+                        ? 'OC-SVM monitoring is temporarily unavailable. Rule-based alerts remain active.'
                 : isAnomaly
                     ? (_status?['latest_alert']?.toString() ??
                         'The latest reading differs from the learned baseline.')

@@ -1,17 +1,35 @@
 import numpy as np
 import joblib
 import os
+import hashlib
 from datetime import datetime, timedelta
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR   = os.path.join(BASE_DIR, "model")
-MODEL_PATH  = os.path.join(MODEL_DIR, "ocsvm_model.pkl")
+# Frozen adult OC-SVM; legacy four-feature artifacts are retained as backups.
+MODEL_DIR = os.path.join(BASE_DIR, "model")
+MODEL_PATH = os.path.join(MODEL_DIR, "ocsvm_model.pkl")
 SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+MODEL_SHA256 = "d9c4a4529005444195f8d44f138c29983aaca244d5d4d2bfb65da70a89e029c4"
+SCALER_SHA256 = "04bcb56547a23801035478a0b59e29b0a68bd3e4cd35cf3c355b65a74af09d4a"
 
-# ── Load model and scaler once (reused for every prediction) ───────────────
-model  = joblib.load(MODEL_PATH)
-scaler = joblib.load(SCALER_PATH)
+
+def _sha256(path):
+    with open(path, "rb") as artifact:
+        return hashlib.sha256(artifact.read()).hexdigest()
+
+
+# Model failure must never disable independently functioning safety rules.
+model = scaler = None
+try:
+    if (_sha256(MODEL_PATH) != MODEL_SHA256 or _sha256(SCALER_PATH) != SCALER_SHA256):
+        raise RuntimeError("Frozen adult OC-SVM artifact hash mismatch")
+    model = joblib.load(MODEL_PATH)
+    scaler = joblib.load(SCALER_PATH)
+    if (getattr(model, "n_features_in_", None) != 3 or getattr(scaler, "n_features_in_", None) != 3):
+        raise RuntimeError("Adult OC-SVM model/scaler must each accept three features")
+except Exception:
+    model = scaler = None
 
 # ══════════════════════════════════════════════════════════════════════════
 # COLD-START SAFETY FLOORS
@@ -386,12 +404,20 @@ def predict(patient_id, heart_rate, temperature, spo2, moisture,
         if not is_suppressed_by_baseline(patient_id, u_alert["vital"], u_alert.get("value")):
             alerts.append(u_alert)
 
-    # ── Layer 3: OC-SVM Anomaly Detection ─────────────────────────────────
-    X = np.array([[heart_rate, temperature, spo2, moisture]])
-    X_scaled = scaler.transform(X)
-    ocsvm_result = model.predict(X_scaled)[0]  # +1 = normal, -1 = anomaly
+    # ── Layer 3: frozen adult-only OC-SVM ──────────────────────────────────
+    ocsvm_result = "not_applicable" if patient_type != "adult" else "unavailable"
+    ocsvm_score = None
+    if patient_type == "adult" and model is not None:
+        try:
+            # Exact frozen feature order; moisture/frequency remain rule-only.
+            X = np.array([[heart_rate, temperature, spo2]], dtype=float)
+            ocsvm_score = float(model.decision_function(scaler.transform(X))[0])
+            ocsvm_result = "anomaly" if ocsvm_score < 0 else "normal"
+        except Exception:
+            ocsvm_result = "unavailable"
+            ocsvm_score = None
 
-    if ocsvm_result == -1:
+    if ocsvm_result == "anomaly":
         if not (is_suppressed_by_baseline(patient_id, "ocsvm_anomaly", None) or 
                 is_suppressed_by_baseline(patient_id, "multi_feature", None)):
             vitals_to_check = {
@@ -431,7 +457,9 @@ def predict(patient_id, heart_rate, temperature, spo2, moisture,
         "patient_id"  : patient_id,
         "status"      : status,
         "alerts"      : alerts,
-        "ocsvm_result": "anomaly" if ocsvm_result == -1 else "normal",
+        "ocsvm_result": ocsvm_result,
+        "ocsvm_label": -1 if ocsvm_result == "anomaly" else 1 if ocsvm_result == "normal" else None,
+        "ocsvm_score": ocsvm_score,
         "readings"    : {
             "heart_rate" : heart_rate,
             "temperature": temperature,

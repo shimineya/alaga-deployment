@@ -70,7 +70,9 @@ try:
             "success": True,
             "status": result.get('status', 'NORMAL'),
             "alerts": result.get('alerts', []),
-            "ocsvm_result": result.get('ocsvm_result', 'normal'),
+            "ocsvm_result": result.get('ocsvm_result', 'unavailable'),
+            "ocsvm_label": result.get('ocsvm_label'),
+            "ocsvm_score": result.get('ocsvm_score'),
             "patient_id": result.get('patient_id'),
             "readings": result.get('readings', {}),
             "timestamp": result.get('timestamp')

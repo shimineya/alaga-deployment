@@ -9,6 +9,22 @@ export interface AlertPreferences {
 const STORAGE_KEY = 'alaga_caregiver_prefs';
 
 let sharedAudioCtx: AudioContext | null = null;
+let hasUserInteracted = false;
+
+if (typeof window !== 'undefined') {
+  const markInteraction = () => {
+    hasUserInteracted = true;
+    if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {});
+    }
+    window.removeEventListener('click', markInteraction);
+    window.removeEventListener('touchstart', markInteraction);
+    window.removeEventListener('keydown', markInteraction);
+  };
+  window.addEventListener('click', markInteraction, { passive: true, capture: true });
+  window.addEventListener('touchstart', markInteraction, { passive: true, capture: true });
+  window.addEventListener('keydown', markInteraction, { passive: true, capture: true });
+}
 
 function getAudioContext(): AudioContext | null {
   try {
@@ -17,7 +33,7 @@ function getAudioContext(): AudioContext | null {
     if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
       sharedAudioCtx = new AudioCtx();
     }
-    if (sharedAudioCtx.state === 'suspended') {
+    if (sharedAudioCtx.state === 'suspended' && hasUserInteracted) {
       sharedAudioCtx.resume().catch(() => {});
     }
     return sharedAudioCtx;
@@ -27,6 +43,7 @@ function getAudioContext(): AudioContext | null {
 }
 
 export function unlockAudioContext(): void {
+  hasUserInteracted = true;
   const ctx = getAudioContext();
   if (ctx && ctx.state === 'suspended') {
     ctx.resume().catch(() => {});
@@ -54,12 +71,19 @@ export function playAlertTone(
   level: 'critical' | 'warning' = 'critical',
   overrideTone?: 'gentle' | 'high'
 ): void {
+  // If the browser hasn't registered a user gesture yet, avoid triggering autoplay & vibration intervention warnings
+  const userGestureActive = typeof navigator !== 'undefined' && (navigator as any).userActivation
+    ? Boolean((navigator as any).userActivation.hasBeenActive)
+    : hasUserInteracted;
+
+  if (!userGestureActive) return;
+
   const prefs = getAlertPreferences();
   const tone = overrideTone || prefs.alertTone;
   const vibrate = prefs.vibrationEnabled;
 
   const ctx = getAudioContext();
-  if (!ctx) return;
+  if (!ctx || ctx.state === 'suspended') return;
 
   try {
     const now = ctx.currentTime;
@@ -88,8 +112,12 @@ export function playAlertTone(
         osc.stop(start + 0.55);
       });
 
-      if (vibrate && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate([100, 60, 100]);
+      if (vibrate && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        try {
+          if (userGestureActive) {
+            navigator.vibrate([100, 60, 100]);
+          }
+        } catch (_) {}
       }
     } else {
       // High Urgency: Piercing, loud insistent pulse for noisy environments (880Hz, 1046.5Hz, 1318.5Hz)
@@ -115,8 +143,12 @@ export function playAlertTone(
         osc.stop(start + 0.16);
       });
 
-      if (vibrate && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate([250, 80, 250, 80, 250]);
+      if (vibrate && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        try {
+          if (userGestureActive) {
+            navigator.vibrate([250, 80, 250, 80, 250]);
+          }
+        } catch (_) {}
       }
     }
   } catch (err) {

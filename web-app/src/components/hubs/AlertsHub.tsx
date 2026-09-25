@@ -12,7 +12,7 @@ import { useAuth } from '../../lib/auth-context';
 import { AcknowledgeModal } from '../ui/AcknowledgeModal';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
-import { playAlertTone } from '../../lib/alert-sound';
+import { playAlertTone, unlockAudioContext } from '../../lib/alert-sound';
 import { useAlertSync } from '../../hooks/useAlertSync';
 
 interface ClinicalAlert {
@@ -79,8 +79,6 @@ const AlertsHub: React.FC = () => {
 
     const [isInactive, setIsInactive] = useState(false);
     const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-    const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
 
     const [ackModalOpen, setAckModalOpen] = useState(false);
     const [selectedAlert, setSelectedAlert] = useState<ClinicalAlert | null>(null);
@@ -233,32 +231,22 @@ const AlertsHub: React.FC = () => {
     };
 
     useEffect(() => {
-        const unlockAudio = () => {
-            if (audioContext && audioContext.state === 'suspended') {
-                audioContext.resume().catch(() => {});
-            }
+        const handleUnlock = () => {
+            unlockAudioContext();
         };
 
         window.addEventListener('mousemove', resetInactivity);
         window.addEventListener('keydown', resetInactivity);
-        window.addEventListener('click', unlockAudio);
-        window.addEventListener('touchstart', unlockAudio);
+        window.addEventListener('click', handleUnlock);
+        window.addEventListener('touchstart', handleUnlock);
         resetInactivity();
-        
-        try {
-            const actx = new (window.AudioContext || (window as any).webkitAudioContext)();
-            setAudioContext(actx);
-        } catch(e) {
-            console.log("AudioContext not supported immediately");
-        }
 
         return () => {
             window.removeEventListener('mousemove', resetInactivity);
             window.removeEventListener('keydown', resetInactivity);
-            window.removeEventListener('click', unlockAudio);
-            window.removeEventListener('touchstart', unlockAudio);
+            window.removeEventListener('click', handleUnlock);
+            window.removeEventListener('touchstart', handleUnlock);
             if (inactivityTimeoutRef.current) clearTimeout(inactivityTimeoutRef.current);
-            if (audioContext) audioContext.close();
             if (soundIntervalRef.current) clearInterval(soundIntervalRef.current);
         };
     }, []);
@@ -291,7 +279,7 @@ const AlertsHub: React.FC = () => {
                 soundIntervalRef.current = null;
             }
         };
-    }, [highestEmergency, isMuted, audioContext]);
+    }, [highestEmergency, isMuted]);
 
     const fetchAlerts = async () => {
         if (!token) return;

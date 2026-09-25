@@ -243,7 +243,8 @@ const sendOtpEmail = async ({ to, otp, purpose }) => {
           from: fromEmail,
           to: [to],
           subject: emailSubject,
-          html: emailHtml
+          html: emailHtml,
+          reply_to: process.env.RESEND_REPLY_TO || process.env.SMTP_USER || 'alagamonitoringsystem@gmail.com'
         });
         if (data && data.error) {
           throw new Error(data.error.message || JSON.stringify(data.error));

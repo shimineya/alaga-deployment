@@ -151,11 +151,14 @@ const sendFacilityInvitationEmail = async ({ to, facilityName, role, token, expi
                     resendFrom = 'Alaga Healthcare <onboarding@resend.dev>';
                 }
 
+                const replyTo = process.env.RESEND_REPLY_TO || process.env.SMTP_USER || 'alagamonitoringsystem@gmail.com';
+
                 const resendResult = await resend.emails.send({
                     from: resendFrom,
                     to: [to],
                     subject,
-                    html: htmlContent
+                    html: htmlContent,
+                    reply_to: replyTo
                 });
 
                 if (resendResult && resendResult.error) {

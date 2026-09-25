@@ -2,6 +2,8 @@ import sys
 import json
 import os
 import importlib.util
+import warnings
+warnings.filterwarnings('ignore')
 
 # ── Resolve path to 04_predict.py dynamically ──────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +38,14 @@ flag_as_normal = predict_module.flag_as_normal
 # ── Read input from Node.js ────────────────────────────────────────────────
 try:
     input_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
-    input_data = json.loads(input_str)
+    if input_str.startswith("{"):
+        input_data = json.loads(input_str)
+    else:
+        try:
+            import base64
+            input_data = json.loads(base64.b64decode(input_str).decode('utf-8'))
+        except Exception:
+            input_data = json.loads(input_str)
     action = input_data.get('action', 'predict')
 
     if action == 'predict':

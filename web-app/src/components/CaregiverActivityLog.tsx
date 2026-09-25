@@ -17,17 +17,38 @@ export const CaregiverActivityLog: React.FC<{ userId: number }> = ({ userId }) =
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        setLoading(true);
-        // Simulate API Fetch
-        setTimeout(() => {
-            setLogs([
-                { id: 1, action: "Viewed Vitals", details: "Checked Baby Althea's oxygen levels", timestamp: new Date().toISOString(), type: 'info' },
-                { id: 2, action: "Updated Profile", details: "Changed contact number", timestamp: new Date(Date.now() - 3600000).toISOString(), type: 'security' },
-                { id: 3, action: "Login", details: "Successful login from IP 192.168.1.5", timestamp: new Date(Date.now() - 7200000).toISOString(), type: 'info' },
-                { id: 4, action: "Dismissed Alert", details: "Acknowledged High Temp Alert for Patient #102", timestamp: new Date(Date.now() - 86400000).toISOString(), type: 'warning' },
-            ]);
-            setLoading(false);
-        }, 500);
+        let isMounted = true;
+        const fetchActivity = async () => {
+            setLoading(true);
+            try {
+                const token = localStorage.getItem('token');
+                const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+                const url = userId 
+                    ? `${apiBase}/api/user/profile/activity?userId=${userId}`
+                    : `${apiBase}/api/user/profile/activity`;
+                const res = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                if (isMounted && result.success && Array.isArray(result.data)) {
+                    const mapped: LogEntry[] = result.data.map((item: any) => ({
+                        id: item.log_id,
+                        action: item.action?.replace(/_/g, ' ') || 'System Action',
+                        details: item.details || item.resource_affected || 'General system activity',
+                        timestamp: item.timestamp,
+                        type: item.severity === 'CRITICAL' ? 'warning' : 'info'
+                    }));
+                    setLogs(mapped);
+                }
+            } catch (err) {
+                console.error('Failed to fetch activity logs:', err);
+            } finally {
+                if (isMounted) setLoading(false);
+            }
+        };
+
+        fetchActivity();
+        return () => { isMounted = false; };
     }, [userId]);
 
     const getIcon = (action: string) => {
@@ -49,6 +70,8 @@ export const CaregiverActivityLog: React.FC<{ userId: number }> = ({ userId }) =
                 <ScrollArea className="h-full pr-4">
                     {loading ? (
                         <div className="text-center py-8 text-xs text-slate-400">Loading history...</div>
+                    ) : logs.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-slate-400">No activity recorded yet.</div>
                     ) : (
                         <div className="relative border-l border-slate-200 ml-2 space-y-6 my-2">
                             {logs.map((log) => (

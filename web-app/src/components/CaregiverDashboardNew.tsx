@@ -22,6 +22,7 @@ import { CaregiverSettings } from './CaregiverSettings';
 import { CaregiverProfile } from './CaregiverProfile';
 import { CaregiverLanguageProvider } from '../lib/caregiver-language-context';
 import { playAlertTone } from '../lib/alert-sound';
+import { extractBirthdateString } from '../lib/dateUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -61,8 +62,18 @@ interface ScheduleItem {
     status: 'Pending' | 'Completed' | 'Missed';
 }
 
-
-
+export const COMMON_MEDICATIONS = [
+    'Paracetamol (500mg)',
+    'Amoxicillin (500mg)',
+    'Ibuprofen (200mg)',
+    'Salbutamol (2mg)',
+    'Cetirizine (10mg)',
+    'Multivitamins (Daily)',
+    'Cefalexin (500mg)',
+    'Mefenamic Acid (500mg)',
+    'Oral Rehydration Salts (ORS)',
+    'Other (Enter custom medication)'
+];
 
 export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     initialTab = 'dashboard',
@@ -159,6 +170,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
    
     const [eventType, setEventType] = useState('Medication Intake');
     const [customEvent, setCustomEvent] = useState('');
+    const [medicationChoice, setMedicationChoice] = useState('Paracetamol (500mg)');
+    const [customMedicationInput, setCustomMedicationInput] = useState('');
     const [isRecurring, setIsRecurring] = useState(false);
     const [recurrenceInterval, setRecurrenceInterval] = useState('Daily');
     const [scheduledDate, setScheduledDate] = useState('');
@@ -169,6 +182,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const [editPatientName, setEditPatientName] = useState('');
     const [editEventType, setEditEventType] = useState('Medication Intake');
     const [editCustomEvent, setEditCustomEvent] = useState('');
+    const [editMedicationChoice, setEditMedicationChoice] = useState('Paracetamol (500mg)');
+    const [editCustomMedicationInput, setEditCustomMedicationInput] = useState('');
     const [editIsRecurring, setEditIsRecurring] = useState(false);
     const [editRecurrenceInterval, setEditRecurrenceInterval] = useState('Daily');
     const [editScheduledDate, setEditScheduledDate] = useState('');
@@ -254,7 +269,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     return {
                         id: p.patient_id?.toString() || Math.random().toString(),
                         name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown',
-                        age: p.birthdate ? new Date().getFullYear() - new Date(p.birthdate).getFullYear() : 0,
+                        age: p.birthdate ? (new Date().getFullYear() - new Date(extractBirthdateString(p.birthdate)).getFullYear()) : 0,
+                        birthdate: p.birthdate ? extractBirthdateString(p.birthdate) : undefined,
                         gender: p.baseline_data?.gender || 'Unknown',
                         roomNumber: p.baseline_data?.room || 'Home',
                         condition: p.baseline_data?.condition || p.baseline_data?.diagnosis || 'Stable',
@@ -523,13 +539,26 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
 
 
+        let finalEventDetails = customEvent;
+        if (eventType === 'Medication Intake') {
+            if (medicationChoice === 'Other (Enter custom medication)') {
+                finalEventDetails = customMedicationInput.trim();
+            } else {
+                finalEventDetails = customEvent.trim() ? `${medicationChoice} - ${customEvent.trim()}` : medicationChoice;
+            }
+            if (!finalEventDetails) {
+                toast.error("Please enter the medication name or details");
+                return;
+            }
+        }
+
         const fullDateTime = `${scheduledDate}T${scheduledTime}:00`;
         try {
             await axios.post('/api/schedules', {
                 patient_id: selectedPatientId,
                 patient_name: patientName,
                 event_type: eventType,
-                custom_event_name: customEvent,
+                custom_event_name: finalEventDetails,
                 is_recurring: isRecurring,
                 recurrence_interval: isRecurring ? recurrenceInterval : null,
                 scheduled_at: fullDateTime,
@@ -542,6 +571,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             setPatientName('');
             setSelectedPatientId(null);
             setCustomEvent('');
+            setMedicationChoice('Paracetamol (500mg)');
+            setCustomMedicationInput('');
             setIsRecurring(false);
             setRecurrenceInterval('Daily');
             setScheduledDate('');
@@ -604,10 +635,25 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
         setEditingSchedule(item);
         setEditPatientName(item.patient_name);
         setEditEventType(item.event_type);
-        setEditCustomEvent(item.custom_event_name || '');
         setEditIsRecurring(item.is_recurring);
         setEditRecurrenceInterval(item.recurrence_interval || 'Daily');
         setEditStatus(item.status);
+
+        if (item.event_type === 'Medication Intake') {
+            const rawName = item.custom_event_name || '';
+            const matchedMed = COMMON_MEDICATIONS.find(m => m !== 'Other (Enter custom medication)' && rawName.startsWith(m));
+            if (matchedMed) {
+                setEditMedicationChoice(matchedMed);
+                setEditCustomEvent(rawName.replace(`${matchedMed} - `, '').replace(matchedMed, '').trim());
+                setEditCustomMedicationInput('');
+            } else {
+                setEditMedicationChoice('Other (Enter custom medication)');
+                setEditCustomMedicationInput(rawName);
+                setEditCustomEvent('');
+            }
+        } else {
+            setEditCustomEvent(item.custom_event_name || '');
+        }
 
         if (item.scheduled_at) {
             const dateObj = new Date(item.scheduled_at);
@@ -634,12 +680,21 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             return;
         }
 
+        let finalEditDetails = editCustomEvent;
+        if (editEventType === 'Medication Intake') {
+            if (editMedicationChoice === 'Other (Enter custom medication)') {
+                finalEditDetails = editCustomMedicationInput.trim();
+            } else {
+                finalEditDetails = editCustomEvent.trim() ? `${editMedicationChoice} - ${editCustomEvent.trim()}` : editMedicationChoice;
+            }
+        }
+
         const fullDateTime = `${editScheduledDate}T${editScheduledTime}:00`;
         try {
             await axios.put(`/api/schedules/${targetId}`, {
                 patient_name: editPatientName,
                 event_type: editEventType,
-                custom_event_name: editCustomEvent,
+                custom_event_name: finalEditDetails,
                 is_recurring: editIsRecurring,
                 recurrence_interval: editIsRecurring ? editRecurrenceInterval : null,
                 scheduled_at: fullDateTime,
@@ -1239,7 +1294,12 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                 {!hideNavigation && (
                     <DashboardSidebar
                         activeItem={activeNavItem}
-                        onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
+                        onItemClick={(item) => {
+                            setActiveNavItem(item);
+                            setDetailView('list');
+                            setViewMode('dashboard');
+                            setSelectedPatient(null);
+                        }}
                         userRole="caregiver"
                     />
                 )}
@@ -1286,7 +1346,12 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     {!hideNavigation && (
                         <MobileBottomNav
                             activeItem={activeNavItem}
-                            onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
+                            onItemClick={(item) => {
+                                setActiveNavItem(item);
+                                setDetailView('list');
+                                setViewMode('dashboard');
+                                setSelectedPatient(null);
+                            }}
                             onOpenDrawer={() => setIsMobileDrawerOpen(true)}
                             onOpenCalendar={() => setIsCalendarModalOpen(true)}
                             alertsCount={alerts.filter(a => !a.acknowledged).length}
@@ -1299,7 +1364,12 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                             isOpen={isMobileDrawerOpen}
                             onClose={() => setIsMobileDrawerOpen(false)}
                             activeItem={activeNavItem}
-                            onItemClick={(item) => { setActiveNavItem(item); setDetailView('list'); }}
+                            onItemClick={(item) => {
+                                setActiveNavItem(item);
+                                setDetailView('list');
+                                setViewMode('dashboard');
+                                setSelectedPatient(null);
+                            }}
                             userRole="caregiver"
                         />
                     )}
@@ -1444,16 +1514,58 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 </select>
                             </div>
 
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-slate-700">Specification of Care Task (Optional)</label>
-                                <input
-                                    type="text"
-                                    value={editCustomEvent}
-                                    onChange={(e) => setEditCustomEvent(e.target.value)}
-                                    placeholder="e.g., Medicine details or instructions"
-                                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
-                                />
-                            </div>
+                            {editEventType === 'Medication Intake' ? (
+                                <div className="space-y-3">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-700">Medication *</label>
+                                        <select
+                                            value={editMedicationChoice}
+                                            onChange={(e) => setEditMedicationChoice(e.target.value)}
+                                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-teal-500"
+                                        >
+                                            {COMMON_MEDICATIONS.map(m => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {editMedicationChoice === 'Other (Enter custom medication)' ? (
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-semibold text-slate-700">Custom Medication Name & Dosage *</label>
+                                            <input
+                                                type="text"
+                                                value={editCustomMedicationInput}
+                                                onChange={(e) => setEditCustomMedicationInput(e.target.value)}
+                                                placeholder="e.g., Losartan 50mg, Omeprazole 20mg"
+                                                required
+                                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-semibold text-slate-700">Dosage Notes / Instructions (Optional)</label>
+                                            <input
+                                                type="text"
+                                                value={editCustomEvent}
+                                                onChange={(e) => setEditCustomEvent(e.target.value)}
+                                                placeholder="e.g., 1 tablet after meals"
+                                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-700">Specification of Care Task (Optional)</label>
+                                    <input
+                                        type="text"
+                                        value={editCustomEvent}
+                                        onChange={(e) => setEditCustomEvent(e.target.value)}
+                                        placeholder="e.g., Medicine details or instructions"
+                                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                                    />
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
@@ -1606,16 +1718,59 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 </select>
                             </div>
 
+                            {eventType === 'Medication Intake' ? (
+                                <div className="space-y-3">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-700">Medication *</label>
+                                        <select
+                                            value={medicationChoice}
+                                            onChange={(e) => setMedicationChoice(e.target.value)}
+                                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-teal-500"
+                                        >
+                                            {COMMON_MEDICATIONS.map(m => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))}
+                                        </select>
+                                    </div>
 
-
-
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-slate-700">Task Details / Description *</label>
-                                <input type="text" value={customEvent} onChange={(e) => setCustomEvent(e.target.value)} placeholder={getDetailsPlaceholder()} required className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500" />
-                            </div>
-
-
-
+                                    {medicationChoice === 'Other (Enter custom medication)' ? (
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-semibold text-slate-700">Custom Medication Name & Dosage *</label>
+                                            <input
+                                                type="text"
+                                                value={customMedicationInput}
+                                                onChange={(e) => setCustomMedicationInput(e.target.value)}
+                                                placeholder="e.g., Losartan 50mg, Omeprazole 20mg"
+                                                required
+                                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-semibold text-slate-700">Dosage Notes / Instructions (Optional)</label>
+                                            <input
+                                                type="text"
+                                                value={customEvent}
+                                                onChange={(e) => setCustomEvent(e.target.value)}
+                                                placeholder="e.g., 1 tablet after breakfast"
+                                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-700">Task Details / Description *</label>
+                                    <input
+                                        type="text"
+                                        value={customEvent}
+                                        onChange={(e) => setCustomEvent(e.target.value)}
+                                        placeholder={getDetailsPlaceholder()}
+                                        required
+                                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                                    />
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">

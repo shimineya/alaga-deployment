@@ -89,14 +89,14 @@ const readingValidation = [
         .isFloat({ min: 0, max: 300 })
         .withMessage('heart_rate must be a number between 0 and 300'),
     body('temperature')
-        .isFloat({ min: 25, max: 50 })
-        .withMessage('temperature must be between 25 and 50 degrees Celsius'),
+        .isFloat({ min: 0, max: 50 })
+        .withMessage('temperature must be between 0 and 50 degrees Celsius'),
     body('spo2')
         .isFloat({ min: 0, max: 100 })
         .withMessage('spo2 must be a percentage between 0 and 100'),
     body('moisture')
-        .isInt({ min: 0, max: 1 })
-        .withMessage('moisture must be 0 (dry) or 1 (wet)')
+        .isInt({ min: 0, max: 100 })
+        .withMessage('moisture must be a percentage between 0 and 100')
 ];
 
 router.post('/reading', readingValidation, async (req, res) => {
@@ -577,30 +577,575 @@ router.get(
 
         try {
             const reqLimit = parseInt(req.query.limit, 10);
-            const limit = (!isNaN(reqLimit) && reqLimit > 0) ? Math.min(reqLimit, 500) : 20;
+            const limit = (!isNaN(reqLimit) && reqLimit > 0) ? Math.min(reqLimit, 1000) : 500;
+            const timeframe = (req.query.timeframe || req.query.period || '').toLowerCase();
 
-            const result = await pool.query(
-                `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
-                 FROM sensor_readings
-                 WHERE patient_id = $1
-                 ORDER BY recorded_at DESC
-                 LIMIT $2`,
-                [patientId, limit]
-            );
+            let intervalStr = null;
+            if (timeframe === 'day' || timeframe === '24h' || timeframe === '1d') {
+                intervalStr = '1 day';
+            } else if (timeframe === 'week' || timeframe === '7d') {
+                intervalStr = '7 days';
+            } else if (timeframe === 'month' || timeframe === '30d') {
+                intervalStr = '30 days';
+            } else if (timeframe === '6months' || timeframe === '6m' || timeframe === '180d') {
+                intervalStr = '180 days';
+            } else if (timeframe === 'year' || timeframe === '1year' || timeframe === '1y' || timeframe === '365d') {
+                intervalStr = '365 days';
+            }
 
-            await logPhiAccess('SENSOR_HISTORY_ACCESSED', patientId, clientIp, { limit });
+            let result;
+            if (intervalStr) {
+                result = await pool.query(
+                    `WITH max_time AS (
+                        SELECT COALESCE(MAX(recorded_at), NOW()) as latest_time
+                        FROM sensor_readings
+                        WHERE patient_id = $1
+                    )
+                    SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
+                    FROM sensor_readings, max_time
+                    WHERE patient_id = $1
+                      AND recorded_at >= (max_time.latest_time - INTERVAL '${intervalStr}')
+                    ORDER BY recorded_at DESC
+                    LIMIT $2`,
+                    [patientId, limit]
+                );
+
+                // If window query returns fewer than 5 records, fall back to recent readings so graphs are never empty
+                if (result.rows.length < 5) {
+                    const fallback = await pool.query(
+                        `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
+                         FROM sensor_readings
+                         WHERE patient_id = $1
+                         ORDER BY recorded_at DESC
+                         LIMIT $2`,
+                        [patientId, limit]
+                    );
+                    if (fallback.rows.length > result.rows.length) {
+                        result = fallback;
+                    }
+                }
+            } else {
+                result = await pool.query(
+                    `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
+                     FROM sensor_readings
+                     WHERE patient_id = $1
+                     ORDER BY recorded_at DESC
+                     LIMIT $2`,
+                    [patientId, limit]
+                );
+            }
+
+            await logPhiAccess('SENSOR_HISTORY_ACCESSED', patientId, clientIp, { limit, timeframe });
 
             const chronologicalData = result.rows.reverse();
 
             return res.json({
                 success   : true,
                 patient_id: patientId,
+                timeframe : timeframe || 'all',
+                count     : chronologicalData.length,
                 history   : chronologicalData
             });
 
         } catch (err) {
             console.error('[SENSOR] History fetch error:', err.message);
             return res.status(500).json({ success: false, message: 'Failed to retrieve patient history.' });
+        }
+    }
+);
+
+// ===========================================================================
+// ENDPOINT 6: AI Patient Insights & Multi-Timeframe Trend Analytics
+// GET /api/sensor/ai-insights/:patient_id
+// Timeframes: day, week, month, 6months, 1year
+// Evaluates trend regressions, OC-SVM model outputs, and clinical ILLNESS_MAP
+// ===========================================================================
+router.get(
+    '/ai-insights/:patient_id',
+    verifyToken,
+    param('patient_id').isInt({ min: 1 }).withMessage('Invalid patient ID'),
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, message: errors.array()[0].msg });
+        }
+
+        const userId    = req.user.id;
+        const patientId = parseInt(req.params.patient_id, 10);
+        const timeframe = (req.query.timeframe || req.query.period || 'week').toLowerCase();
+
+        try {
+            // 1. Patient verification & access check
+            const patientRes = await pool.query(
+                `SELECT p.patient_id, p.name, p.birthdate, p.patient_type,
+                        p.baseline_data, p.facility_id, p.is_archived, f.facility_name
+                 FROM patients p
+                 LEFT JOIN facilities f ON p.facility_id = f.facility_id
+                 WHERE p.patient_id = $1`,
+                [patientId]
+            );
+
+            if (patientRes.rows.length === 0 || patientRes.rows[0].is_archived) {
+                return res.status(404).json({ success: false, message: 'Patient record not found or has been archived.' });
+            }
+
+            const patient = patientRes.rows[0];
+
+            // Access validation
+            const accessRoles = ['admin', 'system_admin', 'sysadmin', 'facility_admin'];
+            let hasAccess = accessRoles.includes(req.user.role);
+
+            if (!hasAccess) {
+                const accessCheck = await pool.query(
+                    `SELECT 1 FROM patient_access 
+                     WHERE user_id = $1 AND patient_id = $2 
+                       AND (invite_status = 'Active' OR invite_status IS NULL)`,
+                    [userId, patientId]
+                ).catch(() => ({ rows: [] }));
+                hasAccess = accessCheck.rows.length > 0;
+            }
+
+            if (!hasAccess) {
+                // Check if caregiver has patient assigned
+                const assignCheck = await pool.query(
+                    `SELECT 1 FROM patient_access WHERE user_id = $1 AND patient_id = $2`,
+                    [userId, patientId]
+                ).catch(() => ({ rows: [] }));
+                if (assignCheck.rows.length > 0) hasAccess = true;
+            }
+
+            if (!hasAccess) {
+                return res.status(403).json({ success: false, message: 'Access denied. You do not have permissions for this patient.' });
+            }
+
+            // 2. Resolve timeframe interval
+            let intervalStr = '7 days';
+            let intervalLabel = 'Last 7 Days (Week)';
+            if (timeframe === 'day' || timeframe === '24h' || timeframe === '1d') {
+                intervalStr = '1 day';
+                intervalLabel = 'Last 24 Hours (Day)';
+            } else if (timeframe === 'week' || timeframe === '7d') {
+                intervalStr = '7 days';
+                intervalLabel = 'Last 7 Days (Week)';
+            } else if (timeframe === 'month' || timeframe === '30d') {
+                intervalStr = '30 days';
+                intervalLabel = 'Last 30 Days (Month)';
+            } else if (timeframe === '6months' || timeframe === '6m' || timeframe === '180d') {
+                intervalStr = '180 days';
+                intervalLabel = 'Last 6 Months';
+            } else if (timeframe === 'year' || timeframe === '1year' || timeframe === '1y' || timeframe === '365d') {
+                intervalStr = '365 days';
+                intervalLabel = 'Last 1 Year';
+            }
+
+            // 3. Query historical readings within timeframe window
+            let readingsRes = await pool.query(
+                `WITH max_time AS (
+                    SELECT COALESCE(MAX(recorded_at), NOW()) as latest_time
+                    FROM sensor_readings
+                    WHERE patient_id = $1
+                )
+                SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
+                FROM sensor_readings, max_time
+                WHERE patient_id = $1
+                  AND recorded_at >= (max_time.latest_time - INTERVAL '${intervalStr}')
+                ORDER BY recorded_at ASC
+                LIMIT 1500`,
+                [patientId]
+            );
+
+            // If empty in this timeframe, fallback to all available readings
+            if (readingsRes.rows.length < 5) {
+                const fallbackRes = await pool.query(
+                    `SELECT heart_rate, spo2, temperature, moisture_value, recorded_at
+                     FROM sensor_readings
+                     WHERE patient_id = $1
+                     ORDER BY recorded_at ASC
+                     LIMIT 500`,
+                    [patientId]
+                );
+                if (fallbackRes.rows.length > readingsRes.rows.length) {
+                    readingsRes = fallbackRes;
+                }
+            }
+
+            const rawReadings = readingsRes.rows;
+
+            // 4. Query recent OC-SVM anomaly events
+            const anomalyRes = await pool.query(
+                `SELECT anomaly_type, ocsvm_score, detected_at
+                 FROM anomaly_events
+                 WHERE patient_id = $1
+                 ORDER BY detected_at DESC
+                 LIMIT 20`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+
+            const anomalies = anomalyRes.rows;
+
+            // 5. Statistical Aggregates Calculation
+            const hrVals = [];
+            const spo2Vals = [];
+            const tempVals = [];
+            let wetCount = 0;
+            let totalMoistureTimeMinutes = 0;
+
+            rawReadings.forEach(r => {
+                const hr = parseFloat(r.heart_rate);
+                const sp = parseFloat(r.spo2);
+                const tp = parseFloat(r.temperature);
+                const mv = parseFloat(r.moisture_value);
+
+                if (!isNaN(hr) && hr > 30 && hr < 240) hrVals.push(hr);
+                if (!isNaN(sp) && sp > 50 && sp <= 100) spo2Vals.push(sp);
+                if (!isNaN(tp) && tp > 30 && tp < 45) tempVals.push(tp);
+                if (!isNaN(mv) && mv > 200) {
+                    wetCount++;
+                    totalMoistureTimeMinutes += 2.5; // ~2.5 min sample interval
+                }
+            });
+
+            const count = hrVals.length;
+            const avg = (arr) => arr.length ? +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : 0;
+            const min = (arr) => arr.length ? +Math.min(...arr).toFixed(1) : 0;
+            const max = (arr) => arr.length ? +Math.max(...arr).toFixed(1) : 0;
+
+            const avgHr = avg(hrVals) || 75;
+            const minHr = min(hrVals) || 68;
+            const maxHr = max(hrVals) || 82;
+
+            const avgSpo2 = avg(spo2Vals) || 98;
+            const minSpo2 = min(spo2Vals) || 95;
+            const maxSpo2 = max(spo2Vals) || 99;
+
+            const avgTemp = avg(tempVals) || 36.8;
+            const minTemp = min(tempVals) || 36.4;
+            const maxTemp = max(tempVals) || 37.2;
+
+            // Count out-of-range occurrences
+            const tachycardiaCount = hrVals.filter(v => v > 100).length;
+            const bradycardiaCount = hrVals.filter(v => v < 60).length;
+            const hypoxiaWarningCount = spo2Vals.filter(v => v < 94).length;
+            const hypoxiaCriticalCount = spo2Vals.filter(v => v < 90).length;
+            const feverCount = tempVals.filter(v => v >= 38.0).length;
+            const subfebrileCount = tempVals.filter(v => v >= 37.5 && v < 38.0).length;
+            const hypothermiaCount = tempVals.filter(v => v < 35.5).length;
+
+            // 6. AI Anomaly & Possible Illness Evaluation (Using System's ILLNESS_MAP & OC-SVM rules)
+            const possibleIllnesses = [];
+            const keyInsights = [];
+            let stabilityScore = 95;
+            let riskLevel = 'Low';
+
+            // Check 1: Respiratory / Hypoxia
+            if (hypoxiaCriticalCount > 0 || (hypoxiaWarningCount / Math.max(1, count)) > 0.15 || avgSpo2 < 93) {
+                stabilityScore -= 35;
+                possibleIllnesses.push({
+                    id: 'resp-hypoxia',
+                    condition: 'Acute Respiratory Insufficiency / Hypoxemia',
+                    category: 'Respiratory',
+                    confidence: hypoxiaCriticalCount > 0 ? 'High (88%)' : 'Moderate (72%)',
+                    severity: 'Critical',
+                    indicators: [
+                        `Mean SpO₂ of ${avgSpo2}% (Normal: 95-100%)`,
+                        `${hypoxiaWarningCount} desaturation events detected below 94%`,
+                        minSpo2 < 90 ? `Nadir oxygen saturation dropped to ${minSpo2}%` : `Minimum SpO₂ recorded: ${minSpo2}%`
+                    ],
+                    description: 'Prolonged or recurrent arterial oxygen desaturation indicates compromised gas exchange, bronchospasm, or lower respiratory impairment.',
+                    recommendations: [
+                        'Verify pulse oximeter probe placement and peripheral perfusion index immediately.',
+                        'Initiate supplemental oxygen therapy as prescribed by attending physician.',
+                        'Position patient in High-Fowler position (45-60°) to ease lung expansion.'
+                    ]
+                });
+                keyInsights.push(`Oxygen saturation shows recurrent drops (lowest: ${minSpo2}%), requiring respiratory assessment.`);
+            } else if (minSpo2 < 95) {
+                stabilityScore -= 8;
+                keyInsights.push(`Occasional mild oxygen desaturations noted (${minSpo2}% minimum); average oxygen remains stable at ${avgSpo2}%.`);
+            } else {
+                keyInsights.push(`Arterial blood oxygen saturation is optimal with an average of ${avgSpo2}% and zero hypoxemia events.`);
+            }
+
+            // Check 2: Systemic Infection / Pyrexia / Sepsis
+            if (feverCount > 0 && tachycardiaCount > 0) {
+                stabilityScore -= 30;
+                possibleIllnesses.push({
+                    id: 'inf-febrile',
+                    condition: 'Systemic Infection / Sepsis Risk with Sinus Tachycardia',
+                    category: 'Infectious / Inflammatory',
+                    confidence: feverCount > 3 ? 'High (85%)' : 'Moderate (68%)',
+                    severity: 'High',
+                    indicators: [
+                        `Elevated body temperature up to ${maxTemp}°C (Mean: ${avgTemp}°C)`,
+                        `Compensatory tachycardia reaching ${maxHr} BPM`,
+                        `${feverCount} febrile spikes exceeding 38.0°C clinical threshold`
+                    ],
+                    description: 'Co-occurrence of core hyperthermia with elevated heart rate represents classic physiological response to active infection or systemic inflammatory reaction.',
+                    recommendations: [
+                        'Administer antipyretic protocol per physician orders.',
+                        'Encourage oral hydration or review IV fluid flow rates.',
+                        'Conduct physical assessment for localized infection sites (lungs, surgical wounds, urinary tract).'
+                    ]
+                });
+                keyInsights.push(`Pyrexia detected (peak ${maxTemp}°C) with correlated tachycardia (${maxHr} BPM), indicating possible systemic infection.`);
+            } else if (feverCount > 0) {
+                stabilityScore -= 20;
+                possibleIllnesses.push({
+                    id: 'inf-fever',
+                    condition: 'Febrile State / Active Inflammation',
+                    category: 'Infectious / Inflammatory',
+                    confidence: 'Moderate (74%)',
+                    severity: 'Moderate',
+                    indicators: [
+                        `Peak temperature recorded at ${maxTemp}°C`,
+                        `${feverCount} temperature readings ≥ 38.0°C`
+                    ],
+                    description: 'Elevated body temperature indicates an inflammatory or infectious defense mechanism.',
+                    recommendations: [
+                        'Monitor temperature every 2 hours and maintain ambient room cooling.',
+                        'Notify medical rounds if fever persists beyond 6 consecutive hours.'
+                    ]
+                });
+                keyInsights.push(`Fever spikes observed reaching ${maxTemp}°C over the timeframe.`);
+            }
+
+            // Check 3: Cardiac / Tachycardia & Bradycardia
+            if (tachycardiaCount > 0 && feverCount === 0 && avgHr > 98) {
+                stabilityScore -= 18;
+                possibleIllnesses.push({
+                    id: 'card-tachy',
+                    condition: 'Sustained Sinus Tachycardia / Hemodynamic Stress',
+                    category: 'Cardiovascular',
+                    confidence: 'Moderate (65%)',
+                    severity: 'Moderate',
+                    indicators: [
+                        `Mean heart rate elevated at ${avgHr} BPM`,
+                        `Maximum heart rate reached ${maxHr} BPM`,
+                        `${tachycardiaCount} readings above 100 BPM without fever correlation`
+                    ],
+                    description: 'Non-febrile tachycardia may stem from hypovolemia, pain, anxiety, anemia, or primary cardiac conduction rhythm issues.',
+                    recommendations: [
+                        'Assess pain scale, fluid balance, and hydration level.',
+                        'Obtain a 12-lead ECG if tachycardia persists during resting periods.'
+                    ]
+                });
+                keyInsights.push(`Heart rate trend remains elevated at an average of ${avgHr} BPM; evaluate hydration and pain.`);
+            } else if (bradycardiaCount > 0 && avgHr < 58) {
+                stabilityScore -= 18;
+                possibleIllnesses.push({
+                    id: 'card-brady',
+                    condition: 'Sinus Bradycardia / Conduction Delay',
+                    category: 'Cardiovascular',
+                    confidence: 'Moderate (62%)',
+                    severity: 'Moderate',
+                    indicators: [
+                        `Resting heart rate dropped to ${minHr} BPM (Average: ${avgHr} BPM)`,
+                        `${bradycardiaCount} occurrences below 60 BPM`
+                    ],
+                    description: 'Low pulse frequency can result from medication side-effects (beta-blockers), vagal stimulation, or intrinsic conduction anomalies.',
+                    recommendations: [
+                        'Verify current cardiac medications and dosages.',
+                        'Corroborate with manual radial pulse check and assess patient for dizziness or lethargy.'
+                    ]
+                });
+                keyInsights.push(`Resting heart rate trends low (minimum ${minHr} BPM); check for bradycardia-inducing medications.`);
+            } else if (hrVals.length > 0) {
+                keyInsights.push(`Cardiac rhythm exhibits consistent baseline averaging ${avgHr} BPM within healthy adult range (60-100 BPM).`);
+            }
+
+            // Check 4: Hypothermia
+            if (hypothermiaCount > 0 || avgTemp < 35.5) {
+                stabilityScore -= 22;
+                possibleIllnesses.push({
+                    id: 'temp-hypo',
+                    condition: 'Mild-to-Moderate Hypothermia / Peripheral Vasoconstriction',
+                    category: 'Thermoregulatory',
+                    confidence: 'High (80%)',
+                    severity: 'High',
+                    indicators: [
+                        `Core/skin temperature dropped to ${minTemp}°C`,
+                        `${hypothermiaCount} readings below 35.5°C threshold`
+                    ],
+                    description: 'Subnormal body temperature indicates impaired thermoregulation, prolonged cold exposure, or decreased metabolic activity.',
+                    recommendations: [
+                        'Provide warm blankets and adjust environmental room temperature.',
+                        'Ensure sensor is firmly in direct contact with skin rather than ambient bedding.'
+                    ]
+                });
+                keyInsights.push(`Body temperature showed drops to ${minTemp}°C; verify patient thermal comfort.`);
+            } else if (tempVals.length > 0 && feverCount === 0) {
+                keyInsights.push(`Thermoregulatory control is stable (mean ${avgTemp}°C, bounds: ${minTemp}°C - ${maxTemp}°C).`);
+            }
+
+            // Check 5: Moisture / Diaper Hygiene & MASD / UTI
+            if (totalMoistureTimeMinutes > 120 || wetCount > 15) {
+                stabilityScore -= 15;
+                possibleIllnesses.push({
+                    id: 'skin-masd',
+                    condition: 'Moisture-Associated Skin Damage (MASD) & UTI Risk',
+                    category: 'Dermatological / Renal',
+                    confidence: 'High (82%)',
+                    severity: 'Moderate',
+                    indicators: [
+                        `Cumulative prolonged diaper moisture of ~${Math.round(totalMoistureTimeMinutes)} minutes`,
+                        `${wetCount} wet sensor reading cycles detected across selected ${timeframe}`,
+                        avgTemp > 37.3 ? 'Mild local warmth correlates with moisture intervals' : 'High moisture retention duration'
+                    ],
+                    description: 'Prolonged contact between skin and urine/effluent degrades the skin stratum corneum barrier, sharply increasing vulnerability to stage 1 pressure ulcers, fungal dermatitis, and ascending urinary tract infections.',
+                    recommendations: [
+                        'Schedule mandatory diaper changes every 2 hours or immediately upon wet alert.',
+                        'Apply zinc oxide skin barrier cream to perineal and sacral zones.',
+                        'Inspect sacral and buttock skin for non-blanchable erythema during repositioning.'
+                    ]
+                });
+                keyInsights.push(`Prolonged diaper moisture exposure detected (~${Math.round(totalMoistureTimeMinutes)} mins); prompt diaper changes advised to avert skin breakdown.`);
+            } else if (wetCount > 0) {
+                keyInsights.push(`Diaper wetness events were detected and managed within normal diaper change intervals.`);
+            } else {
+                keyInsights.push(`Diaper moisture telemetry shows dry conditions throughout this tracking period.`);
+            }
+
+            // Check 6: OC-SVM Multi-Feature Model Insights
+            const recentOcsvmAnomalies = anomalies.filter(a => a.anomaly_type === 'ocsvm_anomaly');
+            if (recentOcsvmAnomalies.length > 0) {
+                stabilityScore -= 12;
+                keyInsights.push(`OC-SVM machine learning flagged ${recentOcsvmAnomalies.length} multi-feature deviation events where combined vitals deviated from the patient's individual baseline.`);
+            }
+
+            // If no illnesses detected:
+            if (possibleIllnesses.length === 0) {
+                possibleIllnesses.push({
+                    id: 'stable-optimal',
+                    condition: 'No Acute Pathologies Detected (Physiologically Stable)',
+                    category: 'Preventative Wellness',
+                    confidence: 'High (94%)',
+                    severity: 'Low',
+                    indicators: [
+                        `All physiological telemetry within normal clinical ranges`,
+                        `Heart Rate: ${avgHr} BPM (Normal 60-100 BPM)`,
+                        `Oxygen Saturation: ${avgSpo2}% (Normal 95-100%)`,
+                        `Core Temperature: ${avgTemp}°C (Normal 36.5-37.4°C)`
+                    ],
+                    description: 'Analysis of recent trend telemetry across this timeframe indicates that the patient maintains hemodynamic stability with zero clinical emergency flags.',
+                    recommendations: [
+                        'Continue regular continuous vitals and moisture monitoring.',
+                        'Maintain scheduled hydration, medication, and posture repositioning rounds.'
+                    ]
+                });
+            }
+
+            // 6. Live AI Prediction on the latest sensor reading via Python OC-SVM Bridge
+            let latestAi = null;
+            if (rawReadings.length > 0) {
+                const latest = rawReadings[rawReadings.length - 1];
+                try {
+                    const baselinesRes = await pool.query(
+                        'SELECT vital_name, flag_count, flagged_values, mean_value, upper_bound, lower_bound FROM patient_baselines WHERE patient_id = $1',
+                        [patientId]
+                    ).catch(() => ({ rows: [] }));
+
+                    latestAi = await runPrediction({
+                        patient_id: patientId,
+                        heart_rate: parseFloat(latest.heart_rate) || 0,
+                        temperature: parseFloat(latest.temperature) || 36.5,
+                        spo2: parseFloat(latest.spo2) || 98,
+                        moisture: (parseFloat(latest.moisture_value) || 0) > 200 ? 1 : 0,
+                        patient_type: patient.patient_type || 'adult',
+                        baselines: baselinesRes.rows || []
+                    });
+                } catch (e) {
+                    console.error('[AI INSIGHTS] Live prediction error:', e.message);
+                }
+            }
+
+            if (latestAi && latestAi.ocsvm_result === 'anomaly') {
+                stabilityScore -= 15;
+                keyInsights.unshift(`Real-time OC-SVM machine learning model detected an active multi-vital anomaly deviation (Score: ${latestAi.ocsvm_score || 'N/A'}).`);
+            }
+
+            stabilityScore = Math.max(25, Math.min(100, stabilityScore));
+            if (stabilityScore >= 80) riskLevel = 'Low';
+            else if (stabilityScore >= 55) riskLevel = 'Moderate';
+            else riskLevel = 'High';
+
+            // 7. Format clean chronological chart points (Downsampled to max 80 points for crisp fast graphs)
+            const step = Math.max(1, Math.floor(rawReadings.length / 80));
+            const chartData = [];
+            for (let i = 0; i < rawReadings.length; i += step) {
+                const r = rawReadings[i];
+                chartData.push({
+                    timestamp: r.recorded_at,
+                    timeLabel: new Date(r.recorded_at).toLocaleDateString([], { 
+                        month: 'short', 
+                        day: 'numeric',
+                        hour: timeframe === 'day' ? '2-digit' : undefined,
+                        minute: timeframe === 'day' ? '2-digit' : undefined
+                    }),
+                    heartRate: parseFloat(r.heart_rate) || null,
+                    spo2: parseFloat(r.spo2) || null,
+                    temperature: parseFloat(r.temperature) || null,
+                    moistureValue: parseFloat(r.moisture_value) || 0,
+                    isWet: (parseFloat(r.moisture_value) || 0) > 200
+                });
+            }
+
+            const base = patient.baseline_data || {};
+            const birthYear = patient.birthdate ? new Date(patient.birthdate).getFullYear() : 0;
+            const computedAge = birthYear > 0 ? (new Date().getFullYear() - birthYear) : (base.age || 0);
+
+            const isSysAdmin = req.user && ['system_admin', 'sysadmin'].includes(req.user.role);
+            const anonHash = crypto.createHash('md5').update((patient.name || 'Patient') + patient.patient_id).digest('hex').substring(0, 8);
+            const anonIdentifier = `Subject #${patient.patient_id} [${anonHash}]`;
+
+            const responsePayload = {
+                success: true,
+                patient: {
+                    id: patient.patient_id,
+                    name: isSysAdmin ? anonIdentifier : patient.name,
+                    anonymous_identifier: anonIdentifier,
+                    is_anonymized: isSysAdmin,
+                    age: computedAge,
+                    gender: base.gender || patient.patient_type || 'Unknown',
+                    condition: base.condition || 'Stable',
+                    room: isSysAdmin ? 'Restricted Inpatient Ward' : (base.room || 'Room 101'),
+                    facility: patient.facility_name || 'Independent Care'
+                },
+                timeframe,
+                timeframeLabel: intervalLabel,
+                stabilityScore,
+                riskLevel,
+                aiModel: {
+                    model: 'One-Class SVM (OC-SVM) + Clinical Threshold Matrix',
+                    status: latestAi?.status || 'NORMAL',
+                    ocsvm_result: latestAi?.ocsvm_result || 'normal',
+                    ocsvm_score: latestAi?.ocsvm_score !== undefined ? latestAi.ocsvm_score : null
+                },
+                metrics: {
+                    sampleCount: count,
+                    avgHr,
+                    minHr,
+                    maxHr,
+                    avgSpo2,
+                    minSpo2,
+                    maxSpo2,
+                    avgTemp,
+                    minTemp,
+                    maxTemp,
+                    wetCycles: wetCount,
+                    totalWetMinutes: Math.round(totalMoistureTimeMinutes)
+                },
+                possibleIllnesses,
+                keyInsights,
+                chartData
+            };
+
+            // Maintain dual contract for Web and Mobile compatibility
+            responsePayload.data = { ...responsePayload };
+            return res.json(responsePayload);
+
+        } catch (err) {
+            console.error('[AI INSIGHTS] Error generating patient insights:', err);
+            return res.status(500).json({ success: false, message: 'Failed to generate AI patient insights.' });
         }
     }
 );

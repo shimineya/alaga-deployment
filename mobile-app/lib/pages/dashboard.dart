@@ -21,6 +21,7 @@ import 'profile.dart';
 import 'notification.dart';
 import 'medicationtracker.dart';
 import 'ai_insights.dart';
+import '../widgets/patient_profile_modal.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int initialIndex;
@@ -242,12 +243,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                       const UserManagementScreen(), false),
                   _drawerItem('deviceM', 'Device Management',
                       const DeviceManagementScreen(), false),
-                  _drawerItem('report', 'AI Insights (OC-SVM)',
-                      const AiInsightsScreen(), false),
                   _drawerItem('medicine', 'Medication Tracker',
                       const MedicationTrackerScreen(), false),
                   _drawerItem(
                       'report', 'Reports', const ReportsScreen(), false),
+                  _drawerItem(
+                      'vital', 'AI Insights', const AiInsightsScreen(), false),
                   _drawerItem(
                       'profile', 'Profile', const ProfileScreen(), false,
                       onReturn: () => setState(() {})),
@@ -720,7 +721,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ─────────────────────────────────────────────────────────
   Widget _buildAppointmentBanner() {
     final now = DateTime.now();
-    final todayKey = DateFormat('yyyy-MM-dd').format(now);
     final missedCutoff = now.subtract(const Duration(minutes: 5));
     final missed = _events.values.expand((day) => day).where((event) {
       final at = DateTime.tryParse(event['scheduledAt'] ?? '');
@@ -1995,7 +1995,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     final telemetry = patient['latest_telemetry'] ?? {};
     final bool isDeviceActive = patient['device_status'] == 'active';
 
-    return Container(
+    return InkWell(
+      onTap: () => showPatientProfileModal(context, patient),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -2074,8 +2077,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _vitalStat(String label, String value, IconData icon, Color color) {
     return Column(
@@ -2089,7 +2093,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildGreeting(String date) {
-    final userName = UserSession.current?.name ?? 'User';
+    final session = UserSession.current;
+    final userName = session?.name ?? 'User';
+    final facility = session?.facilityDisplay ?? 'Independent Care';
+    final hasFacility = session?.hasFacility == true;
+
     return Row(
       children: [
         Column(
@@ -2117,7 +2125,42 @@ class _DashboardScreenState extends State<DashboardScreen>
             ])),
             Text(date,
                 style:
-                    GoogleFonts.albertSans(fontSize: 11, color: Colors.black)),
+                    GoogleFonts.albertSans(fontSize: 11, color: Colors.black54)),
+            const SizedBox(height: 3),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+              decoration: BoxDecoration(
+                color: hasFacility
+                    ? const Color(0xFFE8F5E9)
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: hasFacility
+                      ? const Color(0xFF81C784)
+                      : const Color(0xFFCBD5E1),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    hasFacility ? Icons.business : Icons.home_outlined,
+                    size: 11,
+                    color: hasFacility ? const Color(0xFF2E7D32) : Colors.black54,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    facility,
+                    style: GoogleFonts.albertSans(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: hasFacility ? const Color(0xFF2E7D32) : Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
         const SizedBox(width: 10),
@@ -2165,25 +2208,62 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildDrawerHeader() {
+    final session = UserSession.current;
+    final facility = session?.facilityDisplay ?? 'Independent Care';
+    final hasFacility = session?.hasFacility == true;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
       child: Row(
         children: [
           Image.asset('assets/images/alagahead.png', width: 45),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("ALAGA",
-                  style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-              Text("Patient Monitoring",
-                  style:
-                      GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
-            ],
-          )
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("ALAGA",
+                    style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16)),
+                Text("Patient Monitoring",
+                    style:
+                        GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        hasFacility ? Icons.business : Icons.home_outlined,
+                        size: 11,
+                        color: hasFacility ? Colors.tealAccent : Colors.white70,
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          facility,
+                          style: GoogleFonts.albertSans(
+                            color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

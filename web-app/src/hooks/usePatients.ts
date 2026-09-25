@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Patient } from '../types';
 import { toast } from 'sonner';
+import { extractBirthdateString } from '../lib/dateUtils';
 
 export const usePatients = (token: string | null) => {
     const [patients, setPatients] = useState<Patient[]>([]);
@@ -17,10 +18,14 @@ export const usePatients = (token: string | null) => {
             const data = await response.json();
 
             if (data.success && Array.isArray(data.data)) {
-                const mappedPatients: Patient[] = data.data.map((p: any) => ({
-                    id: p.patient_id?.toString(),
-                    name: p.name || `${p.first_name} ${p.last_name}`,
-                    age: p.birthdate ? new Date().getFullYear() - new Date(p.birthdate).getFullYear() : 0,
+                const mappedPatients: Patient[] = data.data.map((p: any) => {
+                    const bdayStr = extractBirthdateString(p.birthdate);
+                    const birthYear = p.birthdate ? new Date(bdayStr).getFullYear() : 0;
+                    return {
+                        id: p.patient_id?.toString(),
+                        name: p.name || `${p.first_name} ${p.last_name}`,
+                        age: birthYear > 0 ? new Date().getFullYear() - birthYear : 0,
+                        birthdate: p.birthdate ? bdayStr : undefined,
                     roomNumber: p.room_number || 'Home',
                     condition: p.baseline_data?.condition || 'Stable',
                     status: 'Stable', // Default until sensors update

@@ -1925,6 +1925,14 @@ export const MedicalStaffDashboard: React.FC = () => {
             <Input defaultValue="Medical Staff" disabled />
           </div>
           <div className="space-y-2">
+            <Label>Healthcare Facility Affiliation</Label>
+            <Input 
+              defaultValue={user?.facility_name ? `${user.facility_name} (Facility Member)` : "Independent / No Facility Assigned"} 
+              disabled 
+              className="bg-slate-50 font-semibold text-slate-800"
+            />
+          </div>
+          <div className="space-y-2">
             <Label>Email</Label>
             <Input defaultValue={user?.email} />
           </div>

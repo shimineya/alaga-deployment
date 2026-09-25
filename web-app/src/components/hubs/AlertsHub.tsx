@@ -343,8 +343,14 @@ const AlertsHub: React.FC = () => {
         <div className="space-y-6 animate-in fade-in duration-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 tracking-tight">System Alerts</h1>
-                    <p className="text-slate-500 text-sm mt-1">Real-time clinical and hardware alerts monitor</p>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50/90 border border-rose-200/90 text-rose-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                        Live Clinical Telemetry
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">
+                        Critical Alarms & <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Diagnostics</span>
+                    </h1>
+                    <p className="text-slate-500 text-sm mt-1">Real-time anomaly monitoring, automated clinical triggers, and sensor diagnostics.</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
@@ -398,13 +404,13 @@ const AlertsHub: React.FC = () => {
             )}
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-                <div className="border-b border-slate-200 mb-6 shrink-0">
-                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                <div className="shrink-0">
+                    <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 overflow-x-auto h-auto">
                         <TabsTrigger 
                             value="clinical" 
-                            className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap data-[state=active]:border-b-2 data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                            className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                         >
-                            <Activity className="h-4 w-4 mr-1" />
+                            <Activity className="h-3.5 w-3.5 text-rose-600" />
                             Clinical Alerts
                             {clinicalAlerts.filter(a => a.status !== 'Acknowledged').length > 0 && (
                                 <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
@@ -415,9 +421,9 @@ const AlertsHub: React.FC = () => {
                         
                         <TabsTrigger 
                             value="system" 
-                            className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap data-[state=active]:border-b-2 data-[state=active]:border-teal-600 data-[state=active]:text-teal-700 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                            className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                         >
-                            <HardDrive className="h-4 w-4 mr-1" />
+                            <HardDrive className="h-3.5 w-3.5 text-amber-600" />
                             Hardware Diagnostics
                             {systemAlerts.filter(a => a.status === 'Active').length > 0 && (
                                 <span className="ml-1.5 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">

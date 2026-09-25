@@ -584,8 +584,18 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                     onClick={() => onSelectPatient(patient)}
                                 >
                                     <TableCell className="font-medium">
-                                        <div className="flex flex-col">
-                                            <span className="text-slate-900 font-semibold">{patient.name}</span>
+                                        <div className="flex flex-col items-start">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onSelectPatient(patient);
+                                                }}
+                                                className="text-left font-bold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer transition-colors"
+                                                title="View Patient Profile"
+                                            >
+                                                {patient.name}
+                                            </button>
                                             <span className="text-xs text-slate-500">ID: {patient.id}</span>
                                         </div>
                                     </TableCell>

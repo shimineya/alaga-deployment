@@ -71,10 +71,24 @@ export default function ForensicAuditTrails() {
     };
 
 
-const handleExportPdf = () => {
-    window.open(`${API_URL}/api/sysadmin/audit-logs/export`, '_blank');
-    toast.info('PDF export started. Event logged.');
-};
+    const handleExportPdf = async () => {
+        try {
+            toast.info('Generating forensic audit PDF...');
+            const res = await fetch(`${API_URL}/api/sysadmin/audit-logs/export`, { headers: getAuth() });
+            if (!res.ok) throw new Error('PDF export failed');
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `Alaga_Audit_Report_${Date.now()}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(blobUrl);
+            toast.success('Forensic audit PDF downloaded successfully.');
+        } catch {
+            toast.error('Failed to export audit PDF.');
+        }
+    };
 
     const tabs = [
         { key: 'all', label: 'All Events' },

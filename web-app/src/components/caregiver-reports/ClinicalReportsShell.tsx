@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Patient, VitalSign, Alert } from '../../types';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -226,6 +226,15 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
         () => activePatients.find((p) => p.id === activePatientId) ?? null,
         [activePatients, activePatientId]
     );
+
+    useEffect(() => {
+        if (activePatients.length > 0) {
+            const exists = activePatients.some((p) => p.id === activePatientId);
+            if (!exists) {
+                setActivePatientId(activePatients[0].id);
+            }
+        }
+    }, [activePatients, activePatientId]);
 
     const currentTabConfig = REPORT_TABS.find((t) => t.value === activeTab)!;
 

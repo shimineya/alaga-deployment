@@ -155,9 +155,11 @@ export const LandingPage: React.FC = () => {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between">
                     {/* Brand Logo */}
                     <Link to="/" className="flex items-center gap-3 group text-decoration-none">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 via-teal-500 to-teal-700 flex items-center justify-center shadow-md shadow-teal-500/20 group-hover:scale-105 transition-transform">
-                            <Activity className="w-5 h-5 text-white animate-pulse" />
-                        </div>
+                        <img 
+                            src="/alaga-robot-logo.png" 
+                            alt="Alaga Logo" 
+                            className="w-10 h-10 object-contain group-hover:scale-110 transition-transform shrink-0" 
+                        />
                         <div className="flex flex-col">
                             <span className="text-xl font-black tracking-tight text-white italic group-hover:text-teal-300 transition-colors">
                                 ALAGA
@@ -651,9 +653,11 @@ export const LandingPage: React.FC = () => {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8">
                     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-8 border-b border-white/10">
                         <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-teal-500 flex items-center justify-center shadow-sm">
-                                <Activity className="w-5 h-5 text-white" />
-                            </div>
+                            <img 
+                                src="/alaga-robot-logo.png" 
+                                alt="Alaga Logo" 
+                                className="w-9 h-9 object-contain drop-shadow-[0_2px_8px_rgba(20,184,166,0.3)] shrink-0" 
+                            />
                             <div>
                                 <span className="text-xl font-black italic tracking-tight text-white">ALAGA</span>
                                 <span className="text-[10px] font-black text-amber-400 uppercase ml-2">Healthcare System</span>

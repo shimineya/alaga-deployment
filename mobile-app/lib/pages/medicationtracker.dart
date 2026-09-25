@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
@@ -18,6 +20,22 @@ class MedicationEntry {
   static int calculateStock(int durationDays, int timesPerDay) {
     return durationDays * timesPerDay;
   }
+
+  Map<String, dynamic> toJson() => {
+    'medicineName': medicineName,
+    'initialCount': initialCount,
+    'timesPerDay': timesPerDay,
+  };
+
+  factory MedicationEntry.fromJson(Map<String, dynamic> json) => MedicationEntry(
+    medicineName: json['medicineName']?.toString() ?? '',
+    initialCount: json['initialCount'] is int
+        ? json['initialCount']
+        : int.tryParse(json['initialCount']?.toString() ?? '0') ?? 0,
+    timesPerDay: json['timesPerDay'] is int
+        ? json['timesPerDay']
+        : int.tryParse(json['timesPerDay']?.toString() ?? '1') ?? 1,
+  );
 }
 
 class PatientMedicationRecord {
@@ -60,6 +78,26 @@ class PatientMedicationRecord {
     final diff = today.difference(start).inDays;
     return diff.clamp(0, totalDays);
   }
+
+  Map<String, dynamic> toJson() => {
+    'patientName': patientName,
+    'medications': medications.map((m) => m.toJson()).toList(),
+    'startDate': startDate.toIso8601String(),
+    'endDate': endDate.toIso8601String(),
+    'createdAt': createdAt.toIso8601String(),
+    'isExpanded': isExpanded,
+  };
+
+  factory PatientMedicationRecord.fromJson(Map<String, dynamic> json) => PatientMedicationRecord(
+    patientName: json['patientName']?.toString() ?? '',
+    medications: (json['medications'] as List<dynamic>? ?? [])
+        .map((m) => MedicationEntry.fromJson(Map<String, dynamic>.from(m as Map)))
+        .toList(),
+    startDate: DateTime.tryParse(json['startDate']?.toString() ?? '') ?? DateTime.now(),
+    endDate: DateTime.tryParse(json['endDate']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 30)),
+    createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+    isExpanded: json['isExpanded'] == true,
+  );
 }
 
 class MedicationTrackerScreen extends StatefulWidget {
@@ -91,14 +129,39 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
     'Zinc Sulfate Drops',
   ];
 
-  // Dynamic records list (Hardcoded Patient 1 removed)
+  // Dynamic records list persisted in encrypted local storage
   final List<PatientMedicationRecord> _records = [];
   List<String> _suggestedPatients = [];
+  static const _storage = FlutterSecureStorage();
 
   @override
   void initState() {
     super.initState();
+    _loadRecords();
     _loadPatientSuggestions();
+  }
+
+  Future<void> _loadRecords() async {
+    try {
+      final jsonStr = await _storage.read(key: 'alaga_medication_records');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(jsonStr);
+        if (mounted) {
+          setState(() {
+            _records.clear();
+            _records.addAll(decoded.map((r) =>
+                PatientMedicationRecord.fromJson(Map<String, dynamic>.from(r as Map))));
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveRecords() async {
+    try {
+      final jsonStr = jsonEncode(_records.map((r) => r.toJson()).toList());
+      await _storage.write(key: 'alaga_medication_records', value: jsonStr);
+    } catch (_) {}
   }
 
   Future<void> _loadPatientSuggestions() async {
@@ -567,6 +630,7 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
                                 isExpanded: true,
                               ));
                             });
+                            _saveRecords();
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -598,6 +662,89 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  /// Dialog to enter a custom medication name if not in the default list
+  Future<String?> _showCustomMedicationInputDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            "Other Medication",
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: const Color(0xFF2D3436),
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Enter medication name:",
+                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: GoogleFonts.poppins(fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: "e.g., Cefalexin 250mg",
+                  hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.black38),
+                  filled: true,
+                  fillColor: const Color(0xFFE8F4F4),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: const BorderSide(color: Color(0x665FA9A9)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: const BorderSide(color: Color(0x665FA9A9)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: const BorderSide(color: Color(0xFF5FA9A9), width: 1.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: Text(
+                "Cancel",
+                style: GoogleFonts.poppins(color: Colors.black54, fontSize: 13),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5FA9A9),
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isNotEmpty) {
+                  Navigator.pop(ctx, text);
+                }
+              },
+              child: Text(
+                "Add Medication",
+                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -679,7 +826,7 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Quick Select info
+                    // Quick Select info & Other Action
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -705,16 +852,87 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
+
+                    // "Other" Option Tile: Allows user to enter custom medicine name
+                    InkWell(
+                      onTap: () async {
+                        final custom = await _showCustomMedicationInputDialog(context);
+                        if (custom != null && custom.trim().isNotEmpty) {
+                          final trimmed = custom.trim();
+                          if (!_alphabeticalMedicines.contains(trimmed)) {
+                            _alphabeticalMedicines.add(trimmed);
+                            _alphabeticalMedicines.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                          }
+                          setInnerState(() {
+                            selected.add(trimmed);
+                          });
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        margin: const EdgeInsets.only(bottom: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F4F4),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0x805FA9A9)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.add_circle, size: 20, color: Color(0xFF5FA9A9)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                "Other (Enter medication name)",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF2D6A6A),
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.edit_note, size: 20, color: Color(0xFF5FA9A9)),
+                          ],
+                        ),
+                      ),
+                    ),
 
                     // Medicines Checklist
                     Expanded(
                       child: filteredMedicines.isEmpty
-                          ? Center(
-                              child: Text(
-                                "No medicines match your search.",
-                                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black45),
-                              ),
+                          ? Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  "No medicines match your search.",
+                                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.black45),
+                                ),
+                                if (filter.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF5FA9A9),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    onPressed: () {
+                                      final trimmed = filter.trim();
+                                      if (!_alphabeticalMedicines.contains(trimmed)) {
+                                        _alphabeticalMedicines.add(trimmed);
+                                        _alphabeticalMedicines.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                                      }
+                                      setInnerState(() {
+                                        selected.add(trimmed);
+                                      });
+                                    },
+                                    icon: const Icon(Icons.add, size: 16, color: Colors.white),
+                                    label: Text(
+                                      "Add \"${filter.trim()}\"",
+                                      style: GoogleFonts.poppins(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             )
                           : ListView.builder(
                               itemCount: filteredMedicines.length,
@@ -1029,6 +1247,42 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
                   ),
                   const SizedBox(width: 8),
 
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                    tooltip: 'Delete Schedule',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: Text("Delete Schedule",
+                              style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                          content: Text(
+                              "Are you sure you want to delete the medication plan for ${record.patientName}?",
+                              style: GoogleFonts.albertSans()),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text("Cancel"),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text("Delete",
+                                  style: TextStyle(color: Colors.redAccent)),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true && mounted) {
+                        setState(() {
+                          _records.remove(record);
+                        });
+                        await _saveRecords();
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 12),
                   // Inverted triangle expand/collapse icon at top right corner
                   Container(
                     padding: const EdgeInsets.all(4),

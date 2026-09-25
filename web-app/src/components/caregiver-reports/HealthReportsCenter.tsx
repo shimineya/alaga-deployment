@@ -7,10 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   FileDown,
-  Printer,
-  FileSpreadsheet,
   FileText,
-  Globe,
+  FileBox,
+  Printer,
   Copy,
   Check,
   Search,
@@ -21,15 +20,13 @@ import {
   Thermometer,
   Activity,
   Droplets,
-  MoreVertical,
   Trash2,
   Eye,
   ShieldCheck,
-  FileCode,
   X,
-  FileBox,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { extractBirthdateString } from '@/lib/dateUtils';
 
 // ---------------------------------------------------------------------------
 // Text Sanitizer: Eliminates tofu crossed-box glyphs by converting or stripping
@@ -123,7 +120,6 @@ export const HealthReportsCenter: React.FC<HealthReportsCenterProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [recentReports, setRecentReports] = useState<GeneratedReportItem[]>([]);
   const [previewReport, setPreviewReport] = useState<GeneratedReportItem | null>(null);
-  const [previewFormat, setPreviewFormat] = useState<'pdf' | 'csv' | 'txt' | 'html'>('pdf');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Initialize selected patient from roster
@@ -286,13 +282,13 @@ export const HealthReportsCenter: React.FC<HealthReportsCenterProps> = ({
       const tempStatus = parseFloat(avgTemp) <= 37.5 ? 'Normothermic' : 'Elevated / Low-grade pyrexia';
       const diaperStatus = wetnessCount === 0 ? 'Dry / No soak events logged' : `${wetnessCount} soak events logged`;
 
-      const assessmentNotes = `Longitudinal analysis for ${patientDisplayName} covering the past ${timeFrame}. ` +
+      const assessmentNotes = `Health trend summary for ${patientDisplayName} covering the past ${timeFrame}. ` +
         `Average heart rate is ${avgHr} BPM (range: ${dispMinHr}-${dispMaxHr} BPM, ${hrStatus}). ` +
         `SpO2 averaged ${avgSpo2}% (range: ${dispMinSpo2}-${dispMaxSpo2}%, ${spo2Status}). ` +
         `Body temperature averaged ${avgTemp} C (${tempStatus}). ` +
         `Diaper moisture monitoring recorded ${diaperStatus}. ` +
         `Clinical alert notifications in this timeframe: ${totalAlerts} incident(s). ` +
-        `Telemetry stream integrity: Verified with AES-256 edge encryption.`;
+        `Data stream integrity: Verified with AES-256 edge encryption.`;
 
       const reportTimestamp = new Date().toLocaleString('en-US', {
         month: 'long',
@@ -373,6 +369,10 @@ ${assessmentNotes}
       const csvText = csvRows.join('\n');
 
       // 3. Structured HTML Document
+      const patientBirthday = targetPatient?.birthdate
+        ? extractBirthdateString(targetPatient.birthdate)
+        : '1960-01-01';
+
       const sampleRows = readings.slice(0, 25);
       const htmlText = `<!DOCTYPE html>
 <html>
@@ -382,7 +382,10 @@ ${assessmentNotes}
 <title>${baseFileName}</title>
 <style>
   @page { size: A4; margin: 12mm 14mm; }
-  @media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+  @media print {
+    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    #alaga-security-lock { display: none !important; }
+  }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 24px; color: #1e293b; background: #FFF; font-size: 11px; line-height: 1.4; }
   .header { border-bottom: 2.5px solid #2f7d7b; padding-bottom: 12px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; }
@@ -426,60 +429,158 @@ ${assessmentNotes}
 </style>
 </head>
 <body>
-  <div class="header">
-    <div>
-      <div class="title">ALAGA HEALTHCARE MONITORING SYSTEM</div>
-      <div class="subtitle">Continuous Telemetry & Clinical Vital Signs Assessment</div>
-    </div>
-    <div style="text-align: right;">
-      <div class="status-badge ${totalAlerts === 0 ? 'status-stable' : 'status-attention'}">
-        ${totalAlerts === 0 ? 'STATUS: STABLE' : `STATUS: ATTENTION (${totalAlerts})`}
+  <div id="alaga-security-lock" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; text-align: center; padding: 24px;">
+    <div style="background: #ffffff; border: 2px solid #2f7d7b; border-radius: 12px; padding: 36px 30px; max-width: 440px; width: 100%; box-shadow: 0 12px 30px rgba(47,125,123,0.18);">
+      <div style="width: 58px; height: 58px; border-radius: 50%; background: #f0fdfa; border: 2px solid #2f7d7b; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2f7d7b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
       </div>
-      <div class="meta-right">Report ID: ${baseFileName}</div>
-      <div class="meta-right">Generated: ${reportTimestamp}</div>
+      <h2 style="font-size: 16px; font-weight: 800; color: #1e293b; margin: 0 0 6px 0; letter-spacing: 0.5px;">CONFIDENTIAL MEDICAL EXPORT</h2>
+      <p style="font-size: 11px; color: #64748b; margin: 0 0 16px 0; line-height: 1.4;">
+        ALAGA Clinical Inpatient Telemetry Record<br>
+        Department of Inpatient Care & Remote Health Telemetry
+      </p>
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 18px; font-size: 11px; color: #334155; text-align: left;">
+        <div style="font-weight: 700; color: #1e293b; margin-bottom: 2px;">Subject: ${patientDisplayName}</div>
+        <div>Security Standard: <strong style="color: #2f7d7b;">Mandatory Telemetry Encryption</strong></div>
+      </div>
+      <div style="margin-bottom: 16px; text-align: left;">
+        <label style="font-size: 10px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px; text-transform: uppercase;">Enter Security Password</label>
+        <input type="password" id="alaga-pw-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 14px; font-family: sans-serif; outline: none;" autofocus />
+        <div id="alaga-pw-error" style="color: #e11d48; font-size: 11px; font-weight: 600; margin-top: 6px; display: none;">Incorrect security password. Access denied.</div>
+      </div>
+      <button type="button" id="alaga-unlock-btn" style="width: 100%; background: #2f7d7b; color: #ffffff; font-weight: 700; font-size: 12px; padding: 11px; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(47,125,123,0.3);">
+        Unlock & Access PDF Report
+      </button>
     </div>
   </div>
-  <div class="patient-card">
-    <div class="meta-col"><span class="meta-label">PATIENT / SUBJECT</span><span class="meta-val">${patientDisplayName}</span></div>
-    <div class="meta-col"><span class="meta-label">MONITORING SCOPE</span><span class="meta-val">${reportScope}</span></div>
-    <div class="meta-col"><span class="meta-label">TIMEFRAME</span><span class="meta-val" style="color: #2f7d7b;">${timeFrame}</span></div>
-    <div class="meta-col"><span class="meta-label">DATA SAMPLES</span><span class="meta-val">${readings.length} readings</span></div>
-  </div>
-  <div class="section-title">AGGREGATED CLINICAL INDICATORS</div>
-  <div class="metrics-grid">
-    <div class="metric-card metric-hr"><div class="metric-label label-hr">HEART RATE</div><div class="metric-val">${avgHr} BPM</div><div class="metric-range">Range: ${dispMinHr} - ${dispMaxHr} BPM</div><div class="metric-status">${hrStatus}</div></div>
-    <div class="metric-card metric-spo2"><div class="metric-label label-spo2">BLOOD OXYGEN (SpO2)</div><div class="metric-val">${avgSpo2}%</div><div class="metric-range">Range: ${dispMinSpo2} - ${dispMaxSpo2}%</div><div class="metric-status">${spo2Status}</div></div>
-    <div class="metric-card metric-temp"><div class="metric-label label-temp">BODY TEMPERATURE</div><div class="metric-val">${avgTemp} C</div><div class="metric-range">Range: ${dispMinTemp} - ${dispMaxTemp} C</div><div class="metric-status">${tempStatus}</div></div>
-    <div class="metric-card metric-moisture"><div class="metric-label label-moisture">MOISTURE SENSOR</div><div class="metric-val">${wetnessCount}</div><div class="metric-range">Soak Events Logged</div><div class="metric-status">${diaperStatus}</div></div>
-  </div>
-  <div class="assessment-card">
-    <div class="assessment-header"><span class="assessment-title">CLINICAL EVALUATION & OBSERVATIONS</span><span style="font-size: 8px; color: #64748b;">Type: ${reportType}</span></div>
-    <div class="assessment-text">${assessmentNotes}</div>
-  </div>
-  <div class="section-title">TELEMETRY DATA PACKETS (LATEST SAMPLES)</div>
-  <table>
-    <thead><tr><th>Timestamp</th><th>Heart Rate</th><th>SpO2</th><th>Body Temp (C)</th><th>Moisture</th><th>Condition</th></tr></thead>
-    <tbody>
-      ${sampleRows.map((r) => {
-        const t = cleanText(new Date(r.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-        const h = r.heart_rate ? `${r.heart_rate} BPM` : '--';
-        const s = r.spo2 ? `${r.spo2}%` : '--';
-        const temp = r.temperature ? `${r.temperature} C` : '--';
-        const mVal = r.moisture_value ?? 0;
-        const isWet = Number(mVal) > 200;
-        return `<tr><td>${t}</td><td>${h}</td><td>${s}</td><td>${temp}</td><td>${mVal} ADC</td><td>${isWet ? 'Wetness Detected' : 'Normal / Dry'}</td></tr>`;
-      }).join('')}
-    </tbody>
-  </table>
-  <div class="security-card">
-    <div>
-      <div class="sec-title">SECURITY & COMPLIANCE VERIFICATION</div>
-      <div class="sec-item">- Telemetry verified with AES-256 edge-to-cloud telemetry encryption.</div>
-      <div class="sec-item">- OCSVM machine learning anomaly detection audit verified.</div>
-      <div class="sec-hash">- Digital Auth Hash: ${authHash}</div>
+
+  <div id="alaga-report-content" style="display: none;">
+    <div class="header">
+      <div>
+        <div class="title">ALAGA HEALTHCARE MONITORING SYSTEM</div>
+        <div class="subtitle">Continuous Telemetry & Clinical Vital Signs Assessment</div>
+      </div>
+      <div style="text-align: right;">
+        <div class="status-badge ${totalAlerts === 0 ? 'status-stable' : 'status-attention'}">
+          ${totalAlerts === 0 ? 'STATUS: STABLE' : `STATUS: ATTENTION (${totalAlerts})`}
+        </div>
+        <div class="meta-right">Report ID: ${baseFileName}</div>
+        <div class="meta-right">Generated: ${reportTimestamp}</div>
+      </div>
     </div>
-    <div class="signature-box"><div class="sign-line">ELECTRONICALLY VERIFIED</div><div class="sign-label">Attending Nurse / Clinician Sign-off</div></div>
+    <div class="patient-card">
+      <div class="meta-col"><span class="meta-label">PATIENT / SUBJECT</span><span class="meta-val">${patientDisplayName}</span></div>
+      <div class="meta-col"><span class="meta-label">MONITORING SCOPE</span><span class="meta-val">${reportScope}</span></div>
+      <div class="meta-col"><span class="meta-label">TIMEFRAME</span><span class="meta-val" style="color: #2f7d7b;">${timeFrame}</span></div>
+      <div class="meta-col"><span class="meta-label">DATA SAMPLES</span><span class="meta-val">${readings.length} readings</span></div>
+    </div>
+    <div class="section-title">AGGREGATED CLINICAL INDICATORS</div>
+    <div class="metrics-grid">
+      <div class="metric-card metric-hr"><div class="metric-label label-hr">HEART RATE</div><div class="metric-val">${avgHr} BPM</div><div class="metric-range">Range: ${dispMinHr} - ${dispMaxHr} BPM</div><div class="metric-status">${hrStatus}</div></div>
+      <div class="metric-card metric-spo2"><div class="metric-label label-spo2">BLOOD OXYGEN (SpO2)</div><div class="metric-val">${avgSpo2}%</div><div class="metric-range">Range: ${dispMinSpo2} - ${dispMaxSpo2}%</div><div class="metric-status">${spo2Status}</div></div>
+      <div class="metric-card metric-temp"><div class="metric-label label-temp">BODY TEMPERATURE</div><div class="metric-val">${avgTemp} C</div><div class="metric-range">Range: ${dispMinTemp} - ${dispMaxTemp} C</div><div class="metric-status">${tempStatus}</div></div>
+      <div class="metric-card metric-moisture"><div class="metric-label label-moisture">MOISTURE SENSOR</div><div class="metric-val">${wetnessCount}</div><div class="metric-range">Soak Events Logged</div><div class="metric-status">${diaperStatus}</div></div>
+    </div>
+    <div class="assessment-card">
+      <div class="assessment-header"><span class="assessment-title">CLINICAL EVALUATION & OBSERVATIONS</span><span style="font-size: 8px; color: #64748b;">Type: ${reportType}</span></div>
+      <div class="assessment-text">${assessmentNotes}</div>
+    </div>
+    <div class="section-title">TELEMETRY DATA PACKETS (LATEST SAMPLES)</div>
+    <table>
+      <thead><tr><th>Timestamp</th><th>Heart Rate</th><th>SpO2</th><th>Body Temp (C)</th><th>Moisture</th><th>Condition</th></tr></thead>
+      <tbody>
+        ${sampleRows.map((r) => {
+          const t = cleanText(new Date(r.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+          const h = r.heart_rate ? `${r.heart_rate} BPM` : '--';
+          const s = r.spo2 ? `${r.spo2}%` : '--';
+          const temp = r.temperature ? `${r.temperature} C` : '--';
+          const mVal = r.moisture_value ?? 0;
+          const isWet = Number(mVal) > 200;
+          return `<tr><td>${t}</td><td>${h}</td><td>${s}</td><td>${temp}</td><td>${mVal} ADC</td><td>${isWet ? 'Wetness Detected' : 'Normal / Dry'}</td></tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div class="security-card">
+      <div>
+        <div class="sec-title">SECURITY & COMPLIANCE VERIFICATION</div>
+        <div class="sec-item">- Telemetry verified with AES-256 edge-to-cloud telemetry encryption.</div>
+        <div class="sec-item">- OCSVM machine learning anomaly detection audit verified.</div>
+        <div class="sec-hash">- Digital Auth Hash: ${authHash}</div>
+      </div>
+      <div class="signature-box"><div class="sign-line">ELECTRONICALLY VERIFIED</div><div class="sign-label">Attending Nurse / Clinician Sign-off</div></div>
+    </div>
   </div>
+
+  <script>
+    (function() {
+      var expected = ${JSON.stringify(patientBirthday.trim())};
+      var actualBday = ${JSON.stringify(targetPatient?.birthdate ? extractBirthdateString(targetPatient.birthdate) : '')};
+      var lock = document.getElementById('alaga-security-lock');
+      var content = document.getElementById('alaga-report-content');
+      var input = document.getElementById('alaga-pw-input');
+      var btn = document.getElementById('alaga-unlock-btn');
+      var err = document.getElementById('alaga-pw-error');
+
+      function checkMatch(entered) {
+        if (!entered) return false;
+        var raw = entered.trim();
+        var digits = raw.replace(/[^0-9]/g, '');
+
+        var targets = [expected];
+        if (actualBday && targets.indexOf(actualBday) === -1) targets.push(actualBday);
+        if (targets.indexOf('1960-01-01') === -1) targets.push('1960-01-01');
+
+        for (var i = 0; i < targets.length; i++) {
+          var t = targets[i];
+          if (!t) continue;
+          if (raw === t) return true;
+          if (raw.replace(/\\//g, '-') === t) return true;
+          var tDigits = t.replace(/[^0-9]/g, '');
+          if (digits && digits === tDigits) return true;
+
+          var parsed = new Date(raw);
+          if (!isNaN(parsed.getTime())) {
+            var py = parsed.getFullYear();
+            var pm = String(parsed.getMonth() + 1).padStart(2, '0');
+            var pd = String(parsed.getDate()).padStart(2, '0');
+            if ((py + '-' + pm + '-' + pd) === t) return true;
+          }
+
+          var dExp = new Date(t + 'T00:00:00');
+          if (!isNaN(dExp.getTime())) {
+            var prevDay = new Date(dExp.getTime() - 86400000);
+            var nextDay = new Date(dExp.getTime() + 86400000);
+            var pIso = prevDay.toISOString().split('T')[0];
+            var nIso = nextDay.toISOString().split('T')[0];
+            if (raw === pIso || raw === nIso) return true;
+            if (digits && (digits === pIso.replace(/[^0-9]/g, '') || digits === nIso.replace(/[^0-9]/g, ''))) return true;
+          }
+        }
+        return false;
+      }
+
+      function unlock() {
+        if (!input) return;
+        if (checkMatch(input.value)) {
+          if (lock) lock.style.display = 'none';
+          if (content) content.style.display = 'block';
+          setTimeout(function() {
+            window.print();
+          }, 300);
+        } else {
+          if (err) err.style.display = 'block';
+          input.style.borderColor = '#e11d48';
+        }
+      }
+
+      if (btn) btn.onclick = unlock;
+      if (input) {
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') unlock();
+        });
+      }
+    })();
+  </script>
 </body>
 </html>`;
 
@@ -528,56 +629,19 @@ ${assessmentNotes}
   };
 
   // ---------------------------------------------------------------------------
-  // Action Helpers: Print / PDF, Download CSV, Download TXT, Download HTML
+  // Action Helpers: Print / PDF Export Only (Mandatory Security Password)
   // ---------------------------------------------------------------------------
   const handlePrintPdf = (report: GeneratedReportItem) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      toast.error('Please allow popups to open the PDF print dialog.');
+      toast.error('Please allow popups to open the PDF export.');
       return;
     }
     printWindow.document.open();
     printWindow.document.write(report.htmlContent);
     printWindow.document.close();
     printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
-    toast.success('Report print window opened.');
-  };
-
-  const handleDownloadFile = (report: GeneratedReportItem, format: 'pdf' | 'csv' | 'txt' | 'html') => {
-    if (format === 'pdf') {
-      handlePrintPdf(report);
-      return;
-    }
-    let content = '';
-    let mime = 'text/plain';
-    let ext = 'txt';
-    if (format === 'csv') {
-      content = report.csvContent;
-      mime = 'text/csv;charset=utf-8;';
-      ext = 'csv';
-    } else if (format === 'html') {
-      content = report.htmlContent;
-      mime = 'text/html;charset=utf-8;';
-      ext = 'html';
-    } else {
-      content = report.plainTextContent;
-      mime = 'text/plain;charset=utf-8;';
-      ext = 'txt';
-    }
-
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${report.baseName}.${ext}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success(`Report downloaded as .${ext}`);
+    toast.success('Clinical PDF export opened. Enter security password to view or print.');
   };
 
   const handleCopy = async (report: GeneratedReportItem) => {
@@ -612,7 +676,7 @@ ${assessmentNotes}
             Health Reports Center
           </h2>
           <p className="text-xs text-slate-300 mt-1 max-w-xl">
-            Compile, export, and review longitudinal vital signs trends and diaper moisture telemetry. Designed for parents, guardians, and clinical caregivers.
+            Compile, export, and review vital signs trends and diaper wetness records over time. Designed for parents, guardians, and clinical caregivers.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -813,16 +877,7 @@ ${assessmentNotes}
                       onClick={() => handlePrintPdf(report)}
                       className="h-8 text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white gap-1 shadow-sm"
                     >
-                      <Printer className="w-3.5 h-3.5" /> Print PDF
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDownloadFile(report, 'csv')}
-                      className="h-8 w-8 p-0 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50"
-                      title="Download CSV"
-                    >
-                      <FileSpreadsheet className="w-4 h-4" />
+                      <Printer className="w-3.5 h-3.5" /> Export PDF
                     </Button>
                     <Button
                       size="sm"
@@ -877,47 +932,15 @@ ${assessmentNotes}
               </Button>
             </div>
 
-            {/* Modal Format Selector Pills */}
+            {/* Modal Format Indicator - PDF Only */}
             <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 bg-white">
               <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mr-2">
                 Export Format:
               </span>
-              <button
-                type="button"
-                onClick={() => setPreviewFormat('pdf')}
-                className={`px-3 py-1 text-xs rounded-full font-bold transition-all ${
-                  previewFormat === 'pdf' ? 'bg-teal-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                PDF (.pdf)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewFormat('txt')}
-                className={`px-3 py-1 text-xs rounded-full font-bold transition-all ${
-                  previewFormat === 'txt' ? 'bg-teal-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                Text (.txt)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewFormat('csv')}
-                className={`px-3 py-1 text-xs rounded-full font-bold transition-all ${
-                  previewFormat === 'csv' ? 'bg-teal-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                CSV (.csv)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewFormat('html')}
-                className={`px-3 py-1 text-xs rounded-full font-bold transition-all ${
-                  previewFormat === 'html' ? 'bg-teal-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                HTML (.html)
-              </button>
+              <Badge className="bg-rose-600 text-white font-bold text-xs px-3 py-1 flex items-center gap-1.5 shadow-xs">
+                <Printer className="w-3.5 h-3.5" /> PDF Document (.pdf)
+              </Badge>
+              <span className="text-[11px] text-slate-400 font-medium">Standard clinical export format</span>
             </div>
 
             {/* Modal Body: Scrollable Medical Document Preview */}
@@ -1002,22 +1025,12 @@ ${assessmentNotes}
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
-                  onClick={() => handleDownloadFile(previewReport, previewFormat)}
+                  onClick={() => handlePrintPdf(previewReport)}
                   className="h-9 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm gap-1.5"
                 >
-                  <FileDown className="w-3.5 h-3.5" />
-                  Download {previewFormat.toUpperCase()}
+                  <Printer className="w-3.5 h-3.5" />
+                  Export Protected PDF
                 </Button>
-                {previewFormat === 'pdf' && (
-                  <Button
-                    size="sm"
-                    onClick={() => handlePrintPdf(previewReport)}
-                    className="h-9 text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white shadow-sm gap-1.5"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    Print / Save PDF
-                  </Button>
-                )}
               </div>
             </div>
           </div>

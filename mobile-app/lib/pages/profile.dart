@@ -38,6 +38,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _email = '';
   String _role = '';
   String? _profilePictureUrl;
+  String _facilityName = '';
+  int? _facilityId;
+  bool get _hasFacility => _facilityName.trim().isNotEmpty;
 
   // [INTEGRATION] Profile picture local state
   // _selectedImageFile holds the local file for immediate preview after picking.
@@ -159,17 +162,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _email = profile['email'] ?? '';
         _role = profile['role'] ?? 'caregiver';
         _profilePictureUrl = profile['profile_picture_url'];
+        _facilityName = (profile['facility_name'] ?? profile['facility'] ?? '').toString();
+        _facilityId = profile['facility_id'] is int ? profile['facility_id'] : int.tryParse('${profile['facility_id']}');
         _isLoading = false;
       });
 
-      // [INTEGRATION] Sync the latest profile picture URL into the in-memory
-      // session so the dashboard avatar reflects it without requiring re-login.
-      // [DPA] No new data is stored — this is a mirror of what the server returned.
+      // [INTEGRATION] Sync the latest profile picture URL and facility info into the in-memory
+      // session so the dashboard reflects it without requiring re-login.
       final current = UserSession.current;
       if (current != null) {
         final serverPicUrl = profile['profile_picture_url'] as String?;
         await SessionManager.saveSession(
-          current.copyWith(profilePictureUrl: serverPicUrl),
+          current.copyWith(
+            profilePictureUrl: serverPicUrl,
+            facilityId: _facilityId,
+            facilityName: _facilityName,
+          ),
         );
       }
     } else {
@@ -577,28 +585,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 3),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: _isParentRole(_role)
-                                    ? _teal.withValues(alpha: 0.12)
-                                    : const Color(0xFF4A90E2).withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: _isParentRole(_role)
-                                      ? _teal.withValues(alpha: 0.35)
-                                      : const Color(0xFF4A90E2).withValues(alpha: 0.35),
-                                  width: 1,
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: _isParentRole(_role)
+                                        ? _teal.withValues(alpha: 0.12)
+                                        : const Color(0xFF4A90E2).withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _isParentRole(_role)
+                                          ? _teal.withValues(alpha: 0.35)
+                                          : const Color(0xFF4A90E2).withValues(alpha: 0.35),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _formatRole(_role),
+                                    style: GoogleFonts.albertSans(
+                                      fontSize: 11,
+                                      color: _isParentRole(_role) ? _teal : const Color(0xFF286AA8),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              child: Text(
-                                _formatRole(_role),
-                                style: GoogleFonts.albertSans(
-                                  fontSize: 11,
-                                  color: _isParentRole(_role) ? _teal : const Color(0xFF286AA8),
-                                  fontWeight: FontWeight.w700,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: _hasFacility
+                                        ? const Color(0xFFE8F5E9)
+                                        : const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _hasFacility
+                                          ? const Color(0xFF81C784)
+                                          : const Color(0xFFCBD5E1),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _hasFacility ? Icons.business : Icons.home_outlined,
+                                        size: 12,
+                                        color: _hasFacility ? const Color(0xFF2E7D32) : Colors.black54,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _hasFacility ? _facilityName : 'Independent Care',
+                                        style: GoogleFonts.albertSans(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: _hasFacility ? const Color(0xFF2E7D32) : Colors.black54,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                             const SizedBox(height: 3),
                             _iconLabel(Icons.email_outlined, _email),
@@ -653,6 +701,81 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               onChanged: (bool value) => _handleRoleSwitch(value),
                             ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+
+            // -- Facility Affiliation --
+            _buildSectionHeader("Facility Affiliation", Icons.apartment_outlined),
+            _buildSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _hasFacility
+                              ? const Color(0xFFE8F5E9)
+                              : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          _hasFacility ? Icons.local_hospital : Icons.home_outlined,
+                          color: _hasFacility ? const Color(0xFF2E7D32) : Colors.black54,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _hasFacility ? _facilityName : "Independent / Home Care",
+                              style: GoogleFonts.poppins(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF2D3436),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _hasFacility
+                                  ? "Affiliated Healthcare Facility"
+                                  : "Independent Caregiver (Not Under Institutional Facility)",
+                              style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_hasFacility)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF81C784)),
+                          ),
+                          child: Text(
+                            "Verified",
+                            style: GoogleFonts.albertSans(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF2E7D32),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _hasFacility
+                        ? "You belong to this medical care facility. Your patient rosters, shift assignments, and telemetry monitoring are supervised by your facility administrator."
+                        : "You operate as an independent caregiver. You can monitor assigned patients through direct caregiver invitations and family assignments.",
+                    style: GoogleFonts.albertSans(fontSize: 11.5, color: Colors.black54, height: 1.35),
                   ),
                 ],
               ),

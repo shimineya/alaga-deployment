@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { UserPlus, Key, Search, Lock, Unlock, ShieldAlert, RefreshCw, Trash2, ShieldCheck, ChevronRight, ChevronDown, ToggleRight, ToggleLeft, Eye, EyeOff } from 'lucide-react';
+import { UserPlus, Key, Search, Lock, Unlock, ShieldAlert, RefreshCw, Trash2, ShieldCheck, ChevronRight, ChevronDown, ToggleRight, ToggleLeft, Eye, EyeOff, Mail, Send, Copy, Check, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -28,8 +28,6 @@ const ALLOWED_MODULES = [
     'settings_profile',
     'settings_preferences'
 ];
- 
-
 
 interface StaffMember {
     user_id: number; username: string; email: string; role: string;
@@ -37,16 +35,48 @@ interface StaffMember {
     is_online: boolean;
 }
 
+interface FacilityInvitation {
+    invitation_id: number;
+    email: string;
+    role: string;
+    token: string;
+    status: string;
+    computed_status: string;
+    expires_at: string;
+    created_at: string;
+    used_at?: string;
+    invited_by_name?: string;
+    used_by_name?: string;
+}
+
 export default function WardStaffManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState<'staff' | 'invitations'>('staff');
 
     // Create User State
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newUser, setNewUser] = useState({ username: '', email: '', role: 'caregiver', password: '' });
     const [showNewUserPassword, setShowNewUserPassword] = useState(false);
     const [creating, setCreating] = useState(false);
+
+    // Invite User State
+    const [isInviteOpen, setIsInviteOpen] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [inviteRole, setInviteRole] = useState<'caregiver' | 'medical_staff'>('caregiver');
+    const [sendingInvite, setSendingInvite] = useState(false);
+    const [inviteResult, setInviteResult] = useState<{
+        token: string;
+        email: string;
+        role: string;
+        facility_name: string;
+        expires_at: string;
+        email_delivered: boolean;
+    } | null>(null);
+    const [invitations, setInvitations] = useState<FacilityInvitation[]>([]);
+    const [loadingInvites, setLoadingInvites] = useState(false);
+    const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
     // RBAC Modal State
     const [rbacModalOpen, setRbacModalOpen] = useState(false);
@@ -70,11 +100,100 @@ export default function WardStaffManagement() {
         setLoading(false);
     };
 
-    useEffect(() => { fetchStaff(); }, []);
+    const fetchInvitations = async () => {
+        setLoadingInvites(true);
+        try {
+            const res = await fetch(`${API}/staff/invitations`, { headers: getAuth() });
+            const data = await res.json();
+            if (data.success) setInvitations(data.data);
+        } catch {
+            // silent fail
+        }
+        setLoadingInvites(false);
+    };
+
+    useEffect(() => { 
+        fetchStaff(); 
+        fetchInvitations();
+    }, []);
+
     useEffect(() => {
-        const interval = setInterval(fetchStaff, 30000);
+        const interval = setInterval(() => {
+            fetchStaff();
+            fetchInvitations();
+        }, 30000);
         return () => clearInterval(interval);
     }, []);
+
+    const handleCopyToken = (token: string) => {
+        navigator.clipboard.writeText(token);
+        setCopiedToken(token);
+        toast.success(`Token ${token} copied to clipboard!`);
+        setTimeout(() => setCopiedToken(null), 2500);
+    };
+
+    const handleSendInvite = async () => {
+        if (!inviteEmail || !inviteEmail.includes('@')) {
+            return toast.error('Please enter a valid recipient email address.');
+        }
+        setSendingInvite(true);
+        try {
+            const res = await fetch(`${API}/staff/invite`, {
+                method: 'POST',
+                headers: getAuth(),
+                body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || 'Invitation sent successfully!');
+                setInviteResult(data.invitation);
+                fetchInvitations();
+            } else {
+                toast.error(data.message || 'Failed to send invitation.');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Network error sending invitation.');
+        } finally {
+            setSendingInvite(false);
+        }
+    };
+
+    const handleResendInvite = async (invitationId: number, email: string) => {
+        try {
+            const res = await fetch(`${API}/staff/invitations/${invitationId}/resend`, {
+                method: 'POST',
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(`Invitation resent to ${email}!`);
+                fetchInvitations();
+            } else {
+                toast.error(data.message || 'Failed to resend invitation.');
+            }
+        } catch {
+            toast.error('Network error resending invitation.');
+        }
+    };
+
+    const handleRevokeInvite = async (invitationId: number, email: string) => {
+        if (!confirm(`Revoke invitation for ${email}? This will invalidate their sign-up token.`)) return;
+        try {
+            const res = await fetch(`${API}/staff/invitations/${invitationId}`, {
+                method: 'DELETE',
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('Invitation revoked.');
+                fetchInvitations();
+            } else {
+                toast.error(data.message || 'Failed to revoke invitation.');
+            }
+        } catch {
+            toast.error('Network error revoking invitation.');
+        }
+    };
 
     // -----------------------------------------------------
     // CRUD: CREATE & DELETE
@@ -229,90 +348,358 @@ export default function WardStaffManagement() {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h2 className="text-lg font-bold text-teal-900 tracking-tight">User Management</h2>
-                    <p className="text-[10px] font-medium text-slate-500">View and manage caregivers and medical staff assigned to your facility.</p>
+                    <p className="text-[10px] font-medium text-slate-500">View, invite, and manage caregivers and medical staff assigned to your facility.</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={fetchStaff} disabled={loading} className="h-9 gap-1.5 text-slate-600 border-slate-200">
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+                <div className="flex items-center gap-2 flex-wrap">
+                    <Button variant="outline" size="sm" onClick={() => { fetchStaff(); fetchInvitations(); }} disabled={loading || loadingInvites} className="h-9 gap-1.5 text-slate-600 border-slate-200">
+                        <RefreshCw className={`w-4 h-4 ${(loading || loadingInvites) ? 'animate-spin' : ''}`} /> Refresh
                     </Button>
-                    <Button onClick={() => setIsCreateOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white">
-                        <UserPlus className="w-4 h-4 mr-2" /> Add User
+                    <Button onClick={() => setIsCreateOpen(true)} className="bg-teal-700 hover:bg-teal-800 text-white h-9 shadow-xs font-semibold">
+                        <UserPlus className="w-4 h-4 mr-1.5" /> Add User
+                    </Button>
+                    <Button onClick={() => { setIsInviteOpen(true); setInviteResult(null); setInviteEmail(''); }} variant="outline" className="border-teal-300 text-teal-700 hover:bg-teal-50 h-9 font-semibold">
+                        <Mail className="w-4 h-4 mr-1.5" /> Invite User
                     </Button>
                 </div>
             </div>
 
-            <Card className="bg-white border border-slate-200 shadow-sm">
-                <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2">
-                        <Search className="w-4 h-4 text-slate-400" />
-                        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or email..." className="h-8 text-sm border-0 border-b border-slate-200 rounded-none focus-visible:ring-0 px-0" />
-                    </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                    <table className="w-full text-xs">
-                        <thead>
-                            <tr className="border-b border-slate-100 text-xs text-slate-500">
-                                <th className="text-left px-4 py-2 font-medium">Staff Member</th>
-                                <th className="text-left px-4 py-2 font-medium">Role</th>
-                                <th className="text-left px-4 py-2 font-medium">Status</th>
-                                <th className="text-left px-4 py-2 font-medium">Joined</th>
-                                <th className="text-left px-4 py-2 font-medium">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filtered.length === 0 ? <tr><td colSpan={5} className="text-center text-xs text-slate-400 py-8">No staff found.</td></tr> : filtered.map(s => (
-                                <tr key={s.user_id} className={`border-b border-slate-50 hover:bg-slate-50 ${s.is_locked ? 'bg-red-50/50' : ''}`}>
-                                    <td className="px-4 py-2.5">
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.is_locked ? 'bg-red-500' : s.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} title={s.is_locked ? 'Account Locked' : s.is_online ? 'Online' : 'Offline'} />
-                                            <div>
-                                                <p className="font-medium text-slate-800">{s.username}</p>
-                                                <p className="text-xs text-slate-400">{s.email}</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-2.5"><span className="text-xs capitalize text-slate-600">{s.role.replace('_', ' ')}</span></td>
-                                    <td className="px-4 py-2.5">
-                                        {s.is_locked ? <Badge variant="destructive" className="text-xs gap-1"><Lock className="w-3 h-3" /> Locked</Badge> : s.is_online ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200">Online</Badge> : <Badge variant="outline" className="text-xs text-slate-500">Offline</Badge>}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-xs text-slate-400">{s.joined_at}</td>
-                                    <td className="px-4 py-2.5">
-                                        <div className="flex items-center gap-1 flex-wrap">
-                                            {!s.is_locked && (
-                                                <>
-                                                    <Button variant="ghost" size="sm" onClick={() => handleRevokeSession(s.user_id, s.username)} className="h-7 px-2 text-amber-600 hover:text-amber-800 hover:bg-amber-50" title="End all active sessions"><Key className="w-3.5 h-3.5" /></Button>
-                                                    <Button variant="ghost" size="sm" onClick={() => handleLockAccount(s.user_id, s.username)} className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50" title="Lock account immediately"><ShieldAlert className="w-3.5 h-3.5" /></Button>
-                                                </>
-                                            )}
-                                            {s.is_locked && (
-                                                <Button variant="ghost" size="sm" onClick={() => handleUnlockAccount(s.user_id, s.username)} className="h-7 px-2 text-teal-600 hover:text-teal-800 hover:bg-teal-50" title="Unlock account"><Unlock className="w-3.5 h-3.5" /></Button>
-                                            )}
-                                            
-                                            {/* New CRUD & RBAC Actions */}
-                                            <Button variant="ghost" size="sm" onClick={() => openRbacModal(s)} className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50" title="Manage RBAC Permissions">
-                                                <ShieldCheck className="w-3.5 h-3.5" />
-                                            </Button>
-                                            <Button variant="ghost" size="sm" onClick={() => handleDeleteStaff(s.user_id, s.username)} className="h-7 px-2 text-slate-400 hover:text-red-600 hover:bg-red-50" title="Permanently Delete Staff">
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </Button>
-                                        </div>
-                                    </td>
+            {/* Sub-view toggle tabs */}
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                <button
+                    onClick={() => setActiveTab('staff')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        activeTab === 'staff' 
+                            ? 'bg-teal-700 text-white shadow-xs' 
+                            : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                >
+                    Active Staff <Badge className={`ml-1 text-[10px] py-0 px-1.5 ${activeTab === 'staff' ? 'bg-teal-800 text-white' : 'bg-slate-200 text-slate-700'}`}>{staff.length}</Badge>
+                </button>
+                <button
+                    onClick={() => setActiveTab('invitations')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        activeTab === 'invitations' 
+                            ? 'bg-teal-700 text-white shadow-xs' 
+                            : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                >
+                    <Mail className="w-3.5 h-3.5" /> Invitations & Tokens
+                    {invitations.filter(i => i.computed_status === 'pending').length > 0 && (
+                        <Badge className={`ml-1 text-[10px] py-0 px-1.5 ${activeTab === 'invitations' ? 'bg-teal-800 text-white' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                            {invitations.filter(i => i.computed_status === 'pending').length} pending
+                        </Badge>
+                    )}
+                </button>
+            </div>
+
+            {activeTab === 'staff' ? (
+                <Card className="bg-white border border-slate-200 shadow-sm">
+                    <CardHeader className="pb-3">
+                        <div className="flex items-center gap-2">
+                            <Search className="w-4 h-4 text-slate-400" />
+                            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search staff by name or email..." className="h-8 text-sm border-0 border-b border-slate-200 rounded-none focus-visible:ring-0 px-0" />
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-100 text-xs text-slate-500">
+                                    <th className="text-left px-4 py-2 font-medium">Staff Member</th>
+                                    <th className="text-left px-4 py-2 font-medium">Role</th>
+                                    <th className="text-left px-4 py-2 font-medium">Status</th>
+                                    <th className="text-left px-4 py-2 font-medium">Joined</th>
+                                    <th className="text-left px-4 py-2 font-medium">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </CardContent>
-            </Card>
+                            </thead>
+                            <tbody>
+                                {filtered.length === 0 ? <tr><td colSpan={5} className="text-center text-xs text-slate-400 py-8">No staff found.</td></tr> : filtered.map(s => (
+                                    <tr key={s.user_id} className={`border-b border-slate-50 hover:bg-slate-50 ${s.is_locked ? 'bg-red-50/50' : ''}`}>
+                                        <td className="px-4 py-2.5">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.is_locked ? 'bg-red-500' : s.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} title={s.is_locked ? 'Account Locked' : s.is_online ? 'Online' : 'Offline'} />
+                                                <div>
+                                                    <p className="font-medium text-slate-800">{s.username}</p>
+                                                    <p className="text-xs text-slate-400">{s.email}</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-2.5"><span className="text-xs capitalize text-slate-600">{s.role.replace('_', ' ')}</span></td>
+                                        <td className="px-4 py-2.5">
+                                            {s.is_locked ? <Badge variant="destructive" className="text-xs gap-1"><Lock className="w-3 h-3" /> Locked</Badge> : s.is_online ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200">Online</Badge> : <Badge variant="outline" className="text-xs text-slate-500">Offline</Badge>}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-xs text-slate-400">{s.joined_at}</td>
+                                        <td className="px-4 py-2.5">
+                                            <div className="flex items-center gap-1 flex-wrap">
+                                                {!s.is_locked && (
+                                                    <>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleRevokeSession(s.user_id, s.username)} className="h-7 px-2 text-amber-600 hover:text-amber-800 hover:bg-amber-50" title="End all active sessions"><Key className="w-3.5 h-3.5" /></Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleLockAccount(s.user_id, s.username)} className="h-7 px-2 text-red-600 hover:text-red-800 hover:bg-red-50" title="Lock account immediately"><ShieldAlert className="w-3.5 h-3.5" /></Button>
+                                                    </>
+                                                )}
+                                                {s.is_locked && (
+                                                    <Button variant="ghost" size="sm" onClick={() => handleUnlockAccount(s.user_id, s.username)} className="h-7 px-2 text-teal-600 hover:text-teal-800 hover:bg-teal-50" title="Unlock account"><Unlock className="w-3.5 h-3.5" /></Button>
+                                                )}
+                                                
+                                                {/* New CRUD & RBAC Actions */}
+                                                <Button variant="ghost" size="sm" onClick={() => openRbacModal(s)} className="h-7 px-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50" title="Manage RBAC Permissions">
+                                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" onClick={() => handleDeleteStaff(s.user_id, s.username)} className="h-7 px-2 text-slate-400 hover:text-red-600 hover:bg-red-50" title="Permanently Delete Staff">
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </Button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </CardContent>
+                </Card>
+            ) : (
+                /* INVITATIONS VIEW */
+                <Card className="bg-white border border-slate-200 shadow-sm">
+                    <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle className="text-sm font-bold text-slate-800">Facility Invitations & Tokens</CardTitle>
+                            <p className="text-[11px] text-slate-500">Track tokens sent to invitees. When a user registers with their token, they are automatically placed under this facility.</p>
+                        </div>
+                        <Button size="sm" onClick={() => { setIsInviteOpen(true); setInviteResult(null); setInviteEmail(''); }} className="bg-teal-600 hover:bg-teal-700 text-white h-8 text-xs">
+                            <Mail className="w-3.5 h-3.5 mr-1" /> New Invite
+                        </Button>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-100 text-xs text-slate-500 bg-slate-50/50">
+                                    <th className="text-left px-4 py-2.5 font-medium">Invitee Email</th>
+                                    <th className="text-left px-4 py-2.5 font-medium">Designated Role</th>
+                                    <th className="text-left px-4 py-2.5 font-medium">Invitation Token</th>
+                                    <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                                    <th className="text-left px-4 py-2.5 font-medium">Expires</th>
+                                    <th className="text-left px-4 py-2.5 font-medium">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {invitations.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="text-center text-xs text-slate-400 py-10">
+                                            No invitations sent yet. Click <strong>Invite User</strong> to generate a sign-up token.
+                                        </td>
+                                    </tr>
+                                ) : invitations.map(inv => {
+                                    const isPending = inv.computed_status === 'pending';
+                                    const isUsed = inv.computed_status === 'used';
+                                    const isExpired = inv.computed_status === 'expired';
+                                    const isRevoked = inv.computed_status === 'revoked';
+
+                                    return (
+                                        <tr key={inv.invitation_id} className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-slate-800">
+                                                {inv.email}
+                                                {inv.used_by_name && (
+                                                    <span className="block text-[10px] text-emerald-600 font-normal">
+                                                        Activated by: @{inv.used_by_name}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <Badge variant="outline" className={`capitalize font-semibold text-[10px] ${inv.role === 'medical_staff' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : 'border-teal-300 text-teal-700 bg-teal-50'}`}>
+                                                    {inv.role.replace('_', ' ')}
+                                                </Badge>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 font-mono font-bold text-xs text-slate-800">
+                                                    <span>{inv.token}</span>
+                                                    <button
+                                                        onClick={() => handleCopyToken(inv.token)}
+                                                        className="text-slate-400 hover:text-teal-600 transition-colors cursor-pointer"
+                                                        title="Copy token to clipboard"
+                                                    >
+                                                        {copiedToken === inv.token ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                                    </button>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {isPending && (
+                                                    <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] gap-1 font-semibold">
+                                                        <Clock className="w-3 h-3" /> Pending
+                                                    </Badge>
+                                                )}
+                                                {isUsed && (
+                                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] gap-1 font-semibold">
+                                                        <CheckCircle2 className="w-3 h-3" /> Activated
+                                                    </Badge>
+                                                )}
+                                                {isExpired && (
+                                                    <Badge variant="outline" className="text-slate-400 border-slate-200 text-[10px]">
+                                                        Expired
+                                                    </Badge>
+                                                )}
+                                                {isRevoked && (
+                                                    <Badge variant="destructive" className="text-[10px] gap-1">
+                                                        <XCircle className="w-3 h-3" /> Cancelled
+                                                    </Badge>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-500 text-[11px]">
+                                                {new Date(inv.expires_at).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-1">
+                                                    {isPending && (
+                                                        <>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => handleResendInvite(inv.invitation_id, inv.email)}
+                                                                className="h-7 text-xs text-teal-700 hover:bg-teal-50"
+                                                                title="Resend email with this token"
+                                                            >
+                                                                <Send className="w-3 h-3 mr-1" /> Resend
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => handleRevokeInvite(inv.invitation_id, inv.email)}
+                                                                className="h-7 text-xs text-red-600 hover:bg-red-50"
+                                                                title="Cancel this invitation"
+                                                            >
+                                                                Revoke
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* ============================================================ */}
+            {/* INVITE USER MODAL                                            */}
+            {/* ============================================================ */}
+            <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+                <DialogContent className="sm:max-w-[460px]">
+                    <DialogHeader>
+                        <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center mb-1">
+                            <Mail className="w-5 h-5 text-teal-700" />
+                        </div>
+                        <DialogTitle className="text-lg font-bold text-slate-800">Invite User to Facility</DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500">
+                            Send an official invitation email containing a secure token. The user enters this token during sign-up to join your facility.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {inviteResult ? (
+                        /* SUCCESS STATE */
+                        <div className="space-y-4 py-2">
+                            <div className="p-4 rounded-xl bg-teal-50/80 border border-teal-200 text-center space-y-2">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold text-teal-800 uppercase tracking-wider">
+                                    <CheckCircle2 className="w-4 h-4 text-teal-600" /> Token Generated & Dispatched
+                                </span>
+                                <div className="text-2xl font-mono font-black tracking-widest text-teal-900 bg-white py-3 px-4 rounded-lg border border-teal-200 shadow-2xs select-all">
+                                    {inviteResult.token}
+                                </div>
+                                <p className="text-xs text-slate-600">
+                                    Invitation sent to <strong>{inviteResult.email}</strong> as a <strong>{inviteResult.role.replace('_', ' ')}</strong>.
+                                </p>
+                                <Button
+                                    size="sm"
+                                    onClick={() => handleCopyToken(inviteResult.token)}
+                                    className="bg-teal-700 hover:bg-teal-800 text-white text-xs h-8 gap-1.5"
+                                >
+                                    {copiedToken === inviteResult.token ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                    {copiedToken === inviteResult.token ? 'Copied!' : 'Copy Token'}
+                                </Button>
+                            </div>
+
+                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                                The invitee should navigate to the <strong>Sign Up</strong> page in the Alaga web or mobile app, toggle <em>"Are you affiliated with a facility?"</em>, and input this token.
+                            </p>
+
+                            <DialogFooter>
+                                <Button
+                                    size="sm"
+                                    onClick={() => {
+                                        setIsInviteOpen(false);
+                                        setInviteResult(null);
+                                        setActiveTab('invitations');
+                                    }}
+                                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold"
+                                >
+                                    Done
+                                </Button>
+                            </DialogFooter>
+                        </div>
+                    ) : (
+                        /* INPUT STATE */
+                        <div className="space-y-4 py-2">
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-700">Recipient Email Address *</Label>
+                                <Input
+                                    type="email"
+                                    placeholder="caregiver@hospital.org"
+                                    value={inviteEmail}
+                                    onChange={e => setInviteEmail(e.target.value)}
+                                    className="h-9 text-sm"
+                                />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-700">Designated Role *</Label>
+                                <Select value={inviteRole} onValueChange={(val: any) => setInviteRole(val)}>
+                                    <SelectTrigger className="h-9 text-sm">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="caregiver">Caregiver</SelectItem>
+                                        <SelectItem value="medical_staff">Medical Staff</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-[10px] text-slate-400">
+                                    The token will enforce this role when the user creates their account.
+                                </p>
+                            </div>
+
+                            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                                <div className="font-semibold text-slate-700 flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5 text-teal-600" /> Token Validity & Security
+                                </div>
+                                <p>Tokens remain valid for 7 days. Once consumed during sign-up, the token cannot be reused.</p>
+                            </div>
+
+                            <DialogFooter className="gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setIsInviteOpen(false)} disabled={sendingInvite}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleSendInvite}
+                                    disabled={sendingInvite || !inviteEmail.trim()}
+                                    className="bg-teal-600 hover:bg-teal-700 text-white font-semibold gap-1.5"
+                                >
+                                    {sendingInvite ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                    {sendingInvite ? 'Sending Invitation...' : 'Send Invitation'}
+                                </Button>
+                            </DialogFooter>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
 
             {/* CREATE MODAL */}
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
-                        <DialogTitle className="text-lg font-bold text-slate-800">Provision New Staff</DialogTitle>
-                        <DialogDescription className="text-xs text-slate-500">Register a new medical staff or caregiver for your facility.</DialogDescription>
+                        <DialogTitle className="text-lg font-bold text-slate-800">Add New User</DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500">Register a new medical staff or caregiver directly for your facility.</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">

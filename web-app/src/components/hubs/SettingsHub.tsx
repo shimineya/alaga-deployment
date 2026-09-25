@@ -36,47 +36,53 @@ export default function SettingsHub() {
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
             <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800 tracking-tight">{t('System Settings', 'Mga Setting ng System')}</h1>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50/90 border border-teal-200/90 text-teal-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                    Configuration & Governance
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">
+                    {t('System', 'Sistema')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">{t('Settings', 'Mga Setting')}</span>
+                </h1>
                 <p className="text-sm text-slate-500 mt-1">{t('Manage your account profile, personal preferences, and overarching system parameters.', 'Pamahalaan ang iyong profile sa account, mga personal na kagustuhan, at pangkalahatang mga parameter ng system.')}</p>
             </div>
 
             <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
-                <div className="border-b border-slate-200 mb-6 shrink-0">
-                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                <div className="mb-6 shrink-0">
+                    <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 overflow-x-auto h-auto">
                         {canSeeAccount && (
                             <TabsTrigger 
                                 value="account" 
-                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                             >
-                                <Settings className="w-4 h-4" /> {t('Account Profile', 'Profile ng Account')}
+                                <Settings className="w-3.5 h-3.5 text-teal-600" /> {t('Account Profile', 'Profile ng Account')}
                             </TabsTrigger>
                         )}
 
                         {canSeePreferences && (
                             <TabsTrigger 
                                 value="profile" 
-                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                             >
-                                <Sliders className="w-4 h-4" /> {t('Preferences', 'Mga Kagustuhan')}
+                                <Sliders className="w-3.5 h-3.5 text-teal-600" /> {t('Preferences', 'Mga Kagustuhan')}
                             </TabsTrigger>
                         )}
 
                         {canSeeSystemSettings && (
                             <TabsTrigger 
                                 value="system" 
-                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                             >
-                                <Sliders className="w-4 h-4" /> {t('System Overrides', 'Mga Pag-override sa System')}
+                                <Sliders className="w-3.5 h-3.5 text-emerald-600" /> {t('System Overrides', 'Mga Pag-override sa System')}
                             </TabsTrigger>
                         )}
 
                         {canSeeCompliance && (
                             <TabsTrigger 
                                 value="compliance" 
-                                className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                             >
-                                <ShieldCheck className="w-4 h-4" /> {t('Privacy & Compliance', 'Privacy at Pagsunod')}
+                                <ShieldCheck className="w-3.5 h-3.5 text-rose-600" /> {t('Privacy & Compliance', 'Privacy at Pagsunod')}
                             </TabsTrigger>
                         )}
                     </TabsList>

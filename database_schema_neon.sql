@@ -247,6 +247,27 @@ CREATE TABLE IF NOT EXISTS public.care_logs (
 );
 
 -- ----------------------------------------------------------------------------
+-- TABLE: facility_invitations
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.facility_invitations (
+    invitation_id SERIAL,
+    facility_id INTEGER NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('caregiver', 'medical_staff')),
+    token VARCHAR(64) UNIQUE NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'used', 'expired', 'revoked')),
+    created_by INTEGER,
+    used_by INTEGER,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    used_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT facility_invitations_pkey PRIMARY KEY (invitation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_facility_invitations_token ON public.facility_invitations (token);
+CREATE INDEX IF NOT EXISTS idx_facility_invitations_facility ON public.facility_invitations (facility_id);
+
+-- ----------------------------------------------------------------------------
 -- TABLE: hardware_system_alerts
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.hardware_system_alerts (
@@ -579,6 +600,15 @@ ALTER TABLE ONLY public.care_logs
 ALTER TABLE ONLY public.care_logs DROP CONSTRAINT IF EXISTS care_logs_patient_id_fkey;
 ALTER TABLE ONLY public.care_logs
     ADD CONSTRAINT care_logs_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.patients(patient_id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.facility_invitations DROP CONSTRAINT IF EXISTS fk_facility_invitations_facility;
+ALTER TABLE ONLY public.facility_invitations
+    ADD CONSTRAINT fk_facility_invitations_facility FOREIGN KEY (facility_id) REFERENCES public.facilities(facility_id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.facility_invitations DROP CONSTRAINT IF EXISTS fk_facility_invitations_creator;
+ALTER TABLE ONLY public.facility_invitations
+    ADD CONSTRAINT fk_facility_invitations_creator FOREIGN KEY (created_by) REFERENCES public.users(user_id) ON DELETE SET NULL;
+ALTER TABLE ONLY public.facility_invitations DROP CONSTRAINT IF EXISTS fk_facility_invitations_user;
+ALTER TABLE ONLY public.facility_invitations
+    ADD CONSTRAINT fk_facility_invitations_user FOREIGN KEY (used_by) REFERENCES public.users(user_id) ON DELETE SET NULL;
 ALTER TABLE ONLY public.device_whitelist DROP CONSTRAINT IF EXISTS device_whitelist_added_by_fkey;
 ALTER TABLE ONLY public.device_whitelist
     ADD CONSTRAINT device_whitelist_added_by_fkey FOREIGN KEY (added_by) REFERENCES public.users(user_id);

@@ -208,7 +208,10 @@ const loadSmtpConfig = async () => {
 
 const sendOtpEmail = async ({ to, otp, purpose }) => {
   try {
-    const fromEmail = process.env.RESEND_FROM || 'Pulsera Innovations <pulserainnovations@gmail.com>';
+    let fromEmail = process.env.RESEND_FROM;
+    if (!fromEmail || fromEmail.includes('@gmail.com')) {
+      fromEmail = 'Alaga Healthcare <onboarding@resend.dev>';
+    }
     const emailSubject = 'ALAGA Email Verification Code';
     const emailHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; color: #1e293b; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
@@ -235,15 +238,24 @@ const sendOtpEmail = async ({ to, otp, purpose }) => {
     `;
 
     if (resend) {
-      const data = await resend.emails.send({
-        from: fromEmail,
-        to: [to],
-        subject: emailSubject,
-        html: emailHtml
-      });
-      console.log('Email sent successfully via Resend:', data);
-      return data;
-    } else {
+      try {
+        const data = await resend.emails.send({
+          from: fromEmail,
+          to: [to],
+          subject: emailSubject,
+          html: emailHtml
+        });
+        if (data && data.error) {
+          throw new Error(data.error.message || JSON.stringify(data.error));
+        }
+        console.log('Email sent successfully via Resend:', data);
+        return data;
+      } catch (resendError) {
+        console.warn('Resend send failed in sendOtpEmail, trying nodemailer fallback:', resendError.message);
+      }
+    }
+    
+    if (transporter) {
       const info = await transporter.sendMail({
         from: process.env.EMAIL_USER || process.env.SMTP_USER || fromEmail,
         to,
@@ -277,7 +289,7 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
 
     const client = await pool.connect();
     try {
-        let { username, password, email, role, mobile_number, first_name, last_name, middle_initial, has_facility, facility_name } = req.body;
+        let { username, password, email, role, mobile_number, first_name, last_name, middle_initial, has_facility, facility_name, invite_token } = req.body;
         console.log(`Registering user: ${email}`);
 
         const safeEmail = email.toLowerCase().trim();
@@ -286,9 +298,54 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             username = safeEmail.split('@')[0];
         }
 
-        // Strict Facility Validation for Caregiver / Medical Staff with facility affiliation
+        // Facility Affiliation via Invitation Token or Facility Name
         let facilityIdToAssign = null;
-        if (has_facility || (facility_name && facility_name.trim() !== '')) {
+        let matchedInvitationId = null;
+
+        if (invite_token && invite_token.trim() !== '') {
+            const cleanToken = invite_token.trim().toUpperCase();
+            const inviteCheck = await client.query(
+                `SELECT fi.invitation_id, fi.facility_id, fi.role, fi.status, fi.expires_at, fi.email AS invited_email,
+                        f.facility_name
+                 FROM facility_invitations fi
+                 JOIN facilities f ON fi.facility_id = f.facility_id
+                 WHERE UPPER(TRIM(fi.token)) = $1`,
+                [cleanToken]
+            );
+
+            if (inviteCheck.rows.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid facility invitation token. Please double-check the code sent to your email.'
+                });
+            }
+
+            const invite = inviteCheck.rows[0];
+            if (invite.status === 'used') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This facility invitation token has already been used.'
+                });
+            }
+            if (invite.status === 'revoked') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This facility invitation has been revoked by the facility administrator.'
+                });
+            }
+            if (new Date(invite.expires_at) < new Date()) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This facility invitation token has expired. Please request a new invite from your administrator.'
+                });
+            }
+
+            // Successfully validated token
+            facilityIdToAssign = invite.facility_id;
+            role = invite.role; // Enforce designated role
+            matchedInvitationId = invite.invitation_id;
+            console.log(`[REGISTER] Linked user ${safeEmail} to facility ${invite.facility_name} via token ${cleanToken}`);
+        } else if (has_facility || (facility_name && facility_name.trim() !== '')) {
             if (!facility_name || facility_name.trim() === '') {
                 return res.status(400).json({
                     success: false,
@@ -380,6 +437,16 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             [createdUser.user_id, safeEmail, otpHash]
         );
 
+        // Consume facility invitation token if provided
+        if (matchedInvitationId) {
+            await client.query(
+                `UPDATE facility_invitations 
+                 SET status = 'used', used_by = $1, used_at = NOW() 
+                 WHERE invitation_id = $2`,
+                [createdUser.user_id, matchedInvitationId]
+            );
+        }
+
         // [FIX] COMMIT before the email send so the DB write is not gated on SMTP.
         // The Flutter client receives its 201 immediately after this line.
         await client.query('COMMIT');
@@ -411,6 +478,71 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
         console.error('Registration DB Error:', err.message);
         // [OWASP A10] Generic error -- no stack trace to client
         res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
+    }
+});
+
+// ==========================================
+// ROUTE: VERIFY FACILITY INVITATION TOKEN
+// Public endpoint for Web and Mobile App Sign-up
+// ==========================================
+app.all(['/api/auth/verify-invite-token', '/api/auth/verify-invite-token/:token', '/api/facility-admin/verify-invite'], async (req, res) => {
+    try {
+        const rawToken = req.body?.token || req.query?.token || req.params?.token;
+        if (!rawToken || !rawToken.trim()) {
+            return res.status(400).json({ success: false, valid: false, message: 'Invitation token is required.' });
+        }
+        const cleanToken = rawToken.trim().toUpperCase();
+        const result = await pool.query(
+            `SELECT fi.invitation_id, fi.facility_id, fi.email, fi.role, fi.status, fi.expires_at,
+                    f.facility_name, f.address
+             FROM facility_invitations fi
+             JOIN facilities f ON fi.facility_id = f.facility_id
+             WHERE UPPER(TRIM(fi.token)) = $1`,
+            [cleanToken]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                valid: false,
+                message: 'Invalid invitation token. Please check the code in your email and try again.'
+            });
+        }
+
+        const invite = result.rows[0];
+        if (invite.status === 'used') {
+            return res.status(400).json({
+                success: false,
+                valid: false,
+                message: 'This invitation token has already been used to register an account.'
+            });
+        }
+        if (invite.status === 'revoked') {
+            return res.status(400).json({
+                success: false,
+                valid: false,
+                message: 'This invitation has been cancelled by the healthcare facility.'
+            });
+        }
+        if (new Date(invite.expires_at) < new Date()) {
+            return res.status(400).json({
+                success: false,
+                valid: false,
+                message: 'This invitation token has expired. Please contact your facility administrator.'
+            });
+        }
+
+        return res.json({
+            success: true,
+            valid: true,
+            facility_id: invite.facility_id,
+            facility_name: invite.facility_name,
+            role: invite.role,
+            email: invite.email
+        });
+    } catch (err) {
+        console.error('Error verifying invitation token:', err);
+        return res.status(500).json({ success: false, valid: false, message: 'Server error verifying invitation token.' });
     }
 });
 
@@ -733,16 +865,15 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             searchKey = username.toLowerCase().trim();
         }
 
-        // [OWASP A05] Parameterized query. We select only the columns needed
-        // to satisfy the Minimum Necessary rule (HIPAA) while also fetching
-        // profile_picture_url so the JWT session is fully hydrated on login —
-        // avoiding the race condition where the dashboard avatar is blank until
-        // the user visits the Profile tab.
+        // [OWASP A05] Parameterized query. Join facilities to hydrate facility membership
         const result = await pool.query(
-            `SELECT user_id, username, email, role, first_name,
-                    account_status, is_locked, is_verified, is_archived,
-                    password_hash, profile_picture_url
-             FROM users WHERE email = $1 OR username = $1`,
+            `SELECT u.user_id, u.username, u.email, u.role, u.first_name,
+                    u.account_status, u.is_locked, u.is_verified, u.is_archived,
+                    u.password_hash, u.profile_picture_url, u.facility_id,
+                    f.facility_name
+             FROM users u
+             LEFT JOIN facilities f ON u.facility_id = f.facility_id
+             WHERE u.email = $1 OR u.username = $1`,
             [searchKey]
         );
 
@@ -816,11 +947,14 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             token,
             user: {
                 id: user.user_id,
+                user_id: user.user_id,
                 username: user.username,
                 email: user.email,
                 role: user.role,
                 name: user.first_name, // Added for frontend display
                 account_status: user.account_status,
+                facility_id: user.facility_id || null,
+                facility_name: user.facility_name || null,
                 // [FIX] Include profile picture URL so the dashboard avatar
                 // renders immediately after login without a separate API call.
                 profilePictureUrl: user.profile_picture_url || null,
@@ -846,6 +980,48 @@ app.post('/api/auth/logout', verifyToken, async (req, res) => {
     } catch (err) {
         // Even if this fails, the frontend still clears localStorage
         res.json({ success: true, message: 'Logged out.' });
+    }
+});
+
+// ==========================================
+// ROUTE 2C: AUTH ME (Hydrate user and facility)
+// ==========================================
+app.get('/api/auth/me', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT u.user_id, u.username, u.email, u.role, u.first_name, u.last_name,
+                    u.account_status, u.profile_picture_url, u.facility_id,
+                    f.facility_name
+             FROM users u
+             LEFT JOIN facilities f ON u.facility_id = f.facility_id
+             WHERE u.user_id = $1`,
+            [req.user.id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        const u = result.rows[0];
+        res.json({
+            success: true,
+            user: {
+                id: u.user_id,
+                user_id: u.user_id,
+                username: u.username,
+                email: u.email,
+                role: u.role,
+                name: u.first_name || u.username,
+                first_name: u.first_name,
+                last_name: u.last_name,
+                account_status: u.account_status,
+                facility_id: u.facility_id || null,
+                facility_name: u.facility_name || null,
+                profilePictureUrl: u.profile_picture_url || null,
+                profile_picture_url: u.profile_picture_url || null,
+            }
+        });
+    } catch (e) {
+        console.error('Auth Me Error:', e);
+        res.status(500).json({ success: false, message: 'Failed to fetch session user' });
     }
 });
 
@@ -1126,15 +1302,51 @@ app.post('/api/device/data', async (req, res) => {
     try {
         // 1. Verify the device identity in your database (must be whitelisted and not archived)
         const deviceCheck = await pool.query(
-            'SELECT assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE', 
+            'SELECT assigned_patient_id, device_token_hash FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE', 
             [device_id]
         );
 
         if (deviceCheck.rows.length === 0) {
-            return res.status(403).send("Unauthorized device.");
+            return res.status(403).json({ error: "Forbidden", message: "Unauthorized device." });
         }
 
-        const patientId = deviceCheck.rows[0].assigned_patient_id;
+        const devRow = deviceCheck.rows[0];
+        const patientId = devRow.assigned_patient_id;
+
+        // [OWASP A07] Hardware Device Security Token Verification
+        if (devRow.device_token_hash) {
+            const rawToken = req.headers['x-device-token'] 
+                || req.body.device_token 
+                || (req.headers['authorization'] ? req.headers['authorization'].replace(/^Bearer\s+/i, '').trim() : null);
+
+            if (!rawToken) {
+                const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
+                await pool.query(
+                    `INSERT INTO access_logs (action, ip_address, severity, status, details)
+                     VALUES ('DEVICE_AUTH_FAILURE', $1, 'WARNING', 'FAILURE', $2)`,
+                    [String(clientIp), JSON.stringify({ serial: device_id, reason: 'Missing hardware device token' })]
+                ).catch(() => {});
+                return res.status(401).json({
+                    error: "Unauthorized",
+                    message: "Hardware security token required to transmit clinical telemetry."
+                });
+            }
+
+            const crypto = require('crypto');
+            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+            if (tokenHash !== devRow.device_token_hash) {
+                const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
+                await pool.query(
+                    `INSERT INTO access_logs (action, ip_address, severity, status, details)
+                     VALUES ('DEVICE_AUTH_FAILURE', $1, 'WARNING', 'FAILURE', $2)`,
+                    [String(clientIp), JSON.stringify({ serial: device_id, reason: 'Invalid hardware device token' })]
+                ).catch(() => {});
+                return res.status(401).json({
+                    error: "Unauthorized",
+                    message: "Invalid device hardware security token."
+                });
+            }
+        }
 
         // Verify device is assigned to an active patient
         if (!patientId) {
@@ -1149,7 +1361,12 @@ app.post('/api/device/data', async (req, res) => {
         let sp = spo2 !== undefined && spo2 !== null ? parseFloat(spo2) : 0;
         let moist = moisture !== undefined && moisture !== null ? parseInt(moisture, 10) : 0;
 
-        // Carry forward previous complementary sensor readings so Vital Signs and Moisture sensors co-exist simultaneously
+        // Determine if device is reporting all sensors simultaneously
+        const isAllInOne = req.body.device_type === 'all_in_one' 
+            || req.body.has_moisture_sensor === true 
+            || (req.body.moisture !== undefined && (req.body.heart_rate !== undefined || req.body.spo2 !== undefined));
+
+        // Carry forward previous complementary sensor readings ONLY if from disjoint single-purpose devices
         const lastSnapshot = await pool.query(
             `SELECT heart_rate, temperature, spo2, moisture_value 
              FROM sensor_readings 
@@ -1158,7 +1375,7 @@ app.post('/api/device/data', async (req, res) => {
             [patientId]
         );
 
-        if (lastSnapshot.rows.length > 0) {
+        if (lastSnapshot.rows.length > 0 && !isAllInOne) {
             const prev = lastSnapshot.rows[0];
             // If current payload is only moisture (vitals are 0 or unset), retain previous valid vitals
             if (hr <= 0 && temp <= 0 && sp <= 0) {
@@ -1166,7 +1383,7 @@ app.post('/api/device/data', async (req, res) => {
                 temp = parseFloat(prev.temperature) || 0;
                 sp = parseFloat(prev.spo2) || 0;
             }
-            // If current payload is only vitals (moisture is 0), retain previous valid moisture
+            // If current payload is only vitals (moisture is unset or 0), retain previous valid moisture
             if (moist <= 0 && prev.moisture_value !== undefined && prev.moisture_value !== null) {
                 moist = parseInt(prev.moisture_value, 10) || 0;
             }
@@ -1175,10 +1392,11 @@ app.post('/api/device/data', async (req, res) => {
         // 2. Insert the combined readings into the database
         const insertRes = await pool.query(
             `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
-             VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING reading_id`,
+             VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING reading_id, recorded_at`,
             [patientId, hr, temp, sp, moist]
         );
         const readingId = insertRes.rows[0]?.reading_id;
+        const recordedAt = insertRes.rows[0]?.recorded_at;
 
         // 2b. Run AI Anomaly Evaluation & Clinical Notification Generation
         try {
@@ -1194,11 +1412,6 @@ app.post('/api/device/data', async (req, res) => {
                     [patientId]
                 ).catch(() => ({ rows: [] }));
                 const patientBaselines = baselinesRes.rows || [];
-
-                const hr = parseFloat(heart_rate) || 0;
-                const temp = parseFloat(temperature) || 0;
-                const sp = parseFloat(spo2) || 0;
-                const moist = parseInt(moisture, 10) || 0;
 
                 // Run AI prediction when there are valid physiological vitals or moisture
                 if (hr > 30 || temp > 25 || sp > 50 || moist > 0) {
@@ -1233,7 +1446,7 @@ app.post('/api/device/data', async (req, res) => {
                                         eventId,
                                         alert.message,
                                         alert.severity === 'critical' ? 'Critical' : 'Warning'
-                                    ]
+                                     ]
                                 );
                             }
                         }
@@ -1261,10 +1474,16 @@ app.post('/api/device/data', async (req, res) => {
             [device_id, batteryVal, signalVal, clientIp]
         ).catch(err => console.error("Heartbeat update error:", err.message));
 
-        res.status(200).send("Data recorded successfully.");
+        res.status(200).json({
+            success: true,
+            message: "Data recorded successfully.",
+            reading_id: readingId,
+            recorded_at: recordedAt,
+            patient_id: patientId
+        });
     } catch (err) {
         console.error(err);
-        res.status(500).send("Server error.");
+        res.status(500).json({ error: "Internal Server Error", message: "Server error processing device data." });
     }
 });
 
@@ -1290,6 +1509,8 @@ app.use('/api/facility-admin', facilityAdminRoutes);
 // URL Prefix: http://localhost:3000/api/sysadmin/
 const sysAdminRoutes = require('./routes/sysAdminRoutes');
 app.use('/api/sysadmin', sysAdminRoutes);
+
+
 
 // Caregiver & Patient Management Routes
 const caregiverRoutes = require('./routes/caregiverRoutes');
@@ -1340,7 +1561,18 @@ app.use((err, req, res, next) => {
 // --- Start Server ---
 const HOST = '0.0.0.0';
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
     console.log(`ALAGA Server running on http://${HOST}:${PORT}`);
     console.log(`Accepting local network connections for mobile testing.`);
+});
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n[ALAGA] ❌ Port ${PORT} is ALREADY in use by another running server instance.`);
+        console.error(`[ALAGA] 💡 If the backend was started in another terminal or background task, it is already running!`);
+        console.error(`[ALAGA] 💡 To free port ${PORT}, run: Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force\n`);
+        process.exit(1);
+    } else {
+        console.error('[ALAGA] Server error:', err);
+    }
 });

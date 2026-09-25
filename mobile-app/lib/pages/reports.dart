@@ -255,13 +255,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ? 'Dry / No soak events logged'
           : '$wetnessCount soak events logged';
 
-      final assessmentNotes = 'Longitudinal analysis for $patientDisplayName covering the past $_timeFrame. '
+      final assessmentNotes = 'Health trend summary for $patientDisplayName covering the past $_timeFrame. '
           'Average heart rate is $avgHr BPM (range: $dispMinHr-$dispMaxHr BPM, $hrStatus). '
           'SpO2 averaged $avgSpo2% (range: $dispMinSpo2-$dispMaxSpo2%, $spo2Status). '
           'Body temperature averaged $avgTemp C ($tempStatus). '
           'Diaper moisture monitoring recorded $diaperStatus. '
           'Clinical alert notifications in this timeframe: $totalAlerts incident(s). '
-          'Telemetry stream integrity: Verified with AES-256 edge encryption.';
+          'Data stream integrity: Verified with AES-256 edge encryption.';
 
       final reportTimestamp = DateFormat('MMMM dd, yyyy, hh:mm a').format(DateTime.now());
       final safePatientSlug = patientDisplayName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
@@ -1528,7 +1528,7 @@ $assessmentNotes
               style: mainTextStyle.copyWith(fontSize: 24),
             ),
             Text(
-              "Compile, export, and review longitudinal vital trends and moisture logs.",
+              "Compile, export, and review vital trends and diaper moisture logs over time.",
               style: descriptionStyle.copyWith(fontSize: 13),
             ),
             const SizedBox(height: 20),

@@ -15,6 +15,8 @@ class UserSession {
   // [INTEGRATION] Persisted so the dashboard avatar survives app restarts
   // without a round-trip to the server. Nullable — not all users have a picture.
   final String? profilePictureUrl;
+  final int? facilityId;
+  final String? facilityName;
 
   UserSession({
     required this.id,
@@ -25,7 +27,13 @@ class UserSession {
     required this.token,
     this.biometricToken,
     this.profilePictureUrl,
+    this.facilityId,
+    this.facilityName,
   });
+
+  // Facility distinction getters
+  bool get hasFacility => facilityName != null && facilityName!.trim().isNotEmpty;
+  String get facilityDisplay => hasFacility ? facilityName!.trim() : 'Independent Care';
 
   // [OWASP A01] Single source of truth for role-based UI visibility.
   // The parent (admin/parent) account can register devices and enroll patients.
@@ -46,11 +54,11 @@ class UserSession {
 
   factory UserSession.fromJson(Map<String, dynamic> json, String token) {
     return UserSession(
-      id: json['id'] ?? 0,
+      id: json['id'] ?? json['user_id'] ?? 0,
       username: json['username'] ?? '',
       email: json['email'] ?? '',
       role: json['role'] ?? 'caregiver',
-      name: json['name'] ?? '',
+      name: json['name'] ?? json['first_name'] ?? '',
       token: token,
       biometricToken: json['biometricToken'],
       // [FIX] The backend login route sends the field as camelCase
@@ -59,6 +67,8 @@ class UserSession {
       // hydrated correctly regardless of which endpoint produced the JSON.
       profilePictureUrl:
           json['profilePictureUrl'] ?? json['profile_picture_url'],
+      facilityId: json['facilityId'] ?? json['facility_id'],
+      facilityName: json['facilityName'] ?? json['facility_name'],
     );
   }
 
@@ -72,6 +82,8 @@ class UserSession {
       'token': token,
       if (biometricToken != null) 'biometricToken': biometricToken,
       'profilePictureUrl': profilePictureUrl,
+      'facilityId': facilityId,
+      'facilityName': facilityName,
     };
   }
 
@@ -84,6 +96,8 @@ class UserSession {
     String? profilePictureUrl,
     // Pass the sentinel value _clearPicture to explicitly null-out the picture.
     bool clearProfilePicture = false,
+    int? facilityId,
+    String? facilityName,
   }) {
     return UserSession(
       id: id,
@@ -96,6 +110,8 @@ class UserSession {
       profilePictureUrl: clearProfilePicture
           ? null
           : (profilePictureUrl ?? this.profilePictureUrl),
+      facilityId: facilityId ?? this.facilityId,
+      facilityName: facilityName ?? this.facilityName,
     );
   }
 }
@@ -147,6 +163,8 @@ class SessionManager {
           token: json['token'],
           biometricToken: json['biometricToken'],
           profilePictureUrl: json['profilePictureUrl'],
+          facilityId: json['facilityId'] ?? json['facility_id'],
+          facilityName: json['facilityName'] ?? json['facility_name'],
         );
         // Prevent a web-only account saved by an older app version from
         // bypassing the role check when the application starts again.

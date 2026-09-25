@@ -82,8 +82,8 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <Card className="w-full max-w-[360px] shadow-lg border-0">
         <CardHeader className="text-center pb-2 space-y-1 pt-6">
-          <div className="mx-auto w-10 h-10 bg-teal-50 rounded-full flex items-center justify-center mb-1">
-            <Activity className="w-6 h-6 text-teal-600" />
+          <div className="mx-auto w-14 h-14 bg-teal-50/90 rounded-2xl flex items-center justify-center mb-1 p-1 border border-teal-200/80 shadow-xs">
+            <img src="/alaga-robot-logo.png" alt="Alaga Logo" className="w-11 h-11 object-contain" />
           </div>
           <CardTitle className="text-lg font-bold text-slate-800">Alaga Login</CardTitle>
           <CardDescription className="text-xs">Secure access for Caregivers &amp; Staff</CardDescription>

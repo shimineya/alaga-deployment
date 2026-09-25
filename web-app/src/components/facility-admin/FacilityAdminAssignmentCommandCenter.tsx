@@ -246,25 +246,28 @@ export default function FacilityAdminAssignmentCommandCenter() {
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
                 <div>
-                    <h1 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                        <ActivitySquare className="w-5 h-5 text-teal-600 animate-pulse" />
-                        Assignment Command Center
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50/90 border border-teal-200/90 text-teal-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                        Care Team Orchestration
+                    </div>
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                        Assignment <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Command Center</span>
                     </h1>
                     <p className="text-xs text-slate-500 mt-1">
                         View, edit, and archive staff accounts you created and caregiver patient assignments you delegated.
                     </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={fetchData} disabled={isLoading} className="h-9 gap-1.5 cursor-pointer">
-                    <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <Button size="sm" variant="outline" onClick={fetchData} disabled={isLoading} className="bg-white/80 hover:bg-white text-slate-700 text-xs font-bold h-9 rounded-xl border border-teal-100 shadow-xs alaga-btn-tactile flex items-center gap-2">
+                    <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isLoading ? 'animate-spin' : ''}`} />
                     Refresh Feed
                 </Button>
             </div>
 
             {/* Pending Care Team Invitations Section */}
-            <Card className="border-amber-100 bg-amber-50/20 shadow-sm shrink-0">
-                <CardHeader className="py-3 px-4 border-b border-amber-50">
-                    <CardTitle className="text-xs font-semibold flex items-center gap-2 text-amber-800">
-                        <Inbox className="w-4 h-4" />
+            <Card className="border-amber-200/80 bg-amber-50/40 backdrop-blur-xs rounded-2xl shadow-xs shrink-0">
+                <CardHeader className="py-3 px-4 border-b border-amber-100/60">
+                    <CardTitle className="text-xs font-bold flex items-center gap-2 text-amber-800">
+                        <Inbox className="w-4 h-4 text-amber-600" />
                         Pending Caregiver Invitations ({pendingAssignments.length})
                     </CardTitle>
                 </CardHeader>
@@ -276,7 +279,7 @@ export default function FacilityAdminAssignmentCommandCenter() {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {pendingAssignments.map((invite) => (
-                                <div key={invite.access_id} className="p-3 border border-amber-100 bg-white rounded-xl shadow-xs flex justify-between items-center gap-4">
+                                <div key={invite.access_id} className="p-3 border border-amber-200/60 bg-white rounded-xl shadow-2xs flex justify-between items-center gap-4">
                                     <div className="space-y-1 flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <h3 className="font-bold text-xs text-slate-800 truncate max-w-[150px]" title={invite.patient_name}>{invite.patient_name}</h3>
@@ -320,7 +323,7 @@ export default function FacilityAdminAssignmentCommandCenter() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
                 {/* Active Care Assignments Section */}
-                <Card className="border-slate-200 shadow-sm flex flex-col min-h-0">
+                <Card className="border-teal-100/90 bg-white/95 backdrop-blur-md rounded-2xl shadow-xs flex flex-col min-h-0">
                     <CardHeader className="py-4 px-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                         <div>
                             <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -390,7 +393,7 @@ export default function FacilityAdminAssignmentCommandCenter() {
                 </Card>
 
                 {/* Provisioned Staff Accounts Section */}
-                <Card className="border-slate-200 shadow-sm flex flex-col min-h-0">
+                <Card className="border-teal-100/90 bg-white/95 backdrop-blur-md rounded-2xl shadow-xs flex flex-col min-h-0">
                     <CardHeader className="py-4 px-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                         <div>
                             <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2">

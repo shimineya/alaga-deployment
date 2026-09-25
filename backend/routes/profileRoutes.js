@@ -59,6 +59,7 @@ router.get('/', verifyToken, async (req, res) => {
                 u.first_name,
                 u.last_name,
                 u.role,
+                u.facility_id,
                 f.facility_name,
                 pc.notification_preferences
              FROM users u
@@ -265,5 +266,34 @@ router.post('/preferences', verifyToken, async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to save preferences.' });
     }
 });
+
+// GET /api/user/profile/activity - Retrieve activity logs for a user (HIPAA audit record)
+router.get('/activity', verifyToken, async (req, res) => {
+    try {
+        const targetUserId = req.query.userId ? parseInt(req.query.userId, 10) : req.user.id;
+        
+        // Authorization: only admins, facility admins, or the user themselves can inspect logs
+        const role = (req.user.role || '').toLowerCase();
+        const isAdmin = ['sysadmin', 'system_admin', 'admin', 'facility_admin'].includes(role);
+        if (targetUserId !== req.user.id && !isAdmin) {
+            return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
+
+        const result = await pool.query(
+            `SELECT log_id, action, resource_affected, details, timestamp, severity, ip_address
+             FROM access_logs
+             WHERE user_id = $1
+             ORDER BY timestamp DESC
+             LIMIT 50`,
+            [targetUserId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Error fetching user activity:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to retrieve activity log.' });
+    }
+});
+
+
 
 module.exports = router;

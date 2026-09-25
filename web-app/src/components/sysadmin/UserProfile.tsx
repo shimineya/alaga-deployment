@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { User, Mail, Phone, Lock, Camera, Save, Edit3, X, Building, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Phone, Lock, Camera, Save, Edit3, X, Building, Home, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
@@ -20,7 +20,7 @@ export default function UserProfile() {
         last_name: '',
         role: user?.role || '',
         profile_picture_url: '',
-        facility_name: ''
+        facility_name: user?.facility_name || ''
     });
     
     const [password, setPassword] = useState('');
@@ -218,6 +218,17 @@ export default function UserProfile() {
                             <div className="text-center">
                                 <h3 className="font-semibold text-slate-700">{profile.first_name || 'User'} {profile.last_name || ''}</h3>
                                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">{profile.role.replace('_', ' ')}</p>
+                                {profile.facility_name ? (
+                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold mt-2.5 shadow-2xs">
+                                        <Building className="w-3.5 h-3.5 text-blue-600" />
+                                        <span className="truncate max-w-[170px]">{profile.facility_name}</span>
+                                    </div>
+                                ) : ['caregiver', 'medical_staff', 'facility_admin', 'parent'].includes(profile.role?.toLowerCase()) ? (
+                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium mt-2.5">
+                                        <Home className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>{t('Independent Care', 'Independiyenteng Pangangalaga')}</span>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
 
@@ -271,12 +282,42 @@ export default function UserProfile() {
                                         <p className="text-sm font-medium text-slate-800">{profile.mobile_number || t('Not set', 'Hindi nakatakda')}</p>
                                     )}
                                 </div>
-                                {(profile.role?.toLowerCase() === 'facility_admin' || profile.role?.toLowerCase() === 'medical_staff') && (
+                                {['facility_admin', 'medical_staff', 'caregiver', 'parent'].includes(profile.role?.toLowerCase()) && (
                                     <div className="space-y-1.5 sm:col-span-2">
                                         <Label className="text-xs text-slate-500 flex items-center gap-1.5">
-                                            <Building className="w-3.5 h-3.5 text-slate-400" /> {t('Facility', 'Pasilidad')}
+                                            <Building className="w-3.5 h-3.5 text-blue-600" /> {t('Healthcare Facility Affiliation', 'Kaugnayan sa Pasilidad ng Kalusugan')}
                                         </Label>
-                                        <p className="text-sm font-medium text-slate-800">{profile.facility_name || t('Not Assigned', 'Walang Pasilidad')}</p>
+                                        {profile.facility_name ? (
+                                            <div className="flex items-center justify-between p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 text-slate-800">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
+                                                        <Building className="w-4 h-4" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-900">{profile.facility_name}</p>
+                                                        <p className="text-[11px] text-slate-500">{t('Enrolled as official facility member. Telemetry and records sync with ward systems.', 'Nakatala bilang opisyal na miyembro ng pasilidad.')}</p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-blue-600 text-white shadow-xs shrink-0">
+                                                    {t('Facility Member', 'Miyembro ng Pasilidad')}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="p-2 rounded-lg bg-slate-100 text-slate-500">
+                                                        <Home className="w-4 h-4" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-slate-800">{t('Independent / Home Care', 'Independiyente / Pangangalaga sa Bahay')}</p>
+                                                        <p className="text-[11px] text-slate-500">{t('Operating independently. Not assigned to a hospital facility roster.', 'Gumagana nang nakapag-iisa. Walang nakatalagang pasilidad.')}</p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-slate-200 text-slate-700 shrink-0">
+                                                    {t('Private Care', 'Pribadong Pangangalaga')}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

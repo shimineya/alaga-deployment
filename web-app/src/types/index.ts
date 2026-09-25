@@ -11,6 +11,7 @@ export interface Patient {
   id: string;
   name: string;
   age: number;
+  birthdate?: string;
   medicalConditions: string[];
   baselineVitals: {
     heartRate: number;
@@ -27,6 +28,7 @@ export interface Patient {
   accessLevel?: 'View' | 'Edit' | 'Admin'; // [NEW] Current user's access level for this patient
   illness?: string;
   emergencyContact?: any;
+  roomNumber?: string;
   baseline_data?: {
     gender?: string;
     diagnosis?: string;

@@ -16,6 +16,8 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
+  Building2,
+  Home,
 } from 'lucide-react';
 
 interface CaregiverProfileProps {
@@ -48,6 +50,7 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [facilityName, setFacilityName] = useState(user?.facility_name || '');
 
   const [careCircle, setCareCircle] = useState<CareCircleMember[]>([]);
   const [inviteName, setInviteName] = useState('');
@@ -62,8 +65,29 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
 
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
-  // Load persisted settings
+  // Load persisted settings & sync with backend profile
   useEffect(() => {
+    const fetchRemoteProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+        const res = await fetch(`${apiBase}/api/user/profile`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.profile) {
+          if (data.profile.mobile_number && !phone) setPhone(data.profile.mobile_number);
+          const computedName = `${data.profile.first_name || ''} ${data.profile.last_name || ''}`.trim() || data.profile.username || data.profile.email;
+          if (computedName && !fullName) setFullName(computedName);
+          if (data.profile.profile_picture_url) setPhotoUrl(data.profile.profile_picture_url);
+          if (data.profile.facility_name) setFacilityName(data.profile.facility_name);
+        }
+      } catch (e) {
+        console.error('Failed to sync profile from backend:', e);
+      }
+    };
+
     try {
       const identityRaw = localStorage.getItem(IDENTITY_KEY);
       if (identityRaw) {
@@ -77,6 +101,8 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
     } catch {
       // ignore parse errors
     }
+
+    fetchRemoteProfile();
 
     try {
       const circleRaw = localStorage.getItem(CARE_CIRCLE_KEY);
@@ -117,15 +143,29 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
       .toUpperCase();
   }, [fullName, user]);
 
-  const handleSaveIdentity = () => {
+  const handleSaveIdentity = async () => {
     try {
       localStorage.setItem(
         IDENTITY_KEY,
         JSON.stringify({ fullName, phone, photoUrl })
       );
-      toast.success('Profile updated');
+      const token = localStorage.getItem('token');
+      if (token) {
+        const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+        await fetch(`${apiBase}/api/user/profile`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            mobile_number: phone
+          })
+        });
+      }
+      toast.success('Profile updated successfully');
     } catch {
-      toast.error('Could not save profile locally');
+      toast.error('Could not save profile');
     }
   };
 
@@ -156,7 +196,7 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
     setInviteName('');
     setInviteRole('');
     setInviteContact('');
-    toast.success('Invite recorded (mock). Share access through your preferred channel.');
+    toast.success(`Care circle invitation prepared for ${inviteName}.`);
   };
 
   const handleRemoveMember = (id: string) => {
@@ -274,6 +314,54 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Facility Affiliation */}
+      <Card className="shadow-sm border-blue-100 bg-gradient-to-r from-blue-50/40 via-white to-white">
+        <CardHeader className="py-2.5 px-4 border-b border-blue-100/60">
+          <CardTitle className="text-xs flex items-center justify-between">
+            <span className="flex items-center gap-2 text-slate-800">
+              <Building2 className="w-3.5 h-3.5 text-blue-600" />
+              Healthcare Facility Affiliation
+            </span>
+            {facilityName ? (
+              <span className="text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                Facility Member
+              </span>
+            ) : (
+              <span className="text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                Home / Private Care
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-3.5">
+          {facilityName ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-900">{facilityName}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  You are registered under this medical facility. Clinical notes, schedules, and diaper/vitals telemetry sync with the facility ward registry.
+                </p>
+              </div>
+              <div className="p-2 rounded-xl bg-blue-50 text-blue-700 shrink-0 ml-3">
+                <Building2 className="w-5 h-5" />
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-700">Independent Caregiver (No Facility Assigned)</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  You are operating in independent home-care mode. If you belong to a medical facility or hospital, your Facility Administrator can link your account to their organization.
+                </p>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-100 text-slate-500 shrink-0 ml-3">
+                <Home className="w-5 h-5" />
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

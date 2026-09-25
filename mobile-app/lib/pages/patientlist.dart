@@ -6,6 +6,7 @@ import 'dart:async';
 import '../services/api_service.dart';
 import '../models/user_session.dart';
 import 'newpatient.dart';
+import '../widgets/patient_profile_modal.dart';
 
 class PatientListScreen extends StatefulWidget {
   final VoidCallback? onBack; 
@@ -23,7 +24,6 @@ class _PatientListScreenState extends State<PatientListScreen> {
   // [INTEGRATION] Live patient data from the backend
   List<Map<String, dynamic>> allPatients = [];
   bool _isLoading = true;
-  String? _errorMessage;
 
   @override
   void initState() {
@@ -37,7 +37,6 @@ class _PatientListScreenState extends State<PatientListScreen> {
     Future<void> _fetchPatients() async {
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
     });
 
     try {
@@ -57,9 +56,10 @@ class _PatientListScreenState extends State<PatientListScreen> {
             final spo2 = telemetry['spo2'] as num?;
 
             return <String, dynamic>{
+              ...p,
               'patient_id': p['patient_id'],
               'name': p['name'] ?? 'Unknown',
-              'room': 'Room Home',
+              'room': p['room'] ?? p['baseline_data']?['room'] ?? 'Room Home',
               'status': p['vital_device_sn'] != null ? 'Stable' : 'Offline',
               
               // UI Labels (Strings)
@@ -158,13 +158,43 @@ class _PatientListScreenState extends State<PatientListScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Care Roster",
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF80CBC4), 
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      "Care Roster",
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF00796B), 
+                      ),
+                    ),
+                    if (UserSession.current?.hasFacility == true) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF004D40).withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF00796B).withValues(alpha: 0.2)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.apartment_rounded, size: 12, color: Color(0xFF00796B)),
+                            const SizedBox(width: 4),
+                            Text(
+                              UserSession.current!.facilityName!,
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF004D40),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 Text(
                   "Patient List",
@@ -661,12 +691,26 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.patient["name"], style: widget.mainStyle.copyWith(fontSize: 15)),
-                Text(widget.patient["room"], style: widget.descStyle.copyWith(fontSize: 11)),
-              ],
+            InkWell(
+              onTap: () => showPatientProfileModal(context, widget.patient),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 4.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(widget.patient["name"], style: widget.mainStyle.copyWith(fontSize: 15)),
+                        const SizedBox(width: 5),
+                        const Icon(Icons.info_outline, size: 14, color: Color(0xFF4DB6AC)),
+                      ],
+                    ),
+                    Text(widget.patient["room"], style: widget.descStyle.copyWith(fontSize: 11)),
+                  ],
+                ),
+              ),
             ),
             _buildStatusBadge(isWet, isOffline, widget.patient["status"], widget.descStyle),
           ],

@@ -1,5 +1,8 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 require('dotenv').config();
+
+// Keep PostgreSQL DATE (OID 1082) as exact 'YYYY-MM-DD' strings without timezone conversion
+types.setTypeParser(1082, (val) => val);
 
 const poolConfig = process.env.DATABASE_URL
   ? {
@@ -76,6 +79,25 @@ pool.connect((err, client, release) => {
           SELECT patient_id FROM public.patient_access WHERE relationship IN ('Parent', 'Guardian')
       ) AND facility_id IS NOT NULL;
     `).catch(err => console.error('Failed to run parent facility_id cleanup migration:', err));
+
+    // Auto-migration: Create facility_invitations table
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS public.facility_invitations (
+        invitation_id SERIAL PRIMARY KEY,
+        facility_id INTEGER NOT NULL REFERENCES facilities(facility_id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        token VARCHAR(64) UNIQUE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+        used_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        used_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_facility_invitations_token ON public.facility_invitations (token);
+      CREATE INDEX IF NOT EXISTS idx_facility_invitations_facility ON public.facility_invitations (facility_id);
+    `).catch(err => console.error('Failed to run facility_invitations migration:', err));
   }
   if (release) release();
 });

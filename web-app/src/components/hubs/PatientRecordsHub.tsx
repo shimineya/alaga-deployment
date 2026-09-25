@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Users, UserPlus, UserCheck, ShieldAlert } from 'lucide-react';
+import { Patient } from '@/types';
+import { PatientProfile } from '../PatientProfile';
 
 import PatientOnboarding from '../facility-admin/PatientOnboarding';
 import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
@@ -18,6 +20,7 @@ export default function PatientRecordsHub() {
     const isParentOrGuardian = role === 'parent' || role === 'guardian';
 
     const isAllowed = isFacilityAdmin || isCaregiver || isMedicalStaff || isParentOrGuardian;
+    const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
 
     // System Admins and unpermitted roles are restricted for data privacy
     if (!isAllowed || isSysAdmin) {
@@ -76,49 +79,74 @@ export default function PatientRecordsHub() {
         assignedTabTooltip = 'View associated patient records and care summaries.';
     }
 
+    if (selectedPatient) {
+        return (
+            <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
+                <BreakGlassWrapper targetHub="Patient Records Hub">
+                    <PatientProfile
+                        patient={selectedPatient}
+                        onBack={() => setSelectedPatient(null)}
+                        caregiverName={selectedPatient.assignedCaregiverName}
+                    />
+                </BreakGlassWrapper>
+            </div>
+        );
+    }
+
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Patient Records (PHI)</h1>
-                <p className="text-sm text-slate-500 mt-1">
-                    {isCaregiver
-                        ? 'View clinical records and vital signs monitoring for patients assigned to your care.'
-                        : isParentOrGuardian
-                        ? 'Register family members, manage patient records, and assign caregivers.'
-                        : 'Manage patient admissions and view assigned medical charts.'}
-                </p>
+            <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50/90 border border-teal-200/90 text-teal-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                        <Users className="w-3.5 h-3.5 text-teal-600" />
+                        <span>HIPAA & DPA Protected Health Information</span>
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                        Clinical{' '}
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">
+                            Patient Records
+                        </span>
+                    </h1>
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+                        {isCaregiver
+                            ? 'View clinical records and vital signs monitoring for patients assigned to your care.'
+                            : isParentOrGuardian
+                            ? 'Register family members, manage patient records, and assign caregivers.'
+                            : 'Manage patient admissions and view assigned medical charts.'}
+                    </p>
+                </div>
             </div>
 
             {/* Everything in Patient Records is PHI and requires DB Break-Glass if SysAdmin */}
             <BreakGlassWrapper targetHub="Patient Records Hub">
                 <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                     {tabCount > 1 && (
-                        <div className="border-b border-slate-200 mb-6 shrink-0">
-                            <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+                        <div className="mb-6 shrink-0">
+                            <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 overflow-x-auto h-auto">
                                 {canSeeOnboarding && (
                                     <TabsTrigger 
                                         value="onboarding" 
-                                        className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                        className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                                     >
-                                        <UserPlus className="w-4 h-4" /> {onboardingTabLabel}
+                                        <UserPlus className="w-3.5 h-3.5 text-teal-600" /> {onboardingTabLabel}
                                     </TabsTrigger>
                                 )}
 
                                 {canSeeAssigned && (
                                     <TabsTrigger 
                                         value="sys-assigned" 
-                                        className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                        className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                                     >
-                                        <Users className="w-4 h-4" /> {assignedTabLabel}
+                                        <Users className="w-3.5 h-3.5 text-teal-600" /> {assignedTabLabel}
                                     </TabsTrigger>
                                 )}
 
                                 {canSeeUnassigned && (
                                     <TabsTrigger 
                                         value="sys-unassigned" 
-                                        className="rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"
+                                        className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
                                     >
-                                        <UserCheck className="w-4 h-4" /> Unassigned Patients
+                                        <UserCheck className="w-3.5 h-3.5 text-teal-600" /> Unassigned Patients
                                     </TabsTrigger>
                                 )}
                             </TabsList>
@@ -133,13 +161,13 @@ export default function PatientRecordsHub() {
 
                     {canSeeAssigned && (
                         <TabsContent value="sys-assigned" className="mt-0 flex-1 min-h-[500px] outline-none">
-                            <SystemAdminPatientDirectory mode="assigned" />
+                            <SystemAdminPatientDirectory mode="assigned" onSelectPatient={setSelectedPatient} />
                         </TabsContent>
                     )}
 
                     {canSeeUnassigned && (
                         <TabsContent value="sys-unassigned" className="mt-0 flex-1 min-h-[500px] outline-none">
-                            <SystemAdminPatientDirectory mode="unassigned" />
+                            <SystemAdminPatientDirectory mode="unassigned" onSelectPatient={setSelectedPatient} />
                         </TabsContent>
                     )}
                 </Tabs>

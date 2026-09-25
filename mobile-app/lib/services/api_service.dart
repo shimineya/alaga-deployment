@@ -39,7 +39,7 @@ class ApiService {
     } catch (_) {
       return {
         'success': false,
-        'message': 'Cannot reach the server. Please try again.'
+        'message': 'Your Wi-Fi might not be connected or the application is down.'
       };
     }
   }
@@ -198,8 +198,8 @@ class ApiService {
       return {
         'success': false,
         'message': isTimeout
-            ? 'The server did not respond after 75 seconds. It may be starting up or temporarily unavailable. Please try again.'
-            : 'Network error: Cannot reach the server. Please check your internet connection.',
+            ? 'The connection timed out. Your Wi-Fi might not be connected or the application is down.'
+            : 'Your Wi-Fi might not be connected or the application is down.',
       };
     }
   }
@@ -229,8 +229,8 @@ class ApiService {
       return {
         'success': false,
         'message': isTimeout
-            ? 'The server did not respond after 75 seconds. It may be starting up or temporarily unavailable. Please try again.'
-            : 'Network error: Cannot reach the server. Please check your internet connection.',
+            ? 'The connection timed out. Your Wi-Fi might not be connected or the application is down.'
+            : 'Your Wi-Fi might not be connected or the application is down.',
       };
     }
   }
@@ -260,8 +260,8 @@ class ApiService {
       return {
         'success': false,
         'message': isTimeout
-            ? 'The server did not respond after 75 seconds. It may be starting up or temporarily unavailable. Please try again.'
-            : 'Network error: Cannot reach the server. Please check your internet connection.',
+            ? 'The connection timed out. Your Wi-Fi might not be connected or the application is down.'
+            : 'Your Wi-Fi might not be connected or the application is down.',
       };
     }
   }
@@ -288,7 +288,7 @@ class ApiService {
       return {
         'success': false,
         'message':
-            'Network error. Cannot reach the server. Check your connection.',
+            'Your Wi-Fi might not be connected or the application is down.',
       };
     }
   }
@@ -315,7 +315,7 @@ class ApiService {
       return {
         'success': false,
         'message':
-            'Network error. Cannot reach the server. Check your connection.',
+            'Your Wi-Fi might not be connected or the application is down.',
       };
     }
   }

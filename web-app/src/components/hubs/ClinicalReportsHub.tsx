@@ -7,6 +7,7 @@ import { Loader2, Lock, ActivitySquare, RefreshCw, FileText, BarChart3, Sparkles
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { generateAlertsFromDoctorsOrders } from '@/lib/alert-generator';
+import { extractBirthdateString } from '@/lib/dateUtils';
 
 export default function ClinicalReportsHub() {
     const { token, user } = useAuth();
@@ -54,12 +55,16 @@ export default function ClinicalReportsHub() {
                             relation: p.baseline_data?.emergency_contact_relation || 'Contact'
                         });
 
+                    const bdayStr = extractBirthdateString(p.birthdate);
+                    const birthYear = p.birthdate ? new Date(bdayStr).getFullYear() : 0;
+
                     return {
                         id: p.patient_id?.toString() || '',
                         name: displayName,
-                        age: p.birthdate
-                            ? new Date().getFullYear() - new Date(p.birthdate).getFullYear()
+                        age: birthYear > 0
+                            ? new Date().getFullYear() - birthYear
                             : (p.age ? parseInt(p.age, 10) : 0),
+                        birthdate: p.birthdate ? bdayStr : undefined,
                         gender: p.gender || p.baseline_data?.gender || 'Unknown',
                         roomNumber: isSysAdminUser
                             ? (p.room ? `Inpatient Telemetry (Room ${p.room})` : 'De-identified Inpatient Telemetry')
@@ -124,36 +129,43 @@ export default function ClinicalReportsHub() {
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col space-y-4">
             {/* Hub Header */}
-            <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
+            <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <ActivitySquare className="w-6 h-6 text-teal-600" />
-                        {isCaregiverOrFamily ? 'Health Reports Center' : 'Clinical Reports & Analytics Hub'}
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50/90 border border-teal-200/90 text-teal-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                        Clinical Analytics & Trends
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-2 flex-wrap">
+                        {isCaregiverOrFamily ? (
+                            <>Health Reports <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Center</span></>
+                        ) : (
+                            <>Clinical Reports & <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Analytics</span></>
+                        )}
                         {isSysAdminUser && (
-                            <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-900 text-teal-300 font-bold">
+                            <span className="text-[10px] uppercase font-mono px-2.5 py-1 rounded-full bg-slate-900 text-teal-300 font-bold shadow-xs">
                                 Anonymized Governance Mode
                             </span>
                         )}
                         {isFacilityAdmin && (
-                            <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                            <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
                                 Facility Administrator
                             </span>
                         )}
                         {isMedStaff && (
-                            <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                                 Medical Staff
                             </span>
                         )}
                         {isCaregiverOrFamily && (
-                            <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                            <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 shadow-2xs">
                                 {isParentOrGuardian ? 'Parent & Guardian View' : 'Caregiver View'}
                             </span>
                         )}
                     </h1>
                     <p className="text-xs text-slate-500 mt-1">
                         {isCaregiverOrFamily
-                            ? 'Generate mobile-aligned health summaries, view past telemetry reports, and export multi-format records (PDF, CSV, TXT, HTML).'
-                            : 'In-depth clinical patient monitoring: Daily health summaries, ML anomaly logs, moisture & hygiene trends, weekly vital analytics, and physician exports.'}
+                            ? 'Generate mobile-aligned health summaries, view past telemetry reports, and export official clinical PDF reports.'
+                            : 'In-depth clinical patient monitoring: Daily health summaries, ML anomaly logs, moisture & hygiene trends, weekly vital analytics, and physician PDF exports.'}
                     </p>
                 </div>
 
@@ -162,9 +174,9 @@ export default function ClinicalReportsHub() {
                         variant="outline"
                         size="sm"
                         onClick={fetchPatients}
-                        className="border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold h-9"
+                        className="bg-white/80 hover:bg-white text-slate-700 text-xs font-bold h-9 rounded-xl border border-teal-100 shadow-xs alaga-btn-tactile"
                     >
-                        <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Records
+                        <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-teal-600 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Records
                     </Button>
                 </div>
             </div>

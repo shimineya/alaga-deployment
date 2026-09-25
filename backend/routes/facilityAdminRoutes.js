@@ -2,7 +2,9 @@ const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, verifyFacilityAdmin } = require('../middleware/authMiddleware');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const systemReportService = require('../services/systemReportService');
+const { sendFacilityInvitationEmail } = require('../services/emailService');
 
 // Apply security middleware to ALL routes in this file
 // [OWASP A01] Every route requires a valid JWT + facility_admin role
@@ -121,8 +123,23 @@ router.get('/staff', async (req, res) => {
 
 // Invite new staff member to this facility
 router.post('/staff/invite', async (req, res) => {
-    const facilityId = req.user.facility_id;
-    const { email, role } = req.body;
+    let facilityId = req.user.facility_id;
+    const { email, role, target_facility_id } = req.body;
+
+    // SysAdmin override may specify target facility
+    if (req.user.is_sys_admin_override && target_facility_id) {
+        facilityId = target_facility_id;
+    }
+
+    if (!facilityId) {
+        return res.status(400).json({ success: false, message: 'Facility context is missing. Please ensure your account belongs to a valid facility.' });
+    }
+
+    if (!email || !email.includes('@')) {
+        return res.status(400).json({ success: false, message: 'A valid recipient email address is required.' });
+    }
+
+    const safeEmail = email.trim().toLowerCase();
 
     // [OWASP A01] Facility Admin can only assign caregiver or medical_staff roles
     const allowedRoles = ['caregiver', 'medical_staff'];
@@ -131,16 +148,182 @@ router.post('/staff/invite', async (req, res) => {
     }
 
     try {
-        // Record the pending invitation
+        // Fetch facility details
+        const facRes = await pool.query(
+            'SELECT facility_id, facility_name FROM facilities WHERE facility_id = $1',
+            [facilityId]
+        );
+        if (facRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Facility not found.' });
+        }
+        const facilityName = facRes.rows[0].facility_name;
+
+        // Check if user is already registered in the system
+        const existingUser = await pool.query(
+            'SELECT user_id, email, role, facility_id FROM users WHERE LOWER(email) = LOWER($1)',
+            [safeEmail]
+        );
+        if (existingUser.rows.length > 0) {
+            const eu = existingUser.rows[0];
+            if (eu.facility_id === facilityId) {
+                return res.status(400).json({
+                    success: false,
+                    message: `User with email ${safeEmail} is already a member of this facility.`
+                });
+            }
+        }
+
+        // Generate high-entropy, human-friendly token: e.g. FAC-7A9K2M4P
+        const rawToken = crypto.randomBytes(4).toString('hex').toUpperCase();
+        const token = `FAC-${rawToken}`;
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days validity
+
+        // Revoke any previous pending invitation for this email in this facility
+        await pool.query(
+            `UPDATE facility_invitations 
+             SET status = 'revoked' 
+             WHERE facility_id = $1 AND LOWER(email) = LOWER($2) AND status = 'pending'`,
+            [facilityId, safeEmail]
+        );
+
+        // Store new invitation record
+        const insertRes = await pool.query(
+            `INSERT INTO facility_invitations (facility_id, email, role, token, status, created_by, expires_at)
+             VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+             RETURNING invitation_id, token, expires_at`,
+            [facilityId, safeEmail, role, token, req.user.id, expiresAt]
+        );
+
+        const newInvite = insertRes.rows[0];
+
+        // Audit log
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'STAFF_INVITE_SENT', $2, 'INFO')`,
-            [req.user.id, `Invite sent to ${email} for role ${role} in Facility ${facilityId}`]
+            [req.user.id, `Invite sent to ${safeEmail} for role ${role} in Facility ${facilityName} (Token: ${token})`]
         );
-        // Note: Actual email sending requires the SMTP gateway (System Admin config)
-        res.json({ success: true, message: `Invitation logged for ${email}. Email delivery requires SMTP configuration by System Admin.` });
+
+        // Send email via SMTP / Resend
+        let emailDelivered = true;
+        let emailError = null;
+        try {
+            await sendFacilityInvitationEmail({
+                to: safeEmail,
+                facilityName,
+                role,
+                token,
+                expiresAt
+            });
+        } catch (mailErr) {
+            console.error('Email dispatch failed for facility invite:', mailErr.message);
+            emailDelivered = false;
+            emailError = mailErr.message;
+        }
+
+        res.json({
+            success: true,
+            message: emailDelivered 
+                ? `Invitation successfully sent to ${safeEmail}!`
+                : `Invitation created with token ${token}. (Email delivery note: ${emailError || 'Pending SMTP confirmation'})`,
+            invitation: {
+                invitation_id: newInvite.invitation_id,
+                email: safeEmail,
+                role,
+                token,
+                facility_name: facilityName,
+                expires_at: expiresAt,
+                email_delivered: emailDelivered
+            }
+        });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Failed to process invitation.' });
+        console.error('Failed to process invitation:', err);
+        res.status(500).json({ success: false, message: 'Failed to process invitation: ' + err.message });
+    }
+});
+
+// List all invitations for this facility
+router.get('/staff/invitations', async (req, res) => {
+    let facilityId = req.user.facility_id;
+    if (req.user.is_sys_admin_override && req.query.facility_id) {
+        facilityId = req.query.facility_id;
+    }
+    if (!facilityId) {
+        return res.status(400).json({ success: false, message: 'Facility context required.' });
+    }
+    try {
+        const result = await pool.query(
+            `SELECT fi.invitation_id, fi.email, fi.role, fi.token, fi.status, 
+                    fi.expires_at, fi.created_at, fi.used_at,
+                    u.username AS invited_by_name,
+                    uu.username AS used_by_name,
+                    CASE WHEN fi.expires_at < NOW() AND fi.status = 'pending' THEN 'expired' ELSE fi.status END AS computed_status
+             FROM facility_invitations fi
+             LEFT JOIN users u ON fi.created_by = u.user_id
+             LEFT JOIN users uu ON fi.used_by = uu.user_id
+             WHERE fi.facility_id = $1
+             ORDER BY fi.created_at DESC`,
+            [facilityId]
+        );
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('Failed to fetch invitations:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch invitations.' });
+    }
+});
+
+// Revoke a pending invitation
+router.delete('/staff/invitations/:id', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const inviteId = req.params.id;
+    try {
+        const result = await pool.query(
+            `UPDATE facility_invitations 
+             SET status = 'revoked' 
+             WHERE invitation_id = $1 AND (facility_id = $2 OR $3 = TRUE) AND status = 'pending'
+             RETURNING invitation_id, email, token`,
+            [inviteId, facilityId, Boolean(req.user.is_sys_admin_override)]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invitation not found or cannot be cancelled.' });
+        }
+        res.json({ success: true, message: 'Invitation has been revoked.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to revoke invitation.' });
+    }
+});
+
+// Resend invitation email
+router.post('/staff/invitations/:id/resend', async (req, res) => {
+    const facilityId = req.user.facility_id;
+    const inviteId = req.params.id;
+    try {
+        const result = await pool.query(
+            `SELECT fi.invitation_id, fi.email, fi.role, fi.token, fi.expires_at, fi.status,
+                    f.facility_name
+             FROM facility_invitations fi
+             JOIN facilities f ON fi.facility_id = f.facility_id
+             WHERE fi.invitation_id = $1 AND (fi.facility_id = $2 OR $3 = TRUE)`,
+            [inviteId, facilityId, Boolean(req.user.is_sys_admin_override)]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invitation not found.' });
+        }
+        const invite = result.rows[0];
+        if (invite.status !== 'pending') {
+            return res.status(400).json({ success: false, message: `Cannot resend an invitation that is already ${invite.status}.` });
+        }
+
+        await sendFacilityInvitationEmail({
+            to: invite.email,
+            facilityName: invite.facility_name,
+            role: invite.role,
+            token: invite.token,
+            expiresAt: invite.expires_at
+        });
+
+        res.json({ success: true, message: `Invitation resent to ${invite.email}.` });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to resend invitation: ' + err.message });
     }
 });
 

@@ -193,7 +193,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                     { title: '1. Review Ward Monitoring', desc: 'View live vital signs monitoring streams across assigned patients. Check for amber/red threshold alerts.' },
                     { title: '2. Triage Anomaly Log', desc: 'Inspect OC-SVM deviation events to differentiate motion artifacts from physiological distress.' },
                     { title: '3. Issue Doctor’s Orders', desc: 'Write medication schedules and clinical care directives that sync directly to caregiver rosters.' },
-                    { title: '4. Export Clinical Summaries', desc: 'Generate PDF/CSV weekly trend reports and moisture exposure metrics for medical rounds.' },
+                    { title: '4. Export Clinical Summaries', desc: 'Generate official PDF weekly trend reports and moisture exposure metrics for medical rounds.' },
                 ],
                 topics: [
                     {
@@ -232,7 +232,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                             'Daily Health Summary: Shows 24-hour mean, min, and max values for SpO₂, HR, and Temperature.',
                             'Moisture Hygiene Tracker: Displays prolonged diaper wetness exposure time (in minutes) to prevent skin breakdown.',
                             'Weekly Trend Analysis: Multi-day regression charts showing recovery trajectories or deteriorating patterns.',
-                            'Exporting: Click "Export PDF" or "Export CSV" to archive records or transfer to your hospital EHR system.'
+                            'Exporting: Click "Export PDF" to archive records or transfer to your hospital EHR system.'
                         ]
                     },
                     {

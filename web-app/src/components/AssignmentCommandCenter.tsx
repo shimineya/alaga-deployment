@@ -165,25 +165,28 @@ export default function AssignmentCommandCenter() {
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                        <ActivitySquare className="w-6 h-6 text-teal-600 animate-pulse" />
-                        {t('Assignment Command Center', 'Assignment Command Center')}
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50/90 border border-teal-200/90 text-teal-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                        Clinical Care Network
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                        {t('Assignment', 'Pagtatalaga')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">{t('Command Center', 'Command Center')}</span>
                     </h1>
                     <p className="text-sm text-slate-500 mt-1">
                         {t('Review and manage patient care relationships assigned to you.', 'Suriin at pamahalaan ang mga relasyon sa pag-aalaga ng pasyente na nakatalaga sa iyo.')}
                     </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={fetchData} disabled={isLoading} className="h-9 gap-1.5">
-                    <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <Button size="sm" variant="outline" onClick={fetchData} disabled={isLoading} className="bg-white/80 hover:bg-white text-slate-700 text-xs font-bold h-9 rounded-xl border border-teal-100 shadow-xs alaga-btn-tactile flex items-center gap-2">
+                    <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isLoading ? 'animate-spin' : ''}`} />
                     {t('Refresh Feed', 'I-refresh ang Feed')}
                 </Button>
             </div>
 
             {/* Pending Invitations Section */}
-            <Card className="border-amber-100 bg-amber-50/20 shadow-sm shrink-0">
-                <CardHeader className="py-3 px-4 border-b border-amber-50">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-800">
-                        <Inbox className="w-4 h-4" />
+            <Card className="border-amber-200/80 bg-amber-50/40 backdrop-blur-xs rounded-2xl shadow-xs shrink-0">
+                <CardHeader className="py-3 px-4 border-b border-amber-100/60">
+                    <CardTitle className="text-sm font-bold flex items-center gap-2 text-amber-800">
+                        <Inbox className="w-4 h-4 text-amber-600" />
                         {t('Pending Invitations', 'Mga Nakabinbing Imbitasyon')} ({invites.length})
                     </CardTitle>
                 </CardHeader>
@@ -195,7 +198,7 @@ export default function AssignmentCommandCenter() {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {invites.map((invite) => (
-                                <div key={invite.access_id} className="p-3 border border-amber-100 bg-white rounded-xl shadow-xs flex justify-between items-center gap-4">
+                                <div key={invite.access_id} className="p-3 border border-amber-200/60 bg-white rounded-xl shadow-2xs flex justify-between items-center gap-4">
                                     <div className="space-y-1">
                                         <div className="flex items-center gap-2">
                                             <h3 className="font-bold text-sm text-slate-800">{invite.patient_name}</h3>
@@ -214,7 +217,7 @@ export default function AssignmentCommandCenter() {
                                         <Button 
                                             size="sm" 
                                             onClick={() => handleRespond(invite.access_id, 'accept')}
-                                            className="bg-teal-600 hover:bg-teal-700 text-white h-8 text-xs font-semibold px-3"
+                                            className="bg-teal-600 hover:bg-teal-700 text-white h-8 text-xs font-semibold px-3 rounded-lg"
                                         >
                                             <UserCheck className="w-3.5 h-3.5 mr-1" />
                                             {t('Accept', 'Tanggapin')}
@@ -223,7 +226,7 @@ export default function AssignmentCommandCenter() {
                                             size="sm" 
                                             variant="outline"
                                             onClick={() => handleRespond(invite.access_id, 'decline')}
-                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 text-xs border-red-200"
+                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 text-xs border-red-200 rounded-lg"
                                         >
                                             <UserX className="w-3.5 h-3.5 mr-1" />
                                             {t('Decline', 'Tanggihan')}
@@ -237,7 +240,7 @@ export default function AssignmentCommandCenter() {
             </Card>
 
             {/* Active Care Assignments Section */}
-            <Card className="border-slate-200 shadow-sm flex-1 flex flex-col min-h-0">
+            <Card className="border-teal-100/90 bg-white/95 backdrop-blur-md rounded-2xl shadow-xs flex-1 flex flex-col min-h-0">
                 <CardHeader className="py-4 px-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                     <div>
                         <CardTitle className="text-base text-slate-800 flex items-center gap-2">

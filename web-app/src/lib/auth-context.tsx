@@ -2,13 +2,19 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 // Define the User Shape based on your Database
 interface User {
+  id?: number;
   user_id: number;
   username: string;
   email: string;
+  name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   role: 'admin' | 'system_admin' | 'facility_admin' | 'medical_staff' | 'caregiver' | 'parent';
   account_status: string;
   facility_id?: number | null;
+  facility_name?: string | null;
   profile_picture_url?: string | null;
+  profilePictureUrl?: string | null;
 }
 
 interface AuthContextType {
@@ -28,7 +34,7 @@ interface AuthContextType {
   isLoading: boolean;
   token: string | null;
   updateToken: (newToken: string) => void;
-  refreshPermissions: () => Promise;
+  refreshPermissions: () => Promise<void>;
   refreshUser: () => void;
 }
 
@@ -37,8 +43,8 @@ import { API_URL } from './config';
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isSysAdmin, setIsSysAdmin] = useState(false);
@@ -70,9 +76,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (storedToken && storedUser) {
         try {
-          setUser(JSON.parse(storedUser));
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
           setToken(storedToken);
           await fetchPermissions(storedToken);
+
+          // Proactively hydrate latest user & facility details from backend
+          fetch(`${API_URL}/api/auth/me`, {
+            headers: { 'Authorization': `Bearer ${storedToken}` }
+          })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success && data.user) {
+                const merged = { ...parsedUser, ...data.user };
+                setUser(merged);
+                localStorage.setItem('user', JSON.stringify(merged));
+              }
+            })
+            .catch(() => {});
         } catch (e) {
           console.error('Failed to restore session', e);
           localStorage.clear();
@@ -127,7 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: data.email,
       };
     } catch (error) {
-      return { success: false, message: 'Server connection failed. Is the backend running?' };
+      return { success: false, message: 'Your Wi-Fi might not be connected or the application is down.' };
     }
   };
 
@@ -154,11 +175,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshUser = () => {
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) setUser(JSON.parse(storedUser));
-    } catch {
-      // If corrupt, leave state
+    const activeToken = localStorage.getItem('token');
+    if (activeToken) {
+      fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${activeToken}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.user) {
+            setUser(prev => {
+              const updated = { ...prev, ...data.user };
+              localStorage.setItem('user', JSON.stringify(updated));
+              return updated;
+            });
+          }
+        })
+        .catch(() => {
+          try {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) setUser(JSON.parse(storedUser));
+          } catch {}
+        });
+    } else {
+      try {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) setUser(JSON.parse(storedUser));
+      } catch {}
     }
   };
 

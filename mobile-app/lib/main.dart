@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'models/user_session.dart';
 import 'services/api_service.dart';
 import 'services/app_preferences.dart';
+import 'services/alert_notification_service.dart';
 
 import 'pages/start.dart';
 import 'pages/login.dart';
@@ -21,6 +22,10 @@ Future<void> main() async {
   } catch (e) {
     print("DEBUG: FAILED to load .env: $e");
   }
+
+  // Initialize Android push notifications & AI clinical alert service
+  await AlertNotificationService.initialize();
+  AlertNotificationService.startMonitoring();
   
   runApp(const MyApp());
 }

@@ -16,14 +16,8 @@ export const UserTypeSelection: React.FC = () => {
             <Card className="w-full max-w-2xl border-0" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)' }}>
                 <CardHeader className="text-center pb-8">
                     <div className="flex justify-center mb-4">
-                        <div
-                            className="w-16 h-16 rounded-full flex items-center justify-center"
-                            style={{
-                                backgroundColor: '#7DD3C0',
-                                boxShadow: '0 0 30px rgba(125, 211, 192, 0.4)'
-                            }}
-                        >
-                            <Activity className="w-9 h-9 text-white" />
+                        <div className="w-18 h-18 rounded-2xl flex items-center justify-center p-2 border border-slate-200/80 bg-white shadow-sm">
+                            <img src="/alaga-robot-logo.png" alt="Alaga Logo" className="w-full h-full object-contain" />
                         </div>
                     </div>
                     <CardTitle className="text-3xl mb-2" style={{ color: '#2C3E50' }}>Welcome to ALAGA</CardTitle>

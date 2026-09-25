@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Patient, Alert, VitalSign } from '../types';
 import { generateMockVitalSigns } from '../lib/mock-data';
+import { formatBirthdateDisplay } from '../lib/dateUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -215,8 +216,10 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
           </Button>
           <div>
             <h2 className="text-2xl font-bold text-slate-800">{patient.name}</h2>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <span>{patient.age} years old</span>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+              <span className="font-semibold text-slate-700">{patient.age} years old</span>
+              <span>•</span>
+              <span>DOB: {formatBirthdateDisplay(patient.birthdate)}</span>
               <span>•</span>
               <span>Room {patient.roomNumber || 'N/A'}</span>
               <span>•</span>
@@ -475,6 +478,18 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               </CardHeader>
               {!isEditing ? (
                 <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Age</p>
+                      <p className="text-sm font-black text-slate-800">{patient.age ? `${patient.age} yrs` : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Date of Birth</p>
+                      <p className="text-sm font-bold text-teal-700">
+                        {formatBirthdateDisplay(patient.birthdate)}
+                      </p>
+                    </div>
+                  </div>
                   <div>
                     <p className="text-xs text-slate-400">Primary Diagnosis</p>
                     <p className="font-medium text-slate-800">{patient.illness || 'N/A'}</p>

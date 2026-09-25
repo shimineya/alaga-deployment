@@ -10,6 +10,7 @@ import {
   RadioReceiver, 
   ShieldCheck, 
   BellRing, 
+  Activity,
   ActivitySquare,
   Settings,
   LogOut,
@@ -18,7 +19,10 @@ import {
   Link,
   Archive,
   Menu,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Building2,
+  Home,
+  Sparkles
 } from 'lucide-react';
 
 interface AppSidebarProps {
@@ -43,7 +47,7 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
   // isClinical includes 'parent' so all caregiver-equivalent hub visibility
   // checks resolve correctly without duplicating the parent check everywhere.
   const isParent        = role === 'parent';
-  const isClinical      = ['caregiver', 'medical_staff', 'parent'].includes(role);
+  const isClinical      = ['caregiver', 'medical_staff', 'parent', 'guardian'].includes(role);
 
   // [RBAC] Pre-compute the role's baseline defaults from the shared registry.
   // This is the SAME function UserRBACManager uses for toggle states, so the
@@ -162,6 +166,7 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
                         || hasPermission('audit-logs')
                         || hasPermission('rbac_management');
   const canSeeAlerts          = !isAdminTier && (hasPermission('alerts') || hasPermission('alert-config'));
+  const canSeeAiInsights      = isFacilityAdmin || isCaregiverOrMedStaff || isParentOrGuardian || isAdminTier;
   const canSeeClinicalReports = isFacilityAdmin || isCaregiverOrMedStaff || isParentOrGuardian || isAdminTier || hasPermission('clinical-reports');
   const canSeeSystemReports   = isAdminTier;
   const canSeeSettings        = true;
@@ -175,6 +180,12 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
     { label: t('User Management', 'Pamamahala ng User'),  path: '/staff',     icon: Users,           visible: canSeeStaff, hasDot: hasCareTeamUpdates },
     { label: t('Security & Access', 'Seguridad at Akses'),path: '/security',  icon: Lock,            visible: canSeeSecurity },
     { label: t('Alerts', 'Mga Alert'),           path: '/alerts',    icon: BellRing,        visible: canSeeAlerts, hasDot: hasUnreadAlerts },
+    { 
+      label: t('AI Insights', 'Mga Insight ng AI'), 
+      path: '/ai-insights', 
+      icon: Sparkles, 
+      visible: canSeeAiInsights 
+    },
     { 
       label: t('Clinical Reports', 'Mga Klinikal na Ulat'), 
       path: '/clinical-reports',   
@@ -192,32 +203,46 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
   ];
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-300 select-none">
-      {/* Brand & Toggle header */}
-      <div className={`p-4 border-b border-slate-800/80 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
-        {!collapsed && (
-          <div className="flex items-center gap-2 overflow-hidden">
-            <ActivitySquare className="w-6 h-6 text-teal-400 shrink-0" />
-            <div className="overflow-hidden">
-              <h1 className="text-xl font-black text-white tracking-tight flex items-center leading-none">
-                ALAGA <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-teal-500/20 text-teal-300 ml-1.5 tracking-widest align-top">SYS</span>
-              </h1>
-              <p className="text-[9px] text-slate-500 font-medium uppercase tracking-widest mt-0.5 truncate">Monitoring System</p>
+    <div className="flex flex-col h-full bg-[#061126] border-r border-teal-500/20 text-slate-300 select-none shadow-2xl">
+      {/* Brand & Toggle header - Styled with Alaga Robot Head Logo */}
+      <div className={`p-4 border-b border-teal-500/20 flex items-center ${collapsed ? 'flex-col gap-3 justify-center' : 'justify-between'}`}>
+        {collapsed ? (
+          <img 
+            src="/alaga-robot-logo.png" 
+            alt="Alaga Logo" 
+            className="w-8 h-8 object-contain cursor-pointer hover:scale-110 transition-transform"
+            onClick={onToggle}
+            title="Expand sidebar"
+          />
+        ) : (
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <img 
+              src="/alaga-robot-logo.png" 
+              alt="Alaga Logo" 
+              className="w-9 h-9 object-contain shrink-0 hover:scale-105 transition-transform" 
+            />
+            <div className="overflow-hidden flex flex-col">
+              <span className="text-lg font-black tracking-tight text-white italic leading-tight">
+                ALAGA
+              </span>
+              <span className="text-[8.5px] font-black tracking-widest uppercase text-amber-400 -mt-0.5">
+                Smart Healthcare
+              </span>
             </div>
           </div>
         )}
         <button
           onClick={onToggle}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <Menu className="w-5 h-5" />
         </button>
       </div>
 
-      <div className="flex-1 px-2.5 py-3 space-y-1 overflow-y-auto">
+      <div className="flex-1 px-2.5 py-3 space-y-1.5 overflow-y-auto">
         {!collapsed && (
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-2 mt-1">
+          <div className="text-[10px] font-bold text-teal-400/80 uppercase tracking-widest mb-2.5 ml-2 mt-1">
             {t('Command Modules', 'Mga Module ng Utos')}
           </div>
         )}
@@ -227,20 +252,20 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
             key={item.path}
             to={item.path}
             className={({ isActive }) =>
-              `flex items-center ${collapsed ? 'justify-center relative' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
+              `flex items-center ${collapsed ? 'justify-center relative' : 'gap-3'} px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200 group ${
                 isActive 
-                  ? 'bg-teal-500/10 text-teal-400 font-semibold' 
-                  : 'hover:bg-slate-800 hover:text-white text-slate-400'
+                  ? 'bg-gradient-to-r from-teal-500/20 via-teal-500/10 to-transparent text-teal-300 border-l-2 border-teal-400 shadow-2xs font-bold' 
+                  : 'hover:bg-white/5 hover:text-white text-slate-400'
               }`
             }
             title={collapsed ? item.label : undefined}
           >
             {({ isActive }) => (
               <>
-                <item.icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-teal-400' : 'text-slate-500 group-hover:text-slate-300'}`} />
-                {!collapsed && <span className="flex-1 truncate text-xs">{item.label}</span>}
+                <item.icon className={`w-4.5 h-4.5 shrink-0 transition-colors ${isActive ? 'text-teal-400' : 'text-slate-400 group-hover:text-teal-300'}`} />
+                {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
                 {!collapsed && item.hasDot && (
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse ml-2 shrink-0 shadow-sm border border-slate-900" />
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse ml-2 shrink-0 shadow-sm border border-slate-900" />
                 )}
                 {collapsed && item.hasDot && (
                   <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
@@ -251,12 +276,12 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
         ))}
       </div>
 
-      {/* User Area bottom */}
-      <div className="p-3 border-t border-slate-800 bg-slate-900/50">
+      {/* User Area bottom - Frosted high-contrast card */}
+      <div className="p-3 border-t border-teal-500/20 bg-[#040c1c]">
         {!collapsed ? (
           <>
-            <div className="flex items-center gap-2.5 mb-3 px-1">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-800 flex items-center justify-center text-slate-300 border border-slate-700 shrink-0">
+            <div className="flex items-center gap-2.5 mb-3 px-2 py-1.5 rounded-xl bg-white/5 border border-white/10">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 flex items-center justify-center text-teal-300 border border-teal-500/40 shrink-0">
                 {user?.profile_picture_url ? (
                   <img
                     src={`${import.meta.env.VITE_API_URL || ''}${user.profile_picture_url}`}
@@ -269,18 +294,29 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
               </div>
               <div className="overflow-hidden">
                 <p className="text-xs font-bold text-white truncate">{user?.name || user?.username || 'User'}</p>
-                <p className="text-[9px] text-teal-400 uppercase tracking-wider font-semibold truncate">
+                <p className="text-[9px] text-teal-300 uppercase tracking-wider font-semibold truncate">
                   {role === 'parent' ? t('Parent / Guardian', 'Magulang / Tagapangalaga')
                     : role === 'medical_staff' ? t('Medical Staff', 'Klinikal na Staff')
                     : role === 'facility_admin' ? t('Facility Admin', 'Admin ng Pasilidad')
                     : role === 'system_admin' ? t('System Admin', 'Admin ng System')
                     : role.replace('_', ' ')}
                 </p>
+                {user?.facility_name ? (
+                  <p className="text-[9.5px] text-sky-300 font-semibold flex items-center gap-1 truncate mt-0.5" title={`Facility: ${user.facility_name}`}>
+                    <Building2 className="w-2.5 h-2.5 shrink-0 text-sky-400" />
+                    <span className="truncate">{user.facility_name}</span>
+                  </p>
+                ) : (role === 'caregiver' || role === 'parent') ? (
+                  <p className="text-[9px] text-slate-400 font-medium flex items-center gap-1 truncate mt-0.5">
+                    <Home className="w-2.5 h-2.5 shrink-0 text-slate-500" />
+                    <span className="truncate">Independent Care</span>
+                  </p>
+                ) : null}
               </div>
             </div>
             <button
               onClick={logout}
-              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-red-500/10 hover:text-red-400 text-xs font-medium transition-colors border border-slate-700 hover:border-red-500/30"
+              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 text-xs font-semibold transition-all border border-white/10 hover:border-rose-500/30 alaga-btn-tactile"
             >
               <LogOut className="w-3.5 h-3.5" />
               {t('Sign Out', 'Mag-sign Out')}
@@ -289,8 +325,8 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
         ) : (
           <div className="flex flex-col items-center gap-2.5 py-1">
             <div 
-              className="w-8 h-8 rounded-full overflow-hidden bg-slate-800 flex items-center justify-center text-slate-300 border border-slate-700" 
-              title={`${user?.name || user?.username} (${role.replace('_', ' ')})`}
+              className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 flex items-center justify-center text-teal-300 border border-teal-500/40" 
+              title={`${user?.name || user?.username} (${role.replace('_', ' ')})${user?.facility_name ? ` • ${user.facility_name}` : ''}`}
             >
               {user?.profile_picture_url ? (
                 <img
@@ -304,7 +340,7 @@ export default function AppSidebar({ collapsed = false, onToggle }: AppSidebarPr
             </div>
             <button
               onClick={logout}
-              className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-red-500/10 hover:text-red-400 transition-colors border border-slate-700 hover:border-red-500/30"
+              className="p-1.5 rounded-xl bg-white/5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors border border-white/10 hover:border-rose-500/30 alaga-btn-tactile"
               title={t('Sign Out', 'Mag-sign Out')}
             >
               <LogOut className="w-4 h-4" />

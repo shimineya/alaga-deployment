@@ -194,9 +194,16 @@ export default function ArchiveHub() {
             {/* Header section with Scoping Message */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                        <Archive className="w-6 h-6 text-teal-600 animate-pulse" />
-                        {isSysAdmin ? t('Global Archive Hub', 'Global Archive Hub') : t('Facility Archive Hub', 'Hub ng Archive ng Pasilidad')}
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50/90 border border-teal-200/90 text-teal-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                        Data Retention & Recovery
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                        {isSysAdmin ? (
+                            <>Global Archive <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Hub</span></>
+                        ) : (
+                            <>Facility Archive <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Hub</span></>
+                        )}
                     </h1>
                     <p className="text-sm text-slate-500 mt-1">
                         {isSysAdmin 
@@ -210,9 +217,9 @@ export default function ArchiveHub() {
                     size="sm" 
                     onClick={fetchRecords} 
                     disabled={isLoading}
-                    className="flex items-center gap-2 hover:bg-slate-100/50 hover:text-slate-800 transition-colors"
+                    className="bg-white/80 hover:bg-white text-slate-700 text-xs font-bold h-9 rounded-xl border border-teal-100 shadow-xs alaga-btn-tactile flex items-center gap-2"
                 >
-                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isLoading ? 'animate-spin' : ''}`} />
                     {t('Refresh', 'I-refresh')}
                 </Button>
             </div>

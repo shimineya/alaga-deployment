@@ -37,7 +37,9 @@ async function runPrediction(data) {
       baselines   : data.baselines    || []
     });
 
-    execFile('python', [BRIDGE_SCRIPT, input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
+    const b64Input = Buffer.from(input, 'utf8').toString('base64');
+
+    execFile('python', [BRIDGE_SCRIPT, b64Input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
       if (err) {
         console.error('AI prediction exec error:', err.message, stderr);
         return resolve({
@@ -93,8 +95,9 @@ async function flagAsNormal(patientId, vital, value) {
       vital     : vital,
       value     : value
     });
+    const b64Input = Buffer.from(input, 'utf8').toString('base64');
 
-    execFile('python', [BRIDGE_SCRIPT, input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
+    execFile('python', [BRIDGE_SCRIPT, b64Input], { maxBuffer: 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
       if (err) {
         console.error('Flag exec error:', err.message, stderr);
         return resolve('Flag recorded (offline mode)');

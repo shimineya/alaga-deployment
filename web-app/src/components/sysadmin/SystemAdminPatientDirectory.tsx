@@ -7,6 +7,9 @@ import { toast } from 'sonner';
 import { Search, UserPlus, Trash2, Edit, Check, ShieldAlert, Users, Layers, Mail, Calendar, UserCheck, Activity, BellOff } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
+import { Patient } from '@/types';
+import { PatientProfile } from '../PatientProfile';
+import { extractBirthdateString } from '@/lib/dateUtils';
 
 interface ScopedPatient {
     patient_id: number;
@@ -47,7 +50,44 @@ interface ScopedPatient {
 
 interface Props {
     mode?: 'assigned' | 'unassigned';
+    onSelectPatient?: (patient: Patient) => void;
 }
+
+export const scopedPatientToPatient = (p: ScopedPatient): Patient => {
+    const bdayStr = extractBirthdateString(p.birthdate);
+    const birthYear = p.birthdate ? new Date(bdayStr).getFullYear() : 0;
+    const currentYear = new Date().getFullYear();
+    const age = birthYear > 0 ? currentYear - birthYear : 0;
+
+    const assignedCg = p.assigned_users?.find(u => u.role === 'caregiver');
+    const assignedCgName = assignedCg 
+        ? `${assignedCg.first_name || assignedCg.username || ''} ${assignedCg.last_name || ''}`.trim() 
+        : undefined;
+
+    return {
+        id: p.patient_id.toString(),
+        name: p.name,
+        age: age,
+        birthdate: p.birthdate ? bdayStr : undefined,
+        medicalConditions: p.baseline_data?.diagnosis ? [p.baseline_data.diagnosis] : [],
+        baselineVitals: {
+            heartRate: 75,
+            temperature: 36.5,
+            spo2: 98,
+        },
+        caregiverId: assignedCg?.user_id?.toString() || '',
+        deviceId: p.device_serial_number || (p.paired_devices?.[0]?.serial_number) || '',
+        deviceBattery: 100,
+        deviceConnected: !!(p.device_serial_number || (p.paired_devices && p.paired_devices.length > 0)),
+        lastUpdated: new Date(p.created_at || Date.now()),
+        assignedCaregiverName: assignedCgName,
+        accessLevel: 'Admin',
+        illness: p.baseline_data?.diagnosis || 'N/A',
+        baseline_data: p.baseline_data,
+        active_devices: (p.paired_devices || []).map(d => d.serial_number),
+        roomNumber: p.baseline_data?.room || 'Home',
+    } as unknown as Patient;
+};
 
 const ExpandableList: React.FC<{ items: React.ReactNode[]; emptyLabel?: string }> = ({ items, emptyLabel = 'None' }) => {
     const [expanded, setExpanded] = useState(false);
@@ -83,13 +123,24 @@ const ExpandableList: React.FC<{ items: React.ReactNode[]; emptyLabel?: string }
     );
 };
 
-export default function SystemAdminPatientDirectory({ mode }: Props) {
+export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: Props) {
     const { user, token } = useAuth();
     const role = user?.role?.toLowerCase() || '';
     const isFacilityAdmin = role === 'facility_admin';
     const isParentOrGuardian = role === 'parent' || role === 'guardian';
     const isCaregiver = role === 'caregiver';
     const canManage = isFacilityAdmin || isParentOrGuardian;
+
+    const [selectedProfilePatient, setSelectedProfilePatient] = useState<Patient | null>(null);
+
+    const handlePatientClick = (p: ScopedPatient) => {
+        const mapped = scopedPatientToPatient(p);
+        if (onSelectPatient) {
+            onSelectPatient(mapped);
+        } else {
+            setSelectedProfilePatient(mapped);
+        }
+    };
 
     const [localActiveTab, setLocalActiveTab] = useState<'assigned' | 'unassigned'>('assigned');
     const activeTab = mode || localActiveTab;
@@ -327,6 +378,22 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
         );
     });
 
+    if (selectedProfilePatient) {
+        return (
+            <div className="w-full flex-1">
+                <PatientProfile
+                    patient={selectedProfilePatient}
+                    onBack={() => setSelectedProfilePatient(null)}
+                    caregiverName={selectedProfilePatient.assignedCaregiverName}
+                    onRefresh={() => {
+                        fetchAssigned();
+                        fetchUnassigned();
+                    }}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="flex-1 flex flex-col min-h-0 space-y-6">
             <Tabs value={activeTab} onValueChange={(val) => !mode && setActiveTab(val as any)} className="w-full flex-1 flex flex-col min-h-0">
@@ -428,7 +495,14 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                          </td>
                                                          <td className="px-4 py-3 font-bold text-slate-900">
                                                              <div className="flex items-center gap-1.5 flex-wrap">
-                                                                 <span>{p.name}</span>
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => handlePatientClick(p)}
+                                                                     className="text-left font-bold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer transition-colors"
+                                                                     title="View Patient Profile"
+                                                                 >
+                                                                     {p.name}
+                                                                 </button>
                                                                  {p.is_monitoring_disabled ? (
                                                                      <Badge className="bg-amber-50 text-amber-700 border border-amber-200/80 font-semibold text-[9px] px-1.5 py-0 shadow-none">
                                                                          Monitoring Paused
@@ -611,7 +685,14 @@ export default function SystemAdminPatientDirectory({ mode }: Props) {
                                                         </td>
                                                         <td className="px-4 py-3 font-bold text-slate-900">
                                                             <div className="flex items-center gap-1.5 flex-wrap">
-                                                                 <span>{p.name}</span>
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => handlePatientClick(p)}
+                                                                     className="text-left font-bold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer transition-colors"
+                                                                     title="View Patient Profile"
+                                                                 >
+                                                                     {p.name}
+                                                                 </button>
                                                                  {p.is_monitoring_disabled ? (
                                                                      <Badge className="bg-amber-50 text-amber-700 border border-amber-200/80 font-semibold text-[9px] px-1.5 py-0 shadow-none">
                                                                          Monitoring Paused

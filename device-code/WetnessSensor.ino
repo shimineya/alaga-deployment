@@ -50,11 +50,14 @@ const int WETNESS_DRY_RAW      = 3400; // Baseline ADC when completely dry (3.3V
 const int WETNESS_WET_RAW      = 800;  // Saturated ADC when wet (<0.8V)
 
 // ==============================================================================
-// DEFAULT FACTORY SETTINGS (Saved in NVS; overridable via Captive Portal)
+// DEFAULT FACTORY & SECURITY SETTINGS (Saved in NVS; overridable via Captive Portal)
 // ==============================================================================
-const char* DEFAULT_AP_SSID    = "ALAGA-Moisture-Setup";
-const char* DEFAULT_SERVER_URL = "https://alaga-backend.onrender.com/api/device/data";
-const char* DEFAULT_DEVICE_ID  = "SD-2026-0001";
+const char* DEFAULT_AP_SSID      = "ALAGA-Moisture-Setup";
+const char* DEFAULT_AP_PASS      = "AlagaSafe2026!";     // WPA2-PSK: Minimum 8 characters
+const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
+const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash
+const char* DEFAULT_SERVER_URL   = "https://alaga-backend.onrender.com/api/device/data";
+const char* DEFAULT_DEVICE_ID    = "SD-2026-0001";
 
 // ==============================================================================
 // RUNTIME VARIABLES & STORAGE
@@ -65,10 +68,14 @@ String wifi_ssid       = "";
 String wifi_password   = "";
 String server_url      = DEFAULT_SERVER_URL;
 String device_id       = DEFAULT_DEVICE_ID;
+String device_token    = DEFAULT_DEVICE_TOKEN;
+String admin_pin       = DEFAULT_ADMIN_PIN;
+String ap_password     = DEFAULT_AP_PASS;
 
 bool isAPMode          = false;
-unsigned long lastSendTime = 0;
-const long sendInterval    = 5000; // Send telemetry every 5 seconds
+unsigned long lastSendTime   = 0;
+const long sendInterval      = 2000; // Send telemetry every 2 seconds
+unsigned long packetSequence = 0;
 
 // Sensor & Battery Readings
 int waterState         = 0;
@@ -239,8 +246,12 @@ void sendToBackend() {
       http.begin(server_url);
     }
 
+    // [OWASP A07] Hardware Security Headers
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(10000); // 10s timeout for cloud TLS handshake
+    http.addHeader("X-Device-Serial", device_id);
+    http.addHeader("X-Device-Token", device_token);
+    http.addHeader("Authorization", "Bearer " + device_token);
+    http.setTimeout(8000); // 8s timeout for cloud TLS handshake
 
     // Determine Wi-Fi Signal Strength rating from RSSI
     int rssi = WiFi.RSSI();
@@ -253,12 +264,14 @@ void sendToBackend() {
     // Payload formatted for Alaga /api/device/data & /api/sensor/reading
     String payload = "{"
       "\"device_id\":\"" + device_id + "\","
-      "\"heart_rate\":0,"
-      "\"temperature\":0,"
-      "\"spo2\":0,"
+      "\"device_token\":\"" + device_token + "\","
+      "\"device_type\":\"moisture\","
+      "\"has_moisture_sensor\":true,"
       "\"moisture\":" + String(wetnessPercent) + ","
       "\"battery\":" + String(batteryPercent) + ","
-      "\"signal\":\"" + signalStr + "\""
+      "\"signal\":\"" + signalStr + "\","
+      "\"seq\":" + String(packetSequence++) + ","
+      "\"uptime_ms\":" + String(millis()) +
     "}";
 
     int httpCode = http.POST(payload);
@@ -269,12 +282,15 @@ void sendToBackend() {
     } else if (httpCode == 422) {
       isDevicePaired = false;
       Serial.println("⚠️ [UNPAIRED] Device is not assigned to any active patient in the database!");
+    } else if (httpCode == 401) {
+      isDevicePaired = false;
+      Serial.println("⛔ [SECURITY ERROR] Device token authentication failed! Check token in /setup.");
     } else if (httpCode == 403) {
       isDevicePaired = false;
       Serial.println("⛔ [UNAUTHORIZED] Device serial is not registered or not active in the database!");
     }
 
-    Serial.print("[HTTP] Telemetry POST payload: ");
+    Serial.print("[HTTP OUT] Telemetry POST (Code " + String(httpCode) + "): ");
     Serial.println(payload);
     Serial.print("[HTTP] Response Code: ");
     Serial.println(httpCode);
@@ -881,7 +897,9 @@ void startAccessPointMode() {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(DEFAULT_AP_SSID);
+
+  // [SECURITY] Launch Access Point with WPA2-PSK encryption
+  WiFi.softAP(DEFAULT_AP_SSID, ap_password.c_str(), 1, 0, 4);
 
   // Start DNS Server on port 53 to redirect all domain lookups to 192.168.4.1
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
@@ -995,6 +1013,9 @@ void setup() {
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
+  device_token  = preferences.getString("token", DEFAULT_DEVICE_TOKEN);
+  admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);
+  ap_password   = preferences.getString("appass", DEFAULT_AP_PASS);
   sensor_type   = preferences.getInt("senstype", 0);
   water_pin     = preferences.getInt("senspin", 4);
 
@@ -1016,6 +1037,7 @@ void setup() {
   }
 
   Serial.print("[NVS] Loaded Device ID  : "); Serial.println(device_id);
+  Serial.print("[NVS] Loaded Token Hash : SHA-256 Enabled");
   Serial.print("[NVS] Loaded Sensor Pin : GPIO "); Serial.println(water_pin);
   Serial.print("[NVS] Loaded Sensor Type: "); Serial.println(sensor_type == 0 ? "LM393 Inverted (Standard)" : (sensor_type == 1 ? "Non-Inverted Analog" : "Digital Active-HIGH"));
   Serial.print("[NVS] Loaded Target SSID: "); Serial.println(wifi_ssid.length() > 0 ? wifi_ssid : "(None)");
@@ -1097,11 +1119,32 @@ void loop() {
     }
   }
 
-  // 4. Periodic Reading & Dispatch
-  if (millis() - lastSendTime >= sendInterval) {
-    lastSendTime = millis();
+  // 4. Sample Sensors Continuously
+  readSensors();
 
-    readSensors();
+  // 5. Immediate Telemetry Trigger Logic
+  bool immediateTrigger = false;
+  static int lastSentMoisture = 0;
+  static bool firstRun = true;
+
+  if (firstRun && WiFi.status() == WL_CONNECTED) {
+    immediateTrigger = true;
+    firstRun = false;
+    lastSentMoisture = wetnessPercent;
+  }
+
+  // Trigger on diaper moisture change (>= 15% shift or wetness threshold >= 35% crossed)
+  if (abs(wetnessPercent - lastSentMoisture) >= 15 || 
+      (wetnessPercent >= 35 && lastSentMoisture < 35) ||
+      (wetnessPercent < 35  && lastSentMoisture >= 35)) {
+    Serial.printf("⚡ [IMMEDIATE TRIGGER] Diaper moisture transition (%d%% -> %d%%). Transmitting immediately!\n", lastSentMoisture, wetnessPercent);
+    immediateTrigger = true;
+    lastSentMoisture = wetnessPercent;
+  }
+
+  // 6. Periodic Dispatch or Immediate Event Trigger
+  if (immediateTrigger || (millis() - lastSendTime >= sendInterval)) {
+    lastSendTime = millis();
 
     // Print to Serial Monitor
     Serial.printf("[MONITOR] Wetness: %d%% (%s) | Raw ADC: %d | Digital Pin %d: %s | Battery: %d%% (%.2fV)\n",

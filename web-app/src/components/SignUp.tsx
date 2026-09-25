@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { ArrowLeft, Loader2, UserPlus, Stethoscope, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Loader2, UserPlus, Stethoscope, Eye, EyeOff, ShieldAlert, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { PasswordGuide, checkPasswordCriteria } from './ui/PasswordGuide';
 
@@ -17,10 +17,20 @@ export const SignUp: React.FC = () => {
     userType === 'home' ? 'parent' : 'caregiver'
   );
 
-  const [hasFacility, setHasFacility] = useState(false);
-  const [facilityName, setFacilityName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Facility Belonging State
+  const [hasFacility, setHasFacility] = useState(false);
+  const [inviteToken, setInviteToken] = useState('');
+  const [verifyingToken, setVerifyingToken] = useState(false);
+  const [verifiedFacility, setVerifiedFacility] = useState<{
+    facility_id: number;
+    facility_name: string;
+    role: string;
+    email?: string;
+  } | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -43,17 +53,51 @@ export const SignUp: React.FC = () => {
     return checkPasswordCriteria(formData.password).isValid;
   }, [formData.password]);
 
+  const handleVerifyToken = async () => {
+    if (!inviteToken.trim()) {
+      setTokenError("Please enter your invitation token");
+      return;
+    }
+    setVerifyingToken(true);
+    setTokenError(null);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/verify-invite-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: inviteToken.trim().toUpperCase() })
+      });
+      const data = await res.json();
+      if (data.valid && data.success) {
+        setVerifiedFacility(data);
+        if (data.role === 'caregiver' || data.role === 'medical_staff') {
+          setSelectedRole(data.role);
+        }
+        if (data.email && !formData.email) {
+          setFormData(prev => ({ ...prev, email: data.email }));
+        }
+        toast.success(`Verified: Affiliated with ${data.facility_name}!`);
+      } else {
+        setVerifiedFacility(null);
+        setTokenError(data.message || "Invalid or expired token");
+        toast.error(data.message || "Invalid token");
+      }
+    } catch {
+      setTokenError("Network error verifying token");
+      toast.error("Failed to connect to verification server");
+    } finally {
+      setVerifyingToken(false);
+    }
+  };
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.firstName.trim()) newErrors.firstName = "First name is required";
     if (!formData.lastName.trim()) newErrors.lastName = "Last name is required";
     if (!formData.email.trim()) newErrors.email = "Email is required";
     if (!formData.username.trim()) newErrors.username = "Username is required";
-    
-    if ((selectedRole === 'caregiver' || selectedRole === 'medical_staff') && hasFacility) {
-      if (!facilityName.trim()) {
-        newErrors.facilityName = "Facility Name is required";
-      }
+
+    if (hasFacility && !inviteToken.trim()) {
+      newErrors.inviteToken = "Please enter your invitation token";
     }
 
     if (!formData.password) {
@@ -93,8 +137,9 @@ export const SignUp: React.FC = () => {
           username: formData.username.trim(),
           password: formData.password,
           role: selectedRole,
-          has_facility: (selectedRole === 'caregiver' || selectedRole === 'medical_staff') ? hasFacility : false,
-          facility_name: ((selectedRole === 'caregiver' || selectedRole === 'medical_staff') && hasFacility) ? facilityName.trim() : null
+          has_facility: hasFacility,
+          facility_name: verifiedFacility?.facility_name || null,
+          invite_token: hasFacility && inviteToken.trim() ? inviteToken.trim().toUpperCase() : null
         })
       });
 
@@ -106,8 +151,6 @@ export const SignUp: React.FC = () => {
           } else if (data.message?.toLowerCase().includes('username')) {
             setErrors(prev => ({ ...prev, username: data.message }));
           }
-        } else if (data.message?.toLowerCase().includes('facility')) {
-          setErrors(prev => ({ ...prev, facilityName: data.message }));
         }
         throw new Error(data.message || "Registration failed");
       }
@@ -179,45 +222,82 @@ export const SignUp: React.FC = () => {
               </div>
             )}
 
-            {/* Facility Affiliation Checkbox & Input */}
-            {(selectedRole === 'caregiver' || selectedRole === 'medical_staff') && (
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5">
-                <div className="flex items-center gap-2">
+            {/* Facility Affiliation Question for Caregiver & Medical Staff */}
+            {userType !== 'home' && (
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer" htmlFor="facility-toggle">
+                      <Building2 className="w-3.5 h-3.5 text-teal-600" /> Are you affiliated with a facility?
+                    </Label>
+                    <p className="text-[10px] text-slate-500">Enable if invited by a hospital, nursing home, or healthcare facility</p>
+                  </div>
                   <input
+                    id="facility-toggle"
                     type="checkbox"
-                    id="hasFacility"
                     checked={hasFacility}
                     onChange={(e) => {
                       setHasFacility(e.target.checked);
-                      if (!e.target.checked) setFacilityName('');
+                      if (!e.target.checked) {
+                        setInviteToken('');
+                        setVerifiedFacility(null);
+                        setTokenError(null);
+                      }
                     }}
-                    className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 cursor-pointer"
+                    className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer accent-teal-600"
                   />
-                  <label htmlFor="hasFacility" className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
-                    Affiliated with a Healthcare Facility / Hospital?
-                  </label>
                 </div>
 
                 {hasFacility && (
-                  <div className="space-y-1 pl-6 pt-1">
-                    <Label className="text-[10px] uppercase font-bold text-slate-600 flex items-center gap-0.5">
-                      Facility Name <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      type="text"
-                      placeholder="Enter exact facility name (e.g. Alaga Medical Center)"
-                      className={`h-8 text-xs bg-white ${errors.facilityName ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
-                      value={facilityName}
-                      onChange={(e) => {
-                        setFacilityName(e.target.value);
-                        if (errors.facilityName) setErrors(prev => ({ ...prev, facilityName: '' }));
-                      }}
-                      autoComplete="off"
-                    />
-                    {errors.facilityName && <p className="text-[10px] text-red-500">{errors.facilityName}</p>}
-                    <p className="text-[10px] text-slate-400">
-                      Must match an existing registered hospital or facility name in the system.
-                    </p>
+                  <div className="space-y-2 pt-2 border-t border-slate-200/80 animate-in fade-in duration-200">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-slate-600 flex items-center gap-1">
+                        Facility Invitation Token <span className="text-red-500">*</span>
+                      </Label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="e.g. FAC-A8B9C1D2"
+                          value={inviteToken}
+                          onChange={(e) => {
+                            setInviteToken(e.target.value.toUpperCase());
+                            setVerifiedFacility(null);
+                            setTokenError(null);
+                          }}
+                          className={`h-8 text-xs font-mono font-bold tracking-wider uppercase ${errors.inviteToken || tokenError ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleVerifyToken}
+                          disabled={verifyingToken || !inviteToken.trim()}
+                          className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white shrink-0 font-semibold"
+                        >
+                          {verifyingToken ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Verify'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {verifiedFacility && (
+                      <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-900">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <p className="font-bold">Affiliated: {verifiedFacility.facility_name}</p>
+                          <p className="text-[10px] text-emerald-700 capitalize">
+                            Designated Role: <strong className="font-semibold">{verifiedFacility.role.replace('_', ' ')}</strong>
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {tokenError && (
+                      <p className="text-[10px] text-red-500 flex items-center gap-1 font-medium">
+                        <AlertCircle className="w-3 h-3 shrink-0" /> {tokenError}
+                      </p>
+                    )}
+
+                    {errors.inviteToken && !tokenError && (
+                      <p className="text-[10px] text-red-500">{errors.inviteToken}</p>
+                    )}
                   </div>
                 )}
               </div>

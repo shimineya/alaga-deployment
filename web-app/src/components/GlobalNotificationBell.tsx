@@ -377,7 +377,7 @@ export function GlobalNotificationBell() {
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 flex flex-col max-h-[450px]"
+          className="fixed inset-x-3 sm:absolute sm:inset-x-auto sm:right-0 mt-2 sm:w-80 max-w-[calc(100vw-24px)] bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 flex flex-col max-h-[80vh] sm:max-h-[450px]"
         >
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
             <div className="flex items-center gap-1.5">

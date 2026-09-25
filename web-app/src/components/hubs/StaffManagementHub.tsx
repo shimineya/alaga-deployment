@@ -70,8 +70,8 @@ export default function StaffManagementHub() {
 
             <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
-                <div className="mb-6 shrink-0">
-                    <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 overflow-x-auto h-auto">
+                <div className="mb-4 sm:mb-6 shrink-0 overflow-x-auto no-scrollbar touch-scroll -mx-1 px-1 sm:mx-0 sm:px-0">
+                    <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 flex-nowrap w-max max-w-none">
                         {canSeeWardStaff && (
                             <TabsTrigger 
                                 value="ward-staff" 

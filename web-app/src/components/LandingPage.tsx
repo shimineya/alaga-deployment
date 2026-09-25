@@ -27,7 +27,8 @@ import {
     FileText,
     TrendingUp,
     Building2,
-    Server
+    Server,
+    Menu
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -138,6 +139,7 @@ const SOLUTIONS: SolutionItem[] = [
 export const LandingPage: React.FC = () => {
     const navigate = useNavigate();
     const { isAuthenticated, user } = useAuth();
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     // Quick View Modal State
     const [selectedSolution, setSelectedSolution] = useState<SolutionItem | null>(null);
@@ -152,19 +154,19 @@ export const LandingPage: React.FC = () => {
             {/* 1. STICKY NAVBAR (Inspired by fursight.shop)                      */}
             {/* ================================================================ */}
             <header className="sticky top-0 z-50 bg-[#061126]/95 backdrop-blur-md border-b border-teal-500/20 text-white shadow-lg">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 sm:h-18 flex items-center justify-between">
                     {/* Brand Logo */}
-                    <Link to="/" className="flex items-center gap-3 group text-decoration-none">
+                    <Link to="/" className="flex items-center gap-2.5 sm:gap-3 group text-decoration-none">
                         <img 
                             src="/alaga-robot-logo.png" 
                             alt="Alaga Logo" 
-                            className="w-10 h-10 object-contain group-hover:scale-110 transition-transform shrink-0" 
+                            className="w-8 h-8 sm:w-10 sm:h-10 object-contain group-hover:scale-110 transition-transform shrink-0" 
                         />
                         <div className="flex flex-col">
-                            <span className="text-xl font-black tracking-tight text-white italic group-hover:text-teal-300 transition-colors">
+                            <span className="text-lg sm:text-xl font-black tracking-tight text-white italic group-hover:text-teal-300 transition-colors">
                                 ALAGA
                             </span>
-                            <span className="text-[9px] font-black tracking-widest uppercase text-amber-400 -mt-1">
+                            <span className="text-[8px] sm:text-[9px] font-black tracking-widest uppercase text-amber-400 -mt-1">
                                 Smart Healthcare
                             </span>
                         </div>
@@ -186,14 +188,14 @@ export const LandingPage: React.FC = () => {
                         </a>
                     </nav>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-2.5">
+                    {/* Action Buttons & Mobile Hamburger */}
+                    <div className="flex items-center gap-1.5 sm:gap-2.5">
                         {isAuthenticated ? (
                             <Button
                                 onClick={() => navigate('/dashboard')}
-                                className="h-10 px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-md text-xs tracking-tight flex items-center gap-1.5 alaga-btn-tactile"
+                                className="h-9 sm:h-10 px-3 sm:px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-md text-xs tracking-tight flex items-center gap-1.5 alaga-btn-tactile"
                             >
-                                <span>Go to Dashboard</span>
+                                <span>Dashboard</span>
                                 <ArrowRight className="w-3.5 h-3.5" />
                             </Button>
                         ) : (
@@ -201,21 +203,77 @@ export const LandingPage: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => navigate('/login')}
-                                    className="h-10 px-4 sm:px-5 bg-white hover:bg-teal-50 text-teal-950 font-black rounded-xl text-xs tracking-wide transition-all shadow-sm border border-white flex items-center justify-center alaga-btn-tactile"
+                                    className="h-8 sm:h-10 px-3 sm:px-5 bg-white hover:bg-teal-50 text-teal-950 font-black rounded-xl text-xs tracking-wide transition-all shadow-sm border border-white flex items-center justify-center alaga-btn-tactile"
                                 >
                                     Log In
                                 </button>
                                 <Button
                                     onClick={() => navigate('/signup')}
-                                    className="h-10 px-4 sm:px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-md text-xs tracking-tight flex items-center gap-1.5 alaga-btn-tactile"
+                                    className="h-8 sm:h-10 px-3 sm:px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-md text-xs tracking-tight flex items-center gap-1.5 alaga-btn-tactile hidden xs:inline-flex"
                                 >
                                     <span>Get Started</span>
                                     <ArrowRight className="w-3.5 h-3.5 hidden sm:inline" />
                                 </Button>
                             </>
                         )}
+
+                        {/* Mobile Menu Toggle Button */}
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                            className="lg:hidden p-2 text-slate-300 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+                            aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+                        >
+                            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                        </button>
                     </div>
                 </div>
+
+                {/* Mobile Dropdown Menu (Visible < lg when toggled) */}
+                {isMobileMenuOpen && (
+                    <div className="lg:hidden bg-[#040c1c] border-t border-teal-500/20 px-4 py-4 space-y-3 shadow-2xl animate-in slide-in-from-top duration-200">
+                        <nav className="flex flex-col space-y-1">
+                            <a
+                                href="#hero"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className="px-3 py-2 rounded-xl text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                                Overview
+                            </a>
+                            <a
+                                href="#solutions"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className="px-3 py-2 rounded-xl text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                                Featured Hardware
+                            </a>
+                            <a
+                                href="#benefits"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className="px-3 py-2 rounded-xl text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                                Why ALAGA
+                            </a>
+                            <a
+                                href="#how-it-works"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className="px-3 py-2 rounded-xl text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                                How It Works
+                            </a>
+                        </nav>
+                        <div className="pt-2 border-t border-white/10 flex flex-col gap-2">
+                            {!isAuthenticated && (
+                                <Button
+                                    onClick={() => { setIsMobileMenuOpen(false); navigate('/signup'); }}
+                                    className="w-full h-10 bg-gradient-to-r from-teal-500 to-teal-600 text-white font-bold rounded-xl text-xs"
+                                >
+                                    Get Started Free
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
             </header>
 
             {/* ================================================================ */}

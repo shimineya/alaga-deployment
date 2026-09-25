@@ -3,12 +3,17 @@ import axios from 'axios';
 import { Card, CardContent } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Badge } from '../ui/badge';
-import { AlertCircle, CheckCircle2, Shield, Activity, HardDrive, Flag, Sparkles, Archive, Volume2, VolumeX, BellRing } from 'lucide-react';
+import { 
+    AlertCircle, CheckCircle2, Shield, Activity, HardDrive, Flag, Sparkles, Archive, 
+    Volume2, VolumeX, BellRing, Search, Filter, BatteryCharging, WifiOff, AlertTriangle, 
+    Droplets, HeartPulse, X, Play 
+} from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { AcknowledgeModal } from '../ui/AcknowledgeModal';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { playAlertTone } from '../../lib/alert-sound';
+import { useAlertSync } from '../../hooks/useAlertSync';
 
 interface ClinicalAlert {
     alert_id: number;
@@ -84,6 +89,12 @@ const AlertsHub: React.FC = () => {
     const initialSelectedId = location.state?.selectedAlertId;
     const [filterAlertId, setFilterAlertId] = useState<string | null>(initialSelectedId || null);
 
+    const searchParams = new URLSearchParams(location.search);
+    const initialSearch = searchParams.get('search') || '';
+    const [searchQuery, setSearchQuery] = useState(initialSearch);
+    const [clinicalFilterType, setClinicalFilterType] = useState<'all' | 'ai_anomaly' | 'emergency' | 'wet_diaper' | 'vitals'>('all');
+    const [systemFilterType, setSystemFilterType] = useState<'all' | 'low_battery' | 'disconnected' | 'sensor_malfunction' | 'weak_signal'>('all');
+
     useEffect(() => {
         if (initialSelectedId) {
             setFilterAlertId(initialSelectedId);
@@ -96,20 +107,93 @@ const AlertsHub: React.FC = () => {
     }, [initialSelectedId]);
 
     const displayedClinicalAlerts = useMemo(() => {
+        let list = clinicalAlerts;
         if (filterAlertId && filterAlertId.startsWith('clinical_')) {
             const targetId = parseInt(filterAlertId.replace('clinical_', ''));
-            return clinicalAlerts.filter(a => a.alert_id === targetId);
+            list = list.filter(a => a.alert_id === targetId);
         }
-        return clinicalAlerts;
-    }, [clinicalAlerts, filterAlertId]);
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            list = list.filter(a => 
+                (a.patient_name && a.patient_name.toLowerCase().includes(q)) ||
+                (a.message && a.message.toLowerCase().includes(q)) ||
+                (a.anomaly_type && a.anomaly_type.toLowerCase().includes(q))
+            );
+        }
+        if (clinicalFilterType === 'ai_anomaly') {
+            list = list.filter(a => {
+                const anom = (a.anomaly_type || '').toLowerCase();
+                const msg = (a.message || '').toLowerCase();
+                return anom.includes('ocsvm') || anom.includes('pattern') || msg.includes('oc-svm') || msg.includes('baseline') || msg.includes('deviation') || msg.includes('abnormal pattern');
+            });
+        } else if (clinicalFilterType === 'emergency') {
+            list = list.filter(a => 
+                a.severity?.toLowerCase() === 'critical' || 
+                (a.message || '').toLowerCase().includes('emergency') ||
+                (a.message || '').toLowerCase().includes('critical')
+            );
+        } else if (clinicalFilterType === 'wet_diaper') {
+            list = list.filter(a => {
+                const anom = (a.anomaly_type || '').toLowerCase();
+                const msg = (a.message || '').toLowerCase();
+                return anom.includes('moisture') || anom.includes('diaper') || msg.includes('wet diaper') || msg.includes('moisture');
+            });
+        } else if (clinicalFilterType === 'vitals') {
+            list = list.filter(a => {
+                const anom = (a.anomaly_type || '').toLowerCase();
+                const msg = (a.message || '').toLowerCase();
+                return anom.includes('heart_rate') || anom.includes('temp') || anom.includes('spo2') ||
+                       msg.includes('bpm') || msg.includes('tachycardia') || msg.includes('bradycardia') ||
+                       msg.includes('fever') || msg.includes('hypothermia') || msg.includes('spo2') || msg.includes('pulse');
+            });
+        }
+        return list;
+    }, [clinicalAlerts, filterAlertId, searchQuery, clinicalFilterType]);
 
     const displayedSystemAlerts = useMemo(() => {
+        let list = systemAlerts;
         if (filterAlertId && filterAlertId.startsWith('system_')) {
             const targetId = parseInt(filterAlertId.replace('system_', ''));
-            return systemAlerts.filter(a => a.sys_alert_id === targetId);
+            list = list.filter(a => a.sys_alert_id === targetId);
         }
-        return systemAlerts;
-    }, [systemAlerts, filterAlertId]);
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            list = list.filter(a => 
+                (a.patient_name && a.patient_name.toLowerCase().includes(q)) ||
+                (a.description && a.description.toLowerCase().includes(q)) ||
+                (a.alert_type && a.alert_type.toLowerCase().includes(q))
+            );
+        }
+        if (systemFilterType === 'low_battery') {
+            list = list.filter(a => 
+                (a.alert_type || '').toLowerCase().includes('battery') ||
+                (a.description || '').toLowerCase().includes('battery')
+            );
+        } else if (systemFilterType === 'disconnected') {
+            list = list.filter(a => 
+                (a.alert_type || '').toLowerCase().includes('disconnect') ||
+                (a.alert_type || '').toLowerCase().includes('offline') ||
+                (a.description || '').toLowerCase().includes('disconnect') ||
+                (a.description || '').toLowerCase().includes('offline')
+            );
+        } else if (systemFilterType === 'sensor_malfunction') {
+            list = list.filter(a => 
+                (a.alert_type || '').toLowerCase().includes('sensor') ||
+                (a.alert_type || '').toLowerCase().includes('probe') ||
+                (a.alert_type || '').toLowerCase().includes('malfunction') ||
+                (a.description || '').toLowerCase().includes('probe') ||
+                (a.description || '').toLowerCase().includes('fault')
+            );
+        } else if (systemFilterType === 'weak_signal') {
+            list = list.filter(a => 
+                (a.alert_type || '').toLowerCase().includes('signal') ||
+                (a.alert_type || '').toLowerCase().includes('rssi') ||
+                (a.description || '').toLowerCase().includes('signal') ||
+                (a.description || '').toLowerCase().includes('rssi')
+            );
+        }
+        return list;
+    }, [systemAlerts, filterAlertId, searchQuery, systemFilterType]);
 
     const API_BASE = import.meta.env.VITE_API_URL || '';
     const getHeaders = () => ({
@@ -122,7 +206,7 @@ const AlertsHub: React.FC = () => {
         inactivityTimeoutRef.current = setTimeout(() => setIsInactive(true), 60000);
     };
 
-    const [isMuted, setIsMuted] = useState(false);
+    const { isMuted, toggleMute, testRealtimeSync } = useAlertSync();
     const soundIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Active unacknowledged & unflagged alerts:
@@ -230,7 +314,16 @@ const AlertsHub: React.FC = () => {
         if (token) {
             fetchAlerts();
             const pollId = setInterval(fetchAlerts, 10000);
-            return () => clearInterval(pollId);
+
+            const handleRealtimeSync = () => {
+                fetchAlerts();
+            };
+            window.addEventListener('alaga_alert_update', handleRealtimeSync);
+
+            return () => {
+                clearInterval(pollId);
+                window.removeEventListener('alaga_alert_update', handleRealtimeSync);
+            };
         }
     }, [token, isSysAdmin]);
 
@@ -313,6 +406,30 @@ const AlertsHub: React.FC = () => {
         }
     };
 
+    const [isTriggeringTest, setIsTriggeringTest] = useState(false);
+    const handleTriggerHardwareTest = async (testType: string = 'Low Battery Warning') => {
+        setIsTriggeringTest(true);
+        try {
+            const res = await axios.post(`${API_BASE}/api/alerts/system/test-trigger`, {
+                alert_type: testType,
+                severity: testType.includes('Critical') ? 'Critical' : 'Warning',
+                description: testType === 'Low Battery Warning' 
+                    ? 'Diagnostic Test: IoT Device battery dropped to 14%. Recharging required.'
+                    : testType === 'Sensor Malfunction'
+                    ? 'Diagnostic Test: Pulse oximeter probe detached from patient.'
+                    : 'Diagnostic Test: IoT Device heartbeat timeout (>10 minutes inactive).'
+            }, getHeaders());
+            if (res.data.success) {
+                toast.success('Hardware diagnostic test event broadcasted!');
+                fetchAlerts();
+            }
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || 'Failed to trigger hardware diagnostic test.');
+        } finally {
+            setIsTriggeringTest(false);
+        }
+    };
+
     const getSeverityColor = (severity: string) => {
         switch (severity?.toLowerCase()) {
             case 'critical': return 'bg-red-50 text-red-700 border-red-200';
@@ -374,16 +491,25 @@ const AlertsHub: React.FC = () => {
                     )}
 
                     <button
-                        onClick={() => setIsMuted(prev => !prev)}
-                        title={isMuted ? "Unmute alarm sound" : "Mute alarm sound"}
+                        onClick={() => toggleMute()}
+                        title={isMuted ? "Unmute alarm sound on all synced devices" : "Mute alarm sound on all synced devices"}
                         className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition ${
                             isMuted 
-                                ? 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200' 
+                                ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' 
                                 : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 shadow-sm'
                         }`}
                     >
-                        {isMuted ? <VolumeX className="w-3.5 h-3.5 text-slate-400" /> : <Volume2 className="w-3.5 h-3.5 text-teal-600" />}
-                        {isMuted ? 'Unmute Audio' : 'Mute Audio'}
+                        {isMuted ? <VolumeX className="w-3.5 h-3.5 text-amber-500" /> : <Volume2 className="w-3.5 h-3.5 text-teal-600" />}
+                        {isMuted ? 'Unmute Audio (All Devices)' : 'Mute Audio (All Devices)'}
+                    </button>
+
+                    <button
+                        onClick={() => testRealtimeSync('Critical')}
+                        title="Test synchronized audio chime and notification across both Web App and Mobile App simultaneously"
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-teal-200 bg-teal-50 text-teal-800 hover:bg-teal-100 transition shadow-xs"
+                    >
+                        <BellRing className="w-3.5 h-3.5 text-teal-600" />
+                        <span>Test Sound Sync</span>
                     </button>
                 </div>
             </div>
@@ -435,6 +561,64 @@ const AlertsHub: React.FC = () => {
                 </div>
  
                 <TabsContent value="clinical" className="space-y-4">
+                    {/* Clinical Search & Filter Bar */}
+                    <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input 
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search clinical alerts by patient name, pattern, or vital..."
+                                className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-medium text-slate-700"
+                            />
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Filter Pills */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1">
+                                <Filter className="w-3 h-3 text-slate-400" /> Filter:
+                            </span>
+                            <button
+                                onClick={() => setClinicalFilterType('all')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${clinicalFilterType === 'all' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                All Alerts ({clinicalAlerts.length})
+                            </button>
+                            <button
+                                onClick={() => setClinicalFilterType('ai_anomaly')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'ai_anomaly' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100'}`}
+                            >
+                                <Sparkles className="w-3 h-3" /> AI Anomaly Detected
+                            </button>
+                            <button
+                                onClick={() => setClinicalFilterType('emergency')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'emergency' ? 'bg-red-600 text-white shadow-2xs' : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'}`}
+                            >
+                                <AlertTriangle className="w-3 h-3" /> Emergency
+                            </button>
+                            <button
+                                onClick={() => setClinicalFilterType('wet_diaper')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'wet_diaper' ? 'bg-blue-600 text-white shadow-2xs' : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'}`}
+                            >
+                                <Droplets className="w-3 h-3" /> Wet Diaper
+                            </button>
+                            <button
+                                onClick={() => setClinicalFilterType('vitals')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'vitals' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'}`}
+                            >
+                                <HeartPulse className="w-3 h-3" /> Vital Signs Anomaly
+                            </button>
+                        </div>
+                    </div>
                     {displayedClinicalAlerts.length === 0 && !isLoading ? (
                         <Card className="border-dashed border-slate-200 bg-white shadow-sm rounded-2xl">
                             <CardContent className="flex flex-col items-center justify-center p-12 text-slate-500">
@@ -540,6 +724,97 @@ const AlertsHub: React.FC = () => {
                 </TabsContent>
  
                 <TabsContent value="system" className="space-y-4">
+                    {/* Hardware Diagnostics Search & Controls */}
+                    <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+                        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+                            <div className="relative flex-1">
+                                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                <input 
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search hardware diagnostics by patient, device serial, or error..."
+                                    className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-medium text-slate-700"
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Trigger Diagnostic Test Buttons */}
+                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                                <button
+                                    onClick={() => handleTriggerHardwareTest('Low Battery Warning')}
+                                    disabled={isTriggeringTest}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition flex items-center gap-1.5 shadow-2xs"
+                                    title="Simulate low battery alert on IoT device"
+                                >
+                                    <BatteryCharging className="w-3.5 h-3.5 text-amber-600" />
+                                    <span>Test Low Battery</span>
+                                </button>
+                                <button
+                                    onClick={() => handleTriggerHardwareTest('Sensor Malfunction')}
+                                    disabled={isTriggeringTest}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 transition flex items-center gap-1.5 shadow-2xs"
+                                    title="Simulate probe detached / sensor error on IoT device"
+                                >
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Test Sensor Fault</span>
+                                </button>
+                                <button
+                                    onClick={() => handleTriggerHardwareTest('Device Disconnected')}
+                                    disabled={isTriggeringTest}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition flex items-center gap-1.5 shadow-2xs"
+                                    title="Simulate device disconnected timeout"
+                                >
+                                    <WifiOff className="w-3.5 h-3.5 text-slate-600" />
+                                    <span>Test Disconnect</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Filter Pills for Hardware Diagnostics */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1">
+                                <Filter className="w-3 h-3 text-slate-400" /> Filter:
+                            </span>
+                            <button
+                                onClick={() => setSystemFilterType('all')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${systemFilterType === 'all' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                All Diagnostics ({systemAlerts.length})
+                            </button>
+                            <button
+                                onClick={() => setSystemFilterType('low_battery')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${systemFilterType === 'low_battery' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'}`}
+                            >
+                                <BatteryCharging className="w-3.5 h-3.5" /> Low Battery
+                            </button>
+                            <button
+                                onClick={() => setSystemFilterType('disconnected')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${systemFilterType === 'disconnected' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'}`}
+                            >
+                                <WifiOff className="w-3.5 h-3.5" /> Offline / Disconnected
+                            </button>
+                            <button
+                                onClick={() => setSystemFilterType('sensor_malfunction')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${systemFilterType === 'sensor_malfunction' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'}`}
+                            >
+                                <AlertTriangle className="w-3.5 h-3.5" /> Sensor Malfunction
+                            </button>
+                            <button
+                                onClick={() => setSystemFilterType('weak_signal')}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${systemFilterType === 'weak_signal' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100'}`}
+                            >
+                                <Activity className="w-3.5 h-3.5" /> Weak Signal
+                            </button>
+                        </div>
+                    </div>
                     {displayedSystemAlerts.length === 0 && !isLoading ? (
                         <Card className="border-dashed border-slate-200 bg-white shadow-sm rounded-2xl">
                             <CardContent className="flex flex-col items-center justify-center p-12 text-slate-500">

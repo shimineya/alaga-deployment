@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 const scheduleRoutes = require('./routes/schedules');
+const { broadcastAlert } = require('./services/alertRealtimeService');
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
@@ -1440,15 +1441,40 @@ app.post('/api/device/data', async (req, res) => {
                             const eventId = eventResult.rows[0]?.event_id;
 
                             if (eventId) {
-                                await pool.query(
+                                const notifRes = await pool.query(
                                     `INSERT INTO alert_notifications (event_id, status, message, severity, alert_category)
-                                     VALUES ($1, 'Sent', $2, $3, 'Clinical')`,
+                                     VALUES ($1, 'Sent', $2, $3, 'Clinical')
+                                     RETURNING alert_id`,
                                     [
                                         eventId,
                                         alert.message,
                                         alert.severity === 'critical' ? 'Critical' : 'Warning'
                                      ]
                                 );
+                                const alertId = notifRes.rows[0]?.alert_id;
+
+                                const pInfo = await pool.query('SELECT name FROM patients WHERE patient_id = $1', [patientId]).catch(() => ({ rows: [] }));
+                                const patientName = pInfo.rows[0]?.name || `Patient #${patientId}`;
+
+                                const payload = {
+                                    alert_id: alertId,
+                                    event_id: eventId,
+                                    patient_id: patientId,
+                                    patient_name: patientName,
+                                    severity: alert.severity === 'critical' ? 'Critical' : 'Warning',
+                                    message: alert.message,
+                                    anomaly_type: anomalyType,
+                                    category: 'Clinical',
+                                    timestamp: new Date().toISOString(),
+                                    playSound: true
+                                };
+
+                                broadcastAlert('new_alert', payload);
+                                broadcastAlert('new_clinical_alert', {
+                                    ...payload,
+                                    patientId,
+                                    anomalyType
+                                });
                             }
                         }
                     }

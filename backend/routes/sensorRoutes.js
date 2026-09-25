@@ -20,11 +20,13 @@ const crypto  = require('crypto');
 const { body, param, validationResult } = require('express-validator');
 const pool    = require('../db');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { broadcastAlert } = require('../services/alertRealtimeService');
 
 // ---------------------------------------------------------------------------
 // [CHANGE] Import AI service — uses PythonShell directly instead of HTTP axios
 // ---------------------------------------------------------------------------
 const { runPrediction, flagAsNormal } = require('../services/alagarAIService');
+const { recordHardwareAlert } = require('../services/hardwareDiagnosticsService');
 
 // ---------------------------------------------------------------------------
 // Helper: Validate the X-Device-Key header against the device_whitelist table.
@@ -155,6 +157,57 @@ router.post('/reading', readingValidation, async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to store reading.' });
     }
 
+    // Step 4.1: Automated Hardware Diagnostics (Battery, Wireless Signal, Probe Status)
+    try {
+        const rawBattery = req.body.battery !== undefined ? req.body.battery : req.body.battery_level;
+        const battery = rawBattery !== undefined && rawBattery !== null ? parseFloat(rawBattery) : null;
+        const rssi = req.body.rssi !== undefined && req.body.rssi !== null ? parseFloat(req.body.rssi) : null;
+        const probeDetached = req.body.probe_detached === true || req.body.probe_detached === 'true' || (heartRate === 0 && spo2 === 0);
+        const sensorError = req.body.sensor_error === true || req.body.sensor_error === 'true';
+
+        if (battery !== null && !isNaN(battery)) {
+            if (battery <= 10) {
+                recordHardwareAlert({
+                    patient_id: patientId,
+                    device_mac_address: deviceSerial,
+                    alert_type: 'Low Battery (Critical)',
+                    severity: 'Critical',
+                    description: `Critical Battery: IoT Device "${device.device_name || deviceSerial}" battery dropped to ${Math.round(battery)}%. Recharging urgently required.`
+                }).catch(() => {});
+            } else if (battery <= 20) {
+                recordHardwareAlert({
+                    patient_id: patientId,
+                    device_mac_address: deviceSerial,
+                    alert_type: 'Low Battery',
+                    severity: 'Warning',
+                    description: `Low Battery: IoT Device "${device.device_name || deviceSerial}" battery is at ${Math.round(battery)}%. Please connect to charger.`
+                }).catch(() => {});
+            }
+        }
+
+        if (rssi !== null && !isNaN(rssi) && rssi < -85) {
+            recordHardwareAlert({
+                patient_id: patientId,
+                device_mac_address: deviceSerial,
+                alert_type: 'Weak Wireless Signal',
+                severity: 'Warning',
+                description: `Weak Signal Detected (RSSI ${rssi} dBm) for device "${device.device_name || deviceSerial}". Risk of dropped telemetry packets.`
+            }).catch(() => {});
+        }
+
+        if (probeDetached || sensorError) {
+            recordHardwareAlert({
+                patient_id: patientId,
+                device_mac_address: deviceSerial,
+                alert_type: 'Sensor Malfunction / Probe Detached',
+                severity: 'Warning',
+                description: `Hardware Issue: Sensor probe disconnected or hardware fault reported on "${device.device_name || deviceSerial}".`
+            }).catch(() => {});
+        }
+    } catch (diagErr) {
+        console.error('[SENSOR] Diagnostics check error:', diagErr.message);
+    }
+
     // Step 5: Fetch patient type, then call AI via PythonShell
     // [CHANGE] Replaced callAiService('/predict', ...) with runPrediction()
     let aiResult;
@@ -249,16 +302,45 @@ router.post('/reading', readingValidation, async (req, res) => {
 
                 const eventId = eventResult.rows[0].event_id;
 
-                await pool.query(
+                const notifInsertRes = await pool.query(
                     `INSERT INTO alert_notifications
                          (event_id, status, message, severity, alert_category)
-                     VALUES ($1, 'Sent', $2, $3, 'Clinical')`,
+                     VALUES ($1, 'Sent', $2, $3, 'Clinical')
+                     RETURNING alert_id`,
                     [
                         eventId,
                         alert.message,
                         alert.severity === 'critical' ? 'Critical' : 'Warning'
                     ]
                 );
+                const alertId = notifInsertRes.rows[0]?.alert_id;
+
+                // Fetch patient name & facility for immediate notification display
+                const pInfo = await pool.query('SELECT name, facility_id FROM patients WHERE patient_id = $1', [patientId]).catch(() => ({ rows: [] }));
+                const patientName = pInfo.rows[0]?.name || `Patient #${patientId}`;
+                const facilityId = pInfo.rows[0]?.facility_id || null;
+
+                const alertPayload = {
+                    alert_id: alertId,
+                    event_id: eventId,
+                    patient_id: patientId,
+                    patient_name: patientName,
+                    facility_id: facilityId,
+                    severity: alert.severity === 'critical' ? 'Critical' : 'Warning',
+                    message: alert.message,
+                    anomaly_type: anomalyType,
+                    category: 'Clinical',
+                    timestamp: new Date().toISOString(),
+                    playSound: true
+                };
+
+                // Broadcast alert in real-time to Web and Mobile
+                broadcastAlert('new_alert', alertPayload);
+                broadcastAlert('new_clinical_alert', {
+                    ...alertPayload,
+                    patientId,
+                    anomalyType
+                });
             }
         } catch (alertErr) {
             console.error('[SENSOR] Alert insert error:', alertErr.message);
@@ -1149,5 +1231,25 @@ router.get(
         }
     }
 );
+
+// ===========================================================================
+// ENDPOINT: Report Hardware Diagnostic Event
+// POST /api/sensor/diagnostics
+// ===========================================================================
+router.post('/diagnostics', async (req, res) => {
+    try {
+        const { device_serial, patient_id, alert_type, severity, description, battery, rssi } = req.body;
+        const result = await recordHardwareAlert({
+            patient_id: patient_id ? parseInt(patient_id, 10) : null,
+            device_mac_address: device_serial || 'ESP32-DIAG',
+            alert_type: alert_type || 'Hardware Diagnostic Alert',
+            severity: severity || 'Warning',
+            description: description || `Diagnostic event: Battery ${battery ?? '--'}%, RSSI ${rssi ?? '--'} dBm`
+        });
+        return res.json({ success: true, data: result });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
 
 module.exports = router;

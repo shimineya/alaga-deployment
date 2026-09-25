@@ -200,6 +200,14 @@ object ScheduleReminders {
         }
     }
 
+    fun cancelAlert(c: Context, id: Int) {
+        manager(c).cancel(id)
+    }
+
+    fun cancelAllAlerts(c: Context) {
+        manager(c).cancelAll()
+    }
+
     fun allowed(c: Context): Boolean {
         initialize(c)
         return (Build.VERSION.SDK_INT < 24 || manager(c).areNotificationsEnabled()) &&

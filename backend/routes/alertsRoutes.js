@@ -3,9 +3,67 @@ const router = express.Router();
 const pool = require('../db');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { flagAsNormal } = require('../services/alagarAIService');
+const { handleAlertStream, broadcastAlert, setMuteStatus, getMuteStatus } = require('../services/alertRealtimeService');
+const { recordHardwareAlert } = require('../services/hardwareDiagnosticsService');
 
 // Secure all routes with JWT verification
 router.use(verifyToken);
+
+// Real-time SSE Stream for Instant Web and Mobile Sync
+router.get('/events', (req, res) => {
+    handleAlertStream(req, res);
+});
+
+// Synchronized Mute State across Web and Mobile devices
+router.get('/sync-mute', (req, res) => {
+    const isMuted = getMuteStatus(req.user?.id);
+    res.json({ success: true, isMuted });
+});
+
+router.post('/sync-mute', (req, res) => {
+    const { isMuted, durationMinutes } = req.body;
+    const mutedBool = Boolean(isMuted);
+    setMuteStatus(req.user?.id, mutedBool, durationMinutes || 15);
+
+    // Broadcast synchronized mute status to both Web App and Mobile App
+    broadcastAlert('alert_sound_mute', {
+        userId: req.user?.id,
+        isMuted: mutedBool,
+        durationMinutes: durationMinutes || 15
+    });
+
+    res.json({ success: true, isMuted: mutedBool });
+});
+
+// Real-time Sound & Notification Synchronization Test Trigger
+router.post('/test-broadcast', async (req, res) => {
+    const { severity = 'Critical', patientName = 'Maria Santos', message } = req.body;
+    const testMsg = message || (severity.toLowerCase() === 'critical'
+        ? 'Heart rate spiked to 134 BPM (Threshold: 100 BPM). Room 302.'
+        : 'Smart diaper moisture reached 88%. Diaper change recommended.');
+    const testAlert = {
+        alert_id: Math.floor(Date.now() / 1000),
+        patient_name: patientName,
+        severity: severity,
+        message: testMsg,
+        category: 'Clinical',
+        anomaly_type: severity.toLowerCase() === 'critical' ? 'rule_heart_rate' : 'rule_moisture',
+        timestamp: new Date().toISOString(),
+        playSound: true
+    };
+
+    broadcastAlert('new_alert', testAlert);
+    broadcastAlert('new_clinical_alert', {
+        alert_id: testAlert.alert_id,
+        patient_name: patientName,
+        severity: testAlert.severity,
+        message: testAlert.message,
+        anomalyType: testAlert.anomaly_type,
+        playSound: true
+    });
+
+    res.json({ success: true, message: 'Test alert broadcasted in real time to all logged in sessions.', alert: testAlert });
+});
 
 
 // Helper: Sanitize/anonymize patient names in notification messages for System Administrators (HIPAA/DPA compliance)
@@ -44,11 +102,25 @@ const recordDueSchedules = async () => {
                 const eventId = eventResult.rows[0].event_id;
 
                 const msg = `Scheduled task due: ${s.event_type}${s.custom_event_name ? ` - ${s.custom_event_name}` : ''}`;
-                await pool.query(
+                const insertRes = await pool.query(
                     `INSERT INTO alert_notifications (event_id, status, message, severity, alert_category)
-                     VALUES ($1, 'Sent', $2, 'Warning', 'Clinical')`,
+                     VALUES ($1, 'Sent', $2, 'Warning', 'Clinical')
+                     RETURNING alert_id`,
                     [eventId, msg]
                 );
+                const alertId = insertRes.rows[0]?.alert_id;
+
+                // Broadcast in real-time to both Web and Mobile apps
+                broadcastAlert('new_alert', {
+                    alert_id: alertId,
+                    patient_id: s.patient_id,
+                    patient_name: s.patient_name,
+                    severity: 'Warning',
+                    message: msg,
+                    category: 'Clinical',
+                    anomaly_type: 'schedule_due',
+                    playSound: true
+                });
             }
         }
     } catch (err) {
@@ -253,6 +325,9 @@ router.put('/clinical/archive-bulk', async (req, res) => {
             );
         }
 
+        // Real-time broadcast to Web and Mobile
+        broadcastAlert('alert_archived', { alertIds, type: 'clinical' });
+
         res.json({ success: true, message: 'Alerts archived successfully.' });
     } catch (err) {
         console.error("Archive Alerts Error:", err.message);
@@ -304,6 +379,9 @@ router.put('/clinical/:id/acknowledge', async (req, res) => {
                 [scheduleId]
             );
         }
+
+        // Real-time broadcast to Web and Mobile
+        broadcastAlert('alert_acknowledged', { alertId, userId, action: 'acknowledge' });
 
         res.json({ success: true, message: 'Alert acknowledged successfully. Audit trail updated.' });
     } catch (err) {
@@ -472,7 +550,24 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
                  WHERE alert_id = $2 AND status != 'Acknowledged'`,
                 [userId, alertId]
             ).catch(() => {});
+
+            broadcastAlert('alert_acknowledged', {
+                alertId,
+                patientId,
+                acknowledgedBy: userId,
+                action: 'flag_normal_learned',
+                action_taken: 'AI Baseline Updated - Flagged as Normal (5/5)'
+            });
         }
+
+        broadcastAlert('alert_flagged_normal', {
+            alertId,
+            patientId,
+            vitalName,
+            flag_count: newFlagCount,
+            remaining_flags: remainingFlags,
+            suppressed: newFlagCount >= 5
+        });
 
         // Audit log for HIPAA/DPA
         await pool.query(
@@ -496,6 +591,9 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
         const conditionMessage = newFlagCount >= 5
             ? "The AI model has learned this patient's pattern. Baseline updated (0 more flags needed). Alerts for this pattern are now suppressed."
             : `The AI model learns from the patient's pattern. Modifying it's baseline needs to be learned repeatedly. (${remainingFlags} more flags needed)`;
+
+        // Real-time broadcast to Web and Mobile
+        broadcastAlert('alert_flagged_normal', { alertId, newFlagCount, remainingFlags });
 
         return res.json({
             success: true,
@@ -622,8 +720,8 @@ router.put('/system/:id/resolve', async (req, res) => {
         const { role } = req.user;
         const { resolution_notes } = req.body;
 
-        if (!['admin', 'sysadmin', 'system_admin'].includes(role)) {
-            return res.status(403).json({ success: false, message: 'Forbidden. Admin access required.' });
+        if (!['admin', 'sysadmin', 'system_admin', 'facility_admin', 'caregiver', 'medical_staff', 'parent'].includes(role)) {
+            return res.status(403).json({ success: false, message: 'Forbidden. Authorized clinical/admin access required.' });
         }
 
         const result = await pool.query(
@@ -634,13 +732,36 @@ router.put('/system/:id/resolve', async (req, res) => {
                  resolution_notes = $2
              WHERE sys_alert_id = $3
              RETURNING sys_alert_id`,
-            [userId, resolution_notes || 'Resolved by admin', alertId]
+            [userId, resolution_notes || 'Resolved by user', alertId]
         );
+
+        // Real-time broadcast to Web and Mobile
+        broadcastAlert('system_alert_resolved', { sysAlertId: alertId });
 
         res.json({ success: true, message: 'System alert resolved successfully.' });
     } catch (err) {
         console.error("Resolve System Alert Error:", err.message);
         res.status(500).json({ success: false, message: 'Server Error during resolution' });
+    }
+});
+
+// ==========================================
+// 4.1 POST /system/test-trigger
+// Allows triggering a hardware diagnostic test alert
+// ==========================================
+router.post('/system/test-trigger', async (req, res) => {
+    try {
+        const { patient_id, alert_type, severity, description, device_mac_address } = req.body;
+        const result = await recordHardwareAlert({
+            patient_id: patient_id ? parseInt(patient_id, 10) : null,
+            device_mac_address: device_mac_address || 'ESP32-HARDWARE-TEST',
+            alert_type: alert_type || 'Low Battery Warning',
+            severity: severity || 'Warning',
+            description: description || 'Diagnostic Alert: Device battery is at 14%. Recharging required.'
+        });
+        res.json({ success: true, message: 'Hardware diagnostic alert broadcasted.', data: result });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
@@ -768,6 +889,12 @@ router.put('/schedules/:id/acknowledge', async (req, res) => {
                  WHERE alert_id = $3`,
                 [userId, action_taken || 'Completed via schedule tab', alertId]
             );
+
+            broadcastAlert('alert_acknowledged', {
+                alertId,
+                acknowledgedBy: userId,
+                action: 'schedule_completed'
+            });
         }
 
         // Update the schedule itself
@@ -782,6 +909,12 @@ router.put('/schedules/:id/acknowledge', async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Schedule not found or already completed.' });
         }
+
+        broadcastAlert('schedule_completed', {
+            scheduleId,
+            completedBy: userId
+        });
+
         res.json({ success: true, message: 'Schedule completed successfully.' });
     } catch (err) {
         console.error("Acknowledge Schedule Error:", err.message);
@@ -1206,6 +1339,9 @@ router.put('/archive-unified-bulk', async (req, res) => {
         if (announcementIds.length > 0) {
             await pool.query(`UPDATE announcements SET is_archived = true, is_active = false WHERE id = ANY($1)`, [announcementIds]);
         }
+
+        // Real-time broadcast to Web and Mobile
+        broadcastAlert('alert_archived', { ids, clinicalIds, systemIds, scheduleIds, announcementIds });
 
         // 2. Audit Trail Logging - Safe and non-blocking
         try {

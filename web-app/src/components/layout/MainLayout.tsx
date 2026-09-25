@@ -5,11 +5,13 @@ import { GlobalNotificationBell } from '../GlobalNotificationBell';
 import { UserManualButton } from '../UserManualButton';
 import { InteractiveOnboardingTutorial } from '../InteractiveOnboardingTutorial';
 import { useAuth } from '@/lib/auth-context';
-import { Building2, Home } from 'lucide-react';
+import { useAlertSync } from '@/hooks/useAlertSync';
+import { Building2, Home, Volume2, VolumeX } from 'lucide-react';
 
 export default function MainLayout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user } = useAuth();
+  const { isMuted, toggleMute, isConnected } = useAlertSync();
 
   const role = (user?.role || '').toLowerCase();
   const isFacilityRelevantRole = ['caregiver', 'medical_staff', 'facility_admin', 'parent'].includes(role);
@@ -61,6 +63,22 @@ export default function MainLayout() {
                 </div>
               ) : null
             )}
+            {/* Real-time Synchronized Sound Toggle (Web & Mobile) */}
+            <button
+              onClick={() => toggleMute()}
+              title={isMuted ? "Alert audio is muted across all devices. Click to unmute." : "Alert audio is active and synchronized in real time with mobile phone. Click to mute."}
+              className={`p-2 rounded-xl border transition-all duration-200 flex items-center gap-1.5 text-xs font-semibold ${
+                isMuted
+                  ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+              }`}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4 text-amber-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
+              <span className="hidden lg:inline text-[11px] font-bold">
+                {isMuted ? 'Audio Muted' : 'Audio Synced'}
+              </span>
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 alaga-streaming-radar' : 'bg-amber-400'}`} title={isConnected ? 'Real-time sync active' : 'Connecting real-time sync...'} />
+            </button>
             <UserManualButton />
             <GlobalNotificationBell />
           </div>

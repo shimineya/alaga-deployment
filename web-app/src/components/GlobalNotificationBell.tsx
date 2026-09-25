@@ -170,7 +170,16 @@ export function GlobalNotificationBell() {
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 10000);
-    return () => clearInterval(interval);
+
+    const handleRealtimeUpdate = () => {
+      fetchNotifications();
+    };
+    window.addEventListener('alaga_alert_update', handleRealtimeUpdate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('alaga_alert_update', handleRealtimeUpdate);
+    };
   }, [fetchNotifications]);
 
   // Click outside to close

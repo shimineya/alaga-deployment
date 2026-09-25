@@ -44,6 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   List<Map<String, dynamic>> _patients = [];
+  List<dynamic> _clinicalAlerts = [];
   bool _isLoading = true;
 
   // Slideshow controller and state
@@ -83,6 +84,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _eventsReady = false;
   Timer? _scheduleTimer;
   Timer? _dataRefreshTimer;
+  StreamSubscription? _alertSyncSub;
 
   @override
   void initState() {
@@ -101,6 +103,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     _configureDataRefresh();
     AlertNotificationService.initialize();
     AlertNotificationService.startMonitoring();
+
+    // Re-fetch dashboard when an alert arrives or is acknowledged in real-time
+    _alertSyncSub = AlertNotificationService.onAlertUpdate.listen((_) {
+      if (mounted) _fetchDashboardData();
+    });
   }
 
   void _configureDataRefresh() {
@@ -176,7 +183,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void dispose() {
-    AlertNotificationService.stopMonitoring();
+    _alertSyncSub?.cancel();
     _scheduleTimer?.cancel();
     _dataRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -186,18 +193,34 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _fetchDashboardData() async {
-    final result = await ApiService.get('/caregiver/patients');
-    // Check for any urgent clinical alerts or careteam invites
-    AlertNotificationService.checkAlerts();
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-      if (result['success'] == true && result['data'] != null) {
-        _patients = List<Map<String, dynamic>>.from(result['data']);
-      } else {
-        _patients = [];
-      }
-    });
+    try {
+      final results = await Future.wait([
+        ApiService.get('/caregiver/patients'),
+        ApiService.get('/api/alerts/clinical'),
+      ]);
+      final result = results[0];
+      final alertResult = results[1];
+
+      // Check for any urgent clinical alerts or careteam invites
+      AlertNotificationService.checkAlerts();
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        if (result['success'] == true && result['data'] != null) {
+          _patients = List<Map<String, dynamic>>.from(result['data']);
+        } else {
+          _patients = [];
+        }
+
+        if (alertResult['success'] == true && alertResult['data'] != null) {
+          _clinicalAlerts = List<dynamic>.from(alertResult['data']);
+        } else {
+          _clinicalAlerts = [];
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _refreshDashboard() async {
@@ -309,7 +332,14 @@ class _DashboardScreenState extends State<DashboardScreen>
 
                           // Dynamic Appointment Banner
                           _buildAppointmentBanner(),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 16),
+
+                          // Active Alert Notifications Banner on Dashboard
+                          _buildActiveAlertsBanner(),
+
+                          // Patients Section Header with Alert Quick Button
+                          _buildPatientsSectionHeader(),
+                          const SizedBox(height: 6),
                         ]),
                       ),
                     ),
@@ -1991,95 +2021,501 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildPatientCard(Map<String, dynamic> patient) {
-    final telemetry = patient['latest_telemetry'] ?? {};
-    final bool isDeviceActive = patient['device_status'] == 'active';
+  Widget _buildActiveAlertsBanner() {
+    final unackAlerts = _clinicalAlerts.where((a) {
+      final status = (a['status'] ?? '').toString();
+      final flagCount = (a['flag_count'] as num?)?.toInt() ?? 0;
+      return status != 'Acknowledged' && flagCount < 5;
+    }).toList();
 
-    return InkWell(
-      onTap: () => showPatientProfileModal(context, patient),
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+    if (unackAlerts.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFFEF2F2),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEF4444), width: 1.5),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2))
+            color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
                 children: [
-                  Text(patient['name'] ?? 'Unknown',
-                      style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text("Room: ${patient['room'] ?? '---'}",
-                      style: GoogleFonts.albertSans(
-                          fontSize: 12, color: Colors.grey)),
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDC2626),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Active Clinical Alerts (${unackAlerts.length})",
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF991B1B),
+                    ),
+                  ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationScreen(initialClinical: true),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDC2626),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        "Review All",
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.arrow_forward, size: 12, color: Colors.white),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...unackAlerts.take(2).map((alert) {
+            final patientName = alert['patient_name'] ?? 'Assigned Patient';
+            final msg = alert['message'] ?? 'Vital sign anomaly detected';
+            final sev = (alert['severity'] ?? 'Warning').toString();
+            final isCritical = sev.toLowerCase() == 'critical';
+
+            return InkWell(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NotificationScreen(
+                      initialSearch: patientName,
+                      initialClinical: true,
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                margin: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
-                    color: isDeviceActive
-                        ? Colors.green.withValues(alpha: 0.1)
-                        : Colors.red.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text(isDeviceActive ? "ACTIVE" : "INACTIVE",
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: isDeviceActive ? Colors.green : Colors.red)),
-              )
-            ],
-          ),
-          const Divider(height: 20),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isCritical ? const Color(0xFFFCA5A5) : const Color(0xFFFED7AA),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isCritical ? Icons.error : Icons.warning_amber,
+                      size: 16,
+                      color: isCritical ? const Color(0xFFDC2626) : const Color(0xFFEA580C),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            patientName,
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF1E293B),
+                            ),
+                          ),
+                          Text(
+                            msg,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.albertSans(
+                              fontSize: 11,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isCritical ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        sev.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: isCritical ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatientsSectionHeader() {
+    final unackAlerts = _clinicalAlerts.where((a) {
+      final status = (a['status'] ?? '').toString();
+      final flagCount = (a['flag_count'] as num?)?.toInt() ?? 0;
+      return status != 'Acknowledged' && flagCount < 5;
+    }).toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
           Row(
             children: [
-              Expanded(
-                  child: _vitalStat(
-                      "BPM",
-                      telemetry['heart_rate']?.toString() ?? "--",
-                      Icons.favorite,
-                      Colors.red)),
-              Expanded(
-                  child: _vitalStat(
-                      "TEMP",
-                      "${telemetry['temperature'] ?? '--'}°C",
-                      Icons.thermostat,
-                      Colors.orange)),
+              Text(
+                "ASSIGNED PATIENTS",
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: const Color(0xFF5FA9A9),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0F2F1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  "${_patients.length}",
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF00796B),
+                  ),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                  child: _vitalStat("SpO2", "${telemetry['spo2'] ?? '--'}%",
-                      Icons.water_drop, Colors.blue)),
-              Expanded(
-                  child: _vitalStat(
-                      "MOISTURE",
-                      telemetry['moisture'] == 100 ? 'Wet' : 'Dry',
-                      Icons.dry,
-                      telemetry['moisture'] == 100
-                          ? Colors.blue
-                          : Colors.teal)),
-            ],
+          InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const NotificationScreen(initialClinical: true),
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: unackAlerts.isNotEmpty ? const Color(0xFFFEF2F2) : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: unackAlerts.isNotEmpty ? const Color(0xFFEF4444) : const Color(0xFFCBD5E1),
+                  width: unackAlerts.isNotEmpty ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    unackAlerts.isNotEmpty ? Icons.warning_amber_rounded : Icons.notifications_none,
+                    size: 15,
+                    color: unackAlerts.isNotEmpty ? const Color(0xFFDC2626) : const Color(0xFF64748B),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    unackAlerts.isNotEmpty ? "${unackAlerts.length} Alerts" : "Alerts Hub",
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: unackAlerts.isNotEmpty ? const Color(0xFFDC2626) : const Color(0xFF475569),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    size: 9,
+                    color: unackAlerts.isNotEmpty ? const Color(0xFFDC2626) : const Color(0xFF94A3B8),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
-    ),
-  );
-}
+    );
+  }
+
+  Widget _buildPatientCard(Map<String, dynamic> patient) {
+    final telemetry = patient['latest_telemetry'] ?? {};
+    final bool isDeviceActive = patient['device_status'] == 'active';
+
+    final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
+    final patientName = (patient['name'] ?? '').toString().toLowerCase().trim();
+
+    final patientAlerts = _clinicalAlerts.where((a) {
+      final aPid = a['patient_id']?.toString();
+      final aName = (a['patient_name'] ?? '').toString().toLowerCase().trim();
+      final isMatch = (patientId != null && aPid == patientId) || (patientName.isNotEmpty && aName == patientName);
+      final isUnack = (a['status'] ?? '').toString() != 'Acknowledged' &&
+                      ((a['flag_count'] as num?)?.toInt() ?? 0) < 5;
+      return isMatch && isUnack;
+    }).toList();
+    final bool hasActiveAlerts = patientAlerts.isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: hasActiveAlerts ? const Color(0xFFFFF1F2) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasActiveAlerts ? const Color(0xFFEF4444) : Colors.black12,
+          width: hasActiveAlerts ? 2.0 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: hasActiveAlerts
+                ? const Color(0xFFEF4444).withValues(alpha: 0.18)
+                : Colors.black.withValues(alpha: 0.05),
+            blurRadius: hasActiveAlerts ? 8 : 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => showPatientProfileModal(context, patient),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (hasActiveAlerts)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFDC2626)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            patientAlerts.first['message'] ?? 'Clinical anomaly detected',
+                            style: GoogleFonts.albertSans(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFB91C1C),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDC2626),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            "${patientAlerts.length} UNRESOLVED",
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          patient['name'] ?? 'Unknown',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: hasActiveAlerts ? const Color(0xFF881337) : Colors.black,
+                          ),
+                        ),
+                        Text(
+                          "Room: ${patient['room'] ?? '---'}",
+                          style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isDeviceActive
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        isDeviceActive ? "ACTIVE" : "INACTIVE",
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isDeviceActive ? Colors.green : Colors.red,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _vitalStat(
+                        "BPM",
+                        telemetry['heart_rate']?.toString() ?? "--",
+                        Icons.favorite,
+                        Colors.red,
+                      ),
+                    ),
+                    Expanded(
+                      child: _vitalStat(
+                        "TEMP",
+                        "${telemetry['temperature'] ?? '--'}°C",
+                        Icons.thermostat,
+                        Colors.orange,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _vitalStat(
+                        "SpO2",
+                        "${telemetry['spo2'] ?? '--'}%",
+                        Icons.water_drop,
+                        Colors.blue,
+                      ),
+                    ),
+                    Expanded(
+                      child: _vitalStat(
+                        "MOISTURE",
+                        telemetry['moisture'] == 100 ? 'Wet' : 'Dry',
+                        Icons.dry,
+                        telemetry['moisture'] == 100 ? Colors.blue : Colors.teal,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                // Action Buttons: Profile and Clinical Alerts Button
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => showPatientProfileModal(context, patient),
+                        icon: const Icon(Icons.person_outline, size: 15),
+                        label: const Text("Profile", style: TextStyle(fontSize: 12)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF1B393D),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => NotificationScreen(
+                                initialSearch: patient['name'],
+                                initialClinical: true,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: Icon(
+                          hasActiveAlerts ? Icons.warning_amber_rounded : Icons.notifications_none,
+                          size: 15,
+                          color: Colors.white,
+                        ),
+                        label: Text(
+                          hasActiveAlerts ? "Alerts (${patientAlerts.length})" : "Clinical Alerts",
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: hasActiveAlerts ? const Color(0xFFDC2626) : const Color(0xFF5FA9A9),
+                          elevation: hasActiveAlerts ? 2 : 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _vitalStat(String label, String value, IconData icon, Color color) {
     return Column(

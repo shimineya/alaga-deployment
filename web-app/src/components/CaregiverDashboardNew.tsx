@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
 import { Patient, Alert, VitalSign, DoctorsOrdersData } from '../types';
 import { generateAlertsFromDoctorsOrders, checkVitalSignThresholds } from '../lib/alert-generator';
@@ -31,7 +32,7 @@ import {
     Users, Activity, Bell, Heart, Thermometer, Droplets, Wifi,
     AlertTriangle, Check, User, LogOut, Search, TrendingUp, AlertCircle, ChevronLeft, ChevronRight,
     HelpCircle, Menu,
-    Link2Off, Calendar as CalendarIcon, X, Plus, Repeat, Trash2, Edit
+    Link2Off, Calendar as CalendarIcon, X, Plus, Repeat, Trash2, Edit, BellRing
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -80,6 +81,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     hideNavigation = false
 }) => {
     const { user, logout, token, isSysAdmin } = useAuth();
+    const navigate = useNavigate();
 
     const isSysAdminUser = isSysAdmin || ['system_admin', 'sysadmin', 'admin'].includes(user?.role?.toLowerCase() || '');
 
@@ -88,6 +90,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const [viewMode, setViewMode] = useState<'dashboard' | 'profile'>('dashboard');
     const [profileInitialTab, setProfileInitialTab] = useState<string>('overview');
     const [alerts, setAlerts] = useState<Alert[]>([]);
+    const [clinicalAlerts, setClinicalAlerts] = useState<any[]>([]);
+    const [hardwareAlerts, setHardwareAlerts] = useState<any[]>([]);
     const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
     const [activeNavItem, setActiveNavItem] = useState(initialTab);
     const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -299,6 +303,49 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             toast.error("Could not load patient data");
         }
     }, [token]);
+
+    const fetchAlerts = React.useCallback(async () => {
+        if (!token) return;
+        try {
+            const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+            const [clinRes, sysRes] = await Promise.all([
+                axios.get(`${apiBase}/api/alerts/clinical`, { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get(`${apiBase}/api/alerts/system`, { headers: { Authorization: `Bearer ${token}` } })
+            ]);
+            if (clinRes.data?.data) {
+                setClinicalAlerts(clinRes.data.data);
+                const mappedAlerts: Alert[] = clinRes.data.data.map((a: any) => ({
+                    id: a.alert_id?.toString(),
+                    patientId: a.patient_id?.toString(),
+                    patientName: a.patient_name,
+                    timestamp: a.sent_at,
+                    type: a.anomaly_type || 'clinical_alert',
+                    message: a.message,
+                    severity: a.severity?.toLowerCase() || 'warning',
+                    acknowledged: a.status === 'Acknowledged' || (a.flag_count || 0) >= 5,
+                    flag_count: a.flag_count,
+                    status: a.status
+                }));
+                setAlerts(mappedAlerts);
+            }
+            if (sysRes.data?.data) {
+                setHardwareAlerts(sysRes.data.data);
+            }
+        } catch (err) {
+            console.error("Failed to fetch alerts in dashboard:", err);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        fetchAlerts();
+        const poll = setInterval(fetchAlerts, 15000);
+        const handleSync = () => fetchAlerts();
+        window.addEventListener('alaga_alert_update', handleSync);
+        return () => {
+            clearInterval(poll);
+            window.removeEventListener('alaga_alert_update', handleSync);
+        };
+    }, [fetchAlerts]);
 
     const [pendingInvites, setPendingInvites] = useState<any[]>([]);
 
@@ -883,6 +930,60 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     const renderDashboard = () => (
         <div className="space-y-4">
             {!isSysAdminUser && renderPendingInvitesBanner()}
+
+            {/* Alert Notifications in Dashboard Banner */}
+            {clinicalAlerts.filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5).length > 0 && (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-50 via-red-50/60 to-white border border-rose-200/90 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 rounded-xl bg-red-600 text-white shadow-xs shrink-0">
+                                <BellRing className="w-4 h-4 animate-bounce" />
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                    Active Alert Notifications
+                                    <span className="text-[10px] font-black bg-red-100 text-red-800 px-2 py-0.5 rounded-full border border-red-200">
+                                        {clinicalAlerts.filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5).length} Urgent
+                                    </span>
+                                </h4>
+                                <p className="text-xs text-slate-600">Immediate caregiver attention required for patient telemetry anomalies.</p>
+                            </div>
+                        </div>
+                        <Button 
+                            onClick={() => navigate('/alerts')}
+                            className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3.5 py-1.5 h-8 rounded-xl shadow-xs alaga-btn-tactile shrink-0"
+                        >
+                            View in Alerts Module
+                        </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+                        {clinicalAlerts
+                            .filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5)
+                            .slice(0, 3)
+                            .map(alert => (
+                                <div 
+                                    key={alert.alert_id}
+                                    onClick={() => navigate(`/alerts?search=${encodeURIComponent(alert.patient_name || '')}`)}
+                                    className="p-3 rounded-xl bg-white border border-rose-200 hover:border-red-400 cursor-pointer transition shadow-2xs hover:shadow-xs flex flex-col justify-between"
+                                >
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                        <span className="font-bold text-xs text-slate-900 truncate">{alert.patient_name}</span>
+                                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-red-50 text-red-700 border-red-200 font-bold uppercase">
+                                            {alert.severity || 'Critical'}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-xs text-slate-700 line-clamp-2 leading-relaxed mb-2 font-medium">{alert.message}</p>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-600 border-t border-slate-100 pt-1.5">
+                                        <span>{new Date(alert.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        <span className="text-red-700 font-bold hover:underline">Review Alert →</span>
+                                    </div>
+                                </div>
+                            ))}
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                 {[
                     { label: 'Critical', value: metrics.critical, color: 'text-rose-700', icon: AlertCircle, bg: 'bg-rose-50 border border-rose-200 text-rose-600', dot: 'bg-rose-500' },
@@ -932,13 +1033,31 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             {!isSysAdminUser && (
                 <div>
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-                        <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                            <Users className="w-4 h-4 text-teal-600" />
-                            Patients
-                            <span className="text-xs font-normal text-slate-400">
-                                ({filteredPatients.length} total)
-                            </span>
-                        </h3>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Users className="w-4 h-4 text-teal-600" />
+                                Patients
+                                <span className="text-xs font-normal text-slate-400">
+                                    ({filteredPatients.length} total)
+                                </span>
+                            </h3>
+
+                            {/* Alert button in dashboard patient counts */}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigate('/alerts')}
+                                className={`h-7 px-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 transition ${
+                                    clinicalAlerts.filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5).length > 0
+                                        ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100 shadow-2xs animate-pulse'
+                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                                title="Go to alerts module"
+                            >
+                                <Bell className={`w-3.5 h-3.5 ${clinicalAlerts.filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5).length > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
+                                <span>{clinicalAlerts.filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5).length} Active Alerts</span>
+                            </Button>
+                        </div>
 
                         {/* Patient Search with Autosuggestion */}
                         <div className="relative w-full md:w-64" ref={patientSearchRef}>
@@ -1023,8 +1142,18 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                             .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                             .map(patient => {
                                 const latestVital: any = vitalSigns.find(v => v.patientId === patient.id) || (patient as any).latest_telemetry;
+                                
+                                // Check active unacknowledged/unflagged alerts for this patient
+                                const patientUnackAlerts = clinicalAlerts.filter(a => 
+                                    (a.patient_id?.toString() === patient.id?.toString() || a.patient_name === patient.name) &&
+                                    a.status !== 'Acknowledged' &&
+                                    (a.flag_count || 0) < 5 &&
+                                    !a.is_suppressed
+                                );
+                                const hasUnackAlerts = patientUnackAlerts.length > 0;
+
                                 const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
-                                const isCritical = activeAlerts.some(a => a.severity === 'critical');
+                                const isCritical = activeAlerts.some(a => a.severity === 'critical') || patientUnackAlerts.some(a => a.severity?.toLowerCase() === 'critical');
                                 const isUnassigned = !patient.deviceConnected;
 
                                 const pulseVal = latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;
@@ -1050,7 +1179,9 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                     <Card
                                         key={patient.id}
                                         className={`alaga-card alaga-card-interactive rounded-2xl overflow-hidden cursor-pointer group transition-all ${
-                                            isCardCritical
+                                            hasUnackAlerts
+                                                ? 'bg-rose-50/80 border-2 border-red-500 shadow-md shadow-rose-200/50 ring-2 ring-red-400/40'
+                                                : isCardCritical
                                                 ? 'border-rose-300 bg-rose-50/50 ring-1 ring-rose-200'
                                                 : 'border-teal-100/90 hover:border-teal-300'
                                         }`}
@@ -1075,14 +1206,22 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         </div>
                                                     )}
                                                 </div>
-                                                <Badge variant="outline" className={`text-[10px] h-5 px-2 font-bold uppercase tracking-wider ${
-                                                    hasSafetyBreach ? 'text-rose-900 border-rose-300 bg-rose-100/90 animate-pulse' :
-                                                    isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
-                                                    isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
-                                                        'text-emerald-900 border-emerald-200 bg-emerald-50'
-                                                    }`}>
-                                                    {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
-                                                </Badge>
+                                                <div className="flex flex-col items-end gap-1">
+                                                    {hasUnackAlerts && (
+                                                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-bold uppercase tracking-wider text-red-800 border-red-300 bg-red-100 animate-pulse flex items-center gap-1">
+                                                            <AlertTriangle className="w-3 h-3 text-red-600" />
+                                                            {patientUnackAlerts.length} Alert{patientUnackAlerts.length > 1 ? 's' : ''}
+                                                        </Badge>
+                                                    )}
+                                                    <Badge variant="outline" className={`text-[10px] h-5 px-2 font-bold uppercase tracking-wider ${
+                                                        hasSafetyBreach ? 'text-rose-900 border-rose-300 bg-rose-100/90 animate-pulse' :
+                                                        isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
+                                                        isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
+                                                            'text-emerald-900 border-emerald-200 bg-emerald-50'
+                                                        }`}>
+                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
+                                                    </Badge>
+                                                </div>
                                             </div>
                                         </CardHeader>
 
@@ -1131,7 +1270,20 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                 </div>
                                             </div>
 
-                                            {activeAlerts.length > 0 && (
+                                            {/* Patient Card Alert Button leading to alerts module */}
+                                            {hasUnackAlerts ? (
+                                                <Button
+                                                    size="sm"
+                                                    className="w-full h-7 text-xs bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg alaga-btn-tactile shadow-xs flex items-center justify-center gap-1.5"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigate(`/alerts?search=${encodeURIComponent(patient.name)}`);
+                                                    }}
+                                                >
+                                                    <Bell className="w-3.5 h-3.5 animate-bounce" />
+                                                    Clinical Alerts ({patientUnackAlerts.length})
+                                                </Button>
+                                            ) : activeAlerts.length > 0 ? (
                                                 <Button
                                                     size="sm"
                                                     className="w-full h-7 text-xs bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-lg alaga-btn-tactile shadow-xs flex items-center justify-center gap-1.5"
@@ -1139,7 +1291,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                 >
                                                     <Check className="w-3.5 h-3.5" /> Acknowledge Alert
                                                 </Button>
-                                            )}
+                                            ) : null}
                                         </CardContent>
                                     </Card>
                                 );

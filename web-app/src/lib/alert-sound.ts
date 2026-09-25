@@ -26,6 +26,13 @@ function getAudioContext(): AudioContext | null {
   }
 }
 
+export function unlockAudioContext(): void {
+  const ctx = getAudioContext();
+  if (ctx && ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+}
+
 export function getAlertPreferences(): AlertPreferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

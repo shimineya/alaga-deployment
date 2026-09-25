@@ -97,6 +97,17 @@ class MainActivity : FlutterFragmentActivity() {
                         ScheduleReminders.playAlertSound(this)
                         result.success(true)
                     }
+                    "cancelNotification" -> {
+                        val id = call.argument<Int>("id") ?: -1
+                        if (id > 0) {
+                            ScheduleReminders.cancelAlert(this, id)
+                        }
+                        result.success(true)
+                    }
+                    "cancelAllNotifications" -> {
+                        ScheduleReminders.cancelAllAlerts(this)
+                        result.success(true)
+                    }
                     "areNotificationsEnabled" -> {
                         result.success(ScheduleReminders.allowed(this))
                     }

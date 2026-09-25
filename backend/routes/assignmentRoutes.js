@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, enforceBreakGlassForSysAdmin } = require('../middleware/authMiddleware');
+const { broadcastAlert } = require('../services/alertRealtimeService');
 
 // Apply Security Middleware
 router.use(verifyToken);
@@ -293,6 +294,7 @@ router.post('/respond-invite', async (req, res) => {
         }
 
         await client.query('COMMIT');
+        broadcastAlert('assignment_update', { action, patient_id, userId: req.user.id });
         const message = action === 'accept'
             ? 'You have accepted the assignment. The patient is now in your care list.'
             : 'You have declined the assignment invitation.';

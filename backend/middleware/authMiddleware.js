@@ -9,7 +9,7 @@ const activityCache = new Map();
 // [OWASP A01] Verify Token & Extract User
 // [Kill Switch] Also checks the session_revocations table to support instant access revocation
 const verifyToken = async (req, res, next) => {
-    const token = req.header('Authorization');
+    const token = req.header('Authorization') || (req.query?.token ? `Bearer ${req.query.token}` : null);
 
     if (!token) {
         return res.status(401).json({ success: false, message: 'Access Denied: No Token Provided' });

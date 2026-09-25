@@ -1501,12 +1501,43 @@ app.post('/api/device/data', async (req, res) => {
             [device_id, batteryVal, signalVal, clientIp]
         ).catch(err => console.error("Heartbeat update error:", err.message));
 
+        // Real-time SSE Broadcast: device turned online or refreshed telemetry
+        broadcastAlert('device_status_update', {
+            serial_number: device_id,
+            status: 'ACTIVE',
+            patient_id: patientId,
+            battery_level: batteryVal,
+            signal_strength: signalVal,
+            is_offline_buffer: !!req.body.is_offline_buffer,
+            event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
+            latest_telemetry: {
+                heart_rate: hr,
+                temperature: temp,
+                spo2: sp,
+                moisture: moist,
+                recorded_at: recordedAt
+            },
+            timestamp: new Date().toISOString()
+        });
+
+        broadcastAlert('patient_telemetry_update', {
+            patient_id: patientId,
+            device_status: 'ACTIVE',
+            heart_rate: hr,
+            temperature: temp,
+            spo2: sp,
+            moisture: moist,
+            recorded_at: recordedAt,
+            is_offline_buffer: !!req.body.is_offline_buffer
+        });
+
         res.status(200).json({
             success: true,
-            message: "Data recorded successfully.",
+            message: req.body.is_offline_buffer ? "Retained offline data ingested successfully." : "Data recorded successfully.",
             reading_id: readingId,
             recorded_at: recordedAt,
-            patient_id: patientId
+            patient_id: patientId,
+            is_offline_buffer: !!req.body.is_offline_buffer
         });
     } catch (err) {
         console.error(err);

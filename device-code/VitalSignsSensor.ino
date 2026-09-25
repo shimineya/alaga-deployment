@@ -244,10 +244,160 @@ void readMoisture() {
 }
 
 // ==============================================================================
+// OFFLINE DATA HANDLING SUB-MODULE (Store-and-Forward Architecture)
+// Retains latest available clinical readings when internet is lost and flushes
+// immediately when connection is restored.
+// ==============================================================================
+struct OfflineReading {
+  float heart_rate;
+  float spo2;
+  float temperature;
+  int   moisture;
+  int   battery;
+  bool  finger_detected;
+  unsigned long timestamp_ms;
+  unsigned long seq;
+  bool  isValid;
+};
+
+OfflineReading latestOfflineData = {0, 0, 0, 0, 100, false, 0, 0, false};
+bool hasPendingOfflineData = false;
+unsigned long offlineStartTime = 0;
+bool isCurrentlyOffline = false;
+
+void bufferCurrentReading() {
+  latestOfflineData.heart_rate = beatAvg;
+  latestOfflineData.spo2 = currentSpO2;
+  latestOfflineData.temperature = temperatureC;
+  latestOfflineData.moisture = moisturePercent;
+  latestOfflineData.battery = batteryPercent;
+  latestOfflineData.finger_detected = fingerDetected;
+  latestOfflineData.timestamp_ms = millis();
+  latestOfflineData.seq = packetSequence++;
+  latestOfflineData.isValid = true;
+  hasPendingOfflineData = true;
+  if (!isCurrentlyOffline) {
+    isCurrentlyOffline = true;
+    offlineStartTime = millis();
+    Serial.println("\n📡 [OFFLINE SUB-MODULE] Internet connection unavailable! Retaining latest clinical snapshot.");
+  }
+}
+
+bool flushOfflineBuffer() {
+  if (!hasPendingOfflineData || !latestOfflineData.isValid) return true;
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  Serial.println("🔄 [OFFLINE SUB-MODULE] Internet connection restored! Flushing retained offline data to backend...");
+
+  HTTPClient http;
+  WiFiClientSecure client;
+
+  if (server_url.startsWith("https://")) {
+    client.setInsecure();
+    http.begin(client, server_url);
+  } else {
+    http.begin(server_url);
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Serial", device_id);
+  http.addHeader("X-Device-Token", device_token);
+  http.addHeader("Authorization", "Bearer " + device_token);
+  http.setTimeout(8000);
+
+  int rssi = WiFi.RSSI();
+  String signalStr = (rssi >= -65) ? "Excellent" : (rssi >= -75) ? "Good" : (rssi >= -85) ? "Fair" : "Poor";
+
+  String payload = "{";
+  payload += "\"device_id\":\"" + device_id + "\",";
+  payload += "\"device_token\":\"" + device_token + "\",";
+  payload += "\"device_type\":\"all_in_one\",";
+  payload += "\"is_offline_buffer\":true,";
+  payload += "\"offline_duration_ms\":" + String(millis() - offlineStartTime) + ",";
+  payload += "\"finger_detected\":" + String(latestOfflineData.finger_detected ? "true" : "false") + ",";
+  payload += "\"heart_rate\":" + String(latestOfflineData.heart_rate, 1) + ",";
+  payload += "\"spo2\":" + String(latestOfflineData.spo2, 1) + ",";
+  payload += "\"temperature\":" + String(latestOfflineData.temperature, 1) + ",";
+  payload += "\"moisture\":" + String(latestOfflineData.moisture) + ",";
+  payload += "\"battery\":" + String(latestOfflineData.battery) + ",";
+  payload += "\"signal\":\"" + signalStr + "\",";
+  payload += "\"seq\":" + String(latestOfflineData.seq) + ",";
+  payload += "\"uptime_ms\":" + String(latestOfflineData.timestamp_ms);
+  payload += "}";
+
+  int httpCode = http.POST(payload);
+  http.end();
+
+  if (httpCode == 200) {
+    Serial.println("✅ [OFFLINE SUB-MODULE] Retained clinical data successfully delivered to backend (HTTP 200).");
+    hasPendingOfflineData = false;
+    latestOfflineData.isValid = false;
+    isCurrentlyOffline = false;
+    return true;
+  } else {
+    Serial.println("⚠️ [OFFLINE SUB-MODULE] Backend flush attempt returned code " + String(httpCode) + ". Keeping buffer.");
+    return false;
+  }
+}
+
+// ==============================================================================
+// IMMEDIATE REAL-TIME POWER-ON HANDSHAKE
+// Emits real-time online signal as soon as device is turned on and connected.
+// ==============================================================================
+void sendImmediateOnlineHandshake() {
+  if (WiFi.status() != WL_CONNECTED || isAPMode) return;
+  Serial.println("\n⚡ [REAL-TIME ONLINE] Device turned on / connected! Broadcasting instant online signal...");
+
+  HTTPClient http;
+  WiFiClientSecure client;
+
+  if (server_url.startsWith("https://")) {
+    client.setInsecure();
+    http.begin(client, server_url);
+  } else {
+    http.begin(server_url);
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Serial", device_id);
+  http.addHeader("X-Device-Token", device_token);
+  http.addHeader("Authorization", "Bearer " + device_token);
+  http.setTimeout(5000);
+
+  readBattery();
+  readTemperature();
+  readMoisture();
+
+  String payload = "{";
+  payload += "\"device_id\":\"" + device_id + "\",";
+  payload += "\"device_token\":\"" + device_token + "\",";
+  payload += "\"device_type\":\"all_in_one\",";
+  payload += "\"event\":\"device_online\",";
+  payload += "\"status\":\"ACTIVE\",";
+  payload += "\"heart_rate\":" + String(beatAvg > 0 ? beatAvg : 0.0, 1) + ",";
+  payload += "\"spo2\":" + String(currentSpO2 > 0 ? currentSpO2 : 0.0, 1) + ",";
+  payload += "\"temperature\":" + String(temperatureC, 1) + ",";
+  payload += "\"moisture\":" + String(moisturePercent) + ",";
+  payload += "\"battery\":" + String(batteryPercent) + ",";
+  payload += "\"signal\":\"" + String(WiFi.RSSI()) + " dBm\",";
+  payload += "\"uptime_ms\":" + String(millis());
+  payload += "}";
+
+  int code = http.POST(payload);
+  Serial.println("⚡ [REAL-TIME ONLINE] Online handshake acknowledged by system (Code " + String(code) + ").");
+  http.end();
+}
+
+// ==============================================================================
 // 2. BACKEND DATA TRANSMISSION WITH EMBEDDED SECURITY
 // ==============================================================================
 void sendToBackend() {
   if (WiFi.status() == WL_CONNECTED && !isAPMode) {
+    // If pending offline data exists, flush it first
+    if (hasPendingOfflineData) {
+      flushOfflineBuffer();
+    }
+
     HTTPClient http;
     WiFiClientSecure client;
 
@@ -295,6 +445,10 @@ void sendToBackend() {
 
     if (httpCode == 200) {
       isDevicePaired = true;
+      isCurrentlyOffline = false;
+    } else if (httpCode <= 0) {
+      // Internet / server unreachable: buffer latest reading
+      bufferCurrentReading();
     } else if (httpCode == 422) {
       isDevicePaired = false;
       Serial.println("⚠️ [ALAGA ALERT] Device " + device_id + " is unpaired (No active patient assigned).");
@@ -313,10 +467,12 @@ void sendToBackend() {
 
     http.end();
   } else {
+    // Wi-Fi or connection lost: retain latest available clinical reading
+    bufferCurrentReading();
     if (isAPMode) {
       Serial.println("ℹ️ [STATUS] In Secure Setup Mode (AP: " + String(DEFAULT_AP_SSID) + "). Configure at http://192.168.4.1/setup");
     } else {
-      Serial.println("⚠️ [STATUS] Wi-Fi lost. Attempting reconnection...");
+      Serial.println("⚠️ [STATUS] Wi-Fi lost. Retaining data and attempting reconnection...");
       WiFi.reconnect();
     }
   }
@@ -811,6 +967,12 @@ bool connectToWiFi() {
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\n✅ [WIFI] Connected! Assigned IP: " + WiFi.localIP().toString());
+    // Immediately emit real-time online handshake signal to the system
+    sendImmediateOnlineHandshake();
+    // Flush retained offline clinical data if internet was previously disconnected
+    if (hasPendingOfflineData) {
+      flushOfflineBuffer();
+    }
     needInitialSend = true;
     return true;
   } else {

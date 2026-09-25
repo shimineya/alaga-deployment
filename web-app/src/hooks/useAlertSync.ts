@@ -254,7 +254,9 @@ export function useAlertSync() {
         'alert_sound_mute',
         'system_alert_resolved',
         'schedule_completed',
-        'new_announcement'
+        'new_announcement',
+        'device_status_update',
+        'patient_telemetry_update'
       ];
 
       specificEvents.forEach(evt => {

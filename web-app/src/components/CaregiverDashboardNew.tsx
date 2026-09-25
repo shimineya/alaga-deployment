@@ -339,13 +339,16 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     useEffect(() => {
         fetchAlerts();
         const poll = setInterval(fetchAlerts, 15000);
-        const handleSync = () => fetchAlerts();
+        const handleSync = () => {
+            fetchAlerts();
+            fetchPatients();
+        };
         window.addEventListener('alaga_alert_update', handleSync);
         return () => {
             clearInterval(poll);
             window.removeEventListener('alaga_alert_update', handleSync);
         };
-    }, [fetchAlerts]);
+    }, [fetchAlerts, fetchPatients]);
 
     const [pendingInvites, setPendingInvites] = useState<any[]>([]);
 

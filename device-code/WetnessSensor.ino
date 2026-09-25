@@ -234,8 +234,145 @@ void readSensors() {
 // ==============================================================================
 // BACKEND DATA DISPATCH (JSON POST)
 // ==============================================================================
+// OFFLINE DATA HANDLING SUB-MODULE (Store-and-Forward Architecture)
+// Retains latest moisture/wetness readings when internet connection is lost
+// and flushes immediately when connection is restored.
+// ==============================================================================
+struct OfflineWetnessReading {
+  int   wetness;
+  int   battery;
+  unsigned long timestamp_ms;
+  unsigned long seq;
+  bool  isValid;
+};
+
+OfflineWetnessReading latestOfflineWetness = {0, 100, 0, 0, false};
+bool hasPendingOfflineWetness = false;
+unsigned long offlineWetnessStartTime = 0;
+bool isCurrentlyOfflineWetness = false;
+
+void bufferCurrentWetness() {
+  latestOfflineWetness.wetness = wetnessPercent;
+  latestOfflineWetness.battery = batteryPercent;
+  latestOfflineWetness.timestamp_ms = millis();
+  latestOfflineWetness.seq = packetSequence++;
+  latestOfflineWetness.isValid = true;
+  hasPendingOfflineWetness = true;
+  if (!isCurrentlyOfflineWetness) {
+    isCurrentlyOfflineWetness = true;
+    offlineWetnessStartTime = millis();
+    Serial.println("\n📡 [OFFLINE SUB-MODULE] Internet unavailable! Retaining latest diaper moisture snapshot (" + String(wetnessPercent) + "%).");
+  }
+}
+
+bool flushOfflineWetnessBuffer() {
+  if (!hasPendingOfflineWetness || !latestOfflineWetness.isValid) return true;
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  Serial.println("🔄 [OFFLINE SUB-MODULE] Internet restored! Flushing retained moisture reading to backend...");
+
+  HTTPClient http;
+  WiFiClientSecure client;
+
+  if (server_url.startsWith("https://")) {
+    client.setInsecure();
+    http.begin(client, server_url);
+  } else {
+    http.begin(server_url);
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Serial", device_id);
+  http.addHeader("X-Device-Token", device_token);
+  http.addHeader("Authorization", "Bearer " + device_token);
+  http.setTimeout(8000);
+
+  int rssi = WiFi.RSSI();
+  String signalStr = (rssi >= -65) ? "Excellent" : (rssi >= -75) ? "Good" : (rssi >= -85) ? "Fair" : "Poor";
+
+  String payload = "{"
+    "\"device_id\":\"" + device_id + "\","
+    "\"device_token\":\"" + device_token + "\","
+    "\"device_type\":\"moisture\","
+    "\"has_moisture_sensor\":true,"
+    "\"is_offline_buffer\":true,"
+    "\"offline_duration_ms\":" + String(millis() - offlineWetnessStartTime) + ","
+    "\"moisture\":" + String(latestOfflineWetness.wetness) + ","
+    "\"battery\":" + String(latestOfflineWetness.battery) + ","
+    "\"signal\":\"" + signalStr + "\","
+    "\"seq\":" + String(latestOfflineWetness.seq) + ","
+    "\"uptime_ms\":" + String(latestOfflineWetness.timestamp_ms) +
+  "}";
+
+  int httpCode = http.POST(payload);
+  http.end();
+
+  if (httpCode == 200) {
+    Serial.println("✅ [OFFLINE SUB-MODULE] Retained moisture data delivered to system successfully (HTTP 200).");
+    hasPendingOfflineWetness = false;
+    latestOfflineWetness.isValid = false;
+    isCurrentlyOfflineWetness = false;
+    return true;
+  } else {
+    Serial.println("⚠️ [OFFLINE SUB-MODULE] Backend flush attempt returned code " + String(httpCode) + ". Keeping buffer.");
+    return false;
+  }
+}
+
+// ==============================================================================
+// IMMEDIATE REAL-TIME POWER-ON HANDSHAKE
+// Emits real-time online signal as soon as device is turned on and connected.
+// ==============================================================================
+void sendImmediateOnlineHandshake() {
+  if (WiFi.status() != WL_CONNECTED || isAPMode) return;
+  Serial.println("\n⚡ [REAL-TIME ONLINE] Moisture Sensor turned on / connected! Broadcasting instant online signal...");
+
+  HTTPClient http;
+  WiFiClientSecure client;
+
+  if (server_url.startsWith("https://")) {
+    client.setInsecure();
+    http.begin(client, server_url);
+  } else {
+    http.begin(server_url);
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Serial", device_id);
+  http.addHeader("X-Device-Token", device_token);
+  http.addHeader("Authorization", "Bearer " + device_token);
+  http.setTimeout(5000);
+
+  readBattery();
+  readWetness();
+
+  String payload = "{"
+    "\"device_id\":\"" + device_id + "\","
+    "\"device_token\":\"" + device_token + "\","
+    "\"device_type\":\"moisture\","
+    "\"event\":\"device_online\","
+    "\"status\":\"ACTIVE\","
+    "\"has_moisture_sensor\":true,"
+    "\"moisture\":" + String(wetnessPercent) + ","
+    "\"battery\":" + String(batteryPercent) + ","
+    "\"signal\":\"" + String(WiFi.RSSI()) + " dBm\","
+    "\"uptime_ms\":" + String(millis()) +
+  "}";
+
+  int code = http.POST(payload);
+  Serial.println("⚡ [REAL-TIME ONLINE] Moisture sensor handshake acknowledged (Code " + String(code) + ").");
+  http.end();
+}
+
+// ==============================================================================
+// AUTOMATIC BACKEND DATA TRANSMISSION
+// ==============================================================================
 void sendToBackend() {
   if (WiFi.status() == WL_CONNECTED && !isAPMode) {
+    if (hasPendingOfflineWetness) {
+      flushOfflineWetnessBuffer();
+    }
+
     HTTPClient http;
     WiFiClientSecure client;
 
@@ -279,6 +416,9 @@ void sendToBackend() {
 
     if (httpCode == 200) {
       isDevicePaired = true;
+      isCurrentlyOfflineWetness = false;
+    } else if (httpCode <= 0) {
+      bufferCurrentWetness();
     } else if (httpCode == 422) {
       isDevicePaired = false;
       Serial.println("⚠️ [UNPAIRED] Device is not assigned to any active patient in the database!");
@@ -297,10 +437,11 @@ void sendToBackend() {
 
     http.end();
   } else {
+    bufferCurrentWetness();
     if (isAPMode) {
       Serial.println("ℹ️ [STATUS] In Setup Mode (AP: " + String(DEFAULT_AP_SSID) + "). Click to configure: http://192.168.4.1/setup");
     } else {
-      Serial.println("⚠️ [STATUS] Wi-Fi not connected (Status: " + String(WiFi.status()) + "). Reconnecting...");
+      Serial.println("⚠️ [STATUS] Wi-Fi lost. Retaining data and attempting reconnection...");
       WiFi.reconnect();
     }
   }
@@ -981,6 +1122,12 @@ bool connectToWiFi() {
     Serial.println(WiFi.localIP());
     Serial.println("==================================================");
     isAPMode = false;
+    // Immediately emit real-time online handshake signal to the system
+    sendImmediateOnlineHandshake();
+    // Flush retained offline moisture data if internet was previously disconnected
+    if (hasPendingOfflineWetness) {
+      flushOfflineWetnessBuffer();
+    }
     return true;
   }
 

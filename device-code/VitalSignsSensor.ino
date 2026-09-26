@@ -1070,8 +1070,8 @@ bool connectToWiFi() {
     needInitialSend = true;
     return true;
   } else {
-    Serial.println("\n⚠️ [WIFI] Connection failed. Fallback to Setup AP Mode.");
-    startAccessPointMode();
+    Serial.println("\n⚠️ [WIFI] Connection not established yet. Will constantly retry reconnecting to " + wifi_ssid + "...");
+    isAPMode = false;
     return false;
   }
 }
@@ -1297,7 +1297,7 @@ void loop() {
   // 6. Wi-Fi Auto-Reconnect Keepalive
   static unsigned long lastReconnectAttempt = 0;
   if (!isAPMode && wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 5000) {
+    if (millis() - lastReconnectAttempt > 3000) {
       lastReconnectAttempt = millis();
       Serial.println("⚠️ [WIFI] Reconnecting to " + wifi_ssid + "...");
       WiFi.reconnect();

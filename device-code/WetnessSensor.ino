@@ -1249,6 +1249,8 @@ bool connectToWiFi() {
 
   Serial.print("[WIFI] Failed to connect. Status Code: ");
   Serial.println(WiFi.status());
+  Serial.println("⚠️ [WIFI] Will constantly retry reconnecting to " + wifi_ssid + " in background...");
+  isAPMode = false;
   return false;
 }
 
@@ -1382,7 +1384,7 @@ void loop() {
   // 3b. Persistent Wi-Fi Keepalive: Never disconnect unless unpowered
   static unsigned long lastReconnectAttempt = 0;
   if (!isAPMode && wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 5000) {
+    if (millis() - lastReconnectAttempt > 3000) {
       lastReconnectAttempt = millis();
       Serial.println("⚠️ [WIFI] Connection lost. Auto-reconnecting to " + wifi_ssid + "...");
       WiFi.disconnect();

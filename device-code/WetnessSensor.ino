@@ -1274,6 +1274,9 @@ void setup() {
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
+  if (!device_id.startsWith("SD-")) {
+    device_id = DEFAULT_DEVICE_ID;
+  }
   device_token  = preferences.getString("token", DEFAULT_DEVICE_TOKEN);
   admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);
   ap_password   = preferences.getString("appass", DEFAULT_AP_PASS);

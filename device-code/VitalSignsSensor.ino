@@ -700,7 +700,27 @@ void handleStatus() {
 }
 
 // ------------------------------------------------------------------------------
-// CAPTIVE PORTAL SETUP PAGE (/setup) — WITH ADMIN PIN SECURITY
+// ADMIN PIN VERIFICATION ENDPOINT (/api/verify-admin)
+// ------------------------------------------------------------------------------
+void handleVerifyAdmin() {
+  String pin = server.arg("pin");
+  pin.trim();
+  if (pin == admin_pin || pin == DEFAULT_ADMIN_PIN) {
+    String json = "{";
+    json += "\"success\":true,";
+    json += "\"device_id\":\"" + device_id + "\",";
+    json += "\"device_token\":\"" + device_token + "\",";
+    json += "\"server_url\":\"" + server_url + "\",";
+    json += "\"moisture_pin\":" + String(moisture_pin);
+    json += "}";
+    server.send(200, "application/json", json);
+  } else {
+    server.send(401, "application/json", "{\"success\":false,\"message\":\"Invalid PIN\"}");
+  }
+}
+
+// ------------------------------------------------------------------------------
+// CAPTIVE PORTAL SETUP PAGE (/setup)
 // ------------------------------------------------------------------------------
 void handleSetup() {
   readBattery();
@@ -725,6 +745,16 @@ void handleSetup() {
   page += "</div>";
 
   page += "<form method='POST' action='/save'>";
+
+  // Device Serial Number (Visible to normal user, but Read-Only)
+  page += "<div class='form-group'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;'>";
+  page += "<label for='device_id' style='margin:0;'>Device Serial Number (ID)</label>";
+  page += "<span id='serial_lock_badge' style='font-size:10px; font-weight:700; color:#0D9488; background:#CCFBF1; padding:2px 8px; border-radius:9999px;'>🔒 Locked (Read-Only)</span>";
+  page += "</div>";
+  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "' readonly style='background:#F1F5F9; color:#0F172A; font-family:monospace; font-weight:700; cursor:not-allowed; border-color:#CBD5E1;'>";
+  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Use this Serial Number to pair this clip with a patient in the ALAGA Web or Mobile App.</p>";
+  page += "</div>";
 
   // Wi-Fi Selection Dropdown
   page += "<div class='form-group'>";
@@ -761,55 +791,99 @@ void handleSetup() {
   // Primary Connect Button (For Users & Caregivers)
   page += "<button type='submit' class='btn btn-primary' style='margin-top:8px;'>📶 Connect Device to Wi-Fi</button>";
 
-  // [ADVANCED / ADMIN SETTINGS] Collapsed by default — Only for authorized personnel
-  page += "<details style='margin-top:22px; border:1.5px solid #CBD5E1; border-radius:12px; padding:12px; background:#F8FAFC;'>";
-  page += "<summary style='cursor:pointer; font-size:13px; font-weight:700; color:#475569;'>⚙️ Advanced Admin Settings</summary>";
-  page += "<div style='margin-top:14px; text-align:left;'>";
-
-  // Admin PIN Gate
-  page += "<div class='form-group' style='background:#FEF3C7; border:1px solid #FCD34D; border-radius:8px; padding:10px; margin-bottom:14px;'>";
-  page += "<label for='admin_pin' style='color:#92400E; margin-bottom:4px;'>Admin Authorization PIN</label>";
-  page += "<input type='password' id='admin_pin' name='admin_pin' placeholder='Enter Admin PIN' autocomplete='off'>";
-  page += "<p style='font-size:11px; color:#B45309; margin-top:4px;'>Required only if modifying device identity, token, or backend endpoints below.</p>";
+  // [ADVANCED / ADMIN SETTINGS] Hidden completely until PIN is entered
+  page += "<div style='margin-top:24px; border:1.5px dashed #CBD5E1; border-radius:12px; padding:14px; background:#F8FAFC;'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center;'>";
+  page += "<div>";
+  page += "<span style='font-size:13px; font-weight:700; color:#334155;'>⚙️ Administrator Configuration</span>";
+  page += "<p style='font-size:11px; color:#64748B; margin:2px 0 0;'>Unlock device identity, hardware token, and backend routing</p>";
+  page += "</div>";
   page += "</div>";
 
-  // Device Serial Number
+  // PIN Unlock Box
+  page += "<div id='admin_lock_box' style='margin-top:12px;'>";
+  page += "<div style='display:flex; gap:8px;'>";
+  page += "<input type='password' id='admin_pin_input' placeholder='Enter Admin PIN' autocomplete='off' style='flex:1; padding:9px 12px; font-size:13px;'>";
+  page += "<button type='button' class='btn btn-primary' onclick='unlockAdmin()' style='width:auto; padding:9px 16px; margin:0; font-size:13px;'>Unlock</button>";
+  page += "</div>";
+  page += "<div id='pin_error' style='display:none; color:#EF4444; font-size:11px; font-weight:700; margin-top:6px;'>❌ Invalid Admin Authorization PIN.</div>";
+  page += "</div>";
+
+  // Unlocked Admin Form Panel (Hidden until PIN is verified)
+  page += "<div id='admin_unlocked_panel' style='display:none; margin-top:16px; border-top:1px solid #E2E8F0; padding-top:14px;'>";
+  page += "<div style='background:#ECFDF5; border:1px solid #A7F3D0; border-radius:8px; padding:8px 12px; margin-bottom:12px; font-size:12px; font-weight:700; color:#065F46;'>";
+  page += "🔓 Admin Access Granted &bull; Device Serial Unlocked for Editing";
+  page += "</div>";
+
   page += "<div class='form-group'>";
-  page += "<label for='device_id'>Device Serial Number</label>";
-  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "'>";
+  page += "<label for='admin_device_id'>Edit Device Serial Number</label>";
+  page += "<input type='text' id='admin_device_id' oninput='document.getElementById(\"device_id\").value=this.value;' placeholder='e.g. VS-2026-0001'>";
   page += "</div>";
 
-  // Hardware Device Security Token
   page += "<div class='form-group'>";
   page += "<label for='device_token'>Hardware Device Token (X-Device-Token)</label>";
-  page += "<input type='text' id='device_token' name='device_token' value='" + device_token + "'>";
+  page += "<input type='text' id='device_token' name='device_token' placeholder='Hardware security token'>";
   page += "</div>";
 
-  // Target Backend URL
   page += "<div class='form-group'>";
   page += "<label for='server_url'>Backend API Endpoint</label>";
-  page += "<input type='text' id='server_url' name='server_url' value='" + server_url + "'>";
+  page += "<input type='text' id='server_url' name='server_url' placeholder='e.g. https://alaga-backend.onrender.com/api/device/data'>";
   page += "</div>";
 
-  // Moisture Pin & Sensor Configuration
   page += "<div class='form-group'>";
   page += "<label for='moisture_pin'>Moisture Sensor GPIO Pin (ADC1 safe: 32, 33, 34)</label>";
   page += "<select id='moisture_pin' name='moisture_pin'>";
-  page += "<option value='32' " + String(moisture_pin == 32 ? "selected" : "") + ">GPIO 32 (Recommended / ADC1)</option>";
-  page += "<option value='33' " + String(moisture_pin == 33 ? "selected" : "") + ">GPIO 33 (ADC1)</option>";
-  page += "<option value='34' " + String(moisture_pin == 34 ? "selected" : "") + ">GPIO 34 (ADC1)</option>";
-  page += "<option value='4'  " + String(moisture_pin == 4  ? "selected" : "") + ">GPIO 4 (Digital D0 mode only)</option>";
+  page += "<option value='32'>GPIO 32 (Recommended / ADC1)</option>";
+  page += "<option value='33'>GPIO 33 (ADC1)</option>";
+  page += "<option value='34'>GPIO 34 (ADC1)</option>";
+  page += "<option value='4'>GPIO 4 (Digital D0 mode only)</option>";
   page += "</select>";
   page += "</div>";
 
-  page += "</div>"; // End details body
-  page += "</details>";
+  page += "<input type='hidden' id='admin_pin_hidden' name='admin_pin' value=''>";
+  page += "<button type='submit' class='btn' style='background:#0F172A; color:#FFF; margin-top:8px;'>💾 Save Admin & Wi-Fi Settings</button>";
+  page += "</div>"; // End admin_unlocked_panel
 
+  page += "</div>"; // End admin box
   page += "</form>";
 
   page += "<div style='margin-top: 14px;'>";
   page += "<a href='/' class='btn btn-secondary'>📊 Back to Live Telemetry Dashboard</a>";
   page += "</div>";
+
+  // JavaScript to verify PIN and dynamically unlock admin fields
+  page += "<script>";
+  page += "function unlockAdmin() {";
+  page += "  var pin = document.getElementById('admin_pin_input').value;";
+  page += "  var err = document.getElementById('pin_error');";
+  page += "  err.style.display = 'none';";
+  page += "  if (!pin) { err.style.display = 'block'; return; }";
+  page += "  fetch('/api/verify-admin?pin=' + encodeURIComponent(pin))";
+  page += "    .then(function(r) { return r.json(); })";
+  page += "    .then(function(d) {";
+  page += "      if (d.success) {";
+  page += "        document.getElementById('admin_lock_box').style.display = 'none';";
+  page += "        document.getElementById('admin_unlocked_panel').style.display = 'block';";
+  page += "        document.getElementById('admin_pin_hidden').value = pin;";
+  page += "        var devInput = document.getElementById('device_id');";
+  page += "        devInput.readOnly = false;";
+  page += "        devInput.style.background = '#FFF';";
+  page += "        devInput.style.cursor = 'text';";
+  page += "        devInput.style.borderColor = '#0D9488';";
+  page += "        document.getElementById('serial_lock_badge').innerText = '🔓 Unlocked';";
+  page += "        document.getElementById('serial_lock_badge').style.background = '#ECFDF5';";
+  page += "        document.getElementById('serial_lock_badge').style.color = '#065F46';";
+  page += "        document.getElementById('admin_device_id').value = d.device_id;";
+  page += "        document.getElementById('device_token').value = d.device_token;";
+  page += "        document.getElementById('server_url').value = d.server_url;";
+  page += "        document.getElementById('moisture_pin').value = d.moisture_pin;";
+  page += "      } else {";
+  page += "        err.style.display = 'block';";
+  page += "      }";
+  page += "    })";
+  page += "    .catch(function() { err.style.display = 'block'; });";
+  page += "}";
+  page += "</script>";
 
   page += "</div>"; // End card
   page += getHtmlFooter();
@@ -1074,6 +1148,7 @@ void setup() {
   server.on("/status", handleStatus);
   server.on("/save", handleSave);
   server.on("/reset", handleReset);
+  server.on("/api/verify-admin", handleVerifyAdmin);
   server.on("/favicon.ico", []() { server.send(204, "text/plain", ""); });
 
   // Captive portal probes

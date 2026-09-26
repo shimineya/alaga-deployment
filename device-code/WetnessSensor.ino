@@ -705,6 +705,32 @@ void handleStatus() {
 }
 
 // ------------------------------------------------------------------------------
+// ADMIN AUTHENTICATION & CONFIG ENDPOINT (/api/verify-admin)
+// ------------------------------------------------------------------------------
+void handleVerifyAdmin() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (!server.hasArg("pin")) {
+    server.send(400, "application/json", "{\"success\":false,\"message\":\"Missing PIN\"}");
+    return;
+  }
+  String enteredPin = server.arg("pin");
+  enteredPin.trim();
+
+  if (enteredPin == admin_pin || enteredPin == DEFAULT_ADMIN_PIN) {
+    String json = "{";
+    json += "\"success\":true,";
+    json += "\"device_id\":\"" + device_id + "\",";
+    json += "\"server_url\":\"" + server_url + "\",";
+    json += "\"sensor_type\":" + String(sensor_type) + ",";
+    json += "\"water_pin\":" + String(water_pin);
+    json += "}";
+    server.send(200, "application/json", json);
+  } else {
+    server.send(401, "application/json", "{\"success\":false,\"message\":\"Unauthorized\"}");
+  }
+}
+
+// ------------------------------------------------------------------------------
 // ROOT URL ROUTER
 // ------------------------------------------------------------------------------
 void handleRoot() {
@@ -733,13 +759,13 @@ void handleSetup() {
   }
   int n = cachedScanCount;
 
-  String page = getHtmlHeader("Wi-Fi Setup Portal");
+  String page = getHtmlHeader("ALAGA Moisture Sensor Setup");
   page += "<div class='card'>";
   
   page += "<div class='header'>";
-  page += "<div class='logo-badge'>📶 PROVISIONING PORTAL</div>";
-  page += "<h1 class='title'>Device Setup</h1>";
-  page += "<p class='subtitle'>Configure wireless connectivity & target backend</p>";
+  page += "<div class='logo-badge'>📶 WI-FI PROVISIONING</div>";
+  page += "<h1 class='title'>Connect to Wi-Fi</h1>";
+  page += "<p class='subtitle'>Select your local network to connect your ALAGA device</p>";
   page += "</div>";
 
   // Battery preview in portal
@@ -750,6 +776,16 @@ void handleSetup() {
   page += "</div>";
 
   page += "<form method='POST' action='/save'>";
+
+  // Device Serial Number (Visible to normal user, but Read-Only)
+  page += "<div class='form-group'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;'>";
+  page += "<label for='device_id' style='margin:0;'>Device Serial Number (ID)</label>";
+  page += "<span id='serial_lock_badge' style='font-size:10px; font-weight:700; color:#0D9488; background:#CCFBF1; padding:2px 8px; border-radius:9999px;'>🔒 Locked (Read-Only)</span>";
+  page += "</div>";
+  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "' readonly style='background:#F1F5F9; color:#0F172A; font-family:monospace; font-weight:700; cursor:not-allowed; border-color:#CBD5E1;'>";
+  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Use this Serial Number to pair this sensor with a patient in the ALAGA Web or Mobile App.</p>";
+  page += "</div>";
   
   // Wi-Fi SSID Dropdown with Detected Networks
   page += "<div class='form-group'>";
@@ -790,61 +826,71 @@ void handleSetup() {
   page += "</div>";
   page += "</div>";
 
-  // Submit Button
+  // Primary Connect Button (For Users & Caregivers)
   page += "<button type='submit' class='btn btn-primary' style='margin-top:8px;'>📶 Connect Device to Wi-Fi</button>";
 
-  // [ADVANCED / ADMIN SETTINGS] Collapsed by default — Only for authorized personnel
-  page += "<details style='margin-top:22px; border:1.5px solid #CBD5E1; border-radius:12px; padding:12px; background:#F8FAFC;'>";
-  page += "<summary style='cursor:pointer; font-size:13px; font-weight:700; color:#475569;'>⚙️ Advanced Admin Settings</summary>";
-  page += "<div style='margin-top:14px; text-align:left;'>";
-
-  // Admin PIN Gate
-  page += "<div class='form-group' style='background:#FEF3C7; border:1px solid #FCD34D; border-radius:8px; padding:10px; margin-bottom:14px;'>";
-  page += "<label for='admin_pin' style='color:#92400E; margin-bottom:4px;'>Admin Authorization PIN</label>";
-  page += "<input type='password' id='admin_pin' name='admin_pin' placeholder='Enter Admin PIN' autocomplete='off'>";
-  page += "<p style='font-size:11px; color:#B45309; margin-top:4px;'>Required only if modifying device identity, sensor type, or backend endpoints below.</p>";
+  // [ADVANCED / ADMIN SETTINGS] Hidden completely until PIN is entered
+  page += "<div style='margin-top:24px; border:1.5px dashed #CBD5E1; border-radius:12px; padding:14px; background:#F8FAFC;'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center;'>";
+  page += "<div>";
+  page += "<span style='font-size:13px; font-weight:700; color:#334155;'>⚙️ Administrator Configuration</span>";
+  page += "<p style='font-size:11px; color:#64748B; margin:2px 0 0;'>Unlock device identity, hardware token, and backend routing</p>";
+  page += "</div>";
   page += "</div>";
 
-  // Backend Endpoint URL
+  // PIN Unlock Box
+  page += "<div id='admin_lock_box' style='margin-top:12px;'>";
+  page += "<div style='display:flex; gap:8px;'>";
+  page += "<input type='password' id='admin_pin_input' placeholder='Enter Admin PIN' autocomplete='off' style='flex:1; padding:9px 12px; font-size:13px;'>";
+  page += "<button type='button' class='btn btn-primary' onclick='unlockAdmin()' style='width:auto; padding:9px 16px; margin:0; font-size:13px;'>Unlock</button>";
+  page += "</div>";
+  page += "<div id='pin_error' style='display:none; color:#EF4444; font-size:11px; font-weight:700; margin-top:6px;'>❌ Invalid Admin Authorization PIN.</div>";
+  page += "</div>";
+
+  // Unlocked Admin Form Panel (Hidden until PIN is verified)
+  page += "<div id='admin_unlocked_panel' style='display:none; margin-top:16px; border-top:1px solid #E2E8F0; padding-top:14px;'>";
+  page += "<div style='background:#ECFDF5; border:1px solid #A7F3D0; border-radius:8px; padding:8px 12px; margin-bottom:12px; font-size:12px; font-weight:700; color:#065F46;'>";
+  page += "🔓 Admin Access Granted &bull; Device Serial Unlocked for Editing";
+  page += "</div>";
+
+  page += "<div class='form-group'>";
+  page += "<label for='admin_device_id'>Edit Device Serial Number</label>";
+  page += "<input type='text' id='admin_device_id' oninput='document.getElementById(\"device_id\").value=this.value;' placeholder='e.g. SD-2026-0001'>";
+  page += "</div>";
+
   page += "<div class='form-group'>";
   page += "<label for='server_url'>Backend Ingestion URL</label>";
-  page += "<input type='text' id='server_url' name='server_url' value='" + server_url + "'>";
+  page += "<input type='text' id='server_url' name='server_url' placeholder='Backend API URL'>";
   page += "</div>";
 
-  // Device Serial ID
-  page += "<div class='form-group'>";
-  page += "<label for='device_id'>Device Identity (Serial)</label>";
-  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "'>";
-  page += "</div>";
-
-  // Moisture Sensor Hardware Type
   page += "<div class='form-group'>";
   page += "<label for='sensor_type'>Moisture Sensor Hardware Type</label>";
   page += "<select id='sensor_type' name='sensor_type'>";
-  page += "<option value='0' " + String(sensor_type == 0 ? "selected" : "") + ">Standard LM393 / FC-28 / Rain Sensor (Active LOW D0 / Inverted A0) [Default]</option>";
-  page += "<option value='1' " + String(sensor_type == 1 ? "selected" : "") + ">Non-Inverted Analog Sensor (Voltage Rises When Wet)</option>";
-  page += "<option value='2' " + String(sensor_type == 2 ? "selected" : "") + ">Digital 2-Wire Conductive Diaper Probe (Active HIGH / Pulldown)</option>";
+  page += "<option value='0'>Standard LM393 / FC-28 / Rain Sensor (Active LOW D0 / Inverted A0) [Default]</option>";
+  page += "<option value='1'>Non-Inverted Analog Sensor (Voltage Rises When Wet)</option>";
+  page += "<option value='2'>Digital 2-Wire Conductive Diaper Probe (Active HIGH / Pulldown)</option>";
   page += "</select>";
   page += "</div>";
 
-  // Moisture Sensor GPIO Pin
   page += "<div class='form-group'>";
   page += "<label for='sensor_pin'>Moisture Sensor GPIO Pin</label>";
   page += "<select id='sensor_pin' name='sensor_pin'>";
-  page += "<option value='4' " + String(water_pin == 4 ? "selected" : "") + ">GPIO 4 (Standard / Default Wiring)</option>";
-  page += "<option value='34' " + String(water_pin == 34 ? "selected" : "") + ">GPIO 34 (Recommended for smooth 0-100% analog curve on ESP32)</option>";
-  page += "<option value='32' " + String(water_pin == 32 ? "selected" : "") + ">GPIO 32 (Alternate ADC1 Pin)</option>";
+  page += "<option value='4'>GPIO 4 (Standard / Default Wiring)</option>";
+  page += "<option value='34'>GPIO 34 (Recommended for smooth 0-100% analog curve on ESP32)</option>";
+  page += "<option value='32'>GPIO 32 (Alternate ADC1 Pin)</option>";
   page += "</select>";
-  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Tip: On ESP32, GPIO 34 is ADC1 (WiFi-safe analog). GPIO 4 is ADC2, ideal for digital comparator signals.</p>";
+  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Tip: On ESP32, GPIO 34/32 are ADC1 (WiFi-safe analog). GPIO 4 is ADC2, ideal for digital comparator signals.</p>";
   page += "</div>";
 
-  page += "</div>"; // End details body
-  page += "</details>";
+  page += "<input type='hidden' id='admin_pin_hidden' name='admin_pin' value=''>";
+  page += "<button type='submit' class='btn' style='background:#0F172A; color:#FFF; margin-top:8px;'>💾 Save Admin & Wi-Fi Settings</button>";
+  page += "</div>"; // End admin_unlocked_panel
 
+  page += "</div>"; // End admin box
   page += "</form>";
 
   // Always provide a reliable button to view live sensor dashboard
-  page += "<div style='margin-top: 10px;'>";
+  page += "<div style='margin-top: 14px;'>";
   if (!isAPMode) {
     page += "<a href='/' class='btn btn-secondary'>← Back to Live Dashboard</a>";
   } else {
@@ -867,7 +913,38 @@ void handleSetup() {
     page += "</div>";
   }
 
+  // JavaScript to verify PIN and dynamically unlock admin fields
   page += "<script>";
+  page += "function unlockAdmin() {";
+  page += "  var pin = document.getElementById('admin_pin_input').value;";
+  page += "  var err = document.getElementById('pin_error');";
+  page += "  err.style.display = 'none';";
+  page += "  if (!pin) { err.style.display = 'block'; return; }";
+  page += "  fetch('/api/verify-admin?pin=' + encodeURIComponent(pin))";
+  page += "    .then(function(r) { return r.json(); })";
+  page += "    .then(function(d) {";
+  page += "      if (d.success) {";
+  page += "        document.getElementById('admin_lock_box').style.display = 'none';";
+  page += "        document.getElementById('admin_unlocked_panel').style.display = 'block';";
+  page += "        document.getElementById('admin_pin_hidden').value = pin;";
+  page += "        var devInput = document.getElementById('device_id');";
+  page += "        devInput.readOnly = false;";
+  page += "        devInput.style.background = '#FFF';";
+  page += "        devInput.style.cursor = 'text';";
+  page += "        devInput.style.borderColor = '#0D9488';";
+  page += "        document.getElementById('serial_lock_badge').innerText = '🔓 Unlocked';";
+  page += "        document.getElementById('serial_lock_badge').style.background = '#ECFDF5';";
+  page += "        document.getElementById('serial_lock_badge').style.color = '#065F46';";
+  page += "        document.getElementById('admin_device_id').value = d.device_id;";
+  page += "        document.getElementById('server_url').value = d.server_url;";
+  page += "        document.getElementById('sensor_type').value = d.sensor_type;";
+  page += "        document.getElementById('sensor_pin').value = d.water_pin;";
+  page += "      } else {";
+  page += "        err.style.display = 'block';";
+  page += "      }";
+  page += "    })";
+  page += "    .catch(function() { err.style.display = 'block'; });";
+  page += "}";
   page += "function checkCustomSSID(selectObj) {";
   page += "  var customInput = document.getElementById('custom_ssid');";
   page += "  if (selectObj.value === '__custom__') {";
@@ -1253,6 +1330,7 @@ void setup() {
   server.on("/dashboard", handleDashboard);
   server.on("/setup", handleSetup);
   server.on("/status", handleStatus);
+  server.on("/api/verify-admin", handleVerifyAdmin);
   server.on("/save", handleSave);
   server.on("/reset", handleReset);
   server.on("/favicon.ico", []() { server.send(204, "text/plain", ""); });

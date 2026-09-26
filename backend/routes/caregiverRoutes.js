@@ -22,8 +22,8 @@ router.get('/devices', async (req, res) => {
     try {
         let result;
 
-        if (isSysAdmin || role === 'medical_staff') {
-            // Full inventory for admin / sysadmin / medical staff
+        if (isSysAdmin) {
+            // Full inventory for system admin / sysadmin ONLY
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
                         d.pending_firmware_version, d.battery_level, d.signal_strength,
@@ -50,6 +50,7 @@ router.get('/devices', async (req, res) => {
                       OR d.added_by IN (
                           SELECT user_id FROM users WHERE created_by = $1
                       )
+                      OR (p.facility_id IS NOT NULL AND p.facility_id = $2)
                       OR d.assigned_patient_id IN (
                           SELECT patient_id FROM patient_access WHERE invited_by = $1
                       )
@@ -60,7 +61,30 @@ router.get('/devices', async (req, res) => {
                       )
                   )
                  ORDER BY d.serial_number, d.created_at DESC`,
-                [userId]
+                [userId, req.user.facility_id]
+            );
+        } else if (role === 'medical_staff') {
+            // Scoped inventory for medical staff:
+            // Only see devices assigned to patients they are explicitly assigned to (patient_access),
+            // OR patients in their hospital facility, OR devices they added.
+            // NEVER leak private parent/guardian patients!
+            result = await pool.query(
+                `SELECT DISTINCT ON (d.serial_number) 
+                        d.serial_number, d.device_name, d.status, d.last_heartbeat,
+                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.assigned_patient_id, d.added_by, d.created_at,
+                        p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
+                 FROM device_whitelist d
+                 LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
+                 LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id AND pa.user_id = $1 AND pa.is_archived IS DISTINCT FROM TRUE
+                 WHERE d.is_archived IS DISTINCT FROM TRUE
+                   AND (
+                      d.added_by = $1
+                      OR pa.user_id = $1
+                      OR ($2::int IS NOT NULL AND p.facility_id = $2)
+                  )
+                 ORDER BY d.serial_number, d.created_at DESC`,
+                [userId, req.user.facility_id]
             );
         } else {
             // Caregiver / Parent / Guardian scope:
@@ -455,7 +479,7 @@ router.post('/devices/update-all-active', async (req, res) => {
         if (deviceType === 'diaper') typeFilter = "AND serial_number LIKE 'SD-%'";
         else if (deviceType === 'vital') typeFilter = "AND serial_number LIKE 'VS-%'";
 
-        if (isSysAdmin || role === 'medical_staff') {
+        if (isSysAdmin) {
             if (targetVersion) {
                 updateQuery = `
                     UPDATE device_whitelist
@@ -586,7 +610,7 @@ router.post('/firmware/download-action', async (req, res) => {
         else if (type === 'vital') typeFilter = "AND serial_number LIKE 'VS-%'";
 
         let activeQuery, offlineQuery, queryParams;
-        if (isSysAdmin || role === 'medical_staff') {
+        if (isSysAdmin) {
             activeQuery = `
                 UPDATE device_whitelist
                 SET firmware_version = $1, pending_firmware_version = NULL

@@ -403,8 +403,8 @@ export default function WardStaffManagement() {
                             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search staff by name or email..." className="h-8 text-sm border-0 border-b border-slate-200 rounded-none focus-visible:ring-0 px-0" />
                         </div>
                     </CardHeader>
-                    <CardContent className="p-0">
-                        <table className="w-full text-xs">
+                    <CardContent className="p-0 overflow-x-auto no-scrollbar touch-scroll w-full">
+                        <table className="w-full text-xs min-w-[560px]">
                             <thead>
                                 <tr className="border-b border-slate-100 text-xs text-slate-500">
                                     <th className="text-left px-4 py-2 font-medium">Staff Member</th>
@@ -470,8 +470,8 @@ export default function WardStaffManagement() {
                             <Mail className="w-3.5 h-3.5 mr-1" /> New Invite
                         </Button>
                     </CardHeader>
-                    <CardContent className="p-0">
-                        <table className="w-full text-xs">
+                    <CardContent className="p-0 overflow-x-auto no-scrollbar touch-scroll w-full">
+                        <table className="w-full text-xs min-w-[560px]">
                             <thead>
                                 <tr className="border-b border-slate-100 text-xs text-slate-500 bg-slate-50/50">
                                     <th className="text-left px-4 py-2.5 font-medium">Invitee Email</th>

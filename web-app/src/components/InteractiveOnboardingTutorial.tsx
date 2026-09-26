@@ -62,14 +62,23 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
     const [simulatedBaselineTrained, setSimulatedBaselineTrained] = useState(false);
     const [simulatedBatteryLevel, setSimulatedBatteryLevel] = useState<number>(85);
 
-    // Determine normalized role
+    const [overrideRole, setOverrideRole] = useState<TutorialRole | null>(null);
+
+    // Determine normalized role (strictly prevent facility_admin from ever being system_admin)
     const rawRole = (user?.role || '').toLowerCase();
     const roleCategory: TutorialRole = useMemo(() => {
-        if (isSysAdmin || rawRole === 'system_admin' || rawRole === 'admin' || rawRole === 'sysadmin') return 'system_admin';
+        if (overrideRole) {
+            if (rawRole === 'facility_admin' && overrideRole === 'system_admin') {
+                return 'facility_admin';
+            }
+            return overrideRole;
+        }
         if (rawRole === 'facility_admin') return 'facility_admin';
         if (rawRole === 'medical_staff' || rawRole === 'medstaff') return 'medical_staff';
+        if (rawRole === 'caregiver' || rawRole === 'parent') return 'caregiver';
+        if (isSysAdmin || rawRole === 'system_admin' || rawRole === 'admin' || rawRole === 'sysadmin') return 'system_admin';
         return 'caregiver'; // Default to caregiver/family
-    }, [rawRole, isSysAdmin]);
+    }, [rawRole, isSysAdmin, overrideRole]);
 
     const storageKey = user?.id ? `alaga_tutorial_seen_${user.id}` : null;
 
@@ -89,13 +98,19 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
 
     // Listen for manual trigger from UserManualButton
     useEffect(() => {
-        const handleStartTutorial = () => {
+        const handleStartTutorial = (event: Event) => {
+            const customEvent = event as CustomEvent<{ role?: TutorialRole }>;
+            let requestedRole = customEvent.detail?.role || null;
+            if (rawRole === 'facility_admin' && requestedRole === 'system_admin') {
+                requestedRole = 'facility_admin';
+            }
+            setOverrideRole(requestedRole);
             setCurrentStepIndex(0);
             setIsOpen(true);
         };
         window.addEventListener('alaga:start-tutorial', handleStartTutorial);
         return () => window.removeEventListener('alaga:start-tutorial', handleStartTutorial);
-    }, []);
+    }, [rawRole]);
 
     // Dismiss & Skip (never show automatically again)
     const handleSkip = () => {

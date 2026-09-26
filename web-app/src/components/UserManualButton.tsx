@@ -64,18 +64,23 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
     // Determine default role perspective
     const rawRole = (user?.role || '').toLowerCase();
     const userRoleCategory: RoleCategory = useMemo(() => {
-        if (isSysAdmin || rawRole === 'system_admin' || rawRole === 'admin' || rawRole === 'sysadmin') return 'system_admin';
         if (rawRole === 'facility_admin') return 'facility_admin';
         if (rawRole === 'medical_staff' || rawRole === 'medstaff') return 'medical_staff';
+        if (rawRole === 'caregiver' || rawRole === 'parent') return 'caregiver';
+        if (isSysAdmin || rawRole === 'system_admin' || rawRole === 'admin' || rawRole === 'sysadmin') return 'system_admin';
         return 'caregiver'; // Default to caregiver/parent
     }, [rawRole, isSysAdmin]);
 
     const [selectedRoleView, setSelectedRoleView] = useState<RoleCategory>(userRoleCategory);
 
-    // Keep selected role view synced when user changes
+    // Keep selected role view synced when user changes, preventing facility admin from ever defaulting to system_admin
     React.useEffect(() => {
-        setSelectedRoleView(userRoleCategory);
-    }, [userRoleCategory]);
+        if (rawRole === 'facility_admin') {
+            setSelectedRoleView(prev => (prev === 'system_admin' ? 'facility_admin' : prev || 'facility_admin'));
+        } else {
+            setSelectedRoleView(userRoleCategory);
+        }
+    }, [userRoleCategory, rawRole]);
 
     // Role-specific manual content
     const manualContent = useMemo(() => {
@@ -376,7 +381,30 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
         });
     }, [manualContent, activeTab, searchQuery]);
 
-    const canSwitchRoles = isSysAdmin || rawRole === 'facility_admin' || rawRole === 'system_admin' || rawRole === 'admin';
+    // Restrict visible roles based on user authorization:
+    // Facility admins can NEVER view or run the system admin manual / tutorial.
+    const availableRoles = useMemo(() => {
+        if (rawRole === 'facility_admin') {
+            return [
+                { id: 'facility_admin' as RoleCategory, label: 'Facility Admin' },
+                { id: 'medical_staff' as RoleCategory, label: 'Medical Staff / Doctor' },
+                { id: 'caregiver' as RoleCategory, label: 'Caregiver / Parent' },
+            ];
+        }
+        if (isSysAdmin || rawRole === 'system_admin' || rawRole === 'sysadmin' || rawRole === 'admin') {
+            return [
+                { id: 'system_admin' as RoleCategory, label: 'System Admin' },
+                { id: 'facility_admin' as RoleCategory, label: 'Facility Admin' },
+                { id: 'medical_staff' as RoleCategory, label: 'Medical Staff / Doctor' },
+                { id: 'caregiver' as RoleCategory, label: 'Caregiver / Parent' },
+            ];
+        }
+        return [
+            { id: userRoleCategory, label: manualContent.roleLabel }
+        ];
+    }, [rawRole, isSysAdmin, userRoleCategory, manualContent.roleLabel]);
+
+    const canSwitchRoles = (isSysAdmin || rawRole === 'system_admin' || rawRole === 'facility_admin' || rawRole === 'admin') && availableRoles.length > 1;
 
     return (
         <>
@@ -424,10 +452,9 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                                             onChange={(e) => setSelectedRoleView(e.target.value as RoleCategory)}
                                             className="bg-white text-teal-950 text-xs font-bold rounded-md px-2 py-1 outline-none cursor-pointer"
                                         >
-                                            <option value="caregiver">Caregiver / Parent</option>
-                                            <option value="medical_staff">Medical Staff / Doctor</option>
-                                            <option value="facility_admin">Facility Admin</option>
-                                            <option value="system_admin">System Admin</option>
+                                            {availableRoles.map(r => (
+                                                <option key={r.id} value={r.id}>{r.label}</option>
+                                            ))}
                                         </select>
                                     </div>
                                 ) : (
@@ -515,7 +542,9 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                                 type="button"
                                 onClick={() => {
                                     setIsOpen(false);
-                                    window.dispatchEvent(new CustomEvent('alaga:start-tutorial'));
+                                    window.dispatchEvent(new CustomEvent('alaga:start-tutorial', {
+                                        detail: { role: rawRole === 'facility_admin' && selectedRoleView === 'system_admin' ? 'facility_admin' : selectedRoleView }
+                                    }));
                                 }}
                                 className="w-full sm:w-auto h-9 px-4 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-lg shrink-0 shadow-sm flex items-center justify-center gap-1.5 alaga-btn-tactile transition-all"
                             >

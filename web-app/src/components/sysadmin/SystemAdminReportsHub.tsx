@@ -413,9 +413,9 @@ export default function SystemAdminReportsHub() {
             </div>
 
             {/* Tabs for Central Ledger and 5 Observability Pillars */}
-            <Tabs defaultValue="ledger" value={activeTab} onValueChange={setActiveTab} className="w-full flex-1 flex flex-col">
-                <div className="border-b border-slate-200 mb-6 shrink-0">
-                    <TabsList className="bg-transparent h-12 p-0 flex gap-6 justify-start overflow-x-auto">
+            <Tabs defaultValue="ledger" value={activeTab} onValueChange={setActiveTab} className="w-full flex-1 flex flex-col min-w-0">
+                <div className="border-b border-slate-200 mb-6 shrink-0 w-full overflow-x-auto no-scrollbar touch-scroll">
+                    <TabsList className="bg-transparent h-12 p-0 flex gap-2 sm:gap-6 justify-start w-max">
                         <TabsTrigger
                             value="ledger"
                             className="data-[state=active]:bg-teal-50/90 data-[state=active]:text-teal-900 data-[state=active]:font-extrabold data-[state=active]:border-b-2 data-[state=active]:border-teal-600 rounded-t-lg h-11 px-3 text-sm font-semibold text-slate-500 flex items-center gap-2 transition-all hover:text-slate-800 hover:bg-slate-50/80 whitespace-nowrap"

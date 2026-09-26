@@ -37,6 +37,9 @@ flutter_launcher_icons:
   android: true
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/images/alagahead.png"
+  image_path: "assets/images/alaga_app_icon.png"
+  adaptive_icon_background: "#235855"
+  adaptive_icon_foreground: "assets/images/alaga_app_icon_foreground.png"
+
 
 

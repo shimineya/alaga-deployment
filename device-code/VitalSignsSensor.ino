@@ -715,23 +715,16 @@ void handleSetup() {
   }
   int n = cachedScanCount;
 
-  String page = getHtmlHeader("Device Security & Wi-Fi Setup");
+  String page = getHtmlHeader("ALAGA Device Wi-Fi Setup");
   page += "<div class='card'>";
   
   page += "<div class='header'>";
-  page += "<div class='logo-badge'>🔐 PROVISIONING PORTAL</div>";
-  page += "<h1 class='title'>Device Configuration</h1>";
-  page += "<p class='subtitle'>Configure Wireless & Hardware Security Credentials</p>";
+  page += "<div class='logo-badge'>📶 WI-FI PROVISIONING</div>";
+  page += "<h1 class='title'>Connect to Wi-Fi</h1>";
+  page += "<p class='subtitle'>Select your local network to connect your ALAGA device</p>";
   page += "</div>";
 
   page += "<form method='POST' action='/save'>";
-
-  // [SECURITY REQUIREMENT] Admin PIN Gate to modify hardware settings
-  page += "<div class='form-group' style='background:#FEF3C7; border:1px solid #FCD34D; border-radius:10px; padding:12px; margin-bottom:16px;'>";
-  page += "<label for='admin_pin' style='color:#92400E; margin-bottom:4px;'>🔑 Admin Authorization PIN (Required)</label>";
-  page += "<input type='password' id='admin_pin' name='admin_pin' placeholder='Enter PIN (Default: alaga2026)' required autocomplete='off'>";
-  page += "<p style='font-size:11px; color:#B45309; margin-top:4px;'>Protects against unauthorized device tampering or rogue reconfiguration.</p>";
-  page += "</div>";
 
   // Wi-Fi Selection Dropdown
   page += "<div class='form-group'>";
@@ -759,25 +752,43 @@ void handleSetup() {
   page += "<div class='form-group'>";
   page += "<label for='password'>Wi-Fi Password</label>";
   page += "<input type='password' id='password' name='password' placeholder='Enter Wi-Fi password (leave blank to keep current)'>";
+  page += "<div style='margin-top:6px; font-size:12px; display:flex; align-items:center; gap:6px;'>";
+  page += "<input type='checkbox' id='show_pass' style='width:auto;' onclick='var p=document.getElementById(\"password\"); p.type=this.checked?\"text\":\"password\";'>";
+  page += "<label for='show_pass' style='margin-bottom:0; cursor:pointer;'>Show Password</label>";
+  page += "</div>";
+  page += "</div>";
+
+  // Primary Connect Button (For Users & Caregivers)
+  page += "<button type='submit' class='btn btn-primary' style='margin-top:8px;'>📶 Connect Device to Wi-Fi</button>";
+
+  // [ADVANCED / ADMIN SETTINGS] Collapsed by default — Only for authorized personnel
+  page += "<details style='margin-top:22px; border:1.5px solid #CBD5E1; border-radius:12px; padding:12px; background:#F8FAFC;'>";
+  page += "<summary style='cursor:pointer; font-size:13px; font-weight:700; color:#475569;'>⚙️ Advanced Admin Settings</summary>";
+  page += "<div style='margin-top:14px; text-align:left;'>";
+
+  // Admin PIN Gate
+  page += "<div class='form-group' style='background:#FEF3C7; border:1px solid #FCD34D; border-radius:8px; padding:10px; margin-bottom:14px;'>";
+  page += "<label for='admin_pin' style='color:#92400E; margin-bottom:4px;'>Admin Authorization PIN</label>";
+  page += "<input type='password' id='admin_pin' name='admin_pin' placeholder='Enter Admin PIN' autocomplete='off'>";
+  page += "<p style='font-size:11px; color:#B45309; margin-top:4px;'>Required only if modifying device identity, token, or backend endpoints below.</p>";
   page += "</div>";
 
   // Device Serial Number
   page += "<div class='form-group'>";
-  page += "<label for='device_id'>Device Serial Number (Must match Database)</label>";
-  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "' required>";
+  page += "<label for='device_id'>Device Serial Number</label>";
+  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "'>";
   page += "</div>";
 
-  // [OWASP A07] Hardware Device Security Token
+  // Hardware Device Security Token
   page += "<div class='form-group'>";
   page += "<label for='device_token'>Hardware Device Token (X-Device-Token)</label>";
-  page += "<input type='text' id='device_token' name='device_token' value='" + device_token + "' placeholder='e.g. alaga-test-token' required>";
-  page += "<p style='font-size:11px; color:var(--text-muted); margin-top:4px;'>Must match SHA-256 hash in device_whitelist table.</p>";
+  page += "<input type='text' id='device_token' name='device_token' value='" + device_token + "'>";
   page += "</div>";
 
   // Target Backend URL
   page += "<div class='form-group'>";
   page += "<label for='server_url'>Backend API Endpoint</label>";
-  page += "<input type='text' id='server_url' name='server_url' value='" + server_url + "' required>";
+  page += "<input type='text' id='server_url' name='server_url' value='" + server_url + "'>";
   page += "</div>";
 
   // Moisture Pin & Sensor Configuration
@@ -791,7 +802,9 @@ void handleSetup() {
   page += "</select>";
   page += "</div>";
 
-  page += "<button type='submit' class='btn btn-primary' style='margin-top:14px;'>💾 Save & Connect Device</button>";
+  page += "</div>"; // End details body
+  page += "</details>";
+
   page += "</form>";
 
   page += "<div style='margin-top: 14px;'>";
@@ -805,26 +818,11 @@ void handleSetup() {
 }
 
 // ------------------------------------------------------------------------------
-// SETTINGS SAVE HANDLER — ENFORCES PIN SECURITY
+// SETTINGS SAVE HANDLER — ENFORCES PIN SECURITY ONLY FOR ADMIN SETTINGS
 // ------------------------------------------------------------------------------
 void handleSave() {
   String submittedPin = server.arg("admin_pin");
   submittedPin.trim();
-
-  // Verify Admin PIN to prevent unauthorized reconfiguration
-  if (submittedPin != admin_pin && submittedPin != DEFAULT_ADMIN_PIN) {
-    Serial.println("⛔ [SECURITY] Unauthorized attempt to save settings! Invalid Admin PIN.");
-    String page = getHtmlHeader("Access Denied");
-    page += "<div class='card' style='text-align:center;'>";
-    page += "<div style='font-size:42px; margin-bottom: 10px;'>⛔</div>";
-    page += "<h1 class='title'>Access Denied</h1>";
-    page += "<p class='subtitle' style='color:#EF4444; margin-top:8px;'>Invalid Admin Authorization PIN.</p>";
-    page += "<a href='/setup' class='btn btn-secondary' style='margin-top:20px;'>Try Again</a>";
-    page += "</div>";
-    page += getHtmlFooter();
-    server.send(401, "text/html", page);
-    return;
-  }
 
   String new_ssid     = server.arg("ssid");         new_ssid.trim();
   String new_pass     = server.arg("password");     new_pass.trim();
@@ -833,6 +831,37 @@ void handleSave() {
   String new_url      = server.arg("server_url");   new_url.trim();
   String new_mpin     = server.arg("moisture_pin"); new_mpin.trim();
 
+  // Determine if the user is trying to change protected admin configuration
+  bool isChangingAdminSettings = (new_dev_id.length() > 0 && new_dev_id != device_id)
+                              || (new_token.length() > 0 && new_token != device_token)
+                              || (new_url.length() > 0 && new_url != server_url)
+                              || (new_mpin.length() > 0 && new_mpin.toInt() != moisture_pin);
+
+  // If changing admin settings or if an admin PIN was submitted, verify it
+  if (isChangingAdminSettings || (submittedPin.length() > 0 && isChangingAdminSettings)) {
+    if (submittedPin != admin_pin && submittedPin != DEFAULT_ADMIN_PIN) {
+      Serial.println("⛔ [SECURITY] Unauthorized attempt to modify admin hardware settings! Invalid Admin PIN.");
+      String page = getHtmlHeader("Access Denied");
+      page += "<div class='card' style='text-align:center;'>";
+      page += "<div style='font-size:42px; margin-bottom: 10px;'>⛔</div>";
+      page += "<h1 class='title'>Access Denied</h1>";
+      page += "<p class='subtitle' style='color:#EF4444; margin-top:8px;'>Invalid Admin Authorization PIN.</p>";
+      page += "<p style='font-size:12px; color:var(--text-muted); margin-top:10px;'>Only authorized administrators may modify device identity, security tokens, or backend endpoints.</p>";
+      page += "<a href='/setup' class='btn btn-secondary' style='margin-top:20px;'>Try Again</a>";
+      page += "</div>";
+      page += getHtmlFooter();
+      server.send(401, "text/html", page);
+      return;
+    }
+
+    // Authorized admin changes
+    if (new_dev_id.length() > 0) device_id    = new_dev_id;
+    if (new_token.length() > 0)  device_token = new_token;
+    if (new_url.length() > 0)    server_url   = new_url;
+    if (new_mpin.length() > 0)   moisture_pin = new_mpin.toInt();
+  }
+
+  // Update Wi-Fi credentials
   if (new_ssid.length() > 0) {
     if (new_ssid == wifi_ssid && new_pass.length() == 0 && wifi_password.length() > 0) {
       // Keep saved password
@@ -841,10 +870,6 @@ void handleSave() {
     }
     wifi_ssid = new_ssid;
   }
-  if (new_dev_id.length() > 0) device_id    = new_dev_id;
-  if (new_token.length() > 0)  device_token = new_token;
-  if (new_url.length() > 0)    server_url   = new_url;
-  if (new_mpin.length() > 0)   moisture_pin = new_mpin.toInt();
 
   // Save to persistent Flash NVS
   preferences.begin("alaga-cfg", false);
@@ -856,7 +881,7 @@ void handleSave() {
   preferences.putInt("mpin",      moisture_pin);
   preferences.end();
 
-  Serial.println("✅ [NVS] New settings successfully saved to Non-Volatile Storage.");
+  Serial.println("✅ [NVS] Settings successfully saved to Non-Volatile Storage.");
 
   String page = getHtmlHeader("Configuration Saved");
   page += "<div class='card' style='text-align:center;'>";

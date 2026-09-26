@@ -790,16 +790,31 @@ void handleSetup() {
   page += "</div>";
   page += "</div>";
 
+  // Submit Button
+  page += "<button type='submit' class='btn btn-primary' style='margin-top:8px;'>📶 Connect Device to Wi-Fi</button>";
+
+  // [ADVANCED / ADMIN SETTINGS] Collapsed by default — Only for authorized personnel
+  page += "<details style='margin-top:22px; border:1.5px solid #CBD5E1; border-radius:12px; padding:12px; background:#F8FAFC;'>";
+  page += "<summary style='cursor:pointer; font-size:13px; font-weight:700; color:#475569;'>⚙️ Advanced Admin Settings</summary>";
+  page += "<div style='margin-top:14px; text-align:left;'>";
+
+  // Admin PIN Gate
+  page += "<div class='form-group' style='background:#FEF3C7; border:1px solid #FCD34D; border-radius:8px; padding:10px; margin-bottom:14px;'>";
+  page += "<label for='admin_pin' style='color:#92400E; margin-bottom:4px;'>Admin Authorization PIN</label>";
+  page += "<input type='password' id='admin_pin' name='admin_pin' placeholder='Enter Admin PIN' autocomplete='off'>";
+  page += "<p style='font-size:11px; color:#B45309; margin-top:4px;'>Required only if modifying device identity, sensor type, or backend endpoints below.</p>";
+  page += "</div>";
+
   // Backend Endpoint URL
   page += "<div class='form-group'>";
   page += "<label for='server_url'>Backend Ingestion URL</label>";
-  page += "<input type='text' id='server_url' name='server_url' value='" + server_url + "' required>";
+  page += "<input type='text' id='server_url' name='server_url' value='" + server_url + "'>";
   page += "</div>";
 
   // Device Serial ID
   page += "<div class='form-group'>";
   page += "<label for='device_id'>Device Identity (Serial)</label>";
-  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "' required>";
+  page += "<input type='text' id='device_id' name='device_id' value='" + device_id + "'>";
   page += "</div>";
 
   // Moisture Sensor Hardware Type
@@ -823,8 +838,9 @@ void handleSetup() {
   page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Tip: On ESP32, GPIO 34 is ADC1 (WiFi-safe analog). GPIO 4 is ADC2, ideal for digital comparator signals.</p>";
   page += "</div>";
 
-  // Submit Button
-  page += "<button type='submit' class='btn btn-primary'>Save Credentials & Connect</button>";
+  page += "</div>"; // End details body
+  page += "</details>";
+
   page += "</form>";
 
   // Always provide a reliable button to view live sensor dashboard
@@ -871,11 +887,15 @@ void handleSetup() {
 }
 
 // ------------------------------------------------------------------------------
-// SAVE SETTINGS HANDLER
+// SAVE SETTINGS HANDLER — PIN PROTECTED FOR ADMIN SETTINGS ONLY
 // ------------------------------------------------------------------------------
 void handleSave() {
   Serial.println("\n==================================================");
   Serial.println("[HTTP] Received Save Configuration Request (/save)");
+
+  String submittedPin = server.arg("admin_pin");
+  submittedPin.trim();
+
   String new_ssid = server.arg("ssid");
   if (new_ssid == "__custom__" || new_ssid == "") {
     new_ssid = server.arg("custom_ssid");
@@ -891,11 +911,43 @@ void handleSave() {
   String new_dev_id  = server.arg("device_id");
   new_dev_id.trim();
 
+  int new_sensor_type = sensor_type;
   if (server.hasArg("sensor_type")) {
-    sensor_type = server.arg("sensor_type").toInt();
+    new_sensor_type = server.arg("sensor_type").toInt();
   }
+
+  int new_water_pin = water_pin;
   if (server.hasArg("sensor_pin")) {
-    water_pin = server.arg("sensor_pin").toInt();
+    new_water_pin = server.arg("sensor_pin").toInt();
+  }
+
+  // Check if protected admin parameters are being modified
+  bool isChangingAdminSettings = (new_url.length() > 0 && new_url != server_url)
+                              || (new_dev_id.length() > 0 && new_dev_id != device_id)
+                              || (new_sensor_type != sensor_type)
+                              || (new_water_pin != water_pin);
+
+  if (isChangingAdminSettings || (submittedPin.length() > 0 && isChangingAdminSettings)) {
+    if (submittedPin != admin_pin && submittedPin != DEFAULT_ADMIN_PIN) {
+      Serial.println("⛔ [SECURITY] Unauthorized attempt to modify admin hardware settings! Invalid Admin PIN.");
+      String page = getHtmlHeader("Access Denied");
+      page += "<div class='card' style='text-align:center;'>";
+      page += "<div style='font-size:42px; margin-bottom: 10px;'>⛔</div>";
+      page += "<h1 class='title'>Access Denied</h1>";
+      page += "<p class='subtitle' style='color:#EF4444; margin-top:8px;'>Invalid Admin Authorization PIN.</p>";
+      page += "<p style='font-size:12px; color:var(--text-muted); margin-top:10px;'>Only authorized administrators may modify device identity, sensor pins, or backend endpoints.</p>";
+      page += "<a href='/setup' class='btn btn-secondary' style='margin-top:20px;'>Try Again</a>";
+      page += "</div>";
+      page += getHtmlFooter();
+      server.send(401, "text/html", page);
+      return;
+    }
+
+    // Authorized admin modifications
+    if (new_url.length() > 0)    server_url  = new_url;
+    if (new_dev_id.length() > 0) device_id   = new_dev_id;
+    sensor_type = new_sensor_type;
+    water_pin   = new_water_pin;
   }
 
   Serial.print("[HTTP] Received Target SSID: "); Serial.println(new_ssid);
@@ -919,12 +971,6 @@ void handleSave() {
       wifi_password = new_pass;
     }
     wifi_ssid = new_ssid;
-  }
-  if (new_url.length() > 0) {
-    server_url = new_url;
-  }
-  if (new_dev_id.length() > 0) {
-    device_id = new_dev_id;
   }
 
   // Persist to Flash NVS

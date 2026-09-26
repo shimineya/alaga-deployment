@@ -26,6 +26,7 @@ const { broadcastAlert } = require('../services/alertRealtimeService');
 // [CHANGE] Import AI service — uses PythonShell directly instead of HTTP axios
 // ---------------------------------------------------------------------------
 const { runPrediction, flagAsNormal } = require('../services/alagarAIService');
+const { evaluateClinicalRules, mergeRuleAndAiAlerts } = require('../services/ruleAnomalyEngine');
 const { recordHardwareAlert } = require('../services/hardwareDiagnosticsService');
 
 // ---------------------------------------------------------------------------
@@ -239,19 +240,57 @@ router.post('/reading', readingValidation, async (req, res) => {
         ).catch(() => ({ rows: [] }));
         const patientBaselines = baselinesRes.rows || [];
 
-        aiResult = await runPrediction({
-            patient_id  : patientId,
-            heart_rate  : heartRate,
-            temperature : temperature,
-            spo2        : spo2,
-            moisture    : moisture,
-            patient_type: patientType,
-            baselines   : patientBaselines
+        // Query recent telemetry history for this patient (last 5 readings) to detect temporal velocity/deltas
+        const recentHistoryRes = await pool.query(
+            `SELECT heart_rate, spo2, temperature, moisture, recorded_at
+             FROM sensor_readings
+             WHERE patient_id = $1 AND reading_id != $2
+             ORDER BY recorded_at DESC
+             LIMIT 5`,
+            [patientId, readingId]
+        ).catch(() => ({ rows: [] }));
+        const recentHistory = recentHistoryRes.rows || [];
+
+        // Step 5A: Evaluate Clinical Rule-Based Engine (runs directly in Node.js independent of Python)
+        // Catches rapid deltas, SIRS/Sepsis cross-vitals, cardiorespiratory collapse, and severe boundaries
+        const ruleAlerts = evaluateClinicalRules({
+            heartRate: heartRate,
+            temperature: temperature,
+            spo2: spo2,
+            moisture: moisture,
+            patientType: patientType,
+            baselines: patientBaselines,
+            recentHistory: recentHistory
         });
 
-    } catch (aiErr) {
-        // AI failure is non-fatal — reading is already stored
-        console.error('[SENSOR] AI service call failed:', aiErr.message);
+        // Step 5B: Run OC-SVM Machine Learning Model (Python service)
+        try {
+            aiResult = await runPrediction({
+                patient_id  : patientId,
+                heart_rate  : heartRate,
+                temperature : temperature,
+                spo2        : spo2,
+                moisture    : moisture,
+                patient_type: patientType,
+                baselines   : patientBaselines
+            });
+        } catch (aiErr) {
+            console.warn('[SENSOR] AI prediction service failed, relying on rule-based engine:', aiErr.message);
+            aiResult = {
+                status      : 'UNKNOWN',
+                alerts      : [],
+                ocsvm_result: 'unavailable',
+                ocsvm_label : null,
+                ocsvm_score : null
+            };
+        }
+
+        // Step 5C: Intelligently merge and deduplicate Rule-Based + AI alerts
+        const consolidatedAlerts = mergeRuleAndAiAlerts(ruleAlerts, aiResult?.alerts || []);
+        aiResult.alerts = consolidatedAlerts;
+
+    } catch (evalErr) {
+        console.error('[SENSOR] Anomaly pipeline error:', evalErr.message);
         aiResult = {
             status      : 'UNKNOWN',
             alerts      : [],
@@ -261,7 +300,7 @@ router.post('/reading', readingValidation, async (req, res) => {
         };
     }
 
-    // Step 6: If the AI detected alerts, write anomaly_events + alert_notifications (suppress if flagged normal 5+ times)
+    // Step 6: Process and persist all detected anomalies (both Rule-based and AI-detected)
     if (aiResult.alerts && aiResult.alerts.length > 0) {
         try {
             // Fetch latest baselines to ensure real-time suppression

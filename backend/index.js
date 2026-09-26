@@ -31,6 +31,7 @@ const transporter = nodemailer.createTransport({
 const { Resend } = require('resend');
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const { runPrediction } = require('./services/alagarAIService');
+const { evaluateClinicalRules, mergeRuleAndAiAlerts } = require('./services/ruleAnomalyEngine');
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -1551,30 +1552,61 @@ app.post('/api/device/data', async (req, res) => {
                 ).catch(() => ({ rows: [] }));
                 const patientBaselines = baselinesRes.rows || [];
 
+                // Query recent telemetry history for this patient
+                const recentHistoryRes = await pool.query(
+                    `SELECT heart_rate, spo2, temperature, moisture, recorded_at
+                     FROM sensor_readings
+                     WHERE patient_id = $1 AND reading_id != $2
+                     ORDER BY recorded_at DESC
+                     LIMIT 5`,
+                    [patientId, readingId]
+                ).catch(() => ({ rows: [] }));
+                const recentHistory = recentHistoryRes.rows || [];
+
+                // Evaluate high-reliability Clinical Rule Engine in Node.js
+                const ruleAlerts = evaluateClinicalRules({
+                    heartRate: hr,
+                    temperature: temp,
+                    spo2: sp,
+                    moisture: moist >= 35 ? 1 : 0,
+                    patientType: patientType,
+                    baselines: patientBaselines,
+                    recentHistory: recentHistory
+                });
+
                 // Run AI prediction when there are valid physiological vitals or moisture
+                let aiResult = { alerts: [], ocsvm_result: 'unavailable' };
                 if (hr > 30 || temp > 25 || sp > 50 || moist > 0) {
-                    const aiResult = await runPrediction({
-                        patient_id  : patientId,
-                        heart_rate  : hr,
-                        temperature : temp,
-                        spo2        : sp,
-                        moisture    : moist >= 35 ? 1 : 0, // 35%+ is moderate/heavy wetness
-                        patient_type: patientType,
-                        baselines   : patientBaselines
-                    });
+                    try {
+                        aiResult = await runPrediction({
+                            patient_id  : patientId,
+                            heart_rate  : hr,
+                            temperature : temp,
+                            spo2        : sp,
+                            moisture    : moist >= 35 ? 1 : 0,
+                            patient_type: patientType,
+                            baselines   : patientBaselines
+                        });
+                    } catch (aiErr) {
+                        console.warn('[INGEST] AI prediction failed, relying on clinical rule engine:', aiErr.message);
+                    }
+                }
 
-                    // If AI flags an anomaly, write to anomaly_events and alert_notifications
-                    if (aiResult && aiResult.alerts && aiResult.alerts.length > 0) {
-                        for (const alert of aiResult.alerts) {
-                            const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
-                            const anomalyType = alert.vital === 'multi_feature' ? 'ocsvm_anomaly' : `rule_${alert.vital}`;
+                // Consolidate both Rule-based and AI alerts
+                const consolidatedAlerts = mergeRuleAndAiAlerts(ruleAlerts, aiResult?.alerts || []);
 
-                            const eventResult = await pool.query(
-                                `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
-                                 VALUES ($1, $2, $3, $4) RETURNING event_id`,
-                                [patientId, readingId, anomalyType, ocsvmScore]
-                            );
-                            const eventId = eventResult.rows[0]?.event_id;
+                // If any anomaly detected, write to anomaly_events and alert_notifications
+                if (consolidatedAlerts.length > 0) {
+                    for (const alert of consolidatedAlerts) {
+                        const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
+                        const anomalyType = alert.vital === 'multi_feature' ? 'ocsvm_anomaly' : (alert.anomaly_type || `rule_${alert.vital}`);
+
+                        const eventResult = await pool.query(
+                            `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
+                             VALUES ($1, $2, $3, $4) RETURNING event_id`,
+                            [patientId, readingId, anomalyType, ocsvmScore]
+                        );
+                        const eventId = eventResult.rows[0]?.event_id;
 
                             if (eventId) {
                                 const notifRes = await pool.query(
@@ -1615,7 +1647,6 @@ app.post('/api/device/data', async (req, res) => {
                         }
                     }
                 }
-            }
         } catch (aiErr) {
             console.error('[DEVICE_DATA] AI evaluation error:', aiErr.message);
         }

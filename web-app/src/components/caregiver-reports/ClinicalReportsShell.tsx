@@ -18,7 +18,10 @@ import {
     Heart,
     Thermometer,
     Activity,
+    Users,
+    ArrowLeft,
 } from 'lucide-react';
+import { Button } from '../ui/button';
 
 import { DailyHealthSummary } from './DailyHealthSummary';
 import { AnomalyLog } from './AnomalyLog';
@@ -203,6 +206,7 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
     const [activePatientId, setActivePatientId] = useState<string>('');
     const [activeTab, setActiveTab] = useState<ReportTabValue>('daily-summary');
     const [searchQuery, setSearchQuery] = useState('');
+    const [mobileShowPatientList, setMobileShowPatientList] = useState(false);
 
     // [OWASP A01 / DPA] Filter only active (non-archived, non-deleted) patients.
     // The caregiver only ever sees their own assigned patients because the backend
@@ -244,16 +248,27 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
 
     return (
         <div
-            className="flex h-full gap-0 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm"
-            style={{ minHeight: '600px' }}
+            className="flex flex-col lg:flex-row h-full gap-0 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm min-h-0 lg:min-h-[600px] w-full min-w-0"
         >
             {/* ============================== LEFT PANEL — Patient List ============================== */}
-            <aside className="w-[260px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-slate-50/60">
+            <aside className={`${mobileShowPatientList ? 'flex' : 'hidden lg:flex'} w-full lg:w-[260px] flex-shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 min-w-0`}>
                 {/* Header */}
                 <div className="px-3 py-3 border-b border-slate-200 bg-white">
-                    <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
-                        Patients
-                    </h2>
+                    <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                            Patients
+                        </h2>
+                        {selectedPatient && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setMobileShowPatientList(false)}
+                                className="lg:hidden text-xs h-7 px-2 text-teal-700"
+                            >
+                                View Report &rarr;
+                            </Button>
+                        )}
+                    </div>
                     {/* Search bar */}
                     <div className="relative">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -271,7 +286,7 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
                 </div>
 
                 {/* Scrollable patient list */}
-                <ScrollArea className="flex-1 px-2 py-2">
+                <ScrollArea className="flex-1 px-2 py-2 max-h-[65vh] lg:max-h-none">
                     {filteredPatients.length === 0 ? (
                         <p className="text-[11px] text-slate-400 text-center py-8 px-2">
                             {searchQuery
@@ -287,7 +302,10 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
                                     alerts={alerts}
                                     vitalSigns={vitalSigns}
                                     isSelected={activePatientId === patient.id}
-                                    onClick={() => setActivePatientId(patient.id)}
+                                    onClick={() => {
+                                        setActivePatientId(patient.id);
+                                        setMobileShowPatientList(false);
+                                    }}
                                 />
                             ))}
                         </div>
@@ -296,16 +314,16 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
             </aside>
 
             {/* ============================== RIGHT PANEL — Report View ============================== */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div className={`${mobileShowPatientList ? 'hidden lg:flex' : 'flex'} flex-1 flex-col min-w-0 overflow-hidden`}>
                 {/* Report header — shows selected patient identity */}
-                <div className="px-5 py-3 border-b border-slate-200 bg-white flex items-center justify-between gap-4 flex-shrink-0">
-                    <div className="min-w-0">
+                <div className="px-3 sm:px-5 py-3 border-b border-slate-200 bg-white flex items-center justify-between gap-2 sm:gap-4 flex-shrink-0 min-w-0">
+                    <div className="min-w-0 flex-1">
                         {selectedPatient ? (
                             <>
                                 <h2 className="text-sm font-bold text-slate-800 truncate">
                                     {selectedPatient.name}
                                 </h2>
-                                <p className="text-[10px] text-slate-400">
+                                <p className="text-[10px] text-slate-400 truncate">
                                     Room {selectedPatient.roomNumber || 'N/A'} &middot; ID: {selectedPatient.id}
                                     {selectedPatient.assignedCaregiverName
                                         ? ` · Caregiver: ${selectedPatient.assignedCaregiverName}`
@@ -316,25 +334,40 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
                             <p className="text-sm text-slate-400 italic">Select a patient to begin</p>
                         )}
                     </div>
-                    {selectedPatient && (
-                        <Badge
+                    
+                    <div className="flex items-center gap-2 shrink-0">
+                        {/* Mobile Switch Patient Button */}
+                        <Button
                             variant="outline"
-                            className={`text-[10px] flex-shrink-0 border ${getStatusBadge(selectedPatient, alerts).className}`}
+                            size="sm"
+                            onClick={() => setMobileShowPatientList(true)}
+                            className="lg:hidden text-xs h-7 px-2 flex items-center gap-1 border-teal-200 bg-teal-50/70 text-teal-800"
                         >
-                            {getStatusBadge(selectedPatient, alerts).label}
-                        </Badge>
-                    )}
+                            <Users className="w-3.5 h-3.5 text-teal-600" />
+                            <span className="hidden xs:inline">Switch Patient</span>
+                            <span className="xs:hidden">Patients</span>
+                        </Button>
+
+                        {selectedPatient && (
+                            <Badge
+                                variant="outline"
+                                className={`text-[10px] flex-shrink-0 border ${getStatusBadge(selectedPatient, alerts).className}`}
+                            >
+                                {getStatusBadge(selectedPatient, alerts).label}
+                            </Badge>
+                        )}
+                    </div>
                 </div>
 
                 {/* Report tabs */}
                 <Tabs
                     value={activeTab}
                     onValueChange={(v) => setActiveTab(v as ReportTabValue)}
-                    className="flex flex-col flex-1 min-h-0"
+                    className="flex flex-col flex-1 min-h-0 min-w-0"
                 >
-                    <div className="border-b border-slate-200 px-4 bg-white flex-shrink-0">
+                    <div className="border-b border-slate-200 px-2 sm:px-4 bg-white flex-shrink-0 overflow-x-auto no-scrollbar touch-scroll">
                         <TooltipProvider delayDuration={300}>
-                            <TabsList className="bg-transparent h-11 p-0 flex gap-1 justify-start overflow-x-auto scrollbar-none">
+                            <TabsList className="bg-transparent h-11 p-0 flex gap-1 justify-start overflow-x-auto no-scrollbar touch-scroll flex-nowrap w-max min-w-full sm:min-w-0">
                                 {REPORT_TABS.map(({ value, label, icon: Icon, tooltip }) => (
                                     <Tooltip key={value}>
                                         <TooltipTrigger asChild>

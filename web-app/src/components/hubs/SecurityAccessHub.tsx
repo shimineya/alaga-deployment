@@ -51,12 +51,12 @@ export default function SecurityAccessHub() {
 
             <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
-                <div className="mb-4 sm:mb-6 shrink-0 overflow-x-auto no-scrollbar touch-scroll -mx-1 px-1 sm:mx-0 sm:px-0">
-                    <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 flex-nowrap w-max max-w-none">
+                <div className="mb-4 sm:mb-6 shrink-0 w-full overflow-x-auto no-scrollbar touch-scroll">
+                    <TabsList className="bg-teal-50/60 p-1 sm:p-1.5 rounded-2xl border border-teal-100/90 flex gap-1.5 sm:gap-2 w-max sm:w-auto min-w-full sm:min-w-0">
                         {canSeeSystemSecurity && (
                             <TabsTrigger 
                                 value="siem" 
-                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
+                                className="rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-1.5 sm:gap-2 transition-all alaga-btn-tactile shrink-0"
                             >
                                 <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Security Operations
                             </TabsTrigger>
@@ -65,7 +65,7 @@ export default function SecurityAccessHub() {
                         {canSeeAuditTrails && (
                             <TabsTrigger 
                                 value="audit" 
-                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
+                                className="rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-1.5 sm:gap-2 transition-all alaga-btn-tactile shrink-0"
                             >
                                 <FileJson className="w-3.5 h-3.5 text-teal-600" /> Forensic Audit Trails
                             </TabsTrigger>
@@ -74,7 +74,7 @@ export default function SecurityAccessHub() {
                         {canSeeRBACManager && (
                             <TabsTrigger 
                                 value="rbac" 
-                                className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-2 transition-all alaga-btn-tactile whitespace-nowrap"
+                                className="rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-bold text-slate-600 data-[state=active]:bg-white data-[state=active]:text-teal-900 data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-teal-200/80 flex items-center gap-1.5 sm:gap-2 transition-all alaga-btn-tactile shrink-0"
                             >
                                 <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" /> User Permissions Manager
                             </TabsTrigger>

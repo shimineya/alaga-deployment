@@ -14,7 +14,7 @@ import {
     AlertDialogAction,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { ShieldCheck, Search, RefreshCw, ChevronDown, ChevronRight, ToggleLeft, ToggleRight, AlertTriangle, Users } from 'lucide-react';
+import { ShieldCheck, Search, RefreshCw, ChevronDown, ChevronRight, ToggleLeft, ToggleRight, AlertTriangle, Users, ArrowLeft } from 'lucide-react';
 // [RBAC] Single source of truth for module definitions and role defaults
 import { MODULE_REGISTRY, computeRoleDefaults } from '@/lib/rbac-registry';
 
@@ -215,12 +215,12 @@ export default function UserRBACManager() {
     };
 
     return (
-        <div className="flex gap-4 h-full min-h-[600px]">
+        <div className="flex flex-col lg:flex-row gap-4 h-full min-h-[500px] w-full min-w-0">
 
             {/* ==========================================================
-                LEFT PANEL: User List
+                LEFT PANEL: User List (Hidden on mobile if a user is selected)
             ========================================================== */}
-            <div className="w-72 shrink-0 flex flex-col gap-3">
+            <div className={`${selectedUser ? 'hidden lg:flex' : 'flex'} w-full lg:w-72 shrink-0 flex-col gap-3 min-w-0`}>
                 <div className="flex items-center justify-between">
                     <div>
                         <h2 className="text-sm font-bold text-slate-800">User Accounts</h2>
@@ -239,7 +239,7 @@ export default function UserRBACManager() {
                         className="pl-8 h-8 text-xs border-slate-200"
                     />
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+                <div className="flex-1 overflow-y-auto space-y-1 pr-1 max-h-[60vh] lg:max-h-none">
                     {filteredUsers.length === 0 && !loading && (
                         <div className="text-center text-xs text-slate-400 py-8 flex flex-col items-center gap-2">
                             <Users className="w-8 h-8 text-slate-200" />
@@ -272,11 +272,23 @@ export default function UserRBACManager() {
             </div>
 
             {/* ==========================================================
-                RIGHT PANEL: Permission Toggles
+                RIGHT PANEL: Permission Toggles (Hidden on mobile if no user is selected)
             ========================================================== */}
-            <div className="flex-1 overflow-y-auto">
+            <div className={`${!selectedUser ? 'hidden lg:flex' : 'flex'} flex-1 flex-col overflow-y-auto min-w-0`}>
+                {selectedUser && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedUser(null)}
+                        className="lg:hidden mb-2 text-xs font-semibold flex items-center gap-1.5 self-start h-8 px-2.5 border-slate-300"
+                    >
+                        <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
+                        <span>Back to User List</span>
+                    </Button>
+                )}
+
                 {!selectedUser ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 gap-3">
+                    <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 gap-3 py-12">
                         <ShieldCheck className="w-12 h-12 text-slate-200" />
                         <p className="text-sm font-medium text-slate-500">Select a user on the left</p>
                         <p className="text-xs max-w-xs">
@@ -284,7 +296,7 @@ export default function UserRBACManager() {
                         </p>
                     </div>
                 ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-3 min-w-0">
                         {/* User Header */}
                         <Card className="bg-slate-800 text-white border-none shadow-md">
                             <CardContent className="py-3 px-4 flex items-center justify-between">

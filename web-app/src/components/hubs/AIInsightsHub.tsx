@@ -219,10 +219,10 @@ export default function AIInsightsHub() {
   }, [patients, selectedPatientId]);
 
   return (
-    <div className="w-full space-y-6 pb-12 animate-in fade-in duration-300">
+    <div className="w-full max-w-full min-w-0 space-y-6 pb-12 animate-in fade-in duration-300">
       {/* 1. Header & Timeframe Selector Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 min-w-0 max-w-full">
+        <div className="min-w-0">
           {isSysAdmin ? (
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-800 text-[11px] font-bold uppercase tracking-wider mb-2 shadow-2xs">
               <ShieldAlert className="w-3.5 h-3.5 text-indigo-600" />
@@ -246,8 +246,8 @@ export default function AIInsightsHub() {
         </div>
 
         {/* Timeframe Controls (Day, Week, Month, 6 Months, 1 Year) */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="w-full lg:w-auto flex items-center justify-between sm:justify-start gap-2 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full">
+          <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-2xs shrink-0">
             {(
               [
                 { id: 'day', label: t('Day', 'Araw'), sub: '24h' },
@@ -260,7 +260,7 @@ export default function AIInsightsHub() {
               <button
                 key={tf.id}
                 onClick={() => setTimeframe(tf.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shrink-0 whitespace-nowrap ${
                   timeframe === tf.id
                     ? 'bg-teal-600 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
@@ -279,7 +279,7 @@ export default function AIInsightsHub() {
             size="sm"
             onClick={fetchInsights}
             disabled={isLoadingInsights}
-            className="h-9 px-3 rounded-xl border-slate-200 text-slate-700 hover:bg-white alaga-btn-tactile text-xs font-semibold"
+            className="h-9 px-3 rounded-xl border-slate-200 text-slate-700 hover:bg-white alaga-btn-tactile text-xs font-semibold shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-teal-600 ${isLoadingInsights ? 'animate-spin' : ''}`} />
             {t('Refresh', 'I-refresh')}
@@ -473,7 +473,7 @@ export default function AIInsightsHub() {
               </div>
 
               {/* Metric filter buttons */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl overflow-x-auto no-scrollbar touch-scroll max-w-full">
                 {(
                   [
                     { id: 'all', label: 'All Vitals' },
@@ -486,7 +486,7 @@ export default function AIInsightsHub() {
                   <button
                     key={m.id}
                     onClick={() => setActiveChartMetric(m.id)}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all shrink-0 whitespace-nowrap ${
                       activeChartMetric === m.id
                         ? 'bg-white text-slate-900 shadow-2xs font-bold'
                         : 'text-slate-600 hover:text-slate-900'

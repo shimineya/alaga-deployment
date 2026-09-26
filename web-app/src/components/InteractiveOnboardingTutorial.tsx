@@ -727,31 +727,31 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && handleSkip()}>
-            <DialogContent className="max-w-2xl w-[95vw] p-0 gap-0 overflow-hidden bg-white rounded-3xl border-0 shadow-2xl">
+            <DialogContent className="max-w-2xl w-[95vw] sm:w-full p-0 gap-0 overflow-hidden bg-white rounded-2xl sm:rounded-3xl border-0 shadow-2xl max-h-[92vh] flex flex-col">
                 {/* Header with gradient & role badge */}
-                <div className="p-6 bg-gradient-to-r from-teal-900 via-teal-800 to-teal-950 text-white relative overflow-hidden">
+                <div className="p-4 sm:p-6 bg-gradient-to-r from-teal-900 via-teal-800 to-teal-950 text-white relative overflow-hidden shrink-0">
                     {/* Ambient Glows */}
                     <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-teal-400/20 rounded-full blur-2xl pointer-events-none" />
                     <div className="absolute -left-10 -top-10 w-40 h-40 bg-emerald-400/20 rounded-full blur-2xl pointer-events-none" />
 
-                    <div className="relative z-10 flex items-start justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-teal-200 shadow-sm">
-                                <currentStep.icon className="w-6 h-6" />
+                    <div className="relative z-10 flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                            <div className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-teal-200 shadow-sm shrink-0">
+                                <currentStep.icon className="w-5 h-5 sm:w-6 h-6" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <div className="flex items-center gap-2">
-                                    <Badge className="bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider px-2 py-0.5">
+                                    <Badge className="bg-amber-400 text-slate-950 font-black text-[9px] sm:text-[10px] uppercase tracking-wider px-2 py-0.5">
                                         {currentStep.badge}
                                     </Badge>
-                                    <span className="text-[11px] font-bold text-teal-200/90">
+                                    <span className="text-[10px] sm:text-[11px] font-bold text-teal-200/90 whitespace-nowrap">
                                         Step {currentStep.stepNumber} of {steps.length}
                                     </span>
                                 </div>
-                                <DialogTitle className="text-lg sm:text-xl font-black text-white mt-1">
+                                <DialogTitle className="text-base sm:text-xl font-black text-white mt-1 truncate">
                                     {currentStep.title}
                                 </DialogTitle>
-                                <DialogDescription className="text-xs sm:text-sm text-teal-200/90 font-medium">
+                                <DialogDescription className="text-xs sm:text-sm text-teal-200/90 font-medium truncate">
                                     {currentStep.subtitle}
                                 </DialogDescription>
                             </div>
@@ -761,7 +761,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                         <button
                             type="button"
                             onClick={handleSkip}
-                            className="text-xs text-teal-200/80 hover:text-white hover:bg-white/10 px-2.5 py-1.5 rounded-lg font-bold transition-all border border-white/10 flex items-center gap-1 shrink-0"
+                            className="text-xs text-teal-200/80 hover:text-white hover:bg-white/10 px-2 py-1 rounded-lg font-bold transition-all border border-white/10 flex items-center gap-1 shrink-0"
                             title="Skip onboarding tutorial"
                         >
                             <span>Skip</span>
@@ -770,7 +770,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                     </div>
 
                     {/* Step progress pills */}
-                    <div className="flex items-center gap-1.5 mt-5">
+                    <div className="flex items-center gap-1.5 mt-4 sm:mt-5">
                         {steps.map((step, idx) => (
                             <button
                                 key={idx}
@@ -790,7 +790,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                 </div>
 
                 {/* Body Content */}
-                <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto bg-slate-50/50">
+                <div className="p-4 sm:p-6 space-y-4 max-h-[58vh] sm:max-h-[64vh] overflow-y-auto bg-slate-50/50 flex-1">
                     <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
                         {currentStep.description}
                     </p>
@@ -799,8 +799,8 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                     {renderInteractiveWidget()}
 
                     {/* Key Highlights */}
-                    <div className="space-y-2 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                    <div className="space-y-2 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <h4 className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-slate-500">
                             Key Capabilities & Protocols
                         </h4>
                         <div className="space-y-2">
@@ -814,7 +814,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                     </div>
 
                     {/* Role Tip Callout */}
-                    <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-950 flex items-start gap-2.5">
+                    <div className="p-3 sm:p-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-950 flex items-start gap-2.5">
                         <Sparkles className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
                         <p className="text-[11px] sm:text-xs text-teal-900 leading-relaxed">
                             <strong className="font-black text-teal-950">Clinical Note: </strong>
@@ -824,22 +824,22 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                 </div>
 
                 {/* Footer Controls */}
-                <div className="p-4 sm:p-5 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
+                <div className="p-3.5 sm:p-5 bg-white border-t border-slate-200 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 shrink-0">
                     <button
                         type="button"
                         onClick={handleSkip}
-                        className="text-xs font-bold text-slate-400 hover:text-slate-700 px-3 py-2 rounded-lg transition-colors"
+                        className="text-xs font-bold text-slate-400 hover:text-slate-700 py-1.5 px-3 rounded-lg transition-colors text-center sm:text-left"
                     >
                         Skip Tour
                     </button>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                         {!isFirstStep && (
                             <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => setCurrentStepIndex(prev => Math.max(0, prev - 1))}
-                                className="h-9 px-3.5 border-slate-300 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5"
+                                className="h-9 px-3 sm:px-3.5 border-slate-300 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shrink-0"
                             >
                                 <ArrowLeft className="w-3.5 h-3.5" />
                                 <span>Back</span>
@@ -850,7 +850,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                             <Button
                                 size="sm"
                                 onClick={handleFinish}
-                                className="h-9 px-5 bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 alaga-btn-tactile"
+                                className="h-9 px-4 sm:px-5 flex-1 sm:flex-initial bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white font-black text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 alaga-btn-tactile"
                             >
                                 <span>Finish & Explore Dashboard</span>
                                 <Check className="w-3.5 h-3.5 stroke-[3]" />
@@ -859,7 +859,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                             <Button
                                 size="sm"
                                 onClick={() => setCurrentStepIndex(prev => Math.min(steps.length - 1, prev + 1))}
-                                className="h-9 px-5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 alaga-btn-tactile"
+                                className="h-9 px-4 sm:px-5 flex-1 sm:flex-initial bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 alaga-btn-tactile"
                             >
                                 <span>Continue</span>
                                 <ArrowRight className="w-3.5 h-3.5" />

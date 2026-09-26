@@ -460,7 +460,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                     </div>
 
                     {/* Filter Tabs */}
-                    <div className="flex items-center gap-1.5 px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-200 overflow-x-auto shrink-0 scrollbar-none text-xs">
+                    <div className="flex items-center gap-1.5 px-3 sm:px-6 py-2 bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar touch-scroll shrink-0 text-xs">
                         {[
                             { id: 'all', label: 'All Topics' },
                             { id: 'quickstart', label: 'Quick Start' },

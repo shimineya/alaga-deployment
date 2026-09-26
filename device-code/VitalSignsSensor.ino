@@ -1024,8 +1024,8 @@ void handleNotFound() {
 // ------------------------------------------------------------------------------
 void startAccessPointMode() {
   isAPMode = true;
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_AP);
+  WiFi.disconnect(false);
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 
   // [SECURITY] Launch Access Point with WPA2-PSK encryption (Not an open network!)
@@ -1049,29 +1049,30 @@ void startAccessPointMode() {
 bool connectToWiFi() {
   if (wifi_ssid.length() == 0) return false;
 
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
 
   Serial.print("[WIFI] Connecting to " + wifi_ssid);
   unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 12000) {
     delay(400);
     Serial.print(".");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\n✅ [WIFI] Connected! Assigned IP: " + WiFi.localIP().toString());
-    // Immediately emit real-time online handshake signal to the system
+    isAPMode = false;
+    WiFi.mode(WIFI_STA);
     sendImmediateOnlineHandshake();
-    // Flush retained offline clinical data if internet was previously disconnected
     if (hasPendingOfflineData) {
       flushOfflineBuffer();
     }
     needInitialSend = true;
     return true;
   } else {
-    Serial.println("\n⚠️ [WIFI] Connection not established yet. Will constantly retry reconnecting to " + wifi_ssid + "...");
-    isAPMode = false;
+    Serial.println("\n⚠️ [WIFI] Connection to " + wifi_ssid + " failed. Starting Setup Hotspot (" + String(DEFAULT_AP_SSID) + ")...");
+    startAccessPointMode();
     return false;
   }
 }
@@ -1125,6 +1126,21 @@ void setup() {
   admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);
   ap_password   = preferences.getString("appass", DEFAULT_AP_PASS);
   moisture_pin  = preferences.getInt("mpin", 32);
+  // Auto-migrate legacy local server IP to production Render cloud URL
+  if (server_url.indexOf("192.168.254.") >= 0 || server_url.indexOf("localhost") >= 0) {
+    Serial.println("[MIGRATION] Updating local server URL to Render Cloud: " + String(DEFAULT_SERVER_URL));
+    server_url = DEFAULT_SERVER_URL;
+    preferences.putString("url", DEFAULT_SERVER_URL);
+  }
+
+  // Clear obsolete/unreachable Wi-Fi SSID from flash
+  if (wifi_ssid.indexOf("Magaganda") >= 0) {
+    Serial.println("[MIGRATION] Wiping unreachable Wi-Fi (" + wifi_ssid + ") to enter Setup Mode...");
+    preferences.remove("ssid");
+    preferences.remove("pass");
+    wifi_ssid = "";
+    wifi_password = "";
+  }
   preferences.end();
 
   Serial.println("🔒 [SECURITY] Loaded Device Serial : " + device_id);

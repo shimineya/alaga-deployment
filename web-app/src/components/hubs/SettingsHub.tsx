@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
@@ -13,6 +14,7 @@ import UserProfile from '../sysadmin/UserProfile';
 export default function SettingsHub() {
     const { user, permissions } = useAuth();
     const { t } = useCaregiverLanguage();
+    const [searchParams, setSearchParams] = useSearchParams();
     const role = user?.role?.toLowerCase() || '';
 
     // Authorizations
@@ -31,7 +33,21 @@ export default function SettingsHub() {
 
     const tabCount = [canSeeAccount, canSeePreferences, canSeeSystemSettings, canSeeCompliance].filter(Boolean).length;
     
-    let defaultTab = 'account';
+    const tabParam = searchParams.get('tab');
+    const validTabs = [
+        canSeeAccount ? 'account' : null,
+        canSeePreferences ? 'profile' : null,
+        canSeeSystemSettings ? 'system' : null,
+        canSeeCompliance ? 'compliance' : null,
+    ].filter(Boolean) as string[];
+
+    const activeTab = tabParam && validTabs.includes(tabParam)
+        ? tabParam
+        : (validTabs[0] || 'account');
+
+    const handleTabChange = (val: string) => {
+        setSearchParams({ tab: val });
+    };
 
     return (
         <div className="w-full h-full animate-in fade-in duration-300 flex flex-col">
@@ -46,7 +62,7 @@ export default function SettingsHub() {
                 <p className="text-sm text-slate-500 mt-1">{t('Manage your account profile, personal preferences, and overarching system parameters.', 'Pamahalaan ang iyong profile sa account, mga personal na kagustuhan, at pangkalahatang mga parameter ng system.')}</p>
             </div>
 
-            <Tabs defaultValue={defaultTab} className="w-full flex-1 flex flex-col min-h-0">
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full flex-1 flex flex-col min-h-0">
                 {tabCount > 1 && (
                 <div className="mb-4 sm:mb-6 shrink-0 overflow-x-auto no-scrollbar touch-scroll -mx-1 px-1 sm:mx-0 sm:px-0">
                     <TabsList className="bg-teal-50/60 p-1.5 rounded-2xl border border-teal-100/90 inline-flex gap-2 flex-nowrap w-max max-w-none">

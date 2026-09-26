@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
 // [RBAC] Shared registry — same source of truth used by UserRBACManager
@@ -23,6 +23,7 @@ import {
   Building2,
   Home,
   Sparkles,
+  ChevronRight,
   X
 } from 'lucide-react';
 
@@ -34,6 +35,7 @@ interface AppSidebarProps {
 }
 
 export default function AppSidebar({ collapsed = false, onToggle, onClose, isMobile = false }: AppSidebarProps) {
+  const navigate = useNavigate();
   const effectiveCollapsed = isMobile ? false : collapsed;
   const { user, logout, permissions, isSysAdmin } = useAuth();
   const { t } = useCaregiverLanguage();
@@ -308,8 +310,17 @@ export default function AppSidebar({ collapsed = false, onToggle, onClose, isMob
       <div className="p-3 border-t border-teal-500/20 bg-[#040c1c]">
         {!effectiveCollapsed ? (
           <>
-            <div className="flex items-center gap-2.5 mb-3 px-2 py-1.5 rounded-xl bg-white/5 border border-white/10">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 flex items-center justify-center text-teal-300 border border-teal-500/40 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                navigate('/settings?tab=account');
+                if (onClose) onClose();
+              }}
+              className="w-full flex items-center gap-2.5 mb-3 px-2 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 active:scale-[0.98] border border-white/10 hover:border-teal-500/40 text-left transition-all cursor-pointer group shadow-xs focus:outline-hidden focus:ring-2 focus:ring-teal-400"
+              title={t('View Account Profile', 'Tingnan ang Profile ng Account')}
+              aria-label={t('View Account Profile', 'Tingnan ang Profile ng Account')}
+            >
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 flex items-center justify-center text-teal-300 border border-teal-500/40 group-hover:border-teal-400 shrink-0 transition-colors">
                 {user?.profile_picture_url ? (
                   <img
                     src={`${import.meta.env.VITE_API_URL || ''}${user.profile_picture_url}`}
@@ -320,8 +331,8 @@ export default function AppSidebar({ collapsed = false, onToggle, onClose, isMob
                   <UserCircle className="w-5 h-5" />
                 )}
               </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-bold text-white truncate">{user?.name || user?.username || 'User'}</p>
+              <div className="overflow-hidden flex-1 min-w-0">
+                <p className="text-xs font-bold text-white truncate group-hover:text-teal-200 transition-colors">{user?.name || user?.username || 'User'}</p>
                 <p className="text-[9px] text-teal-300 uppercase tracking-wider font-semibold truncate">
                   {role === 'parent' ? t('Parent / Guardian', 'Magulang / Tagapangalaga')
                     : role === 'medical_staff' ? t('Medical Staff', 'Klinikal na Staff')
@@ -341,10 +352,11 @@ export default function AppSidebar({ collapsed = false, onToggle, onClose, isMob
                   </p>
                 ) : null}
               </div>
-            </div>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-teal-300 shrink-0 transition-transform group-hover:translate-x-0.5" />
+            </button>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 text-xs font-semibold transition-all border border-white/10 hover:border-rose-500/30 alaga-btn-tactile"
+              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 text-xs font-semibold transition-all border border-white/10 hover:border-rose-500/30 alaga-btn-tactile cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               {t('Sign Out', 'Mag-sign Out')}
@@ -352,9 +364,15 @@ export default function AppSidebar({ collapsed = false, onToggle, onClose, isMob
           </>
         ) : (
           <div className="flex flex-col items-center gap-2.5 py-1">
-            <div 
-              className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 flex items-center justify-center text-teal-300 border border-teal-500/40" 
-              title={`${user?.name || user?.username} (${role.replace('_', ' ')})${user?.facility_name ? ` • ${user.facility_name}` : ''}`}
+            <button 
+              type="button"
+              onClick={() => {
+                navigate('/settings?tab=account');
+                if (onClose) onClose();
+              }}
+              className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 hover:bg-teal-900 flex items-center justify-center text-teal-300 border border-teal-500/40 hover:border-teal-400 transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-teal-400 active:scale-95" 
+              title={`${user?.name || user?.username} (${role.replace('_', ' ')})${user?.facility_name ? ` • ${user.facility_name}` : ''} - ${t('View Account Profile', 'Tingnan ang Profile ng Account')}`}
+              aria-label={t('View Account Profile', 'Tingnan ang Profile ng Account')}
             >
               {user?.profile_picture_url ? (
                 <img
@@ -365,10 +383,10 @@ export default function AppSidebar({ collapsed = false, onToggle, onClose, isMob
               ) : (
                 <UserCircle className="w-5 h-5" />
               )}
-            </div>
+            </button>
             <button
               onClick={handleLogout}
-              className="p-1.5 rounded-xl bg-white/5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors border border-white/10 hover:border-rose-500/30 alaga-btn-tactile"
+              className="p-1.5 rounded-xl bg-white/5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors border border-white/10 hover:border-rose-500/30 alaga-btn-tactile cursor-pointer"
               title={t('Sign Out', 'Mag-sign Out')}
             >
               <LogOut className="w-4 h-4" />

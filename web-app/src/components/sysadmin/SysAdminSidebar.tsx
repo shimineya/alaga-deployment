@@ -23,7 +23,9 @@ import {
     Smartphone,
     TrendingUp,
     Droplets,
-    FileSpreadsheet
+    FileSpreadsheet,
+    UserCircle,
+    ChevronRight
 } from 'lucide-react';
 
 const zoneANav = [
@@ -61,7 +63,7 @@ const zoneBNav = [
 export function SysAdminSidebar() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { logout } = useAuth();
+    const { user, logout } = useAuth();
 
     const [isZoneAOpen, setIsZoneAOpen] = useState(true);
     const [isZoneBOpen, setIsZoneBOpen] = useState(true);
@@ -582,6 +584,22 @@ export function SysAdminSidebar() {
 
             {/* Footer */}
             <div className="p-4 border-t border-slate-700">
+                <button
+                    type="button"
+                    onClick={() => navigate('/settings?tab=account')}
+                    className="w-full flex items-center gap-2.5 mb-3 px-2 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 active:scale-[0.98] border border-white/10 hover:border-teal-500/40 text-left transition-all cursor-pointer group shadow-xs"
+                    title="View Account Profile"
+                    aria-label="View Account Profile"
+                >
+                    <div className="w-8 h-8 rounded-full overflow-hidden bg-teal-950 flex items-center justify-center text-teal-300 border border-teal-500/40 group-hover:border-teal-400 shrink-0 transition-colors">
+                        <UserCircle className="w-5 h-5" />
+                    </div>
+                    <div className="overflow-hidden flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white truncate group-hover:text-teal-200 transition-colors">{user?.name || user?.username || 'SysAdmin'}</p>
+                        <p className="text-[9px] text-teal-300 uppercase tracking-wider font-semibold truncate">SYSTEM ADMIN</p>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-teal-300 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                </button>
                 <button
                     onClick={handleLogout}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-red-900/20 hover:text-red-300 transition-colors"

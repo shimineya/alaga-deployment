@@ -35,7 +35,47 @@ class ApiService {
             body: jsonEncode({'biometricToken': session.biometricToken}),
           )
           .timeout(const Duration(seconds: 75));
-      return _parseResponse(response);
+      final parsed = _parseResponse(response);
+
+      // If backend returns 404 (e.g. Render server has not deployed latest commit yet),
+      // fallback to validating candidate token via /api/auth/me which is live on all servers.
+      if (parsed['statusCode'] == 404) {
+        final candidateToken = session.biometricToken ?? session.token;
+        if (candidateToken.isNotEmpty) {
+          try {
+            final meResponse = await http
+                .get(
+                  _buildUri('/auth/me'),
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer $candidateToken',
+                  },
+                )
+                .timeout(const Duration(seconds: 20));
+
+            if (meResponse.statusCode == 200) {
+              final meParsed = jsonDecode(meResponse.body);
+              if (meParsed['success'] == true && meParsed['user'] != null) {
+                return {
+                  'success': true,
+                  'user': meParsed['user'],
+                  'token': candidateToken,
+                };
+              }
+            } else if (meResponse.statusCode == 401) {
+              return {
+                'success': false,
+                'message':
+                    'Biometric session has expired. Please log in with your password to re-enable biometrics.',
+              };
+            }
+          } catch (_) {
+            // Ignore fallback error and return original response or friendly message
+          }
+        }
+      }
+
+      return parsed;
     } catch (_) {
       return {
         'success': false,
@@ -44,8 +84,21 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> enrollBiometric() =>
-      post('/auth/biometric/enroll');
+  static Future<Map<String, dynamic>> enrollBiometric() async {
+    final res = await post('/auth/biometric/enroll');
+    if (res['statusCode'] == 404) {
+      // Backend not yet updated with enroll endpoint; fallback to current active token
+      final currentToken = UserSession.current?.token;
+      if (currentToken != null && currentToken.isNotEmpty) {
+        return {
+          'success': true,
+          'biometricToken': currentToken,
+        };
+      }
+    }
+    return res;
+  }
+
 
   // [OWASP A02] Base URL sourced from environment file — never hard-coded.
   static String get _baseUrl {

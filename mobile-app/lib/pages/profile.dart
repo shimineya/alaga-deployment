@@ -687,11 +687,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _buildSectionHeader(
               "Switch Account",
               Icons.switch_account_outlined,
-              action: IconButton(
-                icon: const Icon(Icons.add_circle, color: _teal, size: 26),
-                tooltip: "Add Account",
-                onPressed: _navigateToAddAccount,
-              ),
             ),
             _buildSwitchAccountCard(),
 
@@ -940,30 +935,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildSwitchAccountCard() {
     final currentId = UserSession.current?.id;
+    final sortedAccounts = List<UserSession>.from(_savedAccounts)
+      ..sort((a, b) {
+        if (a.id == currentId) return -1;
+        if (b.id == currentId) return 1;
+        return 0;
+      });
+
     return _buildSectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Switch Account",
-                    style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    "Tap an account to switch or add another",
-                    style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey),
-                  ),
-                ],
+              Text(
+                "Switch Account",
+                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
               ),
-              IconButton(
-                icon: const Icon(Icons.add_circle, color: _teal, size: 28),
-                tooltip: "Add Account",
-                onPressed: _navigateToAddAccount,
+              const SizedBox(height: 2),
+              Text(
+                "Link multiple accounts on this device and switch with one click.",
+                style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey),
               ),
             ],
           ),
@@ -989,13 +982,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _savedAccounts.length,
+              itemCount: sortedAccounts.length,
               separatorBuilder: (_, __) => const Padding(
                 padding: EdgeInsets.symmetric(vertical: 4),
                 child: Divider(height: 1, color: Color(0xFFF1F5F9)),
               ),
               itemBuilder: (context, index) {
-                final acc = _savedAccounts[index];
+                final acc = sortedAccounts[index];
                 final isCurrent = acc.id == currentId;
                 return Container(
                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),

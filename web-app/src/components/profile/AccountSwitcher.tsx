@@ -349,35 +349,29 @@ export const AccountSwitcher: React.FC<{ className?: string }> = ({ className = 
     <>
       <Card className={`shadow-sm border-slate-100 bg-white ${className}`}>
         <CardHeader className="py-3 px-4 border-b border-slate-50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-teal-600" />
-              <div>
-                <CardTitle className="text-xs sm:text-sm font-bold text-slate-800">
-                  Switch Account
-                </CardTitle>
-                <CardDescription className="text-[11px] text-slate-500">
-                  Link multiple accounts on this device and switch with one click
-                </CardDescription>
-              </div>
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-teal-600 shrink-0" />
+            <div>
+              <CardTitle className="text-xs sm:text-sm font-bold text-slate-800">
+                Switch Account
+              </CardTitle>
+              <CardDescription className="text-[11px] text-slate-500">
+                Link multiple accounts on this device and switch with one click
+              </CardDescription>
             </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setLoginError(null);
-                setSignupError(null);
-                setIsModalOpen(true);
-              }}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs h-8 px-3 rounded-lg flex items-center gap-1 shadow-sm transition-all"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Account</span>
-            </Button>
           </div>
         </CardHeader>
 
         <CardContent className="p-3 sm:p-4 space-y-2.5">
-          {accounts.map(acc => {
+          {[...accounts]
+            .sort((a, b) => {
+              const aId = a.user.id || a.user.user_id;
+              const bId = b.user.id || b.user.user_id;
+              if (aId === currentUserId) return -1;
+              if (bId === currentUserId) return 1;
+              return 0;
+            })
+            .map(acc => {
             const accUserId = acc.user.id || acc.user.user_id;
             const isCurrent = accUserId === currentUserId;
             const displayName = acc.user.name || (acc.user.first_name ? `${acc.user.first_name} ${acc.user.last_name || ''}`.trim() : acc.user.username);

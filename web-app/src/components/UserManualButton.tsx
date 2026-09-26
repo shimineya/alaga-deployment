@@ -424,33 +424,33 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
 
             {/* Modal User Guide Dialog */}
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                <DialogContent className="max-w-4xl w-[95vw] sm:w-full max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl border-slate-200 shadow-2xl bg-white">
+                <DialogContent className="max-w-4xl w-[95vw] sm:w-full h-[88dvh] max-h-[88dvh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl border-slate-200 shadow-2xl bg-white outline-none focus:outline-none">
                     {/* Header */}
-                    <div className="p-4 sm:p-6 bg-gradient-to-r from-teal-800 via-teal-700 to-teal-900 text-white shrink-0">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-white/10 backdrop-blur-md rounded-xl border border-white/20 shadow-inner">
+                    <div className="p-4 sm:p-6 bg-gradient-to-r from-teal-800 via-teal-700 to-teal-900 text-white shrink-0 min-w-0">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 min-w-0">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="p-2.5 bg-white/10 backdrop-blur-md rounded-xl border border-white/20 shadow-inner shrink-0">
                                     <BookOpen className="w-6 h-6 text-teal-200" />
                                 </div>
-                                <div>
-                                    <DialogTitle className="text-lg sm:text-xl font-black tracking-tight text-white flex items-center gap-2">
+                                <div className="min-w-0">
+                                    <DialogTitle className="text-lg sm:text-xl font-black tracking-tight text-white flex items-center gap-2 truncate">
                                         ALAGA User Guide & Manual
                                     </DialogTitle>
-                                    <DialogDescription className="text-teal-100/90 text-xs sm:text-sm font-medium mt-0.5">
+                                    <DialogDescription className="text-teal-100/90 text-xs sm:text-sm font-medium mt-0.5 truncate">
                                         Tailored instructions for your specific role & permissions.
                                     </DialogDescription>
                                 </div>
                             </div>
 
                             {/* Active Role Badge & Switcher */}
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 max-w-full">
                                 {canSwitchRoles ? (
-                                    <div className="flex items-center bg-teal-950/40 p-1 rounded-lg border border-teal-500/30 text-xs">
-                                        <span className="text-teal-200 text-[11px] font-semibold px-2">View Role:</span>
+                                    <div className="flex items-center bg-teal-950/40 p-1 rounded-lg border border-teal-500/30 text-xs max-w-full">
+                                        <span className="text-teal-200 text-[11px] font-semibold px-2 shrink-0">View Role:</span>
                                         <select
                                             value={selectedRoleView}
                                             onChange={(e) => setSelectedRoleView(e.target.value as RoleCategory)}
-                                            className="bg-white text-teal-950 text-xs font-bold rounded-md px-2 py-1 outline-none cursor-pointer"
+                                            className="bg-white text-teal-950 text-xs font-bold rounded-md px-2 py-1 outline-none cursor-pointer max-w-full"
                                         >
                                             {availableRoles.map(r => (
                                                 <option key={r.id} value={r.id}>{r.label}</option>
@@ -466,14 +466,14 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         </div>
 
                         {/* Search Bar */}
-                        <div className="mt-4 relative">
-                            <Search className="w-4 h-4 text-teal-300 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <div className="mt-3 sm:mt-4 relative min-w-0">
+                            <Search className="w-4 h-4 text-teal-300 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <Input
                                 type="text"
                                 placeholder="Search guides (e.g. 'heart rate', 'diaper wetness', 'acknowledge alert', 'baseline')..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-white/10 hover:bg-white/15 focus:bg-white text-white focus:text-slate-900 placeholder:text-teal-200/70 border-white/20 focus:border-teal-300 rounded-xl text-xs sm:text-sm transition-all"
+                                className="w-full pl-10 pr-12 py-2 bg-white/10 hover:bg-white/15 focus:bg-white text-white focus:text-slate-900 placeholder:text-teal-200/70 border-white/20 focus:border-teal-300 rounded-xl text-xs sm:text-sm transition-all"
                             />
                             {searchQuery && (
                                 <button
@@ -487,7 +487,7 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                     </div>
 
                     {/* Filter Tabs */}
-                    <div className="flex items-center gap-1.5 px-3 sm:px-6 py-2 bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar touch-scroll shrink-0 text-xs">
+                    <div className="flex items-center gap-1.5 px-3 sm:px-6 py-2 bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar touch-pan-x shrink-0 text-xs min-w-0 max-w-full">
                         {[
                             { id: 'all', label: 'All Topics' },
                             { id: 'quickstart', label: 'Quick Start' },
@@ -509,31 +509,33 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         ))}
                     </div>
 
-                    {/* Content Body - Scrollable */}
-                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/60">
+                    {/* Content Body - Scrollable without horizontal overflow */}
+                    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-3.5 sm:p-6 space-y-4 bg-slate-50/60 touch-scroll">
                         {/* Role Description Banner */}
-                        <div className="bg-teal-50/80 border border-teal-200 rounded-xl p-3.5 sm:p-4 text-xs sm:text-sm text-teal-900 flex items-start gap-3 shadow-xs">
+                        <div className="bg-teal-50/80 border border-teal-200 rounded-xl p-3.5 sm:p-4 text-xs sm:text-sm text-teal-900 flex items-start gap-3 shadow-xs min-w-0 max-w-full">
                             <Sparkles className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
-                            <div>
-                                <h4 className="font-bold text-teal-950">{manualContent.roleLabel} Overview</h4>
-                                <p className="text-teal-800 text-xs mt-0.5 leading-relaxed">{manualContent.roleDesc}</p>
+                            <div className="min-w-0 flex-1">
+                                <h4 className="font-bold text-teal-950 break-words">{manualContent.roleLabel} Overview</h4>
+                                <p className="text-teal-800 text-xs mt-0.5 leading-relaxed break-words">{manualContent.roleDesc}</p>
                             </div>
                         </div>
 
                         {/* Interactive Tutorial Replay Banner */}
-                        <div className="bg-gradient-to-r from-teal-900 via-teal-800 to-teal-950 rounded-xl p-4 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md border border-teal-700">
-                            <div className="flex items-center gap-3">
+                        <div className="bg-gradient-to-r from-teal-900 via-teal-800 to-teal-950 rounded-xl p-3.5 sm:p-4 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md border border-teal-700 min-w-0 max-w-full">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
                                 <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
                                     <Compass className="w-5 h-5 text-teal-300" />
                                 </div>
-                                <div>
-                                    <h4 className="text-sm font-black text-white flex items-center gap-2">
-                                        Interactive Onboarding Tour
-                                        <Badge className="bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider py-0 px-1.5">
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h4 className="text-sm font-black text-white">
+                                            Interactive Onboarding Tour
+                                        </h4>
+                                        <Badge className="bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider py-0.5 px-2 whitespace-normal text-left max-w-full">
                                             {manualContent.roleLabel}
                                         </Badge>
-                                    </h4>
-                                    <p className="text-xs text-teal-100/90 mt-0.5">
+                                    </div>
+                                    <p className="text-xs text-teal-100/90 mt-1 leading-relaxed break-words">
                                         Replay the step-by-step interactive walkthrough tailored to your permissions anytime.
                                     </p>
                                 </div>
@@ -555,16 +557,16 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
 
                         {/* Quick Start Card (Shown on 'all' or 'quickstart' tab when not searching) */}
                         {(activeTab === 'all' || activeTab === 'quickstart') && !searchQuery && (
-                            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5 shadow-sm min-w-0 max-w-full">
                                 <h3 className="text-sm sm:text-base font-black text-slate-900 flex items-center gap-2 mb-3">
-                                    <CheckCircle2 className="w-5 h-5 text-teal-600" />
-                                    Quick Start Checklist
+                                    <CheckCircle2 className="w-5 h-5 text-teal-600 shrink-0" />
+                                    <span>Quick Start Checklist</span>
                                 </h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
                                     {manualContent.quickStartSteps.map((step, idx) => (
-                                        <div key={idx} className="p-3 rounded-lg bg-slate-50 border border-slate-200/80">
-                                            <p className="font-bold text-xs sm:text-sm text-teal-950 mb-1">{step.title}</p>
-                                            <p className="text-[11px] sm:text-xs text-slate-600 leading-relaxed">{step.desc}</p>
+                                        <div key={idx} className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 min-w-0">
+                                            <p className="font-bold text-xs sm:text-sm text-teal-950 mb-1 break-words">{step.title}</p>
+                                            <p className="text-[11px] sm:text-xs text-slate-600 leading-relaxed break-words">{step.desc}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -572,13 +574,13 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                         )}
 
                         {/* Topics List */}
-                        <div className="space-y-3">
+                        <div className="space-y-3 min-w-0 max-w-full">
                             <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 px-1">
                                 {filteredTopics.length} Guide Topic{filteredTopics.length === 1 ? '' : 's'} Found
                             </h3>
 
                             {filteredTopics.length === 0 ? (
-                                <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
+                                <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 text-center text-slate-500 min-w-0">
                                     <Info className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                                     <p className="font-bold text-sm text-slate-700">No manual topics match "{searchQuery}"</p>
                                     <p className="text-xs text-slate-500 mt-1">Try searching for keywords like "vitals", "spo2", "battery", or "alerts".</p>
@@ -591,19 +593,19 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                                     return (
                                         <div
                                             key={topic.id}
-                                            className={`bg-white border rounded-xl transition-all duration-200 overflow-hidden ${
+                                            className={`bg-white border rounded-xl transition-all duration-200 overflow-hidden min-w-0 max-w-full ${
                                                 isExpanded ? 'border-teal-400 shadow-md ring-1 ring-teal-200' : 'border-slate-200 shadow-xs hover:border-slate-300'
                                             }`}
                                         >
                                             <button
                                                 onClick={() => setExpandedTopicId(isExpanded ? null : topic.id)}
-                                                className="w-full text-left p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                                                className="w-full text-left p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors min-w-0"
                                             >
-                                                <div className="flex items-center gap-3 min-w-0">
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
                                                     <div className={`p-2 rounded-lg shrink-0 ${isExpanded ? 'bg-teal-600 text-white' : 'bg-teal-100 text-teal-800'}`}>
                                                         <IconComponent className="w-4 h-4 sm:w-5 sm:h-5" />
                                                     </div>
-                                                    <div className="min-w-0">
+                                                    <div className="min-w-0 flex-1">
                                                         <h4 className="font-black text-xs sm:text-sm text-slate-900 tracking-tight truncate">
                                                             {topic.title}
                                                         </h4>
@@ -627,21 +629,21 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
 
                                             {/* Expanded Topic Details */}
                                             {isExpanded && (
-                                                <div className="p-4 sm:p-5 border-t border-slate-100 bg-slate-50/40 space-y-3.5 text-xs sm:text-sm">
+                                                <div className="p-3.5 sm:p-5 border-t border-slate-100 bg-slate-50/40 space-y-3.5 text-xs sm:text-sm min-w-0">
                                                     {/* Steps */}
                                                     {topic.steps && topic.steps.length > 0 && (
-                                                        <div>
+                                                        <div className="min-w-0">
                                                             <h5 className="font-bold text-slate-900 mb-2 flex items-center gap-1.5">
-                                                                <CheckCircle2 className="w-4 h-4 text-teal-600" />
-                                                                Instructions & Guidelines
+                                                                <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                                                                <span>Instructions & Guidelines</span>
                                                             </h5>
-                                                            <div className="space-y-2">
+                                                            <div className="space-y-2 min-w-0">
                                                                 {topic.steps.map((step, sIdx) => (
-                                                                    <div key={sIdx} className="flex items-start gap-2.5 text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200/80 leading-relaxed">
-                                                                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold">
+                                                                    <div key={sIdx} className="flex items-start gap-2.5 text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200/80 leading-relaxed min-w-0">
+                                                                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold mt-0.5">
                                                                             {sIdx + 1}
                                                                         </span>
-                                                                        <span className="text-xs sm:text-sm whitespace-pre-line">{step}</span>
+                                                                        <span className="text-xs sm:text-sm whitespace-pre-line break-words min-w-0 flex-1">{step}</span>
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -650,14 +652,14 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
 
                                                     {/* Tips */}
                                                     {topic.tips && topic.tips.length > 0 && (
-                                                        <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-sky-950">
+                                                        <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-sky-950 min-w-0">
                                                             <p className="font-bold text-xs text-sky-900 flex items-center gap-1.5 mb-1">
-                                                                <Info className="w-4 h-4 text-sky-600" />
-                                                                Pro-Tips & Best Practices
+                                                                <Info className="w-4 h-4 text-sky-600 shrink-0" />
+                                                                <span>Pro-Tips & Best Practices</span>
                                                             </p>
-                                                            <ul className="list-disc list-inside space-y-1 text-xs text-sky-900/90 pl-1">
+                                                            <ul className="list-disc list-inside space-y-1 text-xs text-sky-900/90 pl-1 min-w-0">
                                                                 {topic.tips.map((tip, tIdx) => (
-                                                                    <li key={tIdx} className="leading-relaxed">{tip}</li>
+                                                                    <li key={tIdx} className="leading-relaxed break-words">{tip}</li>
                                                                 ))}
                                                             </ul>
                                                         </div>
@@ -665,11 +667,11 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
 
                                                     {/* Warning */}
                                                     {topic.warning && (
-                                                        <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-rose-950 flex items-start gap-2">
+                                                        <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-rose-950 flex items-start gap-2 min-w-0">
                                                             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                                                            <div>
+                                                            <div className="min-w-0 flex-1">
                                                                 <p className="font-bold text-xs text-rose-900">Safety Caution</p>
-                                                                <p className="text-xs text-rose-800/90 leading-relaxed mt-0.5">{topic.warning}</p>
+                                                                <p className="text-xs text-rose-800/90 leading-relaxed mt-0.5 break-words">{topic.warning}</p>
                                                             </div>
                                                         </div>
                                                     )}
@@ -683,8 +685,8 @@ export const UserManualButton: React.FC<{ className?: string }> = ({ className =
                     </div>
 
                     {/* Footer */}
-                    <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center justify-between shrink-0">
-                        <p className="text-[11px] text-slate-500 hidden sm:block">
+                    <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex items-center justify-between shrink-0 min-w-0">
+                        <p className="text-[11px] text-slate-500 hidden sm:block truncate mr-2">
                             ALAGA Smart Healthcare System &bull; Version 2.4 Active Monitoring
                         </p>
                         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">

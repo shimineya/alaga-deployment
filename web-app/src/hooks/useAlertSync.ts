@@ -181,7 +181,7 @@ export function useAlertSync() {
         if (eventType === 'new_alert' || eventType === 'new_clinical_alert') {
           const severity = (eventData.severity || 'warning').toLowerCase();
           const patientName = eventData.patient_name || eventData.patientName || 'Patient';
-          const msg = eventData.message || 'Abnormal vital telemetry detected.';
+          const msg = eventData.message || 'Abnormal vital monitoring detected.';
 
           // 1. Play Synchronized Sound if not muted
           if (!isMutedRef.current && eventData.playSound !== false) {

@@ -346,7 +346,7 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
               <div>
                 <p className="text-sm font-bold text-slate-900">{facilityName}</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  You are registered under this medical facility. Clinical notes, schedules, and diaper/vitals telemetry sync with the facility ward registry.
+                  You are registered under this medical facility. Clinical notes, schedules, and diaper/vitals monitoring sync with the facility ward registry.
                 </p>
               </div>
               <div className="p-2 rounded-xl bg-blue-50 text-blue-700 shrink-0 ml-3">

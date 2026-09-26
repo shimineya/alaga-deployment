@@ -547,7 +547,7 @@ void handleDashboard() {
   page += "<div class='header'>";
   page += "<div class='logo-badge'>🛡️ ALAGA CLINICAL DEVICE</div>";
   page += "<h1 class='title'>Real-Time Sensor Suite</h1>";
-  page += "<p class='subtitle'>Live Vital Signs & Smart Moisture Telemetry</p>";
+  page += "<p class='subtitle'>Live Vital Signs & Smart Moisture Monitoring</p>";
   page += "</div>";
 
   page += "<div class='security-chip'>🔒 WPA2 Protected &bull; Token Authenticated &bull; OWASP Compliant</div>";
@@ -847,10 +847,6 @@ void handleSetup() {
   page += "</div>"; // End admin box
   page += "</form>";
 
-  page += "<div style='margin-top: 14px;'>";
-  page += "<a href='/' class='btn btn-secondary'>📊 Back to Live Telemetry Dashboard</a>";
-  page += "</div>";
-
   // JavaScript to verify PIN and dynamically unlock admin fields
   page += "<script>";
   page += "function unlockAdmin() {";
@@ -962,7 +958,7 @@ void handleSave() {
   page += "<div style='font-size:42px; margin-bottom: 10px;'>✅</div>";
   page += "<h1 class='title'>Settings Saved!</h1>";
   page += "<p class='subtitle' style='margin-top:8px;'>Device is rebooting to connect to <b>" + wifi_ssid + "</b>.</p>";
-  page += "<p style='font-size:12px; color:var(--text-muted); margin-top:14px;'>Connecting with hardware security token. Live telemetry will stream to ALAGA.</p>";
+  page += "<p style='font-size:12px; color:var(--text-muted); margin-top:14px;'>Connecting with hardware security token. Live monitoring data will stream to ALAGA.</p>";
   page += "</div>";
   page += getHtmlFooter();
 

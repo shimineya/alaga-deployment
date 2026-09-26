@@ -66,7 +66,7 @@ const SOLUTIONS: SolutionItem[] = [
         color: 'text-teal-600',
         borderColor: 'border-teal-200',
         bgTint: 'bg-teal-50/80',
-        specs: ['Conductive gold-plated sensing strip', '18-24 hour magnetic rechargeable battery', 'IPX4 splash-resistant casing', 'BLE + 2.4GHz WiFi telemetry'],
+        specs: ['Conductive gold-plated sensing strip', '18-24 hour magnetic rechargeable battery', 'IPX4 splash-resistant casing', 'BLE + 2.4GHz WiFi monitoring stream'],
         clinicalBenefit: 'Drastically reduces dermatitis and diaper rash through immediate caregiver notification.'
     },
     {
@@ -112,7 +112,7 @@ const SOLUTIONS: SolutionItem[] = [
         id: 'ward-matrix',
         title: 'Ward Diagnostic & Fleet Matrix',
         category: 'Facility Management',
-        badge: 'Hardware Telemetry',
+        badge: 'Hardware Monitoring',
         description: 'Real-time battery level, WiFi signal RSSI, and over-the-air (OTA) firmware deployment across hundreds of patient sensors simultaneously.',
         icon: Cpu,
         color: 'text-amber-600',
@@ -481,7 +481,7 @@ export const LandingPage: React.FC = () => {
                             Medical-Grade IoT Sensors & Intelligent Software
                         </h2>
                         <p className="text-sm sm:text-base text-slate-600 mt-2">
-                            Engineered for effortless patient wearability, continuous telemetry streaming, and proactive clinical intervention.
+                            Engineered for effortless patient wearability, continuous monitoring streams, and proactive clinical intervention.
                         </p>
                     </div>
 
@@ -623,7 +623,7 @@ export const LandingPage: React.FC = () => {
                             Start Monitoring in 3 Simple Steps
                         </h2>
                         <p className="text-sm sm:text-base text-slate-600 mt-2">
-                            Pair hardware devices, invite caregivers, and monitor live telemetry in minutes.
+                            Pair hardware devices, invite caregivers, and monitor live patient status in minutes.
                         </p>
                     </div>
 

@@ -533,7 +533,7 @@ void handleDashboard() {
   page += "<div class='header'>";
   page += "<div class='logo-badge'>💧 ALAGA SMART MONITOR</div>";
   page += "<h1 class='title'>Wetness Sensor</h1>";
-  page += "<p class='subtitle'>Real-time patient moisture & power telemetry</p>";
+  page += "<p class='subtitle'>Real-time patient moisture & power monitoring</p>";
   page += "</div>";
 
   // Large Status Banner Container (Supports intermediate 0-100% moisture tiers)
@@ -889,15 +889,6 @@ void handleSetup() {
   page += "</div>"; // End admin box
   page += "</form>";
 
-  // Always provide a reliable button to view live sensor dashboard
-  page += "<div style='margin-top: 14px;'>";
-  if (!isAPMode) {
-    page += "<a href='/' class='btn btn-secondary'>← Back to Live Dashboard</a>";
-  } else {
-    page += "<a href='/dashboard' class='btn btn-secondary'>📊 Test & View Live Sensor Readings</a>";
-  }
-  page += "</div>";
-
   page += "<div class='info-list'>";
   page += "<div class='info-row'><span>MAC Address</span><span style='font-family:monospace;'>" + WiFi.macAddress() + "</span></div>";
   page += "<div class='info-row'><span>Hardware Mode</span><span>" + String(isAPMode ? "Access Point (AP)" : "Station (STA)") + "</span></div>";
@@ -1073,7 +1064,7 @@ void handleSave() {
   page += "<b>Next Steps:</b><br>";
   page += "1. Reconnect your computer or phone to <b>" + wifi_ssid + "</b>.<br>";
   page += "2. <i>Tip:</i> If Windows says <i>'Can\\'t connect to this network'</i>, simply toggle Wi-Fi <b>OFF</b> and <b>ON</b> in Windows, then connect.<br>";
-  page += "3. Open your ALAGA web application to view live patient telemetry.";
+  page += "3. Open your ALAGA web application to view live patient monitoring.";
   page += "</div>";
   page += "</div>";
   page += getHtmlFooter();

@@ -320,17 +320,17 @@ export const ExportableHealthReport: React.FC<ExportableHealthReportProps> = ({
     if (!aggregatedData) return '';
     const d = aggregatedData;
     return `============================================================
-ALAGA CLINICAL HEALTH TELEMETRY REPORT
+ALAGA CLINICAL HEALTH MONITORING REPORT
 ============================================================
 Report ID: ${d.baseFileName}
 Generated: ${d.reportTimestamp}
 Patient / Subject: ${d.patientDisplayName}
-Scope: Inpatient / Home Telemetry
+Scope: Inpatient / Home Monitoring
 Report Type: ${d.reportType}
 Timeframe: ${d.timeframe}
-Verified By: ALAGA Edge Telemetry Platform (HIPAA Compliant)
+Verified By: ALAGA Edge Clinical Monitoring Platform (HIPAA Compliant)
 ------------------------------------------------------------
-1. VITAL SIGNS TELEMETRY SUMMARY
+1. VITAL SIGNS MONITORING SUMMARY
 ------------------------------------------------------------
 Packets Analyzed: ${d.readings.length} readings
 - Heart Rate:

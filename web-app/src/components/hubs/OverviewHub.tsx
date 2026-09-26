@@ -55,7 +55,7 @@ export default function OverviewHub() {
                             Command Dashboard
                         </span>
                     </h1>
-                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">Real-time patient telemetry, vital thresholds, and proactive anomaly monitoring.</p>
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">Real-time patient monitoring, vital thresholds, and proactive anomaly alerts.</p>
                 </div>
             </div>
 

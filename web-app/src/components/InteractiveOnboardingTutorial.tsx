@@ -142,7 +142,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                     interactiveType: 'neon-preview',
                     keyPoints: [
                         'Serverless Lakebase Postgres (Neon) health & real-time connection pooling',
-                        'Global sensor telemetry ingestion rates & WebSocket stream health',
+                        'Global sensor monitoring ingestion rates & WebSocket stream health',
                         'Hardware MAC whitelisting & Over-the-Air (OTA) firmware deployments'
                     ],
                     roleTip: 'All system configuration changes and administrator logins are immutably logged for forensic audit compliance.'
@@ -237,7 +237,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                     interactiveType: 'battery-preview',
                     keyPoints: [
                         'Automatic warning flags when sensor battery drops below 20%',
-                        'Sensor-to-bed pairing verification to prevent telemetry mix-ups',
+                        'Sensor-to-bed pairing verification to prevent monitoring mix-ups',
                         'Real-time WiFi signal heat-map for each room in your facility'
                     ],
                     roleTip: 'Sensors reach 80% charge in just 35 minutes using the magnetic charging cradle.'
@@ -301,7 +301,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                     icon: Stethoscope,
                     interactiveType: 'ward-preview',
                     keyPoints: [
-                        'Multi-patient ward overview with live telemetry cards for each bed',
+                        'Multi-patient ward overview with live monitoring cards for each bed',
                         'Real-time optical pulse-oximetry (SpO₂) and calibrated skin temperature',
                         'Instant acoustic & visual chimes with role-based alert escalation'
                     ],
@@ -639,7 +639,7 @@ export const InteractiveOnboardingTutorial: React.FC = () => {
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-black uppercase text-teal-950 flex items-center gap-1.5">
                                 <Building2 className="w-3.5 h-3.5 text-teal-700" />
-                                Ward Telemetry Simulator
+                                Ward Monitoring Simulator
                             </span>
                             <span className="text-[11px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
                                 4 Beds Online

@@ -461,7 +461,7 @@ export default function AIInsightsHub() {
             </div>
           </div>
 
-          {/* 4. Interactive Telemetry Trend Graphs */}
+          {/* 4. Interactive Monitoring Trend Graphs */}
           <Card className="border border-slate-200/80 shadow-xs bg-white">
             <CardHeader className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -504,7 +504,7 @@ export default function AIInsightsHub() {
               {insights.chartData.length === 0 ? (
                 <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-xs">
                   <Activity className="w-8 h-8 mb-2 opacity-50" />
-                  No telemetry recorded in this timeframe.
+                  No monitoring data recorded in this timeframe.
                 </div>
               ) : (
                 <div className="h-72 w-full min-w-0 overflow-hidden">

@@ -949,7 +949,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                         {clinicalAlerts.filter(a => a.status !== 'Acknowledged' && (a.flag_count || 0) < 5).length} Urgent
                                     </span>
                                 </h4>
-                                <p className="text-xs text-slate-600">Immediate caregiver attention required for patient telemetry anomalies.</p>
+                                <p className="text-xs text-slate-600">Immediate caregiver attention required for patient vital anomalies.</p>
                             </div>
                         </div>
                         <Button 

@@ -78,7 +78,7 @@ export default function MainLayout() {
               <span className="tracking-tight truncate sm:hidden font-black text-teal-950">ALAGA</span>
             </div>
             <span className="hidden xl:inline-block text-[11px] font-semibold text-slate-500 truncate">
-              Continuous IoT Diaper & Vitals Telemetry
+              Continuous IoT Diaper & Vitals Monitoring
             </span>
           </div>
 

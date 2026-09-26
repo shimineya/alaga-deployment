@@ -296,7 +296,7 @@ export default function UserProfile() {
                                                     </div>
                                                     <div>
                                                         <p className="text-sm font-bold text-slate-900">{profile.facility_name}</p>
-                                                        <p className="text-[11px] text-slate-500">{t('Enrolled as official facility member. Telemetry and records sync with ward systems.', 'Nakatala bilang opisyal na miyembro ng pasilidad.')}</p>
+                                                        <p className="text-[11px] text-slate-500">{t('Enrolled as official facility member. Monitoring and health records sync with ward systems.', 'Nakatala bilang opisyal na miyembro ng pasilidad.')}</p>
                                                     </div>
                                                 </div>
                                                 <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-blue-600 text-white shadow-xs shrink-0">

@@ -67,8 +67,8 @@ export default function ClinicalReportsHub() {
                         birthdate: p.birthdate ? bdayStr : undefined,
                         gender: p.gender || p.baseline_data?.gender || 'Unknown',
                         roomNumber: isSysAdminUser
-                            ? (p.room ? `Inpatient Telemetry (Room ${p.room})` : 'De-identified Inpatient Telemetry')
-                            : (isFacilityAdmin ? (p.room ? `Inpatient Telemetry (Room ${p.room})` : (p.baseline_data?.room || 'Facility')) : (p.room ? `Room ${p.room}` : 'Home')),
+                            ? (p.room ? `Inpatient Monitoring (Room ${p.room})` : 'De-identified Inpatient Monitoring')
+                            : (isFacilityAdmin ? (p.room ? `Inpatient Monitoring (Room ${p.room})` : (p.baseline_data?.room || 'Facility')) : (p.room ? `Room ${p.room}` : 'Home')),
                         condition: p.condition || p.baseline_data?.condition || 'Stable',
                         status: 'Stable',
                         medicalConditions: p.medical_history || p.medicalConditions || [],
@@ -164,7 +164,7 @@ export default function ClinicalReportsHub() {
                     </h1>
                     <p className="text-xs text-slate-500 mt-1">
                         {isCaregiverOrFamily
-                            ? 'Generate mobile-aligned health summaries, view past telemetry reports, and export official clinical PDF reports.'
+                            ? 'Generate mobile-aligned health summaries, view past monitoring reports, and export official clinical PDF reports.'
                             : 'In-depth clinical patient monitoring: Daily health summaries, ML anomaly logs, moisture & hygiene trends, weekly vital analytics, and physician PDF exports.'}
                     </p>
                 </div>

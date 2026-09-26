@@ -450,7 +450,7 @@ const AlertsHub: React.FC = () => {
                 <div>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50/90 border border-rose-200/90 text-rose-800 text-[11px] font-black uppercase tracking-wider mb-2 shadow-2xs">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-                        Live Clinical Telemetry
+                        Live Clinical Monitoring
                     </div>
                     <h1 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">
                         Critical Alarms & <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600">Diagnostics</span>

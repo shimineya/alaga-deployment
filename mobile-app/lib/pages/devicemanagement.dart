@@ -31,9 +31,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   void initState() {
     super.initState();
     _fetchDevices();
-    // [OWASP A01] Only parents assign devices. Pre-fetch patients now so
-    // the dropdown in the dialog opens instantly without an extra spinner.
-    if (UserSession.current?.isParent == true) {
+    // Pre-fetch patient roster so device actions and dialogs open instantly
+    if (UserSession.current != null) {
       _fetchPatientsForDialog();
     }
   }
@@ -689,7 +688,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   Widget _buildDeviceCard(Map<String, dynamic> device) {
     final serialNumber = device['serial_number'] ?? 'Unknown';
     final deviceName = device['device_name'] ?? 'Unknown';
-    final status = device['status'] ?? 'INACTIVE';
+    final status = (device['status'] ?? 'INACTIVE').toString().toUpperCase();
     final patientName = device['assigned_patient_name'];
     final isAssigned = device['assigned_patient_id'] != null;
     final battery = device['battery_level'];
@@ -697,8 +696,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     final firmware = device['firmware_version'] ?? 'Not reported';
     final isVital = deviceName.toString().toLowerCase().contains('vital');
     final color = isVital ? Colors.blue : Colors.orange;
-    // [OWASP A01] Only parent accounts can remove devices from the inventory.
     final isParent = UserSession.current?.isParent == true;
+    final isStandby = status == 'STANDBY';
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -721,23 +720,80 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isAssigned ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+                      color: isStandby
+                          ? Colors.orange.withValues(alpha: 0.15)
+                          : isAssigned
+                              ? Colors.green.withValues(alpha: 0.1)
+                              : Colors.grey.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      status,
-                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isAssigned ? Colors.green : Colors.grey),
+                      isStandby ? 'STANDBY' : status,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: isStandby
+                            ? Colors.orange.shade800
+                            : isAssigned
+                                ? Colors.green
+                                : Colors.grey,
+                      ),
                     ),
                   ),
                 ]),
                 const SizedBox(height: 2),
                 Text(deviceName, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
-                Text(
-                  isAssigned ? "Patient: $patientName" : "Unassigned",
-                  style: TextStyle(fontSize: 11, color: isAssigned ? const Color(0xFF00796B) : Colors.grey),
-                  overflow: TextOverflow.ellipsis,
+                const SizedBox(height: 5),
+                // Prominent Assigned Patient indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isAssigned ? const Color(0xFFE0F2F1) : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isAssigned ? const Color(0xFF80CBC4) : const Color(0xFFCBD5E1),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.person,
+                        size: 13,
+                        color: isAssigned ? const Color(0xFF00796B) : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        isAssigned ? "Assigned Patient: $patientName" : "Unassigned",
+                        style: GoogleFonts.albertSans(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: isAssigned ? const Color(0xFF004D40) : const Color(0xFF64748B),
+                        ),
+                      ),
+                      if (isStandby) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF3E0),
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border.all(color: const Color(0xFFFFB74D)),
+                          ),
+                          child: Text(
+                            "STANDBY",
+                            style: GoogleFonts.albertSans(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFE65100),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 9),
+                const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -759,17 +815,73 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
               Icon(
                 isVital ? Icons.monitor_heart_outlined : Icons.baby_changing_station,
                 color: color.withValues(alpha: 0.5),
-                size: 28,
+                size: 26,
               ),
-              // [OWASP A01] Delete button only visible to parent accounts.
-              if (isParent) ...[
-                const SizedBox(width: 4),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
-                  tooltip: 'Remove device from inventory',
-                  onPressed: () => _confirmRemoveDevice(context, device),
-                ),
-              ],
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Color(0xFF627D98), size: 22),
+                tooltip: "Device Actions",
+                onSelected: (action) {
+                  if (action == 'pair') {
+                    _confirmPairDevice(context, device);
+                  } else if (action == 'unpair_change') {
+                    _confirmUnpairDevice(context, device, isChange: true);
+                  } else if (action == 'unpair_permanent') {
+                    _confirmUnpairDevice(context, device, isChange: false);
+                  } else if (action == 'remove') {
+                    _confirmRemoveDevice(context, device);
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  // Pair action: ONLY for devices already assigned to this patient!
+                  if (isAssigned && status != 'ACTIVE')
+                    const PopupMenuItem(
+                      value: 'pair',
+                      child: Row(
+                        children: [
+                          Icon(Icons.link, color: Color(0xFF00796B), size: 18),
+                          SizedBox(width: 8),
+                          Text("Pair Device (Activate)", style: TextStyle(color: Color(0xFF00796B), fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  // Unpair to change
+                  if (isAssigned)
+                    const PopupMenuItem(
+                      value: 'unpair_change',
+                      child: Row(
+                        children: [
+                          Icon(Icons.battery_alert_outlined, color: Color(0xFFE65100), size: 18),
+                          SizedBox(width: 8),
+                          Text("Unpair to Change", style: TextStyle(color: Color(0xFFE65100))),
+                        ],
+                      ),
+                    ),
+                  // Unpair permanently
+                  if (isAssigned)
+                    const PopupMenuItem(
+                      value: 'unpair_permanent',
+                      child: Row(
+                        children: [
+                          Icon(Icons.link_off_outlined, color: Colors.redAccent, size: 18),
+                          SizedBox(width: 8),
+                          Text("Unpair Permanently", style: TextStyle(color: Colors.redAccent)),
+                        ],
+                      ),
+                    ),
+                  if (isParent)
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                          SizedBox(width: 8),
+                          Text("Remove from Inventory", style: TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
         ],
@@ -796,6 +908,159 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       ),
     );
   }
+
+  Future<void> _confirmUnpairDevice(
+    BuildContext pageContext,
+    Map<String, dynamic> device, {
+    required bool isChange,
+  }) async {
+    final serialNumber = device['serial_number'] as String? ?? 'this device';
+    final patientName = device['assigned_patient_name'] ?? 'the patient';
+
+    final confirmed = await showDialog<bool>(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          isChange ? "Unpair Device to Change?" : "Unpair Permanently?",
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.bold,
+            color: isChange ? const Color(0xFFE65100) : Colors.redAccent,
+          ),
+        ),
+        content: Text(
+          isChange
+              ? "Place $serialNumber on Standby for replacement (e.g. low battery or faulty)?\n\nIt will remain saved under $patientName's device list so you can re-pair or change it."
+              : "Permanently unpair $serialNumber from $patientName?\n\nThis will completely remove this device from the patient's device list.",
+          style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[800]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text("Cancel", style: GoogleFonts.albertSans(color: Colors.grey[600])),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isChange ? const Color(0xFFE65100) : Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(isChange ? "Unpair to Change" : "Unpair Permanently"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final result = await ApiService.post('/api/caregiver/devices/unpair', {
+      'serialNumber': serialNumber,
+      'action': isChange ? 'change' : 'permanent',
+    });
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Device updated successfully.'),
+          backgroundColor: isChange ? const Color(0xFFE65100) : Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _fetchDevices();
+    } else {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Failed to unpair device.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmPairDevice(
+    BuildContext pageContext,
+    Map<String, dynamic> device,
+  ) async {
+    final serialNumber = device['serial_number'] as String? ?? 'this device';
+    final patientId = device['assigned_patient_id'];
+    final patientName = device['assigned_patient_name'] ?? 'the patient';
+
+    // [USER REQUIREMENT] Pair is only for devices already assigned to the patient!
+    if (patientId == null) {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        const SnackBar(
+          content: Text("Cannot pair: This device is not assigned to any patient. Only devices already assigned to a patient can be paired."),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Pair Device?",
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF00796B),
+          ),
+        ),
+        content: Text(
+          "Pair $serialNumber to $patientName?\n\nThis will activate real-time telemetry streaming and vital monitoring for this patient.",
+          style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[800]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text("Cancel", style: GoogleFonts.albertSans(color: Colors.grey[600])),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00796B),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text("Pair Device"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final result = await ApiService.post('/api/caregiver/devices/pair', {
+      'serialNumber': serialNumber,
+      'patientId': patientId,
+    });
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Device paired successfully.'),
+          backgroundColor: const Color(0xFF00796B),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _fetchDevices();
+    } else {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Failed to pair device.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   // [OWASP A01] Only a parent account can remove a device from the inventory.
   // [OWASP A05] Serial number is sent as a typed path parameter — never concatenated.
   // A two-step confirmation dialog is required before the DELETE is executed.

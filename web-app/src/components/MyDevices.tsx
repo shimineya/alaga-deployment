@@ -20,7 +20,10 @@ import {
     MoreVertical,
     Activity,
     Signal,
-    Cpu
+    Cpu,
+    Link2,
+    RotateCw,
+    XCircle
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { toast } from 'sonner';
@@ -44,7 +47,7 @@ import { AddNewDeviceModal } from './AddNewDevice';
 interface Device {
     serial_number: string;
     device_name: string;
-    status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+    status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'STANDBY';
     is_online?: boolean;
     last_heartbeat: string;
     battery_level?: number | null;
@@ -52,6 +55,7 @@ interface Device {
     assigned_room?: string; // Optional: To be populated if available
     firmware_version?: string;
     pending_firmware_version?: string | null;
+    assigned_patient_id?: number | null;
     assigned_patient_baseline?: any;
     assigned_patient_name?: string;
 }
@@ -98,6 +102,8 @@ export const MyDevices: React.FC = () => {
                     is_online: Boolean(d.is_online),
                     battery_level: d.battery_level !== undefined && d.battery_level !== null ? Number(d.battery_level) : null,
                     signal_strength: d.is_online ? (d.signal_strength || 'Good') : 'No Signal',
+                    assigned_patient_id: d.assigned_patient_id || null,
+                    assigned_patient_name: d.assigned_patient_name || null,
                     assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
                     firmware_version: d.firmware_version || 'v1.0.0',
                     pending_firmware_version: d.pending_firmware_version || null,
@@ -203,8 +209,9 @@ export const MyDevices: React.FC = () => {
         }
     };
 
-    const handleUnpair = async (device: Device) => {
-        if (!confirm(`Are you sure you want to unpair ${device.device_name}? This will remove it from its assigned patient.`)) return;
+    const handleUnpairToChange = async (device: Device) => {
+        const patientName = device.assigned_patient_name || 'the patient';
+        if (!confirm(`Unpair ${device.device_name} (SN: ${device.serial_number}) for replacement?\n\nThis will place the device on Standby (e.g. low battery or faulty). It will remain saved in ${patientName}'s device list so you can re-pair or change it.`)) return;
 
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/unpair`, {
@@ -213,18 +220,86 @@ export const MyDevices: React.FC = () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ serialNumber: device.serial_number })
+                body: JSON.stringify({ 
+                    serialNumber: device.serial_number,
+                    action: 'change',
+                    reason: 'Device faulty or low battery - standby for replacement'
+                })
             });
             const data = await res.json();
             if (data.success) {
-                toast.success("Device unpaired successfully");
-                fetchInventory(); // Refresh list
+                toast.success(data.message || "Device set to Standby for replacement. It remains saved to the patient record.");
+                fetchInventory();
             } else {
-                toast.error(data.message || "Failed to unpair device");
+                toast.error(data.message || "Failed to unpair device for replacement");
             }
         } catch (err) {
             console.error(err);
-            toast.error("Network error during unpair");
+            toast.error("Network error during unpair to change");
+        }
+    };
+
+    const handleUnpairPermanently = async (device: Device) => {
+        const patientName = device.assigned_patient_name || 'the patient';
+        if (!confirm(`Are you sure you want to permanently unpair ${device.device_name} (SN: ${device.serial_number})?\n\nThis will completely remove this device from ${patientName}'s device list.`)) return;
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/unpair`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ 
+                    serialNumber: device.serial_number,
+                    action: 'permanent'
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || "Device permanently removed from patient's device list.");
+                fetchInventory();
+            } else {
+                toast.error(data.message || "Failed to permanently unpair device");
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Network error during permanent unpair");
+        }
+    };
+
+    const handlePairDevice = async (device: Device) => {
+        // [USER REQUIREMENT] The pair device action is ONLY for devices that are already assigned to the patient!
+        if (!device.assigned_patient_id) {
+            toast.error("Cannot pair: This device is not currently assigned to any patient. Only devices already assigned to a patient can be paired.");
+            return;
+        }
+
+        const patientName = device.assigned_patient_name || 'the patient';
+        if (!confirm(`Pair ${device.device_name} (SN: ${device.serial_number}) to ${patientName}?\n\nThis will activate real-time telemetry streaming and clinical monitoring for this patient.`)) return;
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/pair`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ 
+                    serialNumber: device.serial_number,
+                    patientId: device.assigned_patient_id
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || `Device paired successfully to ${patientName}! Readings will be captured seamlessly.`);
+                fetchInventory();
+            } else {
+                toast.error(data.message || "Failed to pair device");
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Network error during pair device");
         }
     };
 
@@ -368,7 +443,8 @@ export const MyDevices: React.FC = () => {
                     <Table>
                         <TableHeader>
                             <TableRow className="bg-slate-50 hover:bg-slate-50">
-                                <TableHead className="w-[250px]">Device Name</TableHead>
+                                <TableHead className="w-[230px]">Device Name</TableHead>
+                                <TableHead>Assigned Patient</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Battery & Signal</TableHead>
                                 {!isSystemAdmin && <TableHead>Location (Ward/Room/Bed)</TableHead>}
@@ -379,7 +455,7 @@ export const MyDevices: React.FC = () => {
                         <TableBody>
                             {paginatedDevices.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={isSystemAdmin ? 5 : 6} className="text-center py-12 text-slate-500">
+                                    <TableCell colSpan={isSystemAdmin ? 6 : 7} className="text-center py-12 text-slate-500">
                                         <div className="flex flex-col items-center justify-center">
                                             <Search className="w-8 h-8 mb-2 opacity-20" />
                                             <p>No devices found matching your criteria.</p>
@@ -406,8 +482,28 @@ export const MyDevices: React.FC = () => {
                                                 </div>
                                             </TableCell>
                                             <TableCell>
+                                                {device.assigned_patient_name ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-7 h-7 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-xs shrink-0 border border-teal-200 shadow-xs">
+                                                            {device.assigned_patient_name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <div className="flex flex-col text-left">
+                                                            <span className="font-semibold text-slate-900 text-sm">{device.assigned_patient_name}</span>
+                                                            {device.status === 'STANDBY' && (
+                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-300 w-fit">
+                                                                    Standby (Changing)
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400 italic text-sm">Unassigned</span>
+                                                )}
+                                            </TableCell>
+                                            <TableCell>
                                                 <Badge variant="outline" className={`
                                                     ${device.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                        device.status === 'STANDBY' ? 'bg-amber-50 text-amber-700 border-amber-300 font-medium' :
                                                         device.status === 'INACTIVE' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                                                             'bg-amber-50 text-amber-700 border-amber-200'}
                                                 `}>
@@ -464,7 +560,7 @@ export const MyDevices: React.FC = () => {
                                                             <MoreVertical className="w-4 h-4 text-slate-400" />
                                                         </Button>
                                                     </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end" className="w-[160px]">
+                                                    <DropdownMenuContent align="end" className="w-[230px]">
                                                         <DropdownMenuItem onClick={() => handlePing(device)}>
                                                             Ping Device
                                                         </DropdownMenuItem>
@@ -473,12 +569,38 @@ export const MyDevices: React.FC = () => {
                                                             Push Firmware Update
                                                         </DropdownMenuItem>
                                                         {!isSystemAdmin && (
-                                                            <DropdownMenuItem
-                                                                className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                                                                onClick={() => handleUnpair(device)}
-                                                            >
-                                                                Unpair Device
-                                                            </DropdownMenuItem>
+                                                            <>
+                                                                {/* Pair Device: ONLY for devices already assigned to this patient */}
+                                                                {device.assigned_patient_name && device.assigned_patient_id && device.status !== 'ACTIVE' && (
+                                                                    <DropdownMenuItem
+                                                                        className="text-teal-700 focus:text-teal-700 focus:bg-teal-50 font-semibold"
+                                                                        onClick={() => handlePairDevice(device)}
+                                                                    >
+                                                                        <Link2 className="w-3.5 h-3.5 mr-2 text-teal-600" />
+                                                                        Pair Device (Activate)
+                                                                    </DropdownMenuItem>
+                                                                )}
+                                                                {/* Unpair Device to Change (Faulty / Low Battery) */}
+                                                                {device.assigned_patient_name && (
+                                                                    <DropdownMenuItem
+                                                                        className="text-amber-700 focus:text-amber-700 focus:bg-amber-50 font-medium"
+                                                                        onClick={() => handleUnpairToChange(device)}
+                                                                    >
+                                                                        <RotateCw className="w-3.5 h-3.5 mr-2 text-amber-600" />
+                                                                        Unpair Device to Change
+                                                                    </DropdownMenuItem>
+                                                                )}
+                                                                {/* Unpair Permanently */}
+                                                                {device.assigned_patient_name && (
+                                                                    <DropdownMenuItem
+                                                                        className="text-red-600 focus:text-red-600 focus:bg-red-50 font-medium"
+                                                                        onClick={() => handleUnpairPermanently(device)}
+                                                                    >
+                                                                        <XCircle className="w-3.5 h-3.5 mr-2 text-red-500" />
+                                                                        Unpair Permanently
+                                                                    </DropdownMenuItem>
+                                                                )}
+                                                            </>
                                                         )}
                                                         {canArchive && (
                                                             <DropdownMenuItem

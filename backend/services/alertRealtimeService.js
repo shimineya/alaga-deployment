@@ -1,11 +1,4 @@
-/**
- * Real-time SSE (Server-Sent Events) Service for ALAGA Notifications & Alerts
- * 
- * Provides an instant real-time synchronization bridge between:
- * - Web App (GlobalNotificationBell, AlertsHub, useAlertSync)
- * - Mobile App (AlertNotificationService, NotificationScreen, Dashboard badge)
- * - Hardware / Sensor Ingestion & AI anomaly pipeline
- */
+const pool = require('../db');
 
 const clients = new Set();
 // Map of userId -> { isMuted: boolean, expiresAt: number }
@@ -41,6 +34,44 @@ function getMuteStatus(userId) {
 }
 
 /**
+ * Refresh accessible patient IDs for a specific client
+ */
+async function refreshClientAccess(client) {
+    if (!client || !client.userId || client.allAccess) return;
+    try {
+        let res;
+        if (client.role === 'facility_admin') {
+            res = await pool.query(`
+                SELECT pa.patient_id FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE u.created_by = $1
+                UNION
+                SELECT pa2.patient_id FROM patient_access pa2 WHERE pa2.invited_by = $1
+                UNION
+                SELECT p2.patient_id FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text
+            `, [client.userId]);
+        } else {
+            // caregiver, medical_staff, parent, nurse, doctor
+            res = await pool.query(`
+                SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1 AND pa.is_archived IS DISTINCT FROM TRUE
+                UNION
+                SELECT dw.assigned_patient_id FROM device_whitelist dw WHERE dw.assigned_patient_id IS NOT NULL AND dw.added_by = $1
+            `, [client.userId]);
+        }
+        client.accessiblePatientIds = new Set(res.rows.map(r => String(r.patient_id)));
+    } catch (err) {
+        console.error(`[Realtime Alert SSE] Error fetching patient access for user ${client.userId}:`, err.message);
+    }
+}
+
+/**
+ * Refresh access for all connected clients (e.g. after assignment or pairing changes)
+ */
+function refreshAllClientsAccess() {
+    for (const client of clients) {
+        refreshClientAccess(client).catch(() => {});
+    }
+}
+
+/**
  * Handle incoming SSE stream connection from Web App or Mobile App
  */
 function handleAlertStream(req, res) {
@@ -53,17 +84,27 @@ function handleAlertStream(req, res) {
     }
 
     const userId = req.user?.id;
+    const userRole = (req.user?.role || '').toLowerCase();
+    const isSysAdmin = req.user?.is_sysadmin || ['system_admin', 'sysadmin', 'admin'].includes(userRole);
+
     const clientId = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const client = {
         id: clientId,
         userId: userId ? String(userId) : null,
-        role: req.user?.role,
+        role: userRole,
         facilityId: req.user?.facility_id,
+        allAccess: isSysAdmin,
+        accessiblePatientIds: new Set(),
         res
     };
 
     clients.add(client);
-    console.log(`[Realtime Alert SSE] Client connected: ${clientId} (User: ${userId || 'anon'}, Role: ${req.user?.role || 'unknown'}). Total active clients: ${clients.size}`);
+    console.log(`[Realtime Alert SSE] Client connected: ${clientId} (User: ${userId || 'anon'}, Role: ${userRole || 'unknown'}). Total active clients: ${clients.size}`);
+
+    // Pre-populate accessible patients for non-sysadmins
+    if (!isSysAdmin && userId) {
+        refreshClientAccess(client);
+    }
 
     // Initial connection acknowledgment with active mute status
     try {
@@ -94,11 +135,11 @@ function handleAlertStream(req, res) {
 }
 
 /**
- * Broadcast an alert or notification change event to all connected clients
- * @param {string} eventType - e.g. 'new_alert', 'alert_acknowledged', 'alert_archived', 'alert_sound_mute', 'system_alert'
+ * Broadcast an alert or notification change event to appropriately scoped clients
+ * @param {string} eventType - e.g. 'new_alert', 'new_clinical_alert', 'alert_acknowledged', 'alert_archived', 'alert_sound_mute', 'system_alert'
  * @param {object} payload - event details
  */
-function broadcastAlert(eventType, payload = {}) {
+async function broadcastAlert(eventType, payload = {}) {
     const enrichedPayload = {
         type: eventType,
         ...payload,
@@ -106,10 +147,61 @@ function broadcastAlert(eventType, payload = {}) {
     };
     const messageData = JSON.stringify(enrichedPayload);
 
-    console.log(`[Realtime Alert SSE] Broadcasting '${eventType}' to ${clients.size} connected client(s):`, payload.message || payload.alertId || payload.alert_id || '');
+    // Extract target patient ID if present
+    const rawPatientId = payload.patient_id ?? payload.patientId ?? payload.target_patient_id;
+    const targetPatientId = rawPatientId != null ? String(rawPatientId) : null;
+
+    // Extract target user ID if present (e.g. for personal notifications, sound mute sync)
+    const rawUserId = payload.userId ?? payload.user_id ?? payload.target_user_id;
+    const targetUserId = rawUserId != null ? String(rawUserId) : null;
+
+    console.log(`[Realtime Alert SSE] Broadcasting '${eventType}' (Patient: ${targetPatientId || 'N/A'}, TargetUser: ${targetUserId || 'All'}) to ${clients.size} connected client(s)`);
 
     for (const client of clients) {
         try {
+            // 1. Direct user targeting (e.g. mute toggle or specific user notification)
+            if (targetUserId && eventType === 'alert_sound_mute') {
+                if (client.userId !== targetUserId) {
+                    continue; // Skip clients that do not belong to this user
+                }
+            }
+
+            // 2. Patient access restriction for patient-specific alerts/events
+            if (targetPatientId && !client.allAccess) {
+                // If client does not have this patient in cached access set, check on-demand
+                if (!client.accessiblePatientIds || !client.accessiblePatientIds.has(targetPatientId)) {
+                    let allowed = false;
+                    try {
+                        let chk;
+                        if (client.role === 'facility_admin') {
+                            chk = await pool.query(`
+                                SELECT 1 FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE u.created_by = $1 AND pa.patient_id = $2
+                                UNION
+                                SELECT 1 FROM patient_access pa2 WHERE pa2.invited_by = $1 AND pa2.patient_id = $2
+                                UNION
+                                SELECT 1 FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text AND p2.patient_id = $2
+                            `, [client.userId, targetPatientId]);
+                        } else {
+                            chk = await pool.query(`
+                                SELECT 1 FROM patient_access pa WHERE pa.user_id = $1 AND pa.patient_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE
+                                UNION
+                                SELECT 1 FROM device_whitelist dw WHERE dw.assigned_patient_id = $2 AND dw.added_by = $1
+                            `, [client.userId, targetPatientId]);
+                        }
+                        if (chk.rows.length > 0) {
+                            if (!client.accessiblePatientIds) client.accessiblePatientIds = new Set();
+                            client.accessiblePatientIds.add(targetPatientId);
+                            allowed = true;
+                        }
+                    } catch (_) {}
+
+                    if (!allowed) {
+                        // Client is not authorized to see alerts for this patient! Skip sending!
+                        continue;
+                    }
+                }
+            }
+
             // Send both generic 'alert_update' and specific eventType for maximum compatibility
             client.res.write(`event: alert_update\ndata: ${messageData}\n\n`);
             if (eventType !== 'alert_update') {
@@ -126,5 +218,7 @@ module.exports = {
     broadcastAlert,
     setMuteStatus,
     getMuteStatus,
+    refreshClientAccess,
+    refreshAllClientsAccess,
     getActiveClientCount: () => clients.size
 };

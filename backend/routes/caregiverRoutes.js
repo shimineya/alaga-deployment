@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, enforceBreakGlassForSysAdmin } = require('../middleware/authMiddleware');
 const systemReportService = require('../services/systemReportService');
+const { broadcastAlert, refreshAllClientsAccess } = require('../services/alertRealtimeService');
 
 // Apply Security Middleware
 router.use(verifyToken);
@@ -85,10 +86,16 @@ router.get('/devices', async (req, res) => {
         // Dynamically compute real-time connection status (Online if heartbeat received within last 60 seconds)
         const processedRows = result.rows.map(row => {
             const isOnline = row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 60000;
+            let displayStatus = isOnline ? 'ACTIVE' : 'INACTIVE';
+            if (row.status === 'STANDBY') {
+                displayStatus = 'STANDBY';
+            } else if (row.status === 'MAINTENANCE') {
+                displayStatus = 'MAINTENANCE';
+            }
             return {
                 ...row,
                 is_online: !!isOnline,
-                status: isOnline ? (row.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'ACTIVE') : (row.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
+                status: displayStatus
             };
         });
 
@@ -2093,63 +2100,249 @@ router.put('/patients/:id/unlink-device', async (req, res) => {
 
 // ==========================================
 // 4.5. UNPAIR DEVICE
+// Supports two unpair actions:
+// - 'change': device is faulty or low battery and needs replacement. Kept saved as one of patient's devices (status = 'STANDBY').
+// - 'permanent': completely unassigns and removes the device from patient's device list (assigned_patient_id = NULL).
 // ==========================================
 router.post('/devices/unpair', async (req, res) => {
     const client = await pool.connect();
     try {
-        const { serialNumber } = req.body;
+        const { serialNumber, action = 'permanent', reason } = req.body;
+        const role = (req.user.role || '').toLowerCase();
+        const userId = req.user.id;
+        const isSysAdmin = req.user.is_sysadmin || ['system_admin', 'sysadmin', 'admin'].includes(role);
 
         if (!serialNumber) {
             return res.status(400).json({ success: false, message: 'Serial number is required' });
         }
 
-        // [OWASP A01] Scoped check for facility admin
-        if (req.user.role === 'facility_admin') {
-            const hasAccess = await client.query(
-                `SELECT 1 FROM device_whitelist d
-                 WHERE d.serial_number = $1 AND (
-                     d.added_by = $2
-                     OR d.added_by IN (
-                         SELECT user_id FROM users WHERE created_by = $2
-                     )
-                     OR d.assigned_patient_id IN (
-                         SELECT patient_id FROM patient_access WHERE invited_by = $2
-                     )
-                     OR d.assigned_patient_id IN (
-                         SELECT patient_id FROM patient_access WHERE user_id IN (
-                             SELECT user_id FROM users WHERE created_by = $2
-                         )
-                     )
-                 )`,
-                [serialNumber, req.user.id]
-            );
-            if (hasAccess.rows.length === 0) {
-                client.release();
-                return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to unpair this device.' });
+        // Verify device exists
+        const devRes = await client.query(
+            "SELECT serial_number, device_name, assigned_patient_id, added_by FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE",
+            [serialNumber]
+        );
+        if (devRes.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Device not found.' });
+        }
+        const dev = devRes.rows[0];
+
+        // Access check
+        if (!isSysAdmin) {
+            if (role === 'facility_admin') {
+                const hasAccess = await client.query(
+                    `SELECT 1 FROM device_whitelist d
+                     WHERE d.serial_number = $1 AND (
+                         d.added_by = $2
+                         OR d.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                         OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $2)
+                         OR d.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE user_id IN (SELECT user_id FROM users WHERE created_by = $2))
+                     )`,
+                    [serialNumber, userId]
+                );
+                if (hasAccess.rows.length === 0) {
+                    client.release();
+                    return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to unpair this device.' });
+                }
+            } else {
+                // caregiver, medical_staff, parent
+                const hasAccess = await client.query(
+                    `SELECT 1 FROM device_whitelist d
+                     WHERE d.serial_number = $1 AND (
+                         d.added_by = $2
+                         OR (d.assigned_patient_id IS NOT NULL AND d.assigned_patient_id IN (
+                             SELECT patient_id FROM patient_access WHERE user_id = $2 AND is_archived IS DISTINCT FROM TRUE
+                         ))
+                     )`,
+                    [serialNumber, userId]
+                );
+                if (hasAccess.rows.length === 0) {
+                    client.release();
+                    return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to unpair this device.' });
+                }
             }
         }
 
         await client.query('BEGIN');
 
-        // 1. Remove assignment from device_whitelist
-        await client.query(
-            "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'ACTIVE' WHERE serial_number = $1",
-            [serialNumber]
-        );
+        if (action === 'change') {
+            // UNPAIR TO CHANGE (Device faulty / low battery):
+            // Keep assigned_patient_id so device remains saved in patient's associated devices.
+            // Set status to 'STANDBY'.
+            await client.query(
+                "UPDATE device_whitelist SET status = 'STANDBY' WHERE serial_number = $1",
+                [serialNumber]
+            );
 
-        // 2. Remove assignment from patients table (if linked)
-        await client.query(
-            "UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1",
-            [serialNumber]
-        );
+            // If this device was the primary active device on patients table, clear it so a replacement can be paired
+            if (dev.assigned_patient_id) {
+                await client.query(
+                    "UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id = $2",
+                    [serialNumber, dev.assigned_patient_id]
+                );
+            }
 
-        await client.query('COMMIT');
-        res.json({ success: true, message: 'Device unpaired successfully' });
+            await client.query('COMMIT');
+            refreshAllClientsAccess();
+            broadcastAlert('device_status_update', { 
+                serialNumber, 
+                patient_id: dev.assigned_patient_id, 
+                status: 'STANDBY', 
+                action: 'unpair_change',
+                reason: reason || 'Device faulty or low battery - standby for replacement'
+            });
+
+            return res.json({ 
+                success: true, 
+                action: 'change',
+                message: 'Device set to Standby for replacement. It remains saved as one of the patient\'s devices.' 
+            });
+        } else {
+            // UNPAIR PERMANENTLY:
+            // Completely removes device from the list of the patient's devices.
+            await client.query(
+                "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'AVAILABLE' WHERE serial_number = $1",
+                [serialNumber]
+            );
+
+            await client.query(
+                "UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1",
+                [serialNumber]
+            );
+
+            await client.query('COMMIT');
+            refreshAllClientsAccess();
+            broadcastAlert('device_status_update', { 
+                serialNumber, 
+                patient_id: dev.assigned_patient_id, 
+                status: 'AVAILABLE', 
+                action: 'unpair_permanent' 
+            });
+
+            return res.json({ 
+                success: true, 
+                action: 'permanent',
+                message: 'Device unpaired permanently and removed from the patient\'s device list.' 
+            });
+        }
 
     } catch (err) {
         await client.query('ROLLBACK');
         console.error("Unpair Device Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to unpair device' });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 4.6. PAIR DEVICE TO PATIENT
+// Pairs an available or standby device directly to a patient so readings immediately route to them
+// ==========================================
+router.post('/devices/pair', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { serialNumber, patientId } = req.body;
+        const role = (req.user.role || '').toLowerCase();
+        const userId = req.user.id;
+        const isSysAdmin = req.user.is_sysadmin || ['system_admin', 'sysadmin', 'admin'].includes(role);
+
+        if (!serialNumber || !patientId) {
+            return res.status(400).json({ success: false, message: 'Both serial number and patient ID are required.' });
+        }
+
+        const parsedPatientId = parseInt(patientId, 10);
+        if (isNaN(parsedPatientId)) {
+            return res.status(400).json({ success: false, message: 'Invalid patient ID.' });
+        }
+
+        // 1. Verify patient exists and user has access
+        let patientRow;
+        if (isSysAdmin) {
+            const pRes = await client.query("SELECT patient_id, name FROM patients WHERE patient_id = $1 AND is_archived IS DISTINCT FROM TRUE", [parsedPatientId]);
+            patientRow = pRes.rows[0];
+        } else if (role === 'facility_admin') {
+            const pRes = await client.query(
+                `SELECT patient_id, name FROM patients WHERE patient_id = $1 AND (facility_id = $2 OR baseline_data->>'created_by' = $3::text) AND is_archived IS DISTINCT FROM TRUE`,
+                [parsedPatientId, req.user.facility_id, userId]
+            );
+            patientRow = pRes.rows[0];
+        } else {
+            // Caregiver, Medstaff, Parent
+            const pRes = await client.query(
+                `SELECT p.patient_id, p.name FROM patients p
+                 JOIN patient_access pa ON p.patient_id = pa.patient_id
+                 WHERE p.patient_id = $1 AND pa.user_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE AND p.is_archived IS DISTINCT FROM TRUE`,
+                [parsedPatientId, userId]
+            );
+            patientRow = pRes.rows[0];
+        }
+
+        if (!patientRow) {
+            client.release();
+            return res.status(403).json({ success: false, message: 'Patient not found or you do not have permission to manage this patient.' });
+        }
+
+        // 2. Verify device in whitelist
+        const devRes = await client.query(
+            "SELECT serial_number, device_name, assigned_patient_id, status FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE",
+            [serialNumber]
+        );
+        if (devRes.rows.length === 0) {
+            client.release();
+            return res.status(404).json({ success: false, message: 'Device not found in registry.' });
+        }
+
+        const dev = devRes.rows[0];
+
+        // [USER REQUIREMENT] Pair is ONLY for devices already assigned to this patient!
+        if (!dev.assigned_patient_id || parseInt(dev.assigned_patient_id, 10) !== parsedPatientId) {
+            client.release();
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Cannot pair device: This device is not assigned to this patient. The Pair action is only available for devices already assigned to the patient.' 
+            });
+        }
+
+        await client.query('BEGIN');
+
+        // Clear previous patient's device_serial_number if it was this serial
+        await client.query(
+            "UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id != $2",
+            [serialNumber, parsedPatientId]
+        );
+
+        // Assign device to target patient and set status ACTIVE
+        await client.query(
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
+            [parsedPatientId, serialNumber]
+        );
+
+        // Set as patient's active device_serial_number
+        await client.query(
+            "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
+            [serialNumber, parsedPatientId]
+        );
+
+        await client.query('COMMIT');
+        refreshAllClientsAccess();
+        broadcastAlert('device_status_update', { 
+            serialNumber, 
+            patient_id: parsedPatientId, 
+            patientName: patientRow.name,
+            status: 'ACTIVE', 
+            action: 'pair' 
+        });
+
+        res.json({ 
+            success: true, 
+            message: `Device ${serialNumber} successfully paired to ${patientRow.name}. Readings will be seamlessly captured.` 
+        });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Pair Device Error:", err.message);
+        res.status(500).json({ success: false, message: 'Failed to pair device' });
     } finally {
         client.release();
     }

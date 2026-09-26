@@ -344,7 +344,7 @@ void sendImmediateOnlineHandshake() {
   http.setTimeout(5000);
 
   readBattery();
-  readWetness();
+  readSensors();
 
   String payload = "{"
     "\"device_id\":\"" + device_id + "\","
@@ -709,10 +709,6 @@ void handleStatus() {
 // ------------------------------------------------------------------------------
 void handleVerifyAdmin() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
-  if (!server.hasArg("pin")) {
-    server.send(400, "application/json", "{\"success\":false,\"message\":\"Missing PIN\"}");
-    return;
-  }
   String enteredPin = server.arg("pin");
   enteredPin.trim();
 
@@ -720,13 +716,14 @@ void handleVerifyAdmin() {
     String json = "{";
     json += "\"success\":true,";
     json += "\"device_id\":\"" + device_id + "\",";
+    json += "\"device_token\":\"" + device_token + "\",";
     json += "\"server_url\":\"" + server_url + "\",";
     json += "\"sensor_type\":" + String(sensor_type) + ",";
     json += "\"water_pin\":" + String(water_pin);
     json += "}";
     server.send(200, "application/json", json);
   } else {
-    server.send(401, "application/json", "{\"success\":false,\"message\":\"Unauthorized\"}");
+    server.send(401, "application/json", "{\"success\":false,\"message\":\"Invalid PIN\"}");
   }
 }
 
@@ -859,8 +856,13 @@ void handleSetup() {
   page += "</div>";
 
   page += "<div class='form-group'>";
-  page += "<label for='server_url'>Backend Ingestion URL</label>";
-  page += "<input type='text' id='server_url' name='server_url' placeholder='Backend API URL'>";
+  page += "<label for='device_token'>Hardware Device Token (X-Device-Token)</label>";
+  page += "<input type='text' id='device_token' name='device_token' placeholder='Hardware security token'>";
+  page += "</div>";
+
+  page += "<div class='form-group'>";
+  page += "<label for='server_url'>Backend API Endpoint</label>";
+  page += "<input type='text' id='server_url' name='server_url' placeholder='e.g. https://alaga-backend.onrender.com/api/device/data'>";
   page += "</div>";
 
   page += "<div class='form-group'>";
@@ -875,11 +877,12 @@ void handleSetup() {
   page += "<div class='form-group'>";
   page += "<label for='sensor_pin'>Moisture Sensor GPIO Pin</label>";
   page += "<select id='sensor_pin' name='sensor_pin'>";
-  page += "<option value='4'>GPIO 4 (Standard / Default Wiring)</option>";
-  page += "<option value='34'>GPIO 34 (Recommended for smooth 0-100% analog curve on ESP32)</option>";
+  page += "<option value='4'>GPIO 4 (Standard / Default Digital D0 Wiring)</option>";
+  page += "<option value='34'>GPIO 34 (Recommended for smooth 0-100% analog curve on ESP32 / ADC1)</option>";
   page += "<option value='32'>GPIO 32 (Alternate ADC1 Pin)</option>";
+  page += "<option value='33'>GPIO 33 (ADC1 Pin)</option>";
   page += "</select>";
-  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Tip: On ESP32, GPIO 34/32 are ADC1 (WiFi-safe analog). GPIO 4 is ADC2, ideal for digital comparator signals.</p>";
+  page += "<p style='font-size:11px; color:#64748B; margin-top:4px;'>Tip: On ESP32, GPIO 34, 33, 32 are ADC1 (WiFi-safe analog). GPIO 4 is ADC2, ideal for digital comparator signals.</p>";
   page += "</div>";
 
   page += "<input type='hidden' id='admin_pin_hidden' name='admin_pin' value=''>";
@@ -927,6 +930,7 @@ void handleSetup() {
   page += "        document.getElementById('serial_lock_badge').style.background = '#ECFDF5';";
   page += "        document.getElementById('serial_lock_badge').style.color = '#065F46';";
   page += "        document.getElementById('admin_device_id').value = d.device_id;";
+  page += "        document.getElementById('device_token').value = d.device_token;";
   page += "        document.getElementById('server_url').value = d.server_url;";
   page += "        document.getElementById('sensor_type').value = d.sensor_type;";
   page += "        document.getElementById('sensor_pin').value = d.water_pin;";
@@ -970,14 +974,10 @@ void handleSave() {
   }
   new_ssid.trim();
 
-  String new_pass    = server.arg("password");
-  new_pass.trim();
-
-  String new_url     = server.arg("server_url");
-  new_url.trim();
-
-  String new_dev_id  = server.arg("device_id");
-  new_dev_id.trim();
+  String new_pass     = server.arg("password");     new_pass.trim();
+  String new_dev_id   = server.arg("device_id");    new_dev_id.trim();
+  String new_token    = server.arg("device_token"); new_token.trim();
+  String new_url      = server.arg("server_url");   new_url.trim();
 
   int new_sensor_type = sensor_type;
   if (server.hasArg("sensor_type")) {
@@ -992,6 +992,7 @@ void handleSave() {
   // Check if protected admin parameters are being modified
   bool isChangingAdminSettings = (new_url.length() > 0 && new_url != server_url)
                               || (new_dev_id.length() > 0 && new_dev_id != device_id)
+                              || (new_token.length() > 0 && new_token != device_token)
                               || (new_sensor_type != sensor_type)
                               || (new_water_pin != water_pin);
 
@@ -1003,7 +1004,7 @@ void handleSave() {
       page += "<div style='font-size:42px; margin-bottom: 10px;'>⛔</div>";
       page += "<h1 class='title'>Access Denied</h1>";
       page += "<p class='subtitle' style='color:#EF4444; margin-top:8px;'>Invalid Admin Authorization PIN.</p>";
-      page += "<p style='font-size:12px; color:var(--text-muted); margin-top:10px;'>Only authorized administrators may modify device identity, sensor pins, or backend endpoints.</p>";
+      page += "<p style='font-size:12px; color:var(--text-muted); margin-top:10px;'>Only authorized administrators may modify device identity, sensor pins, security tokens, or backend endpoints.</p>";
       page += "<a href='/setup' class='btn btn-secondary' style='margin-top:20px;'>Try Again</a>";
       page += "</div>";
       page += getHtmlFooter();
@@ -1012,8 +1013,9 @@ void handleSave() {
     }
 
     // Authorized admin modifications
-    if (new_url.length() > 0)    server_url  = new_url;
-    if (new_dev_id.length() > 0) device_id   = new_dev_id;
+    if (new_url.length() > 0)    server_url   = new_url;
+    if (new_dev_id.length() > 0) device_id    = new_dev_id;
+    if (new_token.length() > 0)  device_token = new_token;
     sensor_type = new_sensor_type;
     water_pin   = new_water_pin;
   }
@@ -1047,6 +1049,7 @@ void handleSave() {
   preferences.putString("pass", wifi_password);
   preferences.putString("url", server_url);
   preferences.putString("devid", device_id);
+  preferences.putString("token", device_token);
   preferences.putInt("senstype", sensor_type);
   preferences.putInt("senspin", water_pin);
   preferences.end();

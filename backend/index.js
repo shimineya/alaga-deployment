@@ -1500,12 +1500,10 @@ app.post('/api/device/data', async (req, res) => {
         let sp = spo2 !== undefined && spo2 !== null ? parseFloat(spo2) : 0;
         let moist = moisture !== undefined && moisture !== null ? parseInt(moisture, 10) : 0;
 
-        // Determine if device is reporting all sensors simultaneously
-        const isAllInOne = req.body.device_type === 'all_in_one' 
-            || req.body.has_moisture_sensor === true 
-            || (req.body.moisture !== undefined && (req.body.heart_rate !== undefined || req.body.spo2 !== undefined));
+        const isVS = String(device_id).startsWith('VS-');
+        const isSD = String(device_id).startsWith('SD-');
 
-        // Carry forward previous complementary sensor readings ONLY if from disjoint single-purpose devices
+        // Carry forward previous complementary sensor readings for disjoint separate devices
         const lastSnapshot = await pool.query(
             `SELECT heart_rate, temperature, spo2, moisture_value 
              FROM sensor_readings 
@@ -1514,17 +1512,25 @@ app.post('/api/device/data', async (req, res) => {
             [patientId]
         );
 
-        if (lastSnapshot.rows.length > 0 && !isAllInOne) {
+        if (lastSnapshot.rows.length > 0) {
             const prev = lastSnapshot.rows[0];
-            // If current payload is only moisture (vitals are 0 or unset), retain previous valid vitals
-            if (hr <= 0 && temp <= 0 && sp <= 0) {
+            if (isSD) {
+                // Smart Diaper Moisture Sensor: preserves vitals from Vital Signs Sensor
                 hr = parseFloat(prev.heart_rate) || 0;
                 temp = parseFloat(prev.temperature) || 0;
                 sp = parseFloat(prev.spo2) || 0;
-            }
-            // If current payload is only vitals (moisture is unset or 0), retain previous valid moisture
-            if (moist <= 0 && prev.moisture_value !== undefined && prev.moisture_value !== null) {
+            } else if (isVS) {
+                // Vital Signs Sensor: preserves diaper moisture from Smart Diaper Moisture Sensor
                 moist = parseInt(prev.moisture_value, 10) || 0;
+            } else {
+                if (hr <= 0 && temp <= 0 && sp <= 0) {
+                    hr = parseFloat(prev.heart_rate) || 0;
+                    temp = parseFloat(prev.temperature) || 0;
+                    sp = parseFloat(prev.spo2) || 0;
+                }
+                if (moist <= 0 && prev.moisture_value !== undefined && prev.moisture_value !== null) {
+                    moist = parseInt(prev.moisture_value, 10) || 0;
+                }
             }
         }
 

@@ -423,17 +423,16 @@ void sendToBackend() {
     else if (rssi >= -85) signalStr = "Fair";
     else                  signalStr = "Poor";
 
-    // Format JSON payload with ALL real sensor readings (ZERO hardcoded data)
+    // Format JSON payload with real vital signs readings (ZERO hardcoded data)
     String payload = "{";
     payload += "\"device_id\":\"" + device_id + "\",";
     payload += "\"device_token\":\"" + device_token + "\",";
-    payload += "\"device_type\":\"all_in_one\",";
-    payload += "\"has_moisture_sensor\":true,";
+    payload += "\"device_type\":\"vital_signs\",";
+    payload += "\"has_moisture_sensor\":false,";
     payload += "\"finger_detected\":" + String(fingerDetected ? "true" : "false") + ",";
     payload += "\"heart_rate\":" + String(beatAvg, 1) + ",";
     payload += "\"spo2\":" + String(currentSpO2, 1) + ",";
     payload += "\"temperature\":" + String(temperatureC, 1) + ",";
-    payload += "\"moisture\":" + String(moisturePercent) + ",";
     payload += "\"battery\":" + String(batteryPercent) + ",";
     payload += "\"signal\":\"" + signalStr + "\",";
     payload += "\"seq\":" + String(packetSequence++) + ",";
@@ -1091,16 +1090,16 @@ void setup() {
 
   // 1. Initialize Hardware Pins
   pinMode(CONFIG_BTN_PIN, INPUT_PULLUP);
-  pinMode(moisture_pin,   INPUT);
   pinMode(BATTERY_PIN,    INPUT);
   pinMode(THERMISTOR_PIN, INPUT);
 
   // 2. Initialize MAX30102 via I2C (SDA=21, SCL=22)
-  Wire.begin(21, 22);
-  Wire.setClock(400000); // 400kHz fast mode
+  pinMode(21, INPUT_PULLUP);
+  pinMode(22, INPUT_PULLUP);
+  Wire.begin(21, 22, 100000); // 100kHz standard reliable mode
 
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("⚠️ [I2C WARNING] MAX30102 not detected. Verifying wiring (SDA=21, SCL=22)...");
+  if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
+    Serial.println("⚠️ [I2C WARNING] MAX30102 not detected. Verifying wiring (SDA=Pin 21, SCL=Pin 22, VIN=3.3V/5V, GND=GND)...");
     sensorFound = false;
   } else {
     Serial.println("✅ [I2C] MAX30102 Pulse Oximeter initialized successfully.");
@@ -1174,13 +1173,38 @@ void loop() {
   // 2. Web Server Request Processing
   server.handleClient();
 
+  // I2C Auto-Recovery if MAX30102 not yet detected
+  static unsigned long lastI2CRetry = 0;
+  if (!sensorFound && (millis() - lastI2CRetry > 2500)) {
+    lastI2CRetry = millis();
+    Serial.println("🔄 [I2C AUTO-RETRY] Probing MAX30102 on SDA=Pin 21, SCL=Pin 22...");
+    Wire.begin(21, 22, 100000);
+    if (particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
+      Serial.println("✅ [I2C CONNECTED] MAX30102 Pulse Oximeter detected and initialized!");
+      sensorFound = true;
+      particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
+      particleSensor.setPulseAmplitudeRed(0x7F);
+      particleSensor.setPulseAmplitudeIR(0x7F);
+      particleSensor.setPulseAmplitudeGreen(0);
+    } else {
+      Serial.println("⚠️ [I2C FAILED] Check wires: SDA->Pin 21, SCL->Pin 22, VIN->3.3V or 5V, GND->GND.");
+    }
+  }
+
   // 3. Continuous MAX30102 PPG Sampling for BPM & SpO2
   if (sensorFound) {
     long currentIR  = particleSensor.getIR();
     long currentRed = particleSensor.getRed();
 
-    // Check if finger is placed on optical sensor
-    if (currentIR > 20000 && currentRed > 10000) {
+    // Diagnostics printed to Serial Monitor every 2.5s
+    static unsigned long lastOptDebug = 0;
+    if (millis() - lastOptDebug > 2500) {
+      lastOptDebug = millis();
+      Serial.println("📊 [OPTICAL] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | Finger=" + (fingerDetected ? "YES" : "NO") + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "%");
+    }
+
+    // Check if finger is placed on optical sensor (SparkFun standard threshold > 15000)
+    if (currentIR > 15000) {
       fingerDetected = true;
       irDCSum  += currentIR;
       redDCSum += currentRed;
@@ -1249,9 +1273,8 @@ void loop() {
     }
   }
 
-  // 4. Sample Body Temperature & Moisture Sensors
+  // 4. Sample Body Temperature & Battery Sensors
   readTemperature();
-  readMoisture();
   readBattery();
 
   // 5. Hardware Factory Reset: BOOT button held for 10 seconds
@@ -1291,16 +1314,6 @@ void loop() {
   if (needInitialSend && WiFi.status() == WL_CONNECTED) {
     immediateTrigger = true;
     needInitialSend  = false;
-  }
-
-  // Trigger B: Diaper Moisture state change (>=15% shift or wetness threshold >=35% crossed)
-  static int lastSentMoisture = 0;
-  if (abs(moisturePercent - lastSentMoisture) >= 15 || 
-      (moisturePercent >= 35 && lastSentMoisture < 35) ||
-      (moisturePercent < 35  && lastSentMoisture >= 35)) {
-    Serial.println("⚡ [IMMEDIATE TRIGGER] Diaper moisture transition detected (" + String(lastSentMoisture) + "% -> " + String(moisturePercent) + "%). Transmitting immediately!");
-    immediateTrigger   = true;
-    lastSentMoisture   = moisturePercent;
   }
 
   // Trigger C: Patient Finger Touch Transition

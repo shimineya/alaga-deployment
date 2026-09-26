@@ -219,7 +219,7 @@ export default function AIInsightsHub() {
   }, [patients, selectedPatientId]);
 
   return (
-    <div className="w-full max-w-full min-w-0 space-y-6 pb-12 animate-in fade-in duration-300">
+    <div className="w-full max-w-full min-w-0 space-y-6 pb-12 animate-in fade-in duration-300 overflow-hidden">
       {/* 1. Header & Timeframe Selector Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 min-w-0 max-w-full">
         <div className="min-w-0">
@@ -246,32 +246,34 @@ export default function AIInsightsHub() {
         </div>
 
         {/* Timeframe Controls (Day, Week, Month, 6 Months, 1 Year) */}
-        <div className="w-full lg:w-auto flex items-center justify-between sm:justify-start gap-2 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full">
-          <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-2xs shrink-0">
-            {(
-              [
-                { id: 'day', label: t('Day', 'Araw'), sub: '24h' },
-                { id: 'week', label: t('Week', 'Linggo'), sub: '7d' },
-                { id: 'month', label: t('Month', 'Buwan'), sub: '30d' },
-                { id: '6months', label: '6 Mos', sub: '180d' },
-                { id: 'year', label: t('1 Year', '1 Taon'), sub: '365d' }
-              ] as const
-            ).map(tf => (
-              <button
-                key={tf.id}
-                onClick={() => setTimeframe(tf.id)}
-                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shrink-0 whitespace-nowrap ${
-                  timeframe === tf.id
-                    ? 'bg-teal-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                }`}
-              >
-                <span>{tf.label}</span>
-                <span className={`text-[9px] font-normal ${timeframe === tf.id ? 'text-teal-100' : 'text-slate-400'}`}>
-                  ({tf.sub})
-                </span>
-              </button>
-            ))}
+        <div className="w-full lg:w-auto flex items-center justify-between gap-2 max-w-full min-w-0">
+          <div className="overflow-x-auto no-scrollbar touch-scroll py-0.5 flex-1 min-w-0">
+            <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+              {(
+                [
+                  { id: 'day', label: t('Day', 'Araw'), sub: '24h' },
+                  { id: 'week', label: t('Week', 'Linggo'), sub: '7d' },
+                  { id: 'month', label: t('Month', 'Buwan'), sub: '30d' },
+                  { id: '6months', label: '6 Mos', sub: '180d' },
+                  { id: 'year', label: t('1 Year', '1 Taon'), sub: '365d' }
+                ] as const
+              ).map(tf => (
+                <button
+                  key={tf.id}
+                  onClick={() => setTimeframe(tf.id)}
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shrink-0 whitespace-nowrap ${
+                    timeframe === tf.id
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  <span>{tf.label}</span>
+                  <span className={`text-[9px] font-normal ${timeframe === tf.id ? 'text-teal-100' : 'text-slate-400'}`}>
+                    ({tf.sub})
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <Button
@@ -319,14 +321,14 @@ export default function AIInsightsHub() {
           ) : filteredPatients.length === 0 ? (
             <div className="py-2 text-xs text-slate-400 italic">No matching accessible patients found.</div>
           ) : (
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar touch-scroll max-w-full">
               {filteredPatients.map(p => {
                 const isSelected = p.id === selectedPatientId;
                 return (
                   <button
                     key={p.id}
                     onClick={() => setSelectedPatientId(p.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border flex items-center gap-2 ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border flex items-center gap-2 shrink-0 ${
                       isSelected
                         ? 'bg-teal-50 border-teal-500 text-teal-900 shadow-2xs ring-1 ring-teal-500/30'
                         : 'bg-white border-slate-200 text-slate-600 hover:border-teal-200 hover:bg-slate-50'
@@ -349,7 +351,7 @@ export default function AIInsightsHub() {
           {/* Patient Metadata Banner & AI Clinical Stability Score */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
             {/* Left: Patient Identity Card */}
-            <div className="lg:col-span-8 bg-gradient-to-r from-teal-900 via-slate-900 to-[#061126] text-white p-5 rounded-2xl shadow-md flex flex-col justify-between relative overflow-hidden">
+            <div className="lg:col-span-8 bg-gradient-to-r from-teal-900 via-slate-900 to-[#061126] text-white p-5 rounded-2xl shadow-md flex flex-col justify-between relative overflow-hidden min-w-0 max-w-full">
               <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-44 h-44 rounded-full bg-teal-500/10 blur-2xl pointer-events-none" />
 
               <div className="flex items-start justify-between gap-4">
@@ -505,7 +507,7 @@ export default function AIInsightsHub() {
                   No telemetry recorded in this timeframe.
                 </div>
               ) : (
-                <div className="h-72 w-full">
+                <div className="h-72 w-full min-w-0 overflow-hidden">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={insights.chartData} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
                       <defs>

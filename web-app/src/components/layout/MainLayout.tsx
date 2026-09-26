@@ -124,8 +124,8 @@ export default function MainLayout() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8 scroll-smooth touch-scroll min-w-0">
-          <div className="w-full min-h-full pb-20 max-w-7xl mx-auto min-w-0">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-8 scroll-smooth touch-scroll min-w-0 max-w-full">
+          <div className="w-full min-h-full pb-20 max-w-7xl mx-auto min-w-0 overflow-x-hidden">
             <Outlet />
           </div>
         </main>

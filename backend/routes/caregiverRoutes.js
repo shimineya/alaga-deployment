@@ -247,8 +247,8 @@ router.post('/devices', async (req, res) => {
 
         const inserted = [];
         const devicesToProcess = [];
-        if (vitalDeviceNo) devicesToProcess.push({ serial: vitalDeviceNo, name: 'Vital Sign Monitor' });
-        if (diaperDeviceNo) devicesToProcess.push({ serial: diaperDeviceNo, name: 'Smart Diaper Module' });
+        if (vitalDeviceNo) devicesToProcess.push({ serial: vitalDeviceNo, name: 'Vital Signs Sensor' });
+        if (diaperDeviceNo) devicesToProcess.push({ serial: diaperDeviceNo, name: 'Smart Diaper Moisture Sensor' });
 
         const crypto = require('crypto');
         const testTokenHash = crypto.createHash('sha256').update('alaga-test-token').digest('hex');
@@ -970,7 +970,7 @@ router.post('/patients', async (req, res) => {
             );
             systemReportService.recordDevicePairingReport({
                 serial_number: vitalDeviceNo.trim(),
-                device_name: 'Vital Signs Monitor',
+                device_name: 'Vital Signs Sensor',
                 patient_id: newPatientId,
                 patient_name: patientName,
                 assigned_by: req.user.email || `User #${req.user.id}`
@@ -1019,7 +1019,7 @@ router.post('/patients', async (req, res) => {
             );
             systemReportService.recordDevicePairingReport({
                 serial_number: diaperDeviceNo.trim(),
-                device_name: 'Smart Diaper Sensor',
+                device_name: 'Smart Diaper Moisture Sensor',
                 patient_id: newPatientId,
                 patient_name: patientName,
                 assigned_by: req.user.email || `User #${req.user.id}`
@@ -1069,7 +1069,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         if (deviceCheck.rows.length === 0) {
             if (register_new || isSysAdmin) {
                 // Auto register new device
-                const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor';
+                const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor';
                 await pool.query(
                     `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
                      VALUES ($1, $2, 'ACTIVE', $3, $4, NOW(), FALSE)`,
@@ -1115,7 +1115,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         // Record in system reports
         systemReportService.recordDevicePairingReport({
             serial_number: cleanSN,
-            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor',
+            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor',
             patient_id: parseInt(patientId, 10),
             patient_name: patientName,
             assigned_by: req.user.email || `User #${req.user.id}`
@@ -3141,7 +3141,7 @@ router.post('/devices/assign', async (req, res) => {
                     if (registerNew || isSysAdmin) {
                         await client.query(
                             `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
-                             VALUES ($1, 'Smart Diaper Module', 'ACTIVE', $2, $3, NOW(), FALSE)`,
+                             VALUES ($1, 'Smart Diaper Moisture Sensor', 'ACTIVE', $2, $3, NOW(), FALSE)`,
                             [smartDiaperSn, actorId, patientId]
                         );
                     } else {
@@ -3169,7 +3169,7 @@ router.post('/devices/assign', async (req, res) => {
                     if (registerNew || isSysAdmin) {
                         await client.query(
                             `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
-                             VALUES ($1, 'Vital Sign Monitor', 'ACTIVE', $2, $3, NOW(), FALSE)`,
+                             VALUES ($1, 'Vital Signs Sensor', 'ACTIVE', $2, $3, NOW(), FALSE)`,
                             [vitalSignsSn, actorId, patientId]
                         );
                     } else {
@@ -3217,7 +3217,7 @@ router.post('/devices/assign', async (req, res) => {
             await client.query(
                 `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected)
                  VALUES ($1, $2, 'ASSIGN_DEVICE', $3)`,
-                [actorId, patientId, `Assigned Vital Signs Monitor ${vitalSignsSn} to Patient ${patientId}`]
+                [actorId, patientId, `Assigned Vital Signs Sensor ${vitalSignsSn} to Patient ${patientId}`]
             );
         }
 

@@ -814,11 +814,11 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({ isOpen, on
         const isVitalRequired = choice === 'both' || choice === 'vital';
 
         if (isDiaperRequired && !smartDiaperSn.trim()) {
-            toast.error("Smart Diaper Device serial number is required");
+            toast.error("Smart Diaper Moisture Sensor serial number is required");
             return;
         }
         if (isVitalRequired && !vitalSignsSn.trim()) {
-            toast.error("Vital Signs Device serial number is required");
+            toast.error("Vital Signs Sensor serial number is required");
             return;
         }
 
@@ -862,7 +862,7 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({ isOpen, on
                         Assign Devices to Patient
                     </DialogTitle>
                     <DialogDescription className="text-xs text-slate-500">
-                        Assign Smart Diaper and/or Vital Signs monitoring devices to a patient by their registered name.
+                        Assign Smart Diaper Moisture Sensor and/or Vital Signs Sensor devices to a patient by their registered name.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -910,14 +910,14 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({ isOpen, on
                             className="w-full h-9 rounded-md border border-slate-300 text-sm px-2 text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                         >
                             <option value="both">Partnered Devices</option>
-                            <option value="diaper">Smart Diaper Device Only</option>
-                            <option value="vital">Vital Signs Device Only</option>
+                            <option value="diaper">Smart Diaper Moisture Sensor Only</option>
+                            <option value="vital">Vital Signs Sensor Only</option>
                         </select>
                     </div>
 
                     {(choice === 'both' || choice === 'diaper') && (
                         <div className="space-y-1.5 relative animate-in fade-in duration-200">
-                            <Label htmlFor="smartDiaperSn" className="text-slate-700 font-semibold">Smart Diaper Device</Label>
+                            <Label htmlFor="smartDiaperSn" className="text-slate-700 font-semibold">Smart Diaper Moisture Sensor</Label>
                             <Input
                                 id="smartDiaperSn"
                                 placeholder="e.g. SD-2026-0001"
@@ -970,7 +970,7 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({ isOpen, on
 
                     {(choice === 'both' || choice === 'vital') && (
                         <div className="space-y-1.5 relative animate-in fade-in duration-200">
-                            <Label htmlFor="vitalSignsSn" className="text-slate-700 font-semibold">Vital Signs Device</Label>
+                            <Label htmlFor="vitalSignsSn" className="text-slate-700 font-semibold">Vital Signs Sensor</Label>
                             <Input
                                 id="vitalSignsSn"
                                 placeholder="e.g. VS-2026-0001"

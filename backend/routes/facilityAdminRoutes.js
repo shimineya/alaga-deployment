@@ -886,7 +886,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         if (deviceCheck.rows.length === 0) {
             if (register_new || isSysAdmin) {
                 // Auto-register new device into inventory and pair to patient
-                const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor';
+                const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor';
                 await pool.query(
                     `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
                      VALUES ($1, $2, 'ACTIVE', $3, $4, NOW(), FALSE)`,
@@ -935,7 +935,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         // Auto-generate system report for device pairing
         systemReportService.recordDevicePairingReport({
             serial_number: cleanSN,
-            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Module' : 'Vital Sign Monitor',
+            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor',
             patient_id: patientId,
             patient_name: patientCheck.rows[0]?.name,
             assigned_by: req.user.email || `Facility Admin #${req.user.id}`,

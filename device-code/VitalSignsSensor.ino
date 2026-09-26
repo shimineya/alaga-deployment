@@ -1,7 +1,7 @@
 /*
  * ==============================================================================
  * ALAGA HEALTHCARE SYSTEM — ESP32 Multi-Sensor Clinical Monitoring Device
- * Device Role : Comprehensive Vital Signs & Moisture Patient Monitor
+ * Device Role : Vital Signs Sensor
  * Sensors     : 
  *   - MAX30102 Pulse Oximeter (I2C: SDA=21, SCL=22) -> Heart Rate (BPM) & SpO2 (%)
  *   - NTC 10K Thermistor (Pin 35, ADC1) + MAX30102 Die Sensor -> Temperature (°C)

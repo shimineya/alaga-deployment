@@ -475,7 +475,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("Select Vital Sign Monitor", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
+                    Text("Select Vital Signs Sensor", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       value: _selectedVitalDevice,
@@ -497,7 +497,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                       onChanged: (val) => setState(() => _selectedVitalDevice = val),
                     ),
                     const SizedBox(height: 16),
-                    Text("Select Smart Diaper", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
+                    Text("Select Smart Diaper Moisture Sensor", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       value: _selectedDiaperDevice,
@@ -1174,7 +1174,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                   width: 24,
                   errorBuilder: (c, e, s) =>
                       const Icon(Icons.monitor_heart_outlined, size: 24)),
-              title: Text("Vital Signs Device",
+              title: Text("Vital Signs Sensor",
                   style: GoogleFonts.poppins(fontSize: 14)),
               onTap: () {
                 Navigator.pop(context);
@@ -1186,7 +1186,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                   width: 24,
                   errorBuilder: (c, e, s) =>
                       const Icon(Icons.child_care_outlined, size: 24)),
-              title: Text("Smart Diaper Device",
+              title: Text("Smart Diaper Moisture Sensor",
                   style: GoogleFonts.poppins(fontSize: 14)),
               onTap: () {
                 Navigator.pop(context);
@@ -1356,11 +1356,11 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
               const SizedBox(height: 16),
 
               if (isDoubleDevice) ...[
-                _modalLabel("Vital Signs Device No."),
+                _modalLabel("Vital Signs Sensor No."),
                 _modalTextField(_vitalSignsCtrl, 'VS-$_currentYear-0001',
                     errorText: _vsError),
                 const SizedBox(height: 15),
-                _modalLabel("Smart Diaper Device No."),
+                _modalLabel("Smart Diaper Moisture Sensor No."),
                 _modalTextField(_smartDiaperCtrl, 'SD-$_currentYear-0001',
                     errorText: _sdError),
               ] else ...[
@@ -1380,8 +1380,8 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
                               MainAxisAlignment.spaceBetween,
                           children: [
                             _modalLabel(type == 'VS'
-                                ? "Vital Signs Device No."
-                                : "Smart Diaper Device No."),
+                                ? "Vital Signs Sensor No."
+                                : "Smart Diaper Moisture Sensor No."),
                             IconButton(
                               icon: const Icon(Icons.close,
                                   size: 16, color: Colors.black45),

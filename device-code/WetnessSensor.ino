@@ -1,7 +1,7 @@
 /*
  * ==============================================================================
  * ALAGA HEALTHCARE SYSTEM — ESP32 Smart Moisture / Wetness Device
- * Device Role : Smart Diaper / Moisture Monitoring Device
+ * Device Role : Smart Diaper Moisture Sensor
  * Features    : 
  *   1. Captive Portal & Dynamic Wi-Fi Provisioning (No hardcoded Wi-Fi required)
  *   2. Non-Volatile Storage (Preferences / NVS) for Wi-Fi & Backend settings
@@ -527,12 +527,12 @@ String getHtmlFooter() {
 void handleDashboard() {
   readSensors();
 
-  String page = getHtmlHeader("Moisture Monitor");
+  String page = getHtmlHeader("Smart Diaper Moisture Sensor");
   page += "<div class='card'>";
   
   page += "<div class='header'>";
   page += "<div class='logo-badge'>💧 ALAGA SMART MONITOR</div>";
-  page += "<h1 class='title'>Wetness Sensor</h1>";
+  page += "<h1 class='title'>Smart Diaper Moisture Sensor</h1>";
   page += "<p class='subtitle'>Real-time patient moisture & power monitoring</p>";
   page += "</div>";
 

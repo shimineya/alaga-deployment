@@ -129,7 +129,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   // SnackBar messages and _fetchDevices() are dispatched from a live context even
   // after the dialog is dismissed.
   void _showNewDeviceDialog(BuildContext pageContext) {
-    String selectedType = "Vital Signs";
+    String selectedType = "Vital Signs Sensor";
     final TextEditingController idController = TextEditingController();
 
     showDialog(
@@ -147,13 +147,13 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   _popupFieldWrapper("Device Type", DropdownButtonFormField<String>(
                     decoration: _popupInputDecoration(),
                     initialValue: selectedType,
-                    items: ["Vital Signs", "Smart Diaper Device"].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
+                    items: ["Vital Signs Sensor", "Smart Diaper Moisture Sensor"].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
                     onChanged: (val) => setDialogState(() => selectedType = val!),
                   )),
                   const SizedBox(height: 20),
                   _popupFieldWrapper("Device Number", TextField(
                     controller: idController,
-                    decoration: _popupInputDecoration(hint: selectedType == "Vital Signs" ? "VS-YYYY-NNNN" : "SD-YYYY-NNNN"),
+                    decoration: _popupInputDecoration(hint: selectedType == "Vital Signs Sensor" ? "VS-YYYY-NNNN" : "SD-YYYY-NNNN"),
                   )),
                 ],
               ),
@@ -165,12 +165,12 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                     RegExp vsRegex = RegExp(r'^VS-\d{4}-\d{4}$');
                     RegExp sdRegex = RegExp(r'^SD-\d{4}-\d{4}$');
 
-                    bool isValid = (selectedType == "Vital Signs" && vsRegex.hasMatch(input)) ||
-                                   (selectedType == "Smart Diaper Device" && sdRegex.hasMatch(input));
+                    bool isValid = (selectedType == "Vital Signs Sensor" && vsRegex.hasMatch(input)) ||
+                                   (selectedType == "Smart Diaper Moisture Sensor" && sdRegex.hasMatch(input));
 
                     if (!isValid) {
                       ScaffoldMessenger.of(pageContext).showSnackBar(
-                        SnackBar(content: Text("Invalid format. Use ${selectedType == "Vital Signs" ? "VS-YYYY-NNNN" : "SD-YYYY-NNNN"}")),
+                        SnackBar(content: Text("Invalid format. Use ${selectedType == "Vital Signs Sensor" ? "VS-YYYY-NNNN" : "SD-YYYY-NNNN"}")),
                       );
                       return;
                     }
@@ -178,8 +178,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                     // [FIX] Only dismiss the dialog AFTER the API response is received
                     // so the dialogContext is still valid through the await.
                     final result = await ApiService.post('/api/caregiver/devices', body: {
-                      if (selectedType == "Vital Signs") 'vitalDeviceNo': input,
-                      if (selectedType == "Smart Diaper Device") 'diaperDeviceNo': input,
+                      if (selectedType == "Vital Signs Sensor") 'vitalDeviceNo': input,
+                      if (selectedType == "Smart Diaper Moisture Sensor") 'diaperDeviceNo': input,
                     });
 
                     if (!mounted) return;
@@ -224,7 +224,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
 
     // Dialog-local state. Using a String key makes the cascade reset clean.
     Map<String, dynamic>? selectedPatient;
-    String selectedDeviceType = "Vital Signs";
+    String selectedDeviceType = "Vital Signs Sensor";
     Map<String, dynamic>? selectedDevice;
 
     showDialog(
@@ -240,9 +240,9 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
             final List<Map<String, dynamic>> availableDevices = _allDevices.where((d) {
               final isUnassigned = d['assigned_patient_id'] == null;
               final name = (d['device_name'] ?? '').toString().toLowerCase();
-              final isMatchingType = selectedDeviceType == "Vital Signs"
+              final isMatchingType = selectedDeviceType == "Vital Signs Sensor"
                   ? name.contains('vital')
-                  : name.contains('diaper') || name.contains('smart');
+                  : name.contains('diaper') || name.contains('smart') || name.contains('moisture');
               return isUnassigned && isMatchingType;
             }).toList();
 
@@ -316,7 +316,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                       DropdownButtonFormField<String>(
                         decoration: _popupInputDecoration(),
                         initialValue: selectedDeviceType,
-                        items: ["Vital Signs", "Smart Diaper Device"].map((type) {
+                        items: ["Vital Signs Sensor", "Smart Diaper Moisture Sensor"].map((type) {
                           return DropdownMenuItem(value: type, child: Text(type, style: GoogleFonts.poppins(fontSize: 13)));
                         }).toList(),
                         onChanged: (val) => setDialogState(() {

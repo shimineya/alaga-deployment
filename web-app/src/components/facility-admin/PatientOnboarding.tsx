@@ -587,16 +587,16 @@ export default function PatientOnboarding() {
                                     onChange={e => setPairingType(e.target.value)}
                                     className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 cursor-pointer"
                                 >
-                                    <option value="both">Partnered Devices (Smart Diaper & Vital Signs)</option>
-                                    <option value="diaper">Smart Diaper Device only</option>
-                                    <option value="vital">Vital Signs Device only</option>
+                                    <option value="both">Partnered Devices (Smart Diaper Moisture Sensor & Vital Signs Sensor)</option>
+                                    <option value="diaper">Smart Diaper Moisture Sensor only</option>
+                                    <option value="vital">Vital Signs Sensor only</option>
                                 </select>
                             </div>
                             
                             {(pairingType === 'both' || pairingType === 'diaper') && (
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
-                                        <label className="block text-[10px] font-semibold text-slate-600">Smart Diaper Device Serial Number</label>
+                                        <label className="block text-[10px] font-semibold text-slate-600">Smart Diaper Moisture Sensor Serial Number</label>
                                         {pairMode === 'existing' && availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).length > 0 && (
                                             <span className="text-[9px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-medium">
                                                 {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).length} Available
@@ -610,7 +610,7 @@ export default function PatientOnboarding() {
                                                 onChange={e => setDiaperSN(e.target.value)}
                                                 className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 font-mono cursor-pointer"
                                             >
-                                                <option value="">-- Select Available Diaper Device --</option>
+                                                <option value="">-- Select Available Smart Diaper Moisture Sensor --</option>
                                                 {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-')).map(d => (
                                                     <option key={d.serial_number} value={d.serial_number}>
                                                         {d.serial_number} - AVAILABLE
@@ -628,7 +628,7 @@ export default function PatientOnboarding() {
                             {(pairingType === 'both' || pairingType === 'vital') && (
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
-                                        <label className="block text-[10px] font-semibold text-slate-600">Vital Signs Device Serial Number</label>
+                                        <label className="block text-[10px] font-semibold text-slate-600">Vital Signs Sensor Serial Number</label>
                                         {pairMode === 'existing' && availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).length > 0 && (
                                             <span className="text-[9px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-medium">
                                                 {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).length} Available
@@ -642,7 +642,7 @@ export default function PatientOnboarding() {
                                                 onChange={e => setVitalSN(e.target.value)}
                                                 className="w-full h-8 text-xs border border-slate-200 rounded px-2 bg-white text-slate-700 font-mono cursor-pointer"
                                             >
-                                                <option value="">-- Select Available Vital Signs Device --</option>
+                                                <option value="">-- Select Available Vital Signs Sensor --</option>
                                                 {availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('VS-')).map(d => (
                                                     <option key={d.serial_number} value={d.serial_number}>
                                                         {d.serial_number} - AVAILABLE

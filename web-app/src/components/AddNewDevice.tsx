@@ -33,7 +33,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
 
         if (isVitalRequired) {
             if (!vitalDeviceNo.trim()) {
-                newErrors.vitalDeviceNo = "Vital Signs Device serial number is required";
+                newErrors.vitalDeviceNo = "Vital Signs Sensor serial number is required";
             } else if (!/^VS-\d{4}-\d{3,}$/.test(vitalDeviceNo.trim())) {
                 newErrors.vitalDeviceNo = "Format: VS-YYYY-XXXX (e.g. VS-2026-0001)";
             }
@@ -41,7 +41,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
 
         if (isDiaperRequired) {
             if (!diaperDeviceNo.trim()) {
-                newErrors.diaperDeviceNo = "Smart Diaper Device serial number is required";
+                newErrors.diaperDeviceNo = "Smart Diaper Moisture Sensor serial number is required";
             } else if (!/^SD-\d{4}-\d{3,}$/.test(diaperDeviceNo.trim())) {
                 newErrors.diaperDeviceNo = "Format: SD-YYYY-XXXX (e.g. SD-2026-0001)";
             }
@@ -113,8 +113,8 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                         className="w-full h-9 rounded-md border border-slate-300 text-sm px-2 text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
                     >
                         <option value="both">Partnered Devices</option>
-                        <option value="diaper">Smart Diaper Device Only</option>
-                        <option value="vital">Vital Signs Device Only</option>
+                        <option value="diaper">Smart Diaper Moisture Sensor Only</option>
+                        <option value="vital">Vital Signs Sensor Only</option>
                     </select>
                 </div>
 
@@ -122,7 +122,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                     <div className="space-y-1.5 animate-in fade-in duration-200">
                         <Label htmlFor="diaperDeviceNo" className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase">
                             <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                            Smart Diaper Device <span className="text-red-500">*</span>
+                            Smart Diaper Moisture Sensor <span className="text-red-500">*</span>
                         </Label>
                         <Input
                             id="diaperDeviceNo"
@@ -142,7 +142,7 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                     <div className="space-y-1.5 animate-in fade-in duration-200">
                         <Label htmlFor="vitalDeviceNo" className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase">
                             <Smartphone className="w-3.5 h-3.5 text-rose-500" />
-                            Vital Signs Device <span className="text-red-500">*</span>
+                            Vital Signs Sensor <span className="text-red-500">*</span>
                         </Label>
                         <Input
                             id="vitalDeviceNo"

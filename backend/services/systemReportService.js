@@ -145,7 +145,7 @@ async function recordDevicePairingReport({ serial_number, device_name, patient_i
     const summary = `Hardware sensor ${serial_number} (${device_name || 'ESP32'}) paired successfully to Patient #${patient_id}${patient_name ? ` (${patient_name})` : ''}. Baseline monitoring initialized.`;
     const details = {
         serial_number,
-        device_name: device_name || (serial_number.startsWith('SD') ? 'Smart Diaper Sensor' : 'Vital Signs Monitor'),
+        device_name: device_name || (serial_number.startsWith('SD') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor'),
         patient_id,
         patient_name: patient_name || 'Patient #' + patient_id,
         facility_id: facility_id || null,

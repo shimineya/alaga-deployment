@@ -153,7 +153,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                     color: Color(0xFF5FA9A9),
                     size: 28),
               ),
-              title: Text("Vital Signs Monitor (VS)",
+              title: Text("Vital Signs Sensor (VS)",
                   style: GoogleFonts.poppins(fontSize: 14)),
               subtitle: Text('e.g. VS-$_currentYear-0001',
                   style:
@@ -171,7 +171,7 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                 errorBuilder: (c, e, s) => const Icon(Icons.child_care_outlined,
                     color: Color(0xFF5FA9A9), size: 28),
               ),
-              title: Text("Smart Diaper Module (SD)",
+              title: Text("Smart Diaper Moisture Sensor (SD)",
                   style: GoogleFonts.poppins(fontSize: 14)),
               subtitle: Text('e.g. SD-$_currentYear-0001',
                   style:
@@ -371,11 +371,11 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
               ),
               const SizedBox(height: 16),
               if (isDoubleDevice) ...[
-                _buildInputLabel("Vital Signs Device No."),
+                _buildInputLabel("Vital Signs Sensor No."),
                 _buildTextField(_vitalSignsCtrl,
                     errorText: _vsError, hint: 'VS-$_currentYear-0001'),
                 const SizedBox(height: 20),
-                _buildInputLabel("Smart Diaper Device No."),
+                _buildInputLabel("Smart Diaper Moisture Sensor No."),
                 _buildTextField(_smartDiaperCtrl,
                     errorText: _sdError, hint: 'SD-$_currentYear-0001'),
               ] else ...[
@@ -393,8 +393,8 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             _buildInputLabel(type == 'VS'
-                                ? "Vital Signs Device No."
-                                : "Smart Diaper Device No."),
+                                ? "Vital Signs Sensor No."
+                                : "Smart Diaper Moisture Sensor No."),
                             IconButton(
                               icon: const Icon(Icons.close,
                                   size: 18, color: Colors.black45),

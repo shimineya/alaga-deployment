@@ -61,22 +61,22 @@ export default function AssignDeviceToPatient() {
         // Validate formats
         if (assignmentOption === 'partnered devices' || assignmentOption === 'smart diaper device only') {
             if (!smartDiaperSn.trim()) {
-                toast.error('Smart Diaper Device serial number is required');
+                toast.error('Smart Diaper Moisture Sensor serial number is required');
                 return;
             }
             if (!smartDiaperSn.trim().toUpperCase().startsWith('SD-')) {
-                toast.error('Smart Diaper Device must start with "SD-" (e.g. SD-2026-0001)');
+                toast.error('Smart Diaper Moisture Sensor must start with "SD-" (e.g. SD-2026-0001)');
                 return;
             }
         }
 
         if (assignmentOption === 'partnered devices' || assignmentOption === 'vital signs device only') {
             if (!vitalSignsSn.trim()) {
-                toast.error('Vital Signs Device serial number is required');
+                toast.error('Vital Signs Sensor serial number is required');
                 return;
             }
             if (!vitalSignsSn.trim().toUpperCase().startsWith('VS-')) {
-                toast.error('Vital Signs Device must start with "VS-" (e.g. VS-2026-0001)');
+                toast.error('Vital Signs Sensor must start with "VS-" (e.g. VS-2026-0001)');
                 return;
             }
         }
@@ -203,9 +203,9 @@ export default function AssignDeviceToPatient() {
                             onChange={(e) => setAssignmentOption(e.target.value)}
                             className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-teal-600 focus-visible:border-teal-600 cursor-pointer"
                         >
-                            <option value="partnered devices">partnered devices</option>
-                            <option value="smart diaper device only">smart diaper device only</option>
-                            <option value="vital signs device only">vital signs device only</option>
+                            <option value="partnered devices">Partnered Devices</option>
+                            <option value="smart diaper device only">Smart Diaper Moisture Sensor Only</option>
+                            <option value="vital signs device only">Vital Signs Sensor Only</option>
                         </select>
                     </div>
 
@@ -213,7 +213,7 @@ export default function AssignDeviceToPatient() {
                     {(assignmentOption === 'partnered devices' || assignmentOption === 'smart diaper device only') && (
                         <div className="space-y-1">
                             <div className="flex items-center justify-between">
-                                <Label htmlFor="diaper-sn" className="text-xs font-semibold text-slate-600">Smart Diaper Device Serial Number</Label>
+                                <Label htmlFor="diaper-sn" className="text-xs font-semibold text-slate-600">Smart Diaper Moisture Sensor Serial Number</Label>
                                 {deviceMode === 'existing' && diaperAvailableList.length > 0 && (
                                     <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-medium">
                                         {diaperAvailableList.length} Available in Inventory
@@ -229,7 +229,7 @@ export default function AssignDeviceToPatient() {
                                         className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm font-mono cursor-pointer"
                                         required
                                     >
-                                        <option value="">-- Select Available Smart Diaper Device --</option>
+                                        <option value="">-- Select Available Smart Diaper Moisture Sensor --</option>
                                         {diaperAvailableList.map((d) => (
                                             <option key={d.serial_number} value={d.serial_number}>
                                                 {d.serial_number} {d.device_name ? `(${d.device_name})` : ''} - AVAILABLE
@@ -267,7 +267,7 @@ export default function AssignDeviceToPatient() {
                     {(assignmentOption === 'partnered devices' || assignmentOption === 'vital signs device only') && (
                         <div className="space-y-1">
                             <div className="flex items-center justify-between">
-                                <Label htmlFor="vitals-sn" className="text-xs font-semibold text-slate-600">Vital Signs Device Serial Number</Label>
+                                <Label htmlFor="vitals-sn" className="text-xs font-semibold text-slate-600">Vital Signs Sensor Serial Number</Label>
                                 {deviceMode === 'existing' && vitalAvailableList.length > 0 && (
                                     <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-medium">
                                         {vitalAvailableList.length} Available in Inventory
@@ -283,7 +283,7 @@ export default function AssignDeviceToPatient() {
                                         className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm font-mono cursor-pointer"
                                         required
                                     >
-                                        <option value="">-- Select Available Vital Signs Device --</option>
+                                        <option value="">-- Select Available Vital Signs Sensor --</option>
                                         {vitalAvailableList.map((d) => (
                                             <option key={d.serial_number} value={d.serial_number}>
                                                 {d.serial_number} {d.device_name ? `(${d.device_name})` : ''} - AVAILABLE

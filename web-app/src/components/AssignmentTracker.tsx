@@ -78,10 +78,10 @@ const RenderLinkedDevices = ({ patient }: { patient: PatientDB }) => {
     let displayDevices = [...devicesList];
     if (displayDevices.length === 0) {
         if (patient.vital_device_sn) {
-            displayDevices.push({ serial_number: patient.vital_device_sn, device_name: 'Vital Sign Monitor' });
+            displayDevices.push({ serial_number: patient.vital_device_sn, device_name: 'Vital Signs Sensor' });
         }
         if (patient.diaper_device_sn) {
-            displayDevices.push({ serial_number: patient.diaper_device_sn, device_name: 'Smart Diaper Module' });
+            displayDevices.push({ serial_number: patient.diaper_device_sn, device_name: 'Smart Diaper Moisture Sensor' });
         }
     }
 

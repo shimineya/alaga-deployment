@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/user_session.dart';
 import '../services/api_service.dart';
@@ -34,6 +35,16 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
   String? _regError;
   String _selectedRole = 'caregiver'; // 'caregiver' or 'parent'
 
+  // OTP Verification Mode
+  bool _isVerifyingOtp = false;
+  int? _otpUserId;
+  String _otpEmail = '';
+  String _otpPurpose = 'REGISTER_VERIFY';
+  final TextEditingController _otpCtrl = TextEditingController();
+  bool _isSubmittingOtp = false;
+  bool _isResendingOtp = false;
+  String? _otpError;
+
   static const Color _teal = Color(0xFF0D9488);
   static const Color _tealLight = Color(0xFFE6FFFA);
 
@@ -41,6 +52,9 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _regPassCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -54,8 +68,18 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
     _regUsernameCtrl.dispose();
     _regPhoneCtrl.dispose();
     _regPassCtrl.dispose();
+    _otpCtrl.dispose();
     super.dispose();
   }
+
+  // --- Password Criteria Helpers ---
+  bool get _hasMinLength => _regPassCtrl.text.length >= 12;
+  bool get _hasUpper => RegExp(r'[A-Z]').hasMatch(_regPassCtrl.text);
+  bool get _hasLower => RegExp(r'[a-z]').hasMatch(_regPassCtrl.text);
+  bool get _hasNumber => RegExp(r'[0-9]').hasMatch(_regPassCtrl.text);
+  bool get _hasSymbol => RegExp(r'[^A-Za-z0-9]').hasMatch(_regPassCtrl.text);
+  bool get _isPasswordValid =>
+      _hasMinLength && _hasUpper && _hasLower && _hasNumber && _hasSymbol;
 
   Future<void> _handleLogin() async {
     if (!_loginFormKey.currentState!.validate()) return;
@@ -91,8 +115,16 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
           behavior: SnackBarBehavior.floating,
         ),
       );
-      // Transport user back to their current profile page
       Navigator.pop(context, true);
+    } else if (result['requiresOtp'] == true && result['user_id'] != null) {
+      // User registered previously but hasn't verified email
+      setState(() {
+        _isVerifyingOtp = true;
+        _otpUserId = result['user_id'];
+        _otpEmail = result['email'] ?? username;
+        _otpPurpose = result['otpPurpose'] ?? 'REGISTER_VERIFY';
+        _otpError = null;
+      });
     } else {
       setState(() {
         _loginError = result['message'] ?? 'Login failed. Please check your credentials.';
@@ -102,6 +134,14 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
 
   Future<void> _handleRegister() async {
     if (!_regFormKey.currentState!.validate()) return;
+
+    if (!_isPasswordValid) {
+      setState(() {
+        _regError = 'Password does not meet all required criteria.';
+      });
+      return;
+    }
+
     setState(() {
       _isRegistering = true;
       _regError = null;
@@ -130,34 +170,15 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
     setState(() => _isRegistering = false);
 
     if (result['success'] == true) {
-      // If user row is returned directly or OTP is needed
-      if (result['requiresOtp'] == true || result['token'] == null) {
-        // Now try logging in with the credentials to obtain the session token
-        final loginRes = await ApiService.post(
-          '/auth/login',
-          body: {
-            'username': _regEmailCtrl.text.trim(),
-            'password': _regPassCtrl.text,
-          },
-          requiresAuth: false,
-        );
-        if (loginRes['success'] == true && loginRes['user'] != null && loginRes['token'] != null) {
-          final newSession = UserSession.fromJson(loginRes['user'], loginRes['token']);
-          await SessionManager.addSavedAccount(newSession);
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'New account @${newSession.username} registered and linked!',
-                style: GoogleFonts.albertSans(),
-              ),
-              backgroundColor: _teal,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          Navigator.pop(context, true);
-          return;
-        }
+      // Backend sent OTP email and requires OTP verification
+      if (result['requiresOtp'] == true || result['user_id'] != null) {
+        setState(() {
+          _isVerifyingOtp = true;
+          _otpUserId = result['user_id'];
+          _otpEmail = result['email'] ?? _regEmailCtrl.text.trim();
+          _otpPurpose = result['otpPurpose'] ?? 'REGISTER_VERIFY';
+          _otpError = null;
+        });
       } else if (result['user'] != null && result['token'] != null) {
         final newSession = UserSession.fromJson(result['user'], result['token']);
         await SessionManager.addSavedAccount(newSession);
@@ -173,29 +194,93 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
           ),
         );
         Navigator.pop(context, true);
-        return;
       }
+    } else {
+      setState(() {
+        _regError = result['message'] ?? 'Registration failed. Please check inputs.';
+      });
+    }
+  }
+
+  Future<void> _handleVerifyOtp() async {
+    final otp = _otpCtrl.text.trim();
+    if (otp.length < 6) {
+      setState(() => _otpError = 'Please enter the complete 6-digit code.');
+      return;
+    }
+
+    setState(() {
+      _isSubmittingOtp = true;
+      _otpError = null;
+    });
+
+    final result = await ApiService.post(
+      '/auth/verify-otp',
+      body: {
+        'user_id': _otpUserId,
+        'email': _otpEmail,
+        'otp': otp,
+        'purpose': _otpPurpose,
+      },
+      requiresAuth: false,
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmittingOtp = false);
+
+    if (result['success'] == true && result['user'] != null && result['token'] != null) {
+      final newSession = UserSession.fromJson(result['user'], result['token']);
+      await SessionManager.addSavedAccount(newSession);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            result['message'] ?? 'Registration successful! Please log in to add this account.',
+            'Account @${newSession.username} verified & added to device!',
             style: GoogleFonts.albertSans(),
           ),
           backgroundColor: _teal,
           behavior: SnackBarBehavior.floating,
         ),
       );
-      // Switch tab to login
-      _loginUserCtrl.text = _regEmailCtrl.text.trim();
-      _loginPassCtrl.text = _regPassCtrl.text;
-      _tabController.animateTo(0);
+      Navigator.pop(context, true);
     } else {
       setState(() {
-        _regError = result['message'] ?? 'Registration failed. Please check inputs.';
+        _otpError = result['message'] ?? 'Invalid verification code. Please try again.';
       });
     }
+  }
+
+  Future<void> _handleResendOtp() async {
+    if (_otpUserId == null) return;
+    setState(() {
+      _isResendingOtp = true;
+      _otpError = null;
+    });
+
+    final result = await ApiService.post(
+      '/auth/resend-otp',
+      body: {
+        'user_id': _otpUserId,
+        'email': _otpEmail,
+        'purpose': _otpPurpose,
+      },
+      requiresAuth: false,
+    );
+
+    if (!mounted) return;
+    setState(() => _isResendingOtp = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result['message'] ?? 'A new verification code has been sent.',
+          style: GoogleFonts.albertSans(),
+        ),
+        backgroundColor: result['success'] == true ? _teal : Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -207,39 +292,186 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Color(0xFF1E293B)),
-          onPressed: () => Navigator.pop(context, false),
+          onPressed: () {
+            if (_isVerifyingOtp) {
+              setState(() => _isVerifyingOtp = false);
+            } else {
+              Navigator.pop(context, false);
+            }
+          },
         ),
         title: Text(
-          "Add Another Account",
+          _isVerifyingOtp ? "Verify Email" : "Add Another Account",
           style: GoogleFonts.poppins(
             fontSize: 16,
             fontWeight: FontWeight.w700,
             color: const Color(0xFF1E293B),
           ),
         ),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: _teal,
-          unselectedLabelColor: const Color(0xFF64748B),
-          indicatorColor: _teal,
-          indicatorWeight: 3,
-          labelStyle: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
-          tabs: const [
-            Tab(text: "Log In"),
-            Tab(text: "Sign Up"),
-          ],
-        ),
+        bottom: _isVerifyingOtp
+            ? null
+            : TabBar(
+                controller: _tabController,
+                labelColor: _teal,
+                unselectedLabelColor: const Color(0xFF64748B),
+                indicatorColor: _teal,
+                indicatorWeight: 3,
+                labelStyle: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
+                tabs: const [
+                  Tab(text: "Log In"),
+                  Tab(text: "Sign Up"),
+                ],
+              ),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: _isVerifyingOtp
+          ? _buildOtpVerificationView()
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildLoginForm(),
+                _buildRegisterForm(),
+              ],
+            ),
+    );
+  }
+
+  // --- OTP Verification View ---
+  Widget _buildOtpVerificationView() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 56),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _buildLoginForm(),
-          _buildRegisterForm(),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: _teal.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.mark_email_read_outlined, size: 32, color: _teal),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            "Verify Your Email",
+            style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "We have sent a 6-digit verification code to:\n$_otpEmail",
+            textAlign: TextAlign.center,
+            style: GoogleFonts.albertSans(fontSize: 13, color: const Color(0xFF64748B), height: 1.4),
+          ),
+          const SizedBox(height: 24),
+
+          if (_otpError != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFF87171)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _otpError!,
+                      style: GoogleFonts.albertSans(color: Colors.red.shade900, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // OTP Code Textbox
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _teal, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: _teal.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: TextField(
+              controller: _otpCtrl,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              maxLength: 6,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: GoogleFonts.spaceMono(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 14,
+                color: const Color(0xFF0F172A),
+              ),
+              decoration: const InputDecoration(
+                hintText: "••••••",
+                hintStyle: TextStyle(letterSpacing: 14, color: Colors.black26),
+                border: InputBorder.none,
+                counterText: "",
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: _isSubmittingOtp ? null : _handleVerifyOtp,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _teal,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                elevation: 1,
+              ),
+              child: _isSubmittingOtp
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text("Verify & Link Account", style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                "Didn't receive the code? ",
+                style: GoogleFonts.albertSans(fontSize: 12, color: const Color(0xFF64748B)),
+              ),
+              TextButton(
+                onPressed: _isResendingOtp ? null : _handleResendOtp,
+                child: Text(
+                  _isResendingOtp ? "Sending..." : "Resend Code",
+                  style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: _teal),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          TextButton.icon(
+            onPressed: () => setState(() => _isVerifyingOtp = false),
+            icon: const Icon(Icons.arrow_back, size: 16, color: Color(0xFF64748B)),
+            label: Text("Back to Sign Up", style: GoogleFonts.albertSans(fontSize: 12, color: const Color(0xFF64748B))),
+          ),
         ],
       ),
     );
   }
 
+  // --- Login Form ---
   Widget _buildLoginForm() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -253,7 +485,7 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
               decoration: BoxDecoration(
                 color: _tealLight,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _teal.withOpacity(0.3)),
+                border: Border.all(color: _teal.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -361,9 +593,10 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
     );
   }
 
+  // --- Register Form ---
   Widget _buildRegisterForm() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 56),
       child: Form(
         key: _regFormKey,
         child: Column(
@@ -374,7 +607,7 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
               decoration: BoxDecoration(
                 color: _tealLight,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _teal.withOpacity(0.3)),
+                border: Border.all(color: _teal.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -382,7 +615,7 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "Create a new profile. Once registered, it will be added to your switch account list.",
+                      "Create a new profile. An email OTP verification code will be sent to confirm and link this account.",
                       style: GoogleFonts.albertSans(fontSize: 12, color: const Color(0xFF0F766E)),
                     ),
                   ),
@@ -546,7 +779,7 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
               controller: _regPassCtrl,
               obscureText: _obscureRegPass,
               decoration: InputDecoration(
-                hintText: "At least 12 chars (upper, lower, num, sym)",
+                hintText: "Enter password",
                 prefixIcon: const Icon(Icons.lock_outline, size: 20, color: _teal),
                 suffixIcon: IconButton(
                   icon: Icon(_obscureRegPass ? Icons.visibility_off : Icons.visibility, size: 20, color: Colors.grey),
@@ -559,7 +792,62 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _teal, width: 2)),
               ),
-              validator: (v) => (v == null || v.length < 8) ? 'Password must be at least 8 characters' : null,
+              validator: (v) {
+                if (v == null || v.isEmpty) return 'Password is required';
+                if (!_isPasswordValid) return 'Password does not meet all criteria';
+                return null;
+              },
+            ),
+
+            // --- Password Criteria Validation Box (Fully Visible, Not Cropped) ---
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _isPasswordValid ? Colors.green.shade300 : const Color(0xFFCBD5E1),
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Password Requirements",
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF334155),
+                        ),
+                      ),
+                      Text(
+                        _isPasswordValid ? "Meets Criteria" : "Required",
+                        style: GoogleFonts.albertSans(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: _isPasswordValid ? Colors.green.shade700 : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildCriteriaItem("At least 12 characters", _hasMinLength),
+                  const SizedBox(height: 4),
+                  _buildCriteriaItem("At least 1 uppercase letter (A-Z)", _hasUpper),
+                  const SizedBox(height: 4),
+                  _buildCriteriaItem("At least 1 lowercase letter (a-z)", _hasLower),
+                  const SizedBox(height: 4),
+                  _buildCriteriaItem("At least 1 number (0-9)", _hasNumber),
+                  const SizedBox(height: 4),
+                  _buildCriteriaItem("At least 1 special symbol (!@#\$%^&*)", _hasSymbol),
+                ],
+              ),
             ),
             const SizedBox(height: 24),
 
@@ -578,7 +866,7 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                     : const Icon(Icons.person_add, size: 18),
                 label: Text(
-                  _isRegistering ? "Registering..." : "Sign Up & Link Account",
+                  _isRegistering ? "Creating Account..." : "Sign Up & Verify Email",
                   style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -586,6 +874,29 @@ class _AddAccountPageState extends State<AddAccountPage> with SingleTickerProvid
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCriteriaItem(String label, bool isMet) {
+    return Row(
+      children: [
+        Icon(
+          isMet ? Icons.check_circle : Icons.radio_button_unchecked,
+          size: 15,
+          color: isMet ? Colors.green.shade600 : const Color(0xFF94A3B8),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.albertSans(
+              fontSize: 11,
+              fontWeight: isMet ? FontWeight.w600 : FontWeight.normal,
+              color: isMet ? Colors.green.shade800 : const Color(0xFF475569),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

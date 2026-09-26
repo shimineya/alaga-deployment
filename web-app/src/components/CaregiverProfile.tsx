@@ -7,6 +7,7 @@ import { Switch } from './ui/switch';
 import { Patient } from '../types';
 import { useAuth } from '../lib/auth-context';
 import { toast } from 'sonner';
+import { AccountSwitcher } from './profile/AccountSwitcher';
 import {
   User,
   Users,
@@ -259,6 +260,9 @@ export const CaregiverProfile: React.FC<CaregiverProfileProps> = ({ patients }) 
           Keep your identity, care circle, and emergency contacts up to date so everyone sees the same data during critical moments.
         </p>
       </div>
+
+      {/* Switch Account Feature */}
+      <AccountSwitcher />
 
       {/* 1. Caregiver Identity */}
       <Card className="shadow-sm border-slate-100">

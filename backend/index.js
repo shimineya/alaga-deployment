@@ -1028,6 +1028,142 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
 });
 
 // ==========================================
+// ROUTE 2D: BIOMETRIC ENROLLMENT & LOGIN
+// ==========================================
+// [OWASP A07] Generates a cryptographically secure token for fingerprint/face authentication
+app.post(['/auth/biometric/enroll', '/api/auth/biometric/enroll'], verifyToken, async (req, res) => {
+    try {
+        const userRes = await pool.query(
+            `SELECT user_id, username, email, role, is_locked, is_archived
+             FROM users WHERE user_id = $1`,
+            [req.user.id]
+        );
+        if (userRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+        const user = userRes.rows[0];
+        if (user.is_archived || user.is_locked) {
+            return res.status(403).json({ success: false, message: 'Account is locked or archived.' });
+        }
+
+        // Issue long-lived biometric token specifically scoped for biometric login
+        const biometricToken = jwt.sign(
+            { id: user.user_id, username: user.username, role: user.role, purpose: 'biometric' },
+            JWT_SECRET,
+            { expiresIn: '180d' }
+        );
+
+        res.json({
+            success: true,
+            message: 'Biometric credentials enrolled successfully.',
+            biometricToken
+        });
+    } catch (err) {
+        console.error('Biometric Enroll Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to enroll biometric authentication.' });
+    }
+});
+
+app.post(['/auth/biometric/login', '/api/auth/biometric/login'], authLimiter, async (req, res) => {
+    try {
+        const { biometricToken } = req.body;
+        if (!biometricToken) {
+            return res.status(400).json({ success: false, message: 'Biometric token is required.' });
+        }
+
+        let decoded;
+        try {
+            decoded = jwt.verify(biometricToken, JWT_SECRET);
+        } catch (jwtErr) {
+            return res.status(401).json({
+                success: false,
+                message: 'Biometric session expired or invalid. Please sign in with your password to re-enable biometrics.'
+            });
+        }
+
+        if (decoded.purpose !== 'biometric' || !decoded.id) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid biometric authentication token.'
+            });
+        }
+
+        const result = await pool.query(
+            `SELECT u.user_id, u.username, u.email, u.role, u.first_name,
+                    u.account_status, u.is_locked, u.is_verified, u.is_archived,
+                    u.profile_picture_url, u.facility_id,
+                    f.facility_name
+             FROM users u
+             LEFT JOIN facilities f ON u.facility_id = f.facility_id
+             WHERE u.user_id = $1`,
+            [decoded.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User account not found.' });
+        }
+
+        const user = result.rows[0];
+
+        if (user.is_archived) {
+            return res.status(403).json({ success: false, message: 'Account has been archived. Access denied.' });
+        }
+
+        if (user.is_locked) {
+            return res.status(403).json({ success: false, message: 'Account is locked. Please contact support.' });
+        }
+
+        // Maintenance Mode Check
+        const configQuery = await pool.query(
+            "SELECT config_value FROM system_configs WHERE config_key = 'maintenance_mode'"
+        );
+        if (configQuery.rows.length > 0) {
+            const mode = configQuery.rows[0].config_value;
+            const val = typeof mode === 'string' ? JSON.parse(mode) : mode;
+            if (val && val.enabled === true) {
+                const userRole = (user.role || '').toLowerCase();
+                const isAdmin = ['admin', 'system_admin', 'sysadmin'].includes(userRole);
+                if (!isAdmin) {
+                    return res.status(503).json({
+                        success: false,
+                        message: 'System is currently under maintenance. Only administrators are allowed to log in.'
+                    });
+                }
+            }
+        }
+
+        // Issue fresh 8-hour session token
+        const token = jwt.sign(
+            { id: user.user_id, role: user.role },
+            JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        res.json({
+            success: true,
+            message: 'Biometric login successful.',
+            token,
+            user: {
+                id: user.user_id,
+                user_id: user.user_id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                name: user.first_name || user.username,
+                account_status: user.account_status,
+                facility_id: user.facility_id || null,
+                facility_name: user.facility_name || null,
+                profilePictureUrl: user.profile_picture_url || null,
+                profile_picture_url: user.profile_picture_url || null,
+            }
+        });
+    } catch (err) {
+        console.error('Biometric Login Error:', err.message);
+        res.status(500).json({ success: false, message: 'Server error during biometric login.' });
+    }
+});
+
+// ==========================================
 // SMTP HEALTH CHECK (Admin-only diagnostic)
 // [OWASP A09] Returns which SMTP fields are set WITHOUT exposing credential values.
 // Also attempts transporter.verify() to expose the real network/auth error.

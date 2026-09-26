@@ -59,7 +59,7 @@ class UserSession {
       email: json['email'] ?? '',
       role: json['role'] ?? 'caregiver',
       name: json['name'] ?? json['first_name'] ?? '',
-      token: token,
+      token: token.isNotEmpty ? token : (json['token'] as String? ?? ''),
       biometricToken: json['biometricToken'],
       // [FIX] The backend login route sends the field as camelCase
       // ('profilePictureUrl'). The profile route returns snake_case
@@ -147,6 +147,72 @@ class SessionManager {
       sessions[session.id.toString()] = session.toJson();
       await _writeBiometricAccounts(sessions);
     }
+    await addSavedAccount(session);
+  }
+
+  // ─── Multi-Account Switcher Storage ──────────────────────────────────────────
+  static const _savedAccountsKey = 'ALAGA_SAVED_ACCOUNTS';
+
+  static Future<Map<String, dynamic>> _readSavedAccountsMap() async {
+    final raw = await _storage.read(key: _savedAccountsKey);
+    Map<String, dynamic> accounts = {};
+    if (raw != null) {
+      try {
+        accounts = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {
+        await _storage.delete(key: _savedAccountsKey);
+      }
+    }
+    return accounts;
+  }
+
+  static Future<void> _writeSavedAccountsMap(Map<String, dynamic> accounts) =>
+      _storage.write(key: _savedAccountsKey, value: jsonEncode(accounts));
+
+  /// Loads all saved accounts available on this device for account switching.
+  static Future<List<UserSession>> loadSavedAccounts() async {
+    final map = await _readSavedAccountsMap();
+    final list = <UserSession>[];
+
+    // Ensure currently active user session is present
+    if (UserSession.current != null) {
+      map[UserSession.current!.id.toString()] = UserSession.current!.toJson();
+      await _writeSavedAccountsMap(map);
+    }
+
+    for (final val in map.values) {
+      try {
+        final d = Map<String, dynamic>.from(val as Map);
+        final token = d['token'] as String? ?? '';
+        list.add(UserSession.fromJson(d, token));
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  /// Registers or updates an account in the saved accounts list.
+  static Future<void> addSavedAccount(UserSession session) async {
+    final map = await _readSavedAccountsMap();
+    map[session.id.toString()] = session.toJson();
+    await _writeSavedAccountsMap(map);
+  }
+
+  /// Unlinks an account from the switcher list on this device.
+  static Future<void> removeSavedAccount(int userId) async {
+    final map = await _readSavedAccountsMap();
+    map.remove(userId.toString());
+    await _writeSavedAccountsMap(map);
+  }
+
+  /// Switches active session to targetSession without requiring password re-entry.
+  static Future<void> switchToAccount(UserSession targetSession) async {
+    UserSession.current = targetSession;
+    await _storage.write(
+      key: _sessionKey,
+      value: jsonEncode(targetSession.toJson()),
+    );
+    await ScheduleReminderService.setAccount(targetSession.id);
+    await addSavedAccount(targetSession);
   }
 
   static Future<UserSession?> loadSession() async {

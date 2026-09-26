@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth-context';
 import { useCaregiverLanguage } from '@/lib/caregiver-language-context';
 import { PasswordGuide, checkPasswordCriteria } from '../ui/PasswordGuide';
+import { AccountSwitcher } from '../profile/AccountSwitcher';
 
 export default function UserProfile() {
     const { user, refreshUser } = useAuth();
@@ -410,6 +411,9 @@ export default function UserProfile() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Switch Account Feature */}
+            <AccountSwitcher className="mt-4" />
         </div>
     );
 }

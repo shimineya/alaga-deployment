@@ -3,11 +3,11 @@ import 'profile_photo_crop.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:alaga/pages/login.dart';
 
 // [INTEGRATION] Import API service and session management
 import '../services/api_service.dart';
 import '../models/user_session.dart';
+import 'add_account_page.dart';
 
 // [OWASP A07] Session guard: rehydrates encrypted session from device storage
 // before any protected API call is made. Prevents 401 errors on cold app starts.
@@ -41,6 +41,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _facilityName = '';
   int? _facilityId;
   bool get _hasFacility => _facilityName.trim().isNotEmpty;
+
+  // Multi-account switcher state
+  List<UserSession> _savedAccounts = [];
+  bool _isSwitchingAccount = false;
 
   // [INTEGRATION] Profile picture local state
   // _selectedImageFile holds the local file for immediate preview after picking.
@@ -179,6 +183,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             facilityName: _facilityName,
           ),
         );
+      }
+      final accounts = await SessionManager.loadSavedAccounts();
+      if (mounted) {
+        setState(() {
+          _savedAccounts = accounts;
+        });
       }
     } else {
       setState(() => _isLoading = false);
@@ -418,27 +428,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return r == 'parent' || r == 'admin';
   }
 
-  bool _isSwitchingRole = false;
+  Future<void> _switchToAccount(UserSession targetAccount) async {
+    if (targetAccount.id == UserSession.current?.id) return;
+    setState(() => _isSwitchingAccount = true);
 
-  // [INTEGRATION] Switches the active role between 'parent' and 'caregiver'
-  Future<void> _handleRoleSwitch(bool toParent) async {
-    final String targetRole = toParent ? 'parent' : 'caregiver';
-    if (_role.toLowerCase() == targetRole) return;
-
-    setState(() => _isSwitchingRole = true);
-
-    final result = await ApiService.get('/api/user/profile/account-role/$targetRole');
+    await SessionManager.switchToAccount(targetAccount);
+    await _fetchProfile();
     if (!mounted) return;
-    setState(() => _isSwitchingRole = false);
+    setState(() => _isSwitchingAccount = false);
+    _showSnackBar('Switched account to @${targetAccount.username} (${_formatRole(targetAccount.role)})');
+  }
 
-    if (result['success'] == true) {
-      // Authenticate the separate account instead of changing this user's role.
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => LoginPage(initialUsername: result['username'] as String?),
-      ));
-    } else {
-      _showSnackBar(result['message'] ?? 'Failed to switch account mode.', isError: true);
+  Future<void> _navigateToAddAccount() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AddAccountPage()),
+    );
+    if (result == true) {
+      final accounts = await SessionManager.loadSavedAccounts();
+      if (mounted) {
+        setState(() {
+          _savedAccounts = accounts;
+        });
+      }
     }
+  }
+
+  Future<void> _removeAccount(int userId) async {
+    await SessionManager.removeSavedAccount(userId);
+    final accounts = await SessionManager.loadSavedAccounts();
+    if (mounted) {
+      setState(() {
+        _savedAccounts = accounts;
+      });
+    }
+    _showSnackBar('Account unlinked from switcher.');
   }
 
   // -- Build --
@@ -655,56 +679,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
-                  const SizedBox(height: 12),
-                  // Switch Account Toggle Row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: _teal.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.switch_account_outlined, size: 20, color: _teal),
-                          ),
-                          const SizedBox(width: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Switch Account",
-                                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
-                              ),
-                              Text(
-                                _isParentRole(_role) ? "Parent Account Active" : "Caregiver Account Active",
-                                style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      _isSwitchingRole
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: _teal),
-                            )
-                          : Switch.adaptive(
-                              value: _isParentRole(_role),
-                              activeThumbColor: _teal,
-                              activeTrackColor: _teal.withValues(alpha: 0.4),
-                              onChanged: (bool value) => _handleRoleSwitch(value),
-                            ),
-                    ],
-                  ),
                 ],
               ),
             ),
+
+            // -- Switch Account Section --
+            _buildSectionHeader(
+              "Switch Account",
+              Icons.switch_account_outlined,
+              action: IconButton(
+                icon: const Icon(Icons.add_circle, color: _teal, size: 26),
+                tooltip: "Add Account",
+                onPressed: _navigateToAddAccount,
+              ),
+            ),
+            _buildSwitchAccountCard(),
 
             // -- Facility Affiliation --
             _buildSectionHeader("Facility Affiliation", Icons.apartment_outlined),
@@ -930,14 +919,233 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title, IconData icon) {
+  Widget _buildSectionHeader(String title, IconData icon, {Widget? action}) {
     return Padding(
       padding: const EdgeInsets.only(top: 20, bottom: 10),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, size: 18, color: _teal),
-          const SizedBox(width: 8),
-          Text(title, style: _sectionHeaderStyle),
+          Row(
+            children: [
+              Icon(icon, size: 18, color: _teal),
+              const SizedBox(width: 8),
+              Text(title, style: _sectionHeaderStyle),
+            ],
+          ),
+          if (action != null) action,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchAccountCard() {
+    final currentId = UserSession.current?.id;
+    return _buildSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Switch Account",
+                    style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    "Tap an account to switch or add another",
+                    style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle, color: _teal, size: 28),
+                tooltip: "Add Account",
+                onPressed: _navigateToAddAccount,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFEEEEEE)),
+          const SizedBox(height: 10),
+          if (_isSwitchingAccount)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: CircularProgressIndicator(color: _teal, strokeWidth: 2),
+              ),
+            )
+          else if (_savedAccounts.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                "No other accounts added yet.",
+                style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _savedAccounts.length,
+              separatorBuilder: (_, __) => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+              ),
+              itemBuilder: (context, index) {
+                final acc = _savedAccounts[index];
+                final isCurrent = acc.id == currentId;
+                return Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: isCurrent ? _teal.withOpacity(0.06) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: isCurrent ? Border.all(color: _teal.withOpacity(0.25)) : null,
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 17,
+                        backgroundColor: isCurrent ? _teal : const Color(0xFFE2E8F0),
+                        backgroundImage: acc.profilePictureUrl != null && acc.profilePictureUrl!.isNotEmpty
+                            ? ApiService.getImageProvider(acc.profilePictureUrl)
+                            : null,
+                        child: acc.profilePictureUrl == null || acc.profilePictureUrl!.isEmpty
+                            ? Text(
+                                (acc.username.isNotEmpty ? acc.username[0] : 'U').toUpperCase(),
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.bold,
+                                  color: isCurrent ? Colors.white : const Color(0xFF475569),
+                                  fontSize: 13,
+                                ),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    acc.name.isNotEmpty ? acc.name : acc.username,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF1E293B),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: isCurrent ? _teal.withOpacity(0.15) : const Color(0xFFE2E8F0),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    _formatRole(acc.role),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: isCurrent ? _teal : const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '@${acc.username}',
+                              style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (isCurrent)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: _teal,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.check, size: 11, color: Colors.white),
+                              const SizedBox(width: 3),
+                              Text(
+                                "Active",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            OutlinedButton(
+                              onPressed: () => _switchToAccount(acc),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: _teal),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              child: Text(
+                                "Switch",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _teal,
+                                ),
+                              ),
+                            ),
+                            if (_savedAccounts.length > 1) ...[
+                              const SizedBox(width: 4),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 15, color: Colors.grey),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: "Remove from switch list",
+                                onPressed: () => _removeAccount(acc.id),
+                              ),
+                            ],
+                          ],
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _navigateToAddAccount,
+              icon: const Icon(Icons.add, size: 16, color: _teal),
+              label: Text(
+                "Add Another Account",
+                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: _teal),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: _teal.withOpacity(0.5)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -197,7 +197,7 @@ const checkMaintenance = async (req, res, next) => {
     try {
         // 1. Bypass check for login/auth routes
         const path = req.path.toLowerCase();
-        if (path === '/login' || path === '/api/auth/login') {
+        if (path === '/login' || path === '/api/auth/login' || path.includes('/biometric/login')) {
             return next();
         }
  

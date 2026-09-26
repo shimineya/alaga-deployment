@@ -160,11 +160,23 @@ class ApiService {
         'statusCode': response.statusCode,
       };
     } catch (_) {
-      // Safety fallback for malformed JSON from the server.
+      // Safety fallback for malformed or non-JSON responses from the server (e.g. HTML 404/500/502/503)
+      String friendlyMessage;
+      if (response.statusCode == 404) {
+        friendlyMessage = 'The requested endpoint was not found on the server (Status 404).';
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        friendlyMessage = 'Authentication failed or session expired (Status ${response.statusCode}).';
+      } else if (response.statusCode == 502 || response.statusCode == 503 || response.statusCode == 504) {
+        friendlyMessage = 'The server is temporarily unavailable or restarting. Please try again shortly.';
+      } else if (response.statusCode >= 500) {
+        friendlyMessage = 'Server encounter an issue (Status ${response.statusCode}). Please try again later.';
+      } else {
+        friendlyMessage = 'Unexpected response from server (Status ${response.statusCode}).';
+      }
+
       return {
         'success': false,
-        'message':
-            'Server returned an unreadable response (Status ${response.statusCode}).',
+        'message': friendlyMessage,
         'statusCode': response.statusCode,
       };
     }

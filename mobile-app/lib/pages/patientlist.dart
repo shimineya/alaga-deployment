@@ -404,10 +404,16 @@ class MiniGraphPainter extends CustomPainter {
       if (i == 0) {
         path.moveTo(x, y);
       } else {
-        path.lineTo(x, y);
-      }
-    }
     canvas.drawPath(path, paint);
+
+    // Draw active pulse dot on latest reading
+    if (points.isNotEmpty) {
+      final lastX = (points.length - 1) * spacing;
+      final normalizedLastY = (points.last - minBound) / range;
+      final lastY = (size.height - (normalizedLastY * size.height)).clamp(0.0, size.height);
+      final dotPaint = Paint()..color = color..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(lastX, lastY), 3.5, dotPaint);
+    }
   }
 
   @override
@@ -438,15 +444,55 @@ class PatientCardWidget extends StatefulWidget {
 
 class _PatientCardWidgetState extends State<PatientCardWidget> {
   bool _isLoadingHistory = false;
+  String _selectedTimeframe = 'Day';
   List<double> hrHistory = [];
   List<double> tempHistory = [];
   List<double> spo2History = [];
   List<double> moistureHistory = [];
   Timer? _refreshTimer;
+  StreamSubscription<Map<String, dynamic>>? _telemetrySub;
+  bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final targetId = (widget.patient['patient_id'] ?? widget.patient['id'])?.toString();
+
+    // Listen to real-time telemetry updates for this specific patient
+    _telemetrySub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      final data = eventData['data'] is Map<String, dynamic>
+          ? eventData['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update') {
+        final updateId = (data['patient_id'] ?? data['patientId'])?.toString();
+        if (updateId == targetId) {
+          final hr = (data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'] as num?)?.toDouble();
+          final temp = (data['temperature'] ?? data['latest_telemetry']?['temperature'] as num?)?.toDouble();
+          final sp = (data['spo2'] ?? data['latest_telemetry']?['spo2'] as num?)?.toDouble();
+          final moist = (data['moisture'] ?? data['latest_telemetry']?['moisture'] as num?)?.toDouble();
+
+          setState(() {
+            if (hr != null && hr > 0) hrHistory = [...hrHistory, hr];
+            if (temp != null && temp > 0) tempHistory = [...tempHistory, temp];
+            if (sp != null && sp > 0) spo2History = [...spo2History, sp];
+            if (moist != null) moistureHistory = [...moistureHistory, moist];
+          });
+
+          // If currently expanded, silently refresh to ensure full database synchronization
+          if (_isExpanded) {
+            _fetchHistory(silent: true);
+          }
+        }
+      }
+    });
+  }
 
   void _startAutoRefresh() {
     _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      _fetchHistory();
+      _fetchHistory(silent: true);
     });
   }
 
@@ -455,52 +501,54 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
     _refreshTimer = null;
   }
 
-  void _fetchHistory() async {
-    if (_isLoadingHistory) return;
+  void _fetchHistory({bool silent = false}) async {
+    if (_isLoadingHistory && !silent) return;
     
-    setState(() { _isLoadingHistory = true; });
+    if (!silent) {
+      setState(() { _isLoadingHistory = true; });
+    }
 
     try {
-      final result = await ApiService.get('/sensor/history/${widget.patient['patient_id']}');
+      final tfParam = _selectedTimeframe.toLowerCase();
+      final result = await ApiService.get('/sensor/history/${widget.patient['patient_id']}?timeframe=$tfParam');
       
       if (mounted && result['success'] == true) {
         final List<dynamic> historyData = result['history'] ?? [];
-        
-        print("DEBUG: Raw history data: $historyData");
+        final chronological = historyData.reversed.toList();
 
         setState(() {
-          // FIXED: Handle both String and num types
-          hrHistory = historyData.map((d) {
+          hrHistory = chronological.map((d) {
             final hr = d['heart_rate'];
             if (hr is num) return hr.toDouble();
             if (hr is String) return double.tryParse(hr) ?? 0.0;
             return 0.0;
-          }).toList();
+          }).where((val) => val > 0).toList();
           
-          tempHistory = historyData.map((d) {
+          tempHistory = chronological.map((d) {
             final temp = d['temperature'];
             if (temp is num) return temp.toDouble();
             if (temp is String) return double.tryParse(temp) ?? 0.0;
             return 0.0;
-          }).toList();
+          }).where((val) => val > 0).toList();
           
-          spo2History = historyData.map((d) {
+          spo2History = chronological.map((d) {
             final spo2 = d['spo2'];
             if (spo2 is num) return spo2.toDouble();
             if (spo2 is String) return double.tryParse(spo2) ?? 0.0;
             return 0.0;
-          }).toList();
+          }).where((val) => val > 0).toList();
           
-          moistureHistory = historyData.map((d) => (d['moisture_value'] == 100 ? 100.0 : 0.0)).toList();          
-          print("DEBUG: Parsed tempHistory: $tempHistory");
-          print("DEBUG: Parsed hrHistory: $hrHistory");
-          print("DEBUG: Parsed spo2History: $spo2History");
+          moistureHistory = chronological.map((d) {
+            final m = d['moisture_value'];
+            if (m is num) return m.toDouble();
+            if (m is String) return double.tryParse(m) ?? 0.0;
+            return 0.0;
+          }).toList();
           
           _isLoadingHistory = false;
         });
       }
     } catch (e) {
-      print("Error fetching history: $e");
       if (mounted) setState(() { _isLoadingHistory = false; });
     }
   }
@@ -557,9 +605,10 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
         children: [Text(label, style: desc.copyWith(fontSize: 11)), Text(value, style: main.copyWith(fontSize: 11))]);
   }
 
-  Widget _buildFullWidthGraph(String label, List<double> points, Color color) {
+  Widget _buildFullWidthGraph(String label, List<double> points, Color color, {String unit = ''}) {
     // Always ensure the painter receives a valid list
     final displayPoints = (points.length < 2) ? [0.0, 0.0] : points;
+    final latestVal = displayPoints.isNotEmpty ? displayPoints.last : 0.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,20 +616,40 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: GoogleFonts.albertSans(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600)),
-            Text("Latest: ${displayPoints.last.toStringAsFixed(1)}", 
-                style: GoogleFonts.poppins(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(label, style: GoogleFonts.albertSans(fontSize: 11, color: const Color(0xFF475569), fontWeight: FontWeight.w600)),
+              ],
+            ),
+            Text("Latest: ${latestVal.toStringAsFixed(1)}$unit", 
+                style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
           ],
         ),
-        const SizedBox(height: 10),
-        // Use RepaintBoundary to isolate the graph and a ValueKey to force redraw
-        RepaintBoundary(
-          child: SizedBox(
-            height: 50,
-            width: double.infinity,
-            child: CustomPaint(
-              key: ValueKey(displayPoints.hashCode), // Forces rebuild on list change
-              painter: MiniGraphPainter(displayPoints, color),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.15)),
+          ),
+          child: RepaintBoundary(
+            child: SizedBox(
+              height: 52,
+              width: double.infinity,
+              child: CustomPaint(
+                key: ValueKey('${displayPoints.hashCode}_${displayPoints.length}'),
+                painter: MiniGraphPainter(displayPoints, color),
+              ),
             ),
           ),
         ),
@@ -659,6 +728,7 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
   @override
   void dispose() {
     _stopAutoRefresh();
+    _telemetrySub?.cancel();
     super.dispose();
   }
 
@@ -677,6 +747,7 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
       ),
       child: ExpansionTile(
         onExpansionChanged: (expanded) {
+          _isExpanded = expanded;
           if (expanded) {
             _fetchHistory();
             _startAutoRefresh();
@@ -761,22 +832,88 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
                 _buildDetailRow("Assigned Caregiver", widget.patient["assigned_caregiver"] ?? "Unassigned", widget.descStyle, widget.mainStyle),
                 const SizedBox(height: 24),
                 
-                Text("Vital Statistics History", style: widget.mainStyle.copyWith(fontSize: 13)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Text("Vital Statistics History", style: widget.mainStyle.copyWith(fontSize: 13)),
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF10B981),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          "LIVE",
+                          style: GoogleFonts.poppins(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF10B981),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: ['Day', 'Week', 'Month'].map((tf) {
+                          final isSelected = _selectedTimeframe == tf;
+                          return GestureDetector(
+                            onTap: () {
+                              if (_selectedTimeframe != tf) {
+                                setState(() {
+                                  _selectedTimeframe = tf;
+                                });
+                                _fetchHistory();
+                              }
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isSelected ? const Color(0xFF1B393D) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                tf,
+                                style: GoogleFonts.albertSans(
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  color: isSelected ? Colors.white : const Color(0xFF64748B),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 16),
                 
                 if (_isLoadingHistory)
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9))),
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9), strokeWidth: 2)),
                   )
                 else ...[
-                  _buildFullWidthGraph("Heart Rate Trend (BPM)", hrHistory, Colors.redAccent),
-                  const SizedBox(height: 20),
-                  _buildFullWidthGraph("Body Temperature Trend (°C)", tempHistory, Colors.orange),
-                  const SizedBox(height: 20),
-                  _buildFullWidthGraph("Blood Oxygen SpO2 (%)", spo2History, Colors.blue),
-                  const SizedBox(height: 20),
-                  _buildFullWidthGraph("Diaper Moisture Sensor Status", moistureHistory, Colors.teal),
+                  _buildFullWidthGraph("Heart Rate Trend", hrHistory, Colors.redAccent, unit: ' BPM'),
+                  const SizedBox(height: 16),
+                  _buildFullWidthGraph("Body Temperature Trend", tempHistory, Colors.orange, unit: '°C'),
+                  const SizedBox(height: 16),
+                  _buildFullWidthGraph("Blood Oxygen SpO2", spo2History, Colors.blue, unit: '%'),
+                  const SizedBox(height: 16),
+                  _buildFullWidthGraph("Diaper Moisture Sensor", moistureHistory, Colors.teal, unit: '%'),
                 ],
 
                 const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),

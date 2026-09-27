@@ -175,10 +175,7 @@ void readBattery() {
   batteryPercent = constrain(batteryPercent, 0, 100);
 }
 
-// Retain last known body temperature so it doesn't disappear when sensor is detached from wrist
-static float lastKnownTemp = 0.0;
-
-// Read Body Temperature from NTC Thermistor with MAX30102 Wrist Sensor fallback
+// Read Body Temperature in Real Time from MAX30102 Wrist Sensor (or NTC fallback)
 void readTemperature() {
   int adcValue = analogRead(THERMISTOR_PIN);
 
@@ -191,27 +188,21 @@ void readTemperature() {
     st       = 1.0 / st - 273.15;
     temperatureC = st + TEMP_CALIBRATION;
     temperatureC = constrain(temperatureC, 25.0, 48.0);
-    lastKnownTemp = temperatureC;
   } else if (sensorFound && fingerDetected) {
-    // Read MAX30102 on-chip sensor when worn on the wrist
+    // Read MAX30102 on-chip sensor in REAL TIME while attached to wrist
     float dieTemp = particleSensor.readTemperature();
     if (dieTemp >= 28.0 && dieTemp <= 44.0) {
       // Wrist skin surface is typically 1.0°C-1.5°C cooler than core body temperature
-      // Apply clinical wrist skin-to-core compensation to estimate oral/core equivalent
+      // Apply calibrated wrist skin-to-core compensation to estimate body temperature in real time
       float estBodyTemp = dieTemp;
       if (dieTemp >= 30.0 && dieTemp <= 36.5) {
         estBodyTemp = dieTemp + 1.2; // Calibrated offset for wrist wear
       }
       temperatureC = constrain(estBodyTemp, 30.0, 42.0);
-      lastKnownTemp = temperatureC;
     }
   } else {
-    // When sensor is detached from wrist, retain the last valid body temperature so readings don't vanish!
-    if (lastKnownTemp >= 30.0) {
-      temperatureC = lastKnownTemp;
-    } else {
-      temperatureC = 0.0;
-    }
+    // Detached / disconnected from wrist: report 0.0 (Detached / No Reading) in real time like BPM and SpO2!
+    temperatureC = 0.0;
   }
 }
 
@@ -1371,12 +1362,13 @@ void loop() {
         contactAbsentCount++;
         if (contactAbsentCount >= 20) {
           if (wasWristContact) {
-            Serial.println("🖐️ [OPTICAL] Sensor detached from wrist. Retaining last body temp.");
+            Serial.println("🖐️ [OPTICAL] Sensor detached from wrist. Reporting detached status for BPM, SpO2 & Temp.");
             wasWristContact = false;
           }
           fingerDetected       = false;
           beatAvg              = 0.0;
           currentSpO2          = 0.0;
+          temperatureC         = 0.0; // Real-time detached status
           dcIR                 = 0;
           dcRed                = 0;
           lastACIR             = 0;

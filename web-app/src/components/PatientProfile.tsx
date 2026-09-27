@@ -313,10 +313,11 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
             {/* Heart Rate Card */}
             {(() => {
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
-              const isCrit = hr !== null && (hr > 130 || hr < 50);
-              const isWarn = hr !== null && (hr > 100 || hr < 60) && !isCrit;
-              const statusText = hr === null ? 'No Data' : isCrit ? 'Critical' : isWarn ? 'Elevated' : 'Normal';
-              const statusBadge = isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const isDetached = hr === 0;
+              const isCrit = hr !== null && !isDetached && (hr > 130 || hr < 50);
+              const isWarn = hr !== null && !isDetached && (hr > 100 || hr < 60) && !isCrit;
+              const statusText = hr === null ? 'No Data' : isDetached ? 'Detached' : isCrit ? 'Critical' : isWarn ? 'Elevated' : 'Normal';
+              const statusBadge = isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
                   <CardContent className="p-3.5 sm:p-4 space-y-2">
@@ -359,10 +360,11 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
             {/* Body Temperature Card */}
             {(() => {
               const temp = latestVital ? latestVital.temperature : null;
-              const isCrit = temp !== null && (temp > 38.5 || temp < 35.0);
-              const isWarn = temp !== null && (temp > 37.5 || temp < 36.0) && !isCrit;
-              const statusText = temp === null ? 'No Data' : isCrit ? 'Fever / High' : isWarn ? 'Elevated' : 'Normal';
-              const statusBadge = isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const isDetached = temp === 0;
+              const isCrit = temp !== null && !isDetached && (temp > 38.5 || temp < 35.0);
+              const isWarn = temp !== null && !isDetached && (temp > 37.5 || temp < 36.0) && !isCrit;
+              const statusText = temp === null ? 'No Data' : isDetached ? 'Detached' : isCrit ? (temp > 38.5 ? 'Fever / High' : 'Hypothermia') : isWarn ? 'Elevated' : 'Normal';
+              const statusBadge = isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
                   <CardContent className="p-3.5 sm:p-4 space-y-2">
@@ -405,10 +407,11 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
             {/* SpO2 Oxygen Saturation Card */}
             {(() => {
               const spo2 = latestVital ? Math.round(latestVital.spo2) : null;
-              const isCrit = spo2 !== null && spo2 < 90;
-              const isWarn = spo2 !== null && spo2 < 95 && !isCrit;
-              const statusText = spo2 === null ? 'No Data' : isCrit ? 'Hypoxia' : isWarn ? 'Low SpO₂' : 'Optimal';
-              const statusBadge = isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const isDetached = spo2 === 0;
+              const isCrit = spo2 !== null && !isDetached && spo2 < 90;
+              const isWarn = spo2 !== null && !isDetached && spo2 < 95 && !isCrit;
+              const statusText = spo2 === null ? 'No Data' : isDetached ? 'Detached' : isCrit ? 'Hypoxia' : isWarn ? 'Low SpO₂' : 'Optimal';
+              const statusBadge = isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
                   <CardContent className="p-3.5 sm:p-4 space-y-2">

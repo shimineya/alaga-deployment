@@ -39,10 +39,7 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
-// Disable brownout detector at pre-main constructor
-void __attribute__((constructor(101))) disable_brownout() {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-}
+
 
 // ==============================================================================
 // HARDWARE PIN DEFINITIONS (All analog pins on ADC1 to avoid Wi-Fi SAR conflicts)
@@ -354,7 +351,7 @@ bool flushOfflineBuffer() {
 // Emits real-time online signal as soon as device is turned on and connected.
 // ==============================================================================
 void sendImmediateOnlineHandshake() {
-  if (WiFi.status() != WL_CONNECTED || isAPMode) return;
+  if (WiFi.status() != WL_CONNECTED) return;
   Serial.println("\n⚡ [REAL-TIME ONLINE] Device turned on / connected! Broadcasting instant online signal...");
 
   HTTPClient http;
@@ -1107,12 +1104,13 @@ bool connectToWiFi() {
 // SETUP ROUTINE
 // ==============================================================================
 void setup() {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable hardware brownout detector to prevent boot reset
-  setCpuFrequencyMhz(80);                     // 80MHz drops base active current draw by over 60% compared to 240MHz
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable hardware brownout detector
   Serial.begin(115200);
-  delay(500);
+  delay(100);
+  setCpuFrequencyMhz(80);                     // 80MHz drops base active current draw by over 60% compared to 240MHz
+  delay(100);
 
-  Serial.println("\n==================================================");
+  Serial.println("\n\n==================================================");
   Serial.println("   ALAGA HEALTHCARE SYSTEM — ESP32 MULTI-SENSOR   ");
   Serial.println("   Firmware: v2.5-Security-MultiSensor-Live       ");
   Serial.println("==================================================");
@@ -1126,6 +1124,7 @@ void setup() {
   pinMode(21, INPUT_PULLUP);
   pinMode(22, INPUT_PULLUP);
   Wire.begin(21, 22, 100000); // 100kHz standard reliable mode
+  Wire.setTimeOut(100);       // Prevent I2C bus lockup on boot / battery sags
 
   if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
     Serial.println("⚠️ [I2C WARNING] MAX30102 not detected. Verifying wiring (SDA=Pin 21, SCL=Pin 22, VIN=3.3V/5V, GND=GND)...");

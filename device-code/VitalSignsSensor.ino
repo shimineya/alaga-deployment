@@ -471,8 +471,7 @@ void sendToBackend() {
     if (isAPMode) {
       Serial.println("ℹ️ [STATUS] In Secure Setup Mode (AP: " + String(DEFAULT_AP_SSID) + "). Configure at http://192.168.4.1/setup");
     } else {
-      Serial.println("⚠️ [STATUS] Wi-Fi lost. Retaining data and attempting reconnection...");
-      WiFi.reconnect();
+      Serial.println("⚠️ [STATUS] Wi-Fi lost. Retaining data in offline buffer...");
     }
   }
 }
@@ -763,7 +762,7 @@ void handleSetup() {
   page += "</div>";
 
   if (n > 0) {
-    page += "<select id='ssid' name='ssid' required>";
+    page += "<select id='ssid' name='ssid' required onchange='checkCustomSSID(this)'>";
     page += "<option value=''>-- Select Available Network --</option>";
     for (int i = 0; i < n; ++i) {
       String netName = WiFi.SSID(i);
@@ -771,7 +770,9 @@ void handleSetup() {
       String selected = (netName == wifi_ssid) ? "selected" : "";
       page += "<option value='" + netName + "' " + selected + ">" + netName + " (" + String(rssi) + " dBm)</option>";
     }
+    page += "<option value='__custom__'>+ Enter Hidden / Custom SSID</option>";
     page += "</select>";
+    page += "<input type='text' id='custom_ssid' name='custom_ssid' placeholder='Enter Wi-Fi Network Name' style='display:none; margin-top: 8px;'>";
   } else {
     page += "<input type='text' id='ssid' name='ssid' value='" + wifi_ssid + "' placeholder='Network SSID' required>";
   }
@@ -878,6 +879,16 @@ void handleSetup() {
   page += "    })";
   page += "    .catch(function() { err.style.display = 'block'; });";
   page += "}";
+  page += "function checkCustomSSID(selectObj) {";
+  page += "  var customInput = document.getElementById('custom_ssid');";
+  page += "  if (selectObj.value === '__custom__') {";
+  page += "    customInput.style.display = 'block';";
+  page += "    customInput.required = true;";
+  page += "  } else {";
+  page += "    customInput.style.display = 'none';";
+  page += "    customInput.required = false;";
+  page += "  }";
+  page += "}";
   page += "</script>";
 
   page += "</div>"; // End card
@@ -893,7 +904,11 @@ void handleSave() {
   String submittedPin = server.arg("admin_pin");
   submittedPin.trim();
 
-  String new_ssid     = server.arg("ssid");         new_ssid.trim();
+  String new_ssid     = server.arg("ssid");
+  if (new_ssid == "__custom__" || new_ssid == "") {
+    new_ssid = server.arg("custom_ssid");
+  }
+  new_ssid.trim();
   String new_pass     = server.arg("password");     new_pass.trim();
   String new_dev_id   = server.arg("device_id");    new_dev_id.trim();
   String new_token    = server.arg("device_token"); new_token.trim();
@@ -1133,8 +1148,10 @@ void setup() {
     preferences.putString("url", DEFAULT_SERVER_URL);
   }
 
-  // Clear obsolete/unreachable Wi-Fi SSID from flash
-  if (wifi_ssid.indexOf("Magaganda") >= 0) {
+  // Clear obsolete/unreachable Wi-Fi SSID from flash (case-insensitive)
+  String checkSSID = wifi_ssid;
+  checkSSID.toLowerCase();
+  if (checkSSID.indexOf("magaganda") >= 0) {
     Serial.println("[MIGRATION] Wiping unreachable Wi-Fi (" + wifi_ssid + ") to enter Setup Mode...");
     preferences.remove("ssid");
     preferences.remove("pass");
@@ -1304,6 +1321,8 @@ void loop() {
         preferences.remove("ssid");
         preferences.remove("pass");
         preferences.end();
+        wifi_ssid = "";
+        wifi_password = "";
         startAccessPointMode();
         break;
       }
@@ -1311,13 +1330,38 @@ void loop() {
   }
 
   // 6. Wi-Fi Auto-Reconnect Keepalive
+  // Constantly and persistently retries connection to configured Wi-Fi if disconnected
   static unsigned long lastReconnectAttempt = 0;
-  if (!isAPMode && wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
+  if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
     if (millis() - lastReconnectAttempt > 3000) {
       lastReconnectAttempt = millis();
-      Serial.println("⚠️ [WIFI] Reconnecting to " + wifi_ssid + "...");
-      WiFi.reconnect();
+      Serial.println("⚠️ [WIFI] Connection lost. Auto-reconnecting to " + wifi_ssid + "...");
+      WiFi.disconnect();
+      delay(50);
+      WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
     }
+  }
+
+  static bool wasVSWiFiConnected = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wasVSWiFiConnected) {
+      wasVSWiFiConnected = true;
+      Serial.println("\n✅ [WIFI] Connected! Assigned IP: " + WiFi.localIP().toString());
+      if (isAPMode) {
+        Serial.println("[WIFI] Disabling setup AP hotspot now that Wi-Fi station is online.");
+        dnsServer.stop();
+        WiFi.softAPdisconnect(true);
+        isAPMode = false;
+        WiFi.mode(WIFI_STA);
+      }
+      sendImmediateOnlineHandshake();
+      if (hasPendingOfflineData) {
+        flushOfflineBuffer();
+      }
+      needInitialSend = true;
+    }
+  } else {
+    wasVSWiFiConnected = false;
   }
 
   // ============================================================================

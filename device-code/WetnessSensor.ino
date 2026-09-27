@@ -440,8 +440,7 @@ void sendToBackend() {
     if (isAPMode) {
       Serial.println("ℹ️ [STATUS] In Setup Mode (AP: " + String(DEFAULT_AP_SSID) + "). Click to configure: http://192.168.4.1/setup");
     } else {
-      Serial.println("⚠️ [STATUS] Wi-Fi lost. Retaining data and attempting reconnection...");
-      WiFi.reconnect();
+      Serial.println("⚠️ [STATUS] Wi-Fi lost. Retaining diaper data in offline buffer...");
     }
   }
 }
@@ -1151,8 +1150,8 @@ void handleNotFound() {
 // ==============================================================================
 void startAccessPointMode() {
   isAPMode = true;
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_AP);
+  WiFi.disconnect(false);
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 
   // [SECURITY] Launch Access Point with WPA2-PSK encryption
@@ -1247,10 +1246,8 @@ bool connectToWiFi() {
     return true;
   }
 
-  Serial.print("[WIFI] Failed to connect. Status Code: ");
-  Serial.println(WiFi.status());
-  Serial.println("⚠️ [WIFI] Will constantly retry reconnecting to " + wifi_ssid + " in background...");
-  isAPMode = false;
+  Serial.println("\n⚠️ [WIFI] Connection to " + wifi_ssid + " failed. Starting Setup Hotspot (" + String(DEFAULT_AP_SSID) + ")...");
+  startAccessPointMode();
   return false;
 }
 
@@ -1297,6 +1294,17 @@ void setup() {
     Serial.println("[MIGRATION] Updating local server URL to Render Cloud: " + String(DEFAULT_SERVER_URL));
     server_url = DEFAULT_SERVER_URL;
     preferences.putString("url", DEFAULT_SERVER_URL);
+  }
+
+  // Clear obsolete/unreachable Wi-Fi SSID from flash (case-insensitive)
+  String checkSSID = wifi_ssid;
+  checkSSID.toLowerCase();
+  if (checkSSID.indexOf("magaganda") >= 0) {
+    Serial.println("[MIGRATION] Wiping unreachable Wi-Fi (" + wifi_ssid + ") to enter Setup Mode...");
+    preferences.remove("ssid");
+    preferences.remove("pass");
+    wifi_ssid = "";
+    wifi_password = "";
   }
   preferences.end();
 
@@ -1381,9 +1389,9 @@ void loop() {
     }
   }
 
-  // 3b. Persistent Wi-Fi Keepalive: Never disconnect unless unpowered
+  // 3b. Persistent Wi-Fi Keepalive: Constantly try to reconnect if disconnected
   static unsigned long lastReconnectAttempt = 0;
-  if (!isAPMode && wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
+  if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
     if (millis() - lastReconnectAttempt > 3000) {
       lastReconnectAttempt = millis();
       Serial.println("⚠️ [WIFI] Connection lost. Auto-reconnecting to " + wifi_ssid + "...");
@@ -1391,6 +1399,27 @@ void loop() {
       delay(50);
       WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
     }
+  }
+
+  static bool wasWetnessWiFiConnected = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wasWetnessWiFiConnected) {
+      wasWetnessWiFiConnected = true;
+      Serial.println("\n✅ [WIFI] Connected! Assigned IP: " + WiFi.localIP().toString());
+      if (isAPMode) {
+        Serial.println("[WIFI] Disabling setup AP hotspot now that Wi-Fi station is online.");
+        dnsServer.stop();
+        WiFi.softAPdisconnect(true);
+        isAPMode = false;
+        WiFi.mode(WIFI_STA);
+      }
+      sendImmediateOnlineHandshake();
+      if (hasPendingOfflineWetness) {
+        flushOfflineWetnessBuffer();
+      }
+    }
+  } else {
+    wasWetnessWiFiConnected = false;
   }
 
   // 4. Sample Sensors Continuously

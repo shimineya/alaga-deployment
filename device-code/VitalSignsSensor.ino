@@ -77,7 +77,7 @@ const char* DEFAULT_AP_SSID      = "ALAGA-MultiSensor-Setup";
 const char* DEFAULT_AP_PASS      = "AlagaSafe2026!";     // WPA2-PSK: Minimum 8 characters
 const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
 const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash
-const char* DEFAULT_SERVER_URL   = "https://alaga-backend.onrender.com/api/device/data";
+const char* DEFAULT_SERVER_URL   = "http://192.168.254.113:3000/api/device/data";
 const char* DEFAULT_DEVICE_ID    = "VS-2026-0001";
 
 // ==============================================================================
@@ -188,12 +188,15 @@ void readTemperature() {
     st       = 1.0 / st - 273.15;
     temperatureC = st + TEMP_CALIBRATION;
     temperatureC = constrain(temperatureC, 25.0, 48.0);
-  } else if (sensorFound) {
-    // Automatic fallback: Read MAX30102 calibrated on-chip die temperature!
+  } else if (sensorFound && fingerDetected) {
+    // Only use MAX30102 on-chip temperature when patient actively has finger on sensor
     float dieTemp = particleSensor.readTemperature();
-    if (dieTemp >= 20.0 && dieTemp <= 50.0) {
+    if (dieTemp >= 30.0 && dieTemp <= 42.0) {
       temperatureC = dieTemp;
     }
+  } else {
+    // No thermistor connected and no finger placed: report 0.0 (No Reading / Detached)
+    temperatureC = 0.0;
   }
 }
 
@@ -1123,8 +1126,8 @@ void setup() {
     // Configure MAX30102 for Red + IR dual-wavelength pulse oximetry
     // Mode 2 = Red + IR, 400Hz sample rate, 411us pulse width
     particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-    particleSensor.setPulseAmplitudeRed(0x7F); // Adequate power for fingertip penetration
-    particleSensor.setPulseAmplitudeIR(0x7F);
+    particleSensor.setPulseAmplitudeRed(0x24); // ~7.0mA - optimal for fingertip without saturation
+    particleSensor.setPulseAmplitudeIR(0x24);  // ~7.0mA - prevents 18-bit ADC saturation (262143)
     particleSensor.setPulseAmplitudeGreen(0);
   }
 
@@ -1133,6 +1136,11 @@ void setup() {
   wifi_ssid     = preferences.getString("ssid", "");
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
+  if (server_url.indexOf("onrender.com") >= 0) {
+    Serial.println("[MIGRATION] Migrating from remote Render cloud to local backend: " + String(DEFAULT_SERVER_URL));
+    server_url = DEFAULT_SERVER_URL;
+    preferences.putString("url", DEFAULT_SERVER_URL);
+  }
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
   if (!device_id.startsWith("VS-")) {
     device_id = DEFAULT_DEVICE_ID;
@@ -1210,8 +1218,8 @@ void loop() {
       Serial.println("✅ [I2C CONNECTED] MAX30102 Pulse Oximeter detected and initialized!");
       sensorFound = true;
       particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-      particleSensor.setPulseAmplitudeRed(0x7F);
-      particleSensor.setPulseAmplitudeIR(0x7F);
+      particleSensor.setPulseAmplitudeRed(0x24);
+      particleSensor.setPulseAmplitudeIR(0x24);
       particleSensor.setPulseAmplitudeGreen(0);
     } else {
       Serial.println("⚠️ [I2C FAILED] Check wires: SDA->Pin 21, SCL->Pin 22, VIN->3.3V or 5V, GND->GND.");
@@ -1223,15 +1231,19 @@ void loop() {
     long currentIR  = particleSensor.getIR();
     long currentRed = particleSensor.getRed();
 
+    // Check if finger is placed on optical sensor
+    // Requires IR above noise threshold (> 40000) and NOT saturated (< 250000)
+    bool validFingerTouch = (currentIR > 40000 && currentIR < 250000 && currentRed > 30000);
+
     // Diagnostics printed to Serial Monitor every 2.5s
     static unsigned long lastOptDebug = 0;
     if (millis() - lastOptDebug > 2500) {
       lastOptDebug = millis();
-      Serial.println("📊 [OPTICAL] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | Finger=" + (fingerDetected ? "YES" : "NO") + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "%");
+      String fingerStr = validFingerTouch ? "YES" : (currentIR >= 250000 ? "SATURATED (Shade Sensor)" : "NO");
+      Serial.println("📊 [OPTICAL] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | Finger=" + fingerStr + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "%");
     }
 
-    // Check if finger is placed on optical sensor (SparkFun standard threshold > 15000)
-    if (currentIR > 15000) {
+    if (validFingerTouch) {
       fingerDetected = true;
       irDCSum  += currentIR;
       redDCSum += currentRed;
@@ -1255,7 +1267,7 @@ void loop() {
         }
 
         // Real SpO2 Calculation from physical PPG AC/DC modulation
-        if (ppgSampleCount > 15) {
+        if (ppgSampleCount >= 4) {
           double irDC  = irDCSum / (double)ppgSampleCount;
           double redDC = redDCSum / (double)ppgSampleCount;
           double irAC  = (double)(irACMax - irACMin);
@@ -1284,7 +1296,7 @@ void loop() {
         ppgSampleCount = 0;
       }
     } else {
-      // Finger removed — clear vitals
+      // Finger removed or saturated — clear vitals
       fingerDetected = false;
       beatAvg        = 0.0;
       currentSpO2    = 0.0;
@@ -1387,7 +1399,7 @@ void loop() {
 
   // Trigger D: Clinical Anomaly Breach (Tachycardia > 130 BPM, Fever > 38.0 °C, Hypoxia < 90%)
   static bool inAlertState = false;
-  bool isAlertNow = (beatAvg > 130.0 || (beatAvg > 0 && beatAvg < 45.0) || temperatureC > 38.0 || (currentSpO2 > 0 && currentSpO2 < 90.0));
+  bool isAlertNow = (beatAvg > 130.0 || (beatAvg > 0 && beatAvg < 45.0) || (fingerDetected && temperatureC > 38.0) || (currentSpO2 > 0 && currentSpO2 < 90.0));
   if (isAlertNow && !inAlertState) {
     Serial.println("🚨 [IMMEDIATE TRIGGER] Critical physiological vital breach detected! Transmitting clinical alert immediately!");
     immediateTrigger = true;

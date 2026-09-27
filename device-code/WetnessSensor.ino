@@ -56,7 +56,7 @@ const char* DEFAULT_AP_SSID      = "ALAGA-Moisture-Setup";
 const char* DEFAULT_AP_PASS      = "AlagaSafe2026!";     // WPA2-PSK: Minimum 8 characters
 const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
 const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash
-const char* DEFAULT_SERVER_URL   = "https://alaga-backend.onrender.com/api/device/data";
+const char* DEFAULT_SERVER_URL   = "http://192.168.254.113:3000/api/device/data";
 const char* DEFAULT_DEVICE_ID    = "SD-2026-0001";
 
 // ==============================================================================
@@ -1274,6 +1274,11 @@ void setup() {
   wifi_ssid     = preferences.getString("ssid", "");
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
+  if (server_url.indexOf("onrender.com") >= 0) {
+    Serial.println("[MIGRATION] Migrating from remote Render cloud to local backend: " + String(DEFAULT_SERVER_URL));
+    server_url = DEFAULT_SERVER_URL;
+    preferences.putString("url", DEFAULT_SERVER_URL);
+  }
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
   if (!device_id.startsWith("SD-")) {
     device_id = DEFAULT_DEVICE_ID;

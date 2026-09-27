@@ -29,6 +29,13 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   final TextEditingController _roomNameCtrl = TextEditingController();
   final TextEditingController _bedNameCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
+  
+  // Normal Standard Baselines controllers
+  final TextEditingController _hrCtrl = TextEditingController(text: '75');
+  final TextEditingController _tempCtrl = TextEditingController(text: '36.8');
+  final TextEditingController _spo2Ctrl = TextEditingController(text: '98');
+  final TextEditingController _moistureCtrl = TextEditingController(text: '30');
+
   bool _hasInformedConsent = false;
 
   bool _validatePatientDetails() {
@@ -71,6 +78,10 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
     _roomNameCtrl.dispose();
     _bedNameCtrl.dispose();
     _searchCtrl.dispose();
+    _hrCtrl.dispose();
+    _tempCtrl.dispose();
+    _spo2Ctrl.dispose();
+    _moistureCtrl.dispose();
     super.dispose();
   }
 
@@ -130,6 +141,11 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       'bed': bedVal,
       'bedName': bedVal,
       'consentGiven': _hasInformedConsent,
+      // Normal standard baseline vitals
+      'heart_rate': double.tryParse(_hrCtrl.text.trim()) ?? 75.0,
+      'temperature': double.tryParse(_tempCtrl.text.trim()) ?? 36.8,
+      'spo2': double.tryParse(_spo2Ctrl.text.trim()) ?? 98.0,
+      'moisture_threshold': double.tryParse(_moistureCtrl.text.trim()) ?? 30.0,
     };
 
     final enteredCaregiverEmail = _selectedCaregiverEmail ??
@@ -594,7 +610,134 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 30),
+        const SizedBox(height: 24),
+
+        // NORMAL STANDARD BASELINES with BASELINE GUIDE button next to the title
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF0D9488), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF0D9488).withOpacity(0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.favorite_outline, color: Color(0xFF0D9488), size: 20),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            "NORMAL STANDARD BASELINES",
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12.5,
+                              color: const Color(0xFF0F766E),
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: _showBaselineGuideModal,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0D9488),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.menu_book_outlined, color: Colors.white, size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            "BASELINE GUIDE",
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                "Specify healthy vital standards for this patient. Used as the clinical reference for AI anomaly alerts and safety nets.",
+                style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInputLabel("Heart Rate (BPM)", isRequired: false),
+                        _buildTextField(_hrCtrl, radius: 10),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInputLabel("Temperature (°C)", isRequired: false),
+                        _buildTextField(_tempCtrl, radius: 10),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInputLabel("SpO₂ Level (%)", isRequired: false),
+                        _buildTextField(_spo2Ctrl, radius: 10),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInputLabel("Diaper Moisture Limit (%)", isRequired: false),
+                        _buildTextField(_moistureCtrl, radius: 10),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
         Text("Medical Notes",
             style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
         const SizedBox(height: 8),
@@ -623,6 +766,239 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showBaselineGuideModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).padding.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0D9488).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.menu_book_outlined, color: Color(0xFF0D9488), size: 22),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        "Clinical Baseline Guide",
+                        style: GoogleFonts.poppins(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF0F766E),
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.black54),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Standard clinical healthy reference ranges by demographic. Tap 'Apply Preset' to quickly pre-populate the patient's baseline targets.",
+                style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 18),
+
+              _buildPresetCard(
+                ctx,
+                title: "Adult (General)",
+                badge: "18 - 64 years",
+                hrText: "60 - 100 BPM (Standard: 75)",
+                tempText: "36.5 - 37.5 °C (Standard: 36.8)",
+                spo2Text: "95 - 100% (Standard: 98%)",
+                moistText: "< 30%",
+                onApply: () {
+                  setState(() {
+                    _hrCtrl.text = "75";
+                    _tempCtrl.text = "36.8";
+                    _spo2Ctrl.text = "98";
+                    _moistureCtrl.text = "30";
+                  });
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Applied Adult clinical standard preset."),
+                      behavior: SnackBarBehavior.floating,
+                      backgroundColor: Color(0xFF0D9488),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildPresetCard(
+                ctx,
+                title: "Pediatric",
+                badge: "Infants & Children",
+                hrText: "90 - 150 BPM (Standard: 110)",
+                tempText: "36.5 - 37.5 °C (Standard: 37.0)",
+                spo2Text: "95 - 100% (Standard: 99%)",
+                moistText: "< 30%",
+                onApply: () {
+                  setState(() {
+                    _hrCtrl.text = "110";
+                    _tempCtrl.text = "37.0";
+                    _spo2Ctrl.text = "99";
+                    _moistureCtrl.text = "30";
+                  });
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Applied Pediatric clinical standard preset."),
+                      behavior: SnackBarBehavior.floating,
+                      backgroundColor: Color(0xFF0D9488),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildPresetCard(
+                ctx,
+                title: "Geriatric",
+                badge: "65+ years",
+                hrText: "55 - 90 BPM (Standard: 72)",
+                tempText: "36.0 - 37.2 °C (Standard: 36.5)",
+                spo2Text: "94 - 98% (Standard: 96%)",
+                moistText: "< 30%",
+                onApply: () {
+                  setState(() {
+                    _hrCtrl.text = "72";
+                    _tempCtrl.text = "36.5";
+                    _spo2Ctrl.text = "96";
+                    _moistureCtrl.text = "30";
+                  });
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Applied Geriatric clinical standard preset."),
+                      behavior: SnackBarBehavior.floating,
+                      backgroundColor: Color(0xFF0D9488),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPresetCard(
+    BuildContext ctx, {
+    required String title,
+    required String badge,
+    required String hrText,
+    required String tempText,
+    required String spo2Text,
+    required String moistText,
+    required VoidCallback onApply,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      badge,
+                      style: GoogleFonts.albertSans(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF475569)),
+                    ),
+                  ),
+                ],
+              ),
+              ElevatedButton(
+                onPressed: onApply,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D9488),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: Text(
+                  "Apply Preset",
+                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: [
+              Text("• HR: $hrText", style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey.shade800)),
+              Text("• Temp: $tempText", style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey.shade800)),
+              Text("• SpO₂: $spo2Text", style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey.shade800)),
+              Text("• Moisture: $moistText", style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey.shade800)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

@@ -20,10 +20,17 @@ import {
     PlusCircle,
     RefreshCw,
     CheckCircle,
-    Mail
+    Mail,
+    Heart,
+    Thermometer,
+    Droplets,
+    BookOpen,
+    Info,
+    RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddNewDeviceModal } from './AddNewDevice'; // [UX] Integrated for workflow continuity
+import { BaselineGuideModal, BaselinePreset } from './BaselineGuideModal';
 
 // --- SHARED FORM COMPONENT ---
 interface PatientFormProps {
@@ -35,9 +42,15 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
     const { token } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
 
-    // [UX] State for the nested "Add Device" modal
+    // [UX] State for the nested "Add Device" modal and "Baseline Guide" modal
     const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
     const [isRefreshingDevices, setIsRefreshingDevices] = useState(false);
+    const [isBaselineGuideOpen, setIsBaselineGuideOpen] = useState(false);
+
+    // Existing patient lookup state
+    const [existingPatientId, setExistingPatientId] = useState('');
+    const [loadedPatientId, setLoadedPatientId] = useState<number | null>(null);
+    const [isSearchingPatient, setIsSearchingPatient] = useState(false);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -54,7 +67,12 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         assignedCaregiverName: '',
         ward: '',
         room: '',
-        bed: ''
+        bed: '',
+        // Normal Standard Baselines
+        heartRate: 75,
+        temperature: 36.8,
+        spo2: 98,
+        moistureThreshold: 30
     });
 
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -104,6 +122,92 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
         refreshDeviceList();
     };
 
+    // Lookup existing patient by Patient ID
+    const handleLookupPatient = async () => {
+        const id = existingPatientId.trim();
+        if (!id) {
+            toast.error("Please enter a Patient ID to load.");
+            return;
+        }
+        setIsSearchingPatient(true);
+        try {
+            const res = await fetch(`${API_URL}/api/caregiver/patients/${id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.success && data.data) {
+                const p = data.data;
+                const base = p.baseline_data || {};
+                const nameParts = (p.name || '').trim().split(' ');
+                const firstName = nameParts[0] || '';
+                const lastName = nameParts.slice(1).join(' ') || '';
+
+                setFormData(prev => ({
+                    ...prev,
+                    firstName: firstName || prev.firstName,
+                    lastName: lastName || prev.lastName,
+                    dateOfBirth: p.birthdate ? p.birthdate.split('T')[0] : prev.dateOfBirth,
+                    primaryDiagnosis: base.diagnosis || base.condition || prev.primaryDiagnosis,
+                    conditions: base.condition || base.medicalCondition || prev.conditions,
+                    emergencyContact: base.emergencyContact || prev.emergencyContact,
+                    ward: base.ward || prev.ward,
+                    room: base.room || prev.room || 'Room 1',
+                    bed: base.bed || prev.bed,
+                    heartRate: Number(base.heart_rate || base.heartRate) || 75,
+                    temperature: Number(base.temperature) || 36.8,
+                    spo2: Number(base.spo2) || 98,
+                    moistureThreshold: Number(base.moisture_threshold || base.moistureThreshold) || 30
+                }));
+                setLoadedPatientId(p.patient_id);
+                toast.success(`Found patient #${p.patient_id} (${p.name}). Baseline & info loaded.`);
+            } else {
+                toast.error(data.message || `Patient #${id} not found.`);
+            }
+        } catch (err) {
+            console.error("Patient lookup error:", err);
+            toast.error("Could not load patient record.");
+        } finally {
+            setIsSearchingPatient(false);
+        }
+    };
+
+    const handleClearLoadedPatient = () => {
+        setLoadedPatientId(null);
+        setExistingPatientId('');
+        setFormData({
+            firstName: '',
+            lastName: '',
+            dateOfBirth: '',
+            primaryDiagnosis: '',
+            conditions: '',
+            emergencyContact: '',
+            vsDeviceId: '',
+            sdDeviceId: '',
+            assignedCaregiverId: '',
+            assignedCaregiverEmail: '',
+            assignedCaregiverName: '',
+            ward: '',
+            room: '',
+            bed: '',
+            heartRate: 75,
+            temperature: 36.8,
+            spo2: 98,
+            moistureThreshold: 30
+        });
+        toast.info("Cleared patient selection. In new patient registration mode.");
+    };
+
+    const handleApplyPreset = (preset: BaselinePreset) => {
+        setFormData(prev => ({
+            ...prev,
+            heartRate: preset.heartRate,
+            temperature: preset.temperature,
+            spo2: preset.spo2,
+            moistureThreshold: preset.moistureThreshold
+        }));
+        toast.success("Applied standard physiological baseline preset.");
+    };
+
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
         if (!formData.firstName.trim()) newErrors.firstName = "First name is required";
@@ -117,14 +221,10 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
             }
         }
         if (!formData.room.trim()) newErrors.room = "Room name is required";
-        // Bed name is optional
         return newErrors;
     };
 
     const handleSubmit = async () => {
-        // [UX] This is called explicitly by the Finish button on Step 3 only.
-        // No <form> element is used, so there is no risk of implicit submission.
-
         const formErrors = validateForm();
         if (Object.keys(formErrors).length > 0) {
             setErrors(formErrors);
@@ -134,39 +234,74 @@ const PatientRegistrationForm: React.FC<PatientFormProps> = ({ onSuccess, onCanc
 
         setIsLoading(true);
         try {
-            // [OWASP A01] Ensure the API validates that the token holder has permission to create patients
-            const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    name: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
-                    birthdate: formData.dateOfBirth,
-                    medicalCondition: formData.conditions, // backwards-compatible field
-                    illness: formData.primaryDiagnosis || null,
-                    conditions: formData.conditions || null,
-                    emergencyContact: formData.emergencyContact || null,
-                    assignedCaregiverEmail: formData.assignedCaregiverEmail || null,
-                    vitalDeviceNo: formData.vsDeviceId,
-                    diaperDeviceNo: formData.sdDeviceId,
-                    ward: formData.ward || null,
-                    room: formData.room.trim(),
-                    bed: formData.bed.trim() || null
-                })
-            });
+            if (loadedPatientId) {
+                // UPDATE EXISTING PATIENT BASELINE
+                const response = await fetch(`${API_URL}/api/caregiver/patients/${loadedPatientId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        name: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+                        birthdate: formData.dateOfBirth || null,
+                        medicalCondition: formData.conditions || formData.primaryDiagnosis || null,
+                        ward: formData.ward || null,
+                        room: formData.room.trim(),
+                        bed: formData.bed.trim() || null,
+                        heart_rate: Number(formData.heartRate),
+                        temperature: Number(formData.temperature),
+                        spo2: Number(formData.spo2),
+                        moisture_threshold: Number(formData.moistureThreshold)
+                    })
+                });
 
-            const data = await response.json();
-            if (data.success) {
-                toast.success(`Patient ${formData.firstName} enrolled successfully.`);
-                onSuccess();
+                const data = await response.json();
+                if (data.success) {
+                    toast.success(`Patient #${loadedPatientId} baselines updated successfully.`);
+                    onSuccess();
+                } else {
+                    toast.error(data.message || "Failed to update patient baselines.");
+                }
             } else {
-                toast.error(data.message || "Failed to enroll patient");
+                // REGISTER NEW PATIENT WITH BASELINES
+                const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        name: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+                        birthdate: formData.dateOfBirth,
+                        medicalCondition: formData.conditions, // backwards-compatible field
+                        illness: formData.primaryDiagnosis || null,
+                        conditions: formData.conditions || null,
+                        emergencyContact: formData.emergencyContact || null,
+                        assignedCaregiverEmail: formData.assignedCaregiverEmail || null,
+                        vitalDeviceNo: formData.vsDeviceId,
+                        diaperDeviceNo: formData.sdDeviceId,
+                        ward: formData.ward || null,
+                        room: formData.room.trim(),
+                        bed: formData.bed.trim() || null,
+                        heart_rate: Number(formData.heartRate),
+                        temperature: Number(formData.temperature),
+                        spo2: Number(formData.spo2),
+                        moisture_threshold: Number(formData.moistureThreshold)
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    toast.success(`Patient ${formData.firstName} enrolled with normal standard baselines.`);
+                    onSuccess();
+                } else {
+                    toast.error(data.message || "Failed to enroll patient");
+                }
             }
         } catch (error) {
-            console.error("Enrollment Error:", error);
-            toast.error("Network Error: Could not enroll patient.");
+            console.error("Enrollment/Update Error:", error);
+            toast.error("Network Error: Could not save patient.");
         } finally {
             setIsLoading(false);
         }
@@ -225,8 +360,7 @@ const handleSearchCaregiver = async (query: string) => {
     // ... existing handlers ...
 
     return (
-        <div className="flex flex-col h-[520px]"> {/* Fixed height for consistency */}
-
+        <div className="flex flex-col min-h-[560px] max-h-[85vh]">
             {/* PROGRESS STEPS - COMPACT */}
             <div className="px-6 pt-4 pb-2 bg-white border-b border-slate-50">
                 <div className="flex items-center justify-between px-2">
@@ -240,7 +374,7 @@ const handleSearchCaregiver = async (query: string) => {
                                     {step}
                                 </div>
                                 <span className={`text-[10px] font-medium transition-colors ${isCurrent ? 'text-teal-700' : 'text-slate-400'}`}>
-                                    {step === 1 ? 'Details' : step === 2 ? 'Caregiver' : 'Devices'}
+                                    {step === 1 ? 'Details & Baseline' : step === 2 ? 'Caregiver' : 'Devices'}
                                 </span>
                             </div>
                         );
@@ -255,11 +389,60 @@ const handleSearchCaregiver = async (query: string) => {
             </div>
 
             <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
-                    {/* STEP 1: PATIENT DETAILS */}
+                    {/* STEP 1: PATIENT DETAILS & BASELINES */}
                     {currentStep === 1 && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-200">
+                            {/* Existing Patient ID Lookup */}
+                            <div className="p-3 bg-slate-50/90 border border-slate-200/90 rounded-xl space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                        <Search className="w-3.5 h-3.5 text-teal-600" />
+                                        Existing Patient ID Lookup
+                                        <span className="text-[10px] font-normal text-slate-400">(Optional: configure existing patient baselines)</span>
+                                    </Label>
+                                    {loadedPatientId && (
+                                        <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                            <CheckCircle className="w-3 h-3" />
+                                            Patient #{loadedPatientId} Loaded
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex gap-2">
+                                    <Input
+                                        placeholder="Enter Patient ID (e.g. 12)..."
+                                        value={existingPatientId}
+                                        onChange={e => setExistingPatientId(e.target.value.replace(/[^0-9]/g, ''))}
+                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleLookupPatient(); } }}
+                                        className="h-8 text-xs bg-white flex-1"
+                                    />
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={handleLookupPatient}
+                                        disabled={isSearchingPatient || !existingPatientId.trim()}
+                                        className="h-8 text-xs px-3 bg-slate-800 hover:bg-slate-900 text-white font-medium"
+                                    >
+                                        {isSearchingPatient ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Search className="w-3.5 h-3.5 mr-1.5" />}
+                                        Load Patient
+                                    </Button>
+                                    {loadedPatientId && (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={handleClearLoadedPatient}
+                                            className="h-8 text-xs px-2.5 text-slate-600 hover:text-red-600 border-slate-200 hover:bg-red-50"
+                                            title="Clear and register a new patient"
+                                        >
+                                            <RotateCcw className="w-3 h-3 mr-1" />
+                                            New Patient
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+
                             <div className="space-y-3">
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1.5">
@@ -372,6 +555,98 @@ const handleSearchCaregiver = async (query: string) => {
                                                     className="h-9 text-sm"
                                                 />
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* NORMAL STANDARD BASELINES SECTION */}
+                                <div className="border-t border-slate-200/80 pt-3 mt-3 bg-slate-50/70 p-3.5 rounded-xl border">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-1.5">
+                                            <Heart className="w-4 h-4 text-rose-500" />
+                                            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                                                NORMAL STANDARD BASELINES
+                                            </h4>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setIsBaselineGuideOpen(true)}
+                                            className="h-6 px-2.5 text-[10px] font-bold text-teal-700 bg-teal-50 border-teal-300 hover:bg-teal-100 hover:text-teal-800 flex items-center gap-1.5 shadow-2xs rounded-lg cursor-pointer"
+                                        >
+                                            <BookOpen className="w-3 h-3 text-teal-600" />
+                                            BASELINE GUIDE
+                                        </Button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mb-3 leading-snug">
+                                        Configured standard physiological baseline for AI anomaly scoring & personalized suppression.
+                                    </p>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <Label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                                                <Heart className="w-3 h-3 text-rose-500" />
+                                                Heart Rate (bpm)
+                                            </Label>
+                                            <Input
+                                                type="number"
+                                                min={40}
+                                                max={200}
+                                                value={formData.heartRate}
+                                                onChange={e => setFormData({ ...formData, heartRate: Number(e.target.value) || 75 })}
+                                                className="h-8 text-xs font-bold bg-white"
+                                            />
+                                            <span className="text-[9.5px] text-slate-400">Adult standard: 60-100 bpm</span>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                                                <Thermometer className="w-3 h-3 text-amber-500" />
+                                                Temperature (°C)
+                                            </Label>
+                                            <Input
+                                                type="number"
+                                                step={0.1}
+                                                min={33.0}
+                                                max={42.0}
+                                                value={formData.temperature}
+                                                onChange={e => setFormData({ ...formData, temperature: Number(e.target.value) || 36.8 })}
+                                                className="h-8 text-xs font-bold bg-white"
+                                            />
+                                            <span className="text-[9.5px] text-slate-400">Normothermia: 36.5-37.5°C</span>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                                                <Activity className="w-3 h-3 text-blue-500" />
+                                                SpO₂ (%)
+                                            </Label>
+                                            <Input
+                                                type="number"
+                                                min={70}
+                                                max={100}
+                                                value={formData.spo2}
+                                                onChange={e => setFormData({ ...formData, spo2: Number(e.target.value) || 98 })}
+                                                className="h-8 text-xs font-bold bg-white"
+                                            />
+                                            <span className="text-[9.5px] text-slate-400">Target sat: 95-100%</span>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <Label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                                                <Droplets className="w-3 h-3 text-cyan-500" />
+                                                Moisture Limit (%)
+                                            </Label>
+                                            <Input
+                                                type="number"
+                                                min={5}
+                                                max={95}
+                                                value={formData.moistureThreshold}
+                                                onChange={e => setFormData({ ...formData, moistureThreshold: Number(e.target.value) || 30 })}
+                                                className="h-8 text-xs font-bold bg-white"
+                                            />
+                                            <span className="text-[9.5px] text-slate-400">Alert threshold: ≥ 30%</span>
                                         </div>
                                     </div>
                                 </div>
@@ -553,6 +828,13 @@ const handleSearchCaregiver = async (query: string) => {
                 isOpen={isDeviceModalOpen}
                 onOpenChange={setIsDeviceModalOpen}
                 onDeviceAdded={handleDeviceAdded}
+            />
+
+            {/* Baseline Guide Modal Overlay */}
+            <BaselineGuideModal
+                isOpen={isBaselineGuideOpen}
+                onClose={() => setIsBaselineGuideOpen(false)}
+                onApplyPreset={handleApplyPreset}
             />
         </div>
     );

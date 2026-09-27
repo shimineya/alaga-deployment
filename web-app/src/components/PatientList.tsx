@@ -558,7 +558,7 @@ const PatientTable: React.FC<PatientTableProps> = ({
                     <TableBody>
                         {patients.map((patient) => {
                             const vital = getLatestVital(patient.id);
-                            const isOffline = !patient.deviceConnected;
+                            const isOffline = !((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
 
                             let statusColor = "bg-slate-100 text-slate-800";
                             let statusText = "Stable";
@@ -632,14 +632,16 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                         />
                                     </TableCell>
                                     <TableCell>
-                                        {patient.latest_telemetry ? (
+                                        {patient.latest_telemetry && !isOffline ? (
                                             <Badge variant="outline" className={`
                                                 ${patient.latest_telemetry.moisture >= 70 
                                                     ? 'bg-red-50 text-red-700 border-red-200 font-bold animate-pulse' 
+                                                    : patient.latest_telemetry.moisture <= 0
+                                                    ? 'bg-slate-50 text-slate-600 border-slate-200'
                                                     : 'bg-blue-50 text-blue-700 border-blue-200'
                                                 }
                                             `}>
-                                                {patient.latest_telemetry.moisture >= 70 ? 'WET' : 'DRY'} ({patient.latest_telemetry.moisture}%)
+                                                {patient.latest_telemetry.moisture >= 70 ? 'WET' : patient.latest_telemetry.moisture <= 0 ? 'DETACHED' : 'DRY'} ({patient.latest_telemetry.moisture}%)
                                             </Badge>
                                         ) : (
                                             <span className="text-xs text-slate-400 italic">--</span>
@@ -654,7 +656,7 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                         {vital && !isOffline ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
                                                 <Heart className="w-3 h-3 text-rose-500" />
-                                                {Math.round(vital.heartRate)}
+                                                {vital.heartRate === 0 ? '0 (Detached)' : Math.round(vital.heartRate)}
                                             </div>
                                         ) : <span className="text-slate-400">--</span>}
                                     </TableCell>
@@ -662,7 +664,7 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                         {vital && !isOffline ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
                                                 <Thermometer className="w-3 h-3 text-amber-500" />
-                                                {vital.temperature.toFixed(1)}°
+                                                {(vital.temperature <= 30.0 || (vital.heartRate === 0 && vital.spo2 === 0)) ? `${vital.temperature > 0 ? vital.temperature.toFixed(1) : '0.0'}° (Detached)` : `${vital.temperature.toFixed(1)}°`}
                                             </div>
                                         ) : <span className="text-slate-400">--</span>}
                                     </TableCell>
@@ -670,7 +672,7 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                         {vital && !isOffline ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
                                                 <Activity className="w-3 h-3 text-blue-500" />
-                                                {Math.round(vital.spo2)}%
+                                                {vital.spo2 === 0 ? '0% (Detached)' : `${Math.round(vital.spo2)}%`}
                                             </div>
                                         ) : <span className="text-slate-400">--</span>}
                                     </TableCell>

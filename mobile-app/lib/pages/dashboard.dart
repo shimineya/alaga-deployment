@@ -113,7 +113,23 @@ class _DashboardScreenState extends State<DashboardScreen>
           ? eventData['data'] as Map<String, dynamic>
           : <String, dynamic>{};
 
-      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update') {
+      if (eventType == 'device_status_update') {
+        final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
+        final isAct = data['status'] == 'ACTIVE';
+        setState(() {
+          for (var i = 0; i < _patients.length; i++) {
+            final p = _patients[i];
+            if (targetId == null || (p['patient_id'] ?? p['id'])?.toString() == targetId) {
+              _patients[i] = {
+                ...p,
+                'is_online': isAct,
+                'isOnline': isAct,
+                'device_status': isAct ? 'active' : 'inactive',
+              };
+            }
+          }
+        });
+      } else if (eventType == 'patient_telemetry_update') {
         final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (targetId != null) {
           setState(() {
@@ -136,6 +152,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
                 _patients[i] = {
                   ...p,
+                  'is_online': true,
+                  'isOnline': true,
+                  'device_status': 'active',
                   'latest_telemetry': existingTelem,
                 };
                 break;
@@ -2344,7 +2363,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildPatientCard(Map<String, dynamic> patient) {
     final telemetry = patient['latest_telemetry'] ?? {};
-    final bool isDeviceActive = patient['device_status'] == 'active';
+    final bool isDeviceActive = patient['is_online'] == true ||
+        patient['isOnline'] == true ||
+        patient['device_status']?.toString().toLowerCase() == 'active' ||
+        (patient['paired_devices'] is List && (patient['paired_devices'] as List).any((d) => d['is_online'] == true || d['status'] == 'ACTIVE'));
 
     final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
     final patientName = (patient['name'] ?? '').toString().toLowerCase().trim();
@@ -2359,21 +2381,58 @@ class _DashboardScreenState extends State<DashboardScreen>
     }).toList();
     final bool hasActiveAlerts = patientAlerts.isNotEmpty;
 
+    // Threshold safety net evaluation for Caregiver and Parent
+    final rawHr = telemetry['heart_rate'];
+    final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
+    final rawTemp = telemetry['temperature'];
+    final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
+    final rawSpo2 = telemetry['spo2'];
+    final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
+
+    final List<String> safetyBreaches = [];
+    if (isDeviceActive) {
+      if (spo2Num != null && spo2Num > 0 && spo2Num < AppPreferences.spo2Min.value) {
+        safetyBreaches.add("SpO₂ $spo2Num% (<${AppPreferences.spo2Min.value.toInt()}%)");
+      }
+      if (hrNum != null && hrNum > 0) {
+        if (hrNum < AppPreferences.hrMin.value) {
+          safetyBreaches.add("HR $hrNum bpm (<${AppPreferences.hrMin.value.toInt()})");
+        } else if (hrNum > AppPreferences.hrMax.value) {
+          safetyBreaches.add("HR $hrNum bpm (>${AppPreferences.hrMax.value.toInt()})");
+        }
+      }
+      if (tempNum != null && tempNum > 30.0) {
+        if (tempNum < AppPreferences.tempMin.value) {
+          safetyBreaches.add("Temp ${tempNum.toStringAsFixed(1)}°C (<${AppPreferences.tempMin.value.toStringAsFixed(1)})");
+        } else if (tempNum > AppPreferences.tempMax.value) {
+          safetyBreaches.add("Temp ${tempNum.toStringAsFixed(1)}°C (>${AppPreferences.tempMax.value.toStringAsFixed(1)})");
+        }
+      }
+    }
+    final bool hasBreaches = safetyBreaches.isNotEmpty;
+    final bool isHighlighted = hasActiveAlerts || hasBreaches;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: hasActiveAlerts ? const Color(0xFFFFF1F2) : Colors.white,
+        color: hasActiveAlerts
+            ? const Color(0xFFFFF1F2)
+            : (hasBreaches ? const Color(0xFFFFFBEB) : Colors.white),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: hasActiveAlerts ? const Color(0xFFEF4444) : Colors.black12,
-          width: hasActiveAlerts ? 2.0 : 1.0,
+          color: hasActiveAlerts
+              ? const Color(0xFFEF4444)
+              : (hasBreaches ? const Color(0xFFF59E0B) : Colors.black12),
+          width: isHighlighted ? 2.0 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
             color: hasActiveAlerts
                 ? const Color(0xFFEF4444).withValues(alpha: 0.18)
-                : Colors.black.withValues(alpha: 0.05),
-            blurRadius: hasActiveAlerts ? 8 : 4,
+                : (hasBreaches
+                    ? const Color(0xFFF59E0B).withValues(alpha: 0.18)
+                    : Colors.black.withValues(alpha: 0.05)),
+            blurRadius: isHighlighted ? 8 : 4,
             offset: const Offset(0, 2),
           ),
         ],
@@ -2431,6 +2490,49 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ],
                     ),
                   ),
+                if (hasBreaches)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFDBA74)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.shield_outlined, size: 16, color: Color(0xFFEA580C)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            "SAFETY NET LIMIT BREACH: ${safetyBreaches.join(' • ')}",
+                            style: GoogleFonts.albertSans(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFC2410C),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEA580C),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            "SAFETY NET",
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -2477,11 +2579,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawHr = telemetry['heart_rate'];
                         final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
+                        final isDetached = isDeviceActive && (hrNum == 0 || hrNum == null);
                         return _vitalStat(
                           "BPM",
-                          (hrNum != null && hrNum > 0) ? "$hrNum" : "--",
+                          !isDeviceActive ? "--" : (isDetached ? "0" : "$hrNum"),
                           Icons.favorite,
-                          Colors.red,
+                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.red),
+                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
                         );
                       }(),
                     ),
@@ -2489,11 +2593,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawTemp = telemetry['temperature'];
                         final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
+                        final rawHr = telemetry['heart_rate'];
+                        final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
+                        final rawSpo2 = telemetry['spo2'];
+                        final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
+                        final isDetached = isDeviceActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (hrNum == 0 && spo2Num == 0));
+                        final displayVal = !isDeviceActive ? "--" : (isDetached ? "${tempNum != null && tempNum > 0 ? tempNum.toStringAsFixed(1) : '0.0'}°C" : "${tempNum!.toStringAsFixed(1)}°C");
                         return _vitalStat(
                           "TEMP",
-                          (tempNum != null && tempNum > 0) ? "${tempNum.toStringAsFixed(1)}°C" : "--",
+                          displayVal,
                           Icons.thermostat,
-                          Colors.orange,
+                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.orange),
+                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
                         );
                       }(),
                     ),
@@ -2506,11 +2617,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawSpo2 = telemetry['spo2'];
                         final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
+                        final isDetached = isDeviceActive && (spo2Num == 0 || spo2Num == null);
                         return _vitalStat(
                           "SpO2",
-                          (spo2Num != null && spo2Num > 0) ? "$spo2Num%" : "--",
+                          !isDeviceActive ? "--" : (isDetached ? "0%" : "$spo2Num%"),
                           Icons.water_drop,
-                          Colors.blue,
+                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.blue),
+                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
                         );
                       }(),
                     ),
@@ -2518,14 +2631,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawMoist = telemetry['moisture'];
                         final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
+                        final isDetached = isDeviceActive && (rawMoist == null || mNum <= 0);
                         final isWet = mNum >= 70 || mNum == 100;
                         final isDamp = mNum >= 30 && !isWet;
-                        final label = mNum <= 0 ? 'Dry' : isWet ? 'Wet ($mNum%)' : isDamp ? 'Damp ($mNum%)' : 'Dry ($mNum%)';
+                        final label = !isDeviceActive ? "--" : (isDetached ? "0%" : (isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)")));
                         return _vitalStat(
-                          "MOISTURE",
+                          "DIAPER WETNESS",
                           label,
-                          Icons.water_drop_outlined,
-                          isWet ? Colors.red : isDamp ? Colors.amber.shade800 : Colors.teal,
+                          Icons.opacity,
+                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : (isWet ? Colors.red : (isDamp ? Colors.amber.shade800 : Colors.teal))),
+                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : (isWet ? "WET" : null)),
                         );
                       }(),
                     ),
@@ -2593,12 +2708,20 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _vitalStat(String label, String value, IconData icon, Color color) {
+  Widget _vitalStat(String label, String value, IconData icon, Color color, {String? subtitle}) {
     return Column(
       children: [
         Icon(icon, size: 20, color: color),
         Text(value,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            textAlign: TextAlign.center),
+        if (subtitle != null && subtitle.isNotEmpty)
+          Text(subtitle,
+              style: TextStyle(
+                fontSize: 8.5,
+                fontWeight: FontWeight.bold,
+                color: subtitle == 'DETACHED' ? const Color(0xFF64748B) : color,
+              )),
         Text(label, style: const TextStyle(fontSize: 9, color: Colors.grey)),
       ],
     );

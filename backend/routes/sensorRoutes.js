@@ -581,25 +581,22 @@ router.get(
         try {
             const readingResult = await pool.query(
                 `SELECT 
-                    (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1) AS reading_id,
-                    COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS heart_rate,
-                    COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS spo2,
-                    COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = $1 AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS temperature,
-                    COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1), 0) AS moisture_value,
-                    (SELECT sr.recorded_at FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1) AS recorded_at,
-                    (SELECT p.patient_type FROM patients p WHERE p.patient_id = $1) AS patient_type,
-                    (SELECT model_event.ocsvm_score
-                     FROM anomaly_events model_event
-                     WHERE model_event.reading_id = (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1)
-                       AND model_event.anomaly_type = 'ocsvm_anomaly'
-                     ORDER BY model_event.event_id DESC LIMIT 1) AS model_score,
+                    sr.reading_id,
+                    COALESCE(sr.heart_rate, 0) AS heart_rate,
+                    COALESCE(sr.spo2, 0) AS spo2,
+                    COALESCE(sr.temperature, 0) AS temperature,
+                    COALESCE(sr.moisture_value, 0) AS moisture_value,
+                    sr.recorded_at,
+                    p.patient_type,
+                    ae.ocsvm_score AS model_score,
                     ae.anomaly_type,
                     an.message AS latest_alert, an.severity AS alert_severity
-                 FROM sensor_readings sr2
-                 LEFT JOIN anomaly_events ae ON ae.reading_id = (SELECT sr.reading_id FROM sensor_readings sr WHERE sr.patient_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1)
+                 FROM sensor_readings sr
+                 LEFT JOIN patients p ON p.patient_id = sr.patient_id
+                 LEFT JOIN anomaly_events ae ON ae.reading_id = sr.reading_id
                  LEFT JOIN alert_notifications an ON an.event_id = ae.event_id
-                 WHERE sr2.patient_id = $1
-                 ORDER BY sr2.recorded_at DESC
+                 WHERE sr.patient_id = $1
+                 ORDER BY sr.recorded_at DESC
                  LIMIT 1`,
                 [patientId]
             );

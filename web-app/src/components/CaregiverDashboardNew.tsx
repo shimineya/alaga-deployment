@@ -286,12 +286,15 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         medications: p.medications || [],
                         doctorsOrders: [],
                         baselineVitals: { heartRate: 0, spo2: 0, temperature: 0, moistureLevel: 0 },
-                        deviceConnected: activeDevicesList.length > 0,
+                        deviceConnected: !!p.is_online,
+                        is_online: !!p.is_online,
+                        isOnline: !!p.is_online,
                         assignedCaregiverName: p.assigned_caregiver_name || (p.caregivers && p.caregivers.length > 0 ? (p.caregivers[0].username || p.caregivers[0].name) : undefined) || (p.assigned_users && p.assigned_users.length > 0 ? (p.assigned_users[0].username || p.assigned_users[0].first_name) : undefined),
                         deleted: false,
                         archived: false,
                         baseline_data: p.baseline_data || null,
                         active_devices: activeDevicesList,
+                        paired_devices: p.paired_devices || [],
                         caregivers: p.caregivers || [],
                         latest_telemetry: p.latest_telemetry || null
                     } as any;
@@ -341,7 +344,21 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
         const poll = setInterval(fetchAlerts, 15000);
         const handleSync = (e?: any) => {
             const detail = e?.detail;
-            if (detail && (detail.type === 'patient_telemetry_update' || detail.type === 'device_status_update')) {
+            if (detail && detail.type === 'device_status_update') {
+                const isOnline = detail.status === 'ACTIVE';
+                const targetPatientId = String(detail.patient_id || detail.patientId || '');
+                setPatients(prev => prev.map(p => {
+                    if (!targetPatientId || String(p.id) === targetPatientId) {
+                        return {
+                            ...p,
+                            deviceConnected: isOnline,
+                            is_online: isOnline,
+                            isOnline: isOnline
+                        };
+                    }
+                    return p;
+                }));
+            } else if (detail && detail.type === 'patient_telemetry_update') {
                 const targetPatientId = String(detail.patient_id || detail.patientId);
                 const hr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
                 const temp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
@@ -355,6 +372,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         return {
                             ...p,
                             deviceConnected: true,
+                            is_online: true,
+                            isOnline: true,
                             latest_telemetry: {
                                 ...existingTelem,
                                 heart_rate: hr !== undefined && hr !== null ? Number(hr) : existingTelem.heart_rate,
@@ -1209,23 +1228,30 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 const hasUnackAlerts = patientUnackAlerts.length > 0;
 
                                 const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
-                                const isCritical = activeAlerts.some(a => a.severity === 'critical') || patientUnackAlerts.some(a => a.severity?.toLowerCase() === 'critical');
-                                const isUnassigned = !patient.deviceConnected;
+                                const isCritical = activeAlerts.some(a => a.severity === 'critical') || patientUnackAlerts.some(a => a.severity?.toLowerCase() === 'critical');                                const isDeviceOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+                                const hasPairedDevices = ((patient as any).active_devices && (patient as any).active_devices.length > 0) || ((patient as any).paired_devices && (patient as any).paired_devices.length > 0);
+                                const isUnassigned = !hasPairedDevices;
 
-                                const pulseVal = latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;
-                                const tempVal = latestVital ? (latestVital.temperature) : null;
-                                const spo2Val = latestVital ? (latestVital.spo2) : null;
-                                const wetnessVal = latestVital ? (latestVital.moistureLevel ?? latestVital.moisture ?? latestVital.moisture_value) : null;
+                                const pulseVal = isDeviceOnline && latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;
+                                const tempVal = isDeviceOnline && latestVital ? (latestVital.temperature) : null;
+                                const spo2Val = isDeviceOnline && latestVital ? (latestVital.spo2) : null;
+                                const wetnessVal = isDeviceOnline && latestVital ? (latestVital.moistureLevel ?? latestVital.moisture ?? latestVital.moisture_value) : null;
 
                                 const pulseNum = pulseVal !== null && pulseVal !== undefined ? Number(pulseVal) : null;
                                 const tempNum = tempVal !== null && tempVal !== undefined ? Number(tempVal) : null;
                                 const spo2Num = spo2Val !== null && spo2Val !== undefined ? Number(spo2Val) : null;
+                                const wetnessNum = wetnessVal !== null && wetnessVal !== undefined ? Number(wetnessVal) : null;
 
-                                const isPulseBreached = pulseNum !== null && !isNaN(pulseNum) && pulseNum > 0 && 
+                                const isPulseDetached = isDeviceOnline && pulseNum === 0;
+                                const isSpo2Detached = isDeviceOnline && spo2Num === 0;
+                                const isTempDetached = isDeviceOnline && (tempNum === 0 || (tempNum !== null && tempNum <= 30.0) || (pulseNum === 0 && spo2Num === 0));
+                                const isWetnessDetached = isDeviceOnline && (wetnessNum === 0 || wetnessNum === null);
+
+                                const isPulseBreached = isDeviceOnline && pulseNum !== null && !isNaN(pulseNum) && pulseNum > 0 && !isPulseDetached && 
                                     (pulseNum < safetyThresholds.heartRateMin || pulseNum > safetyThresholds.heartRateMax);
-                                const isTempBreached = tempNum !== null && !isNaN(tempNum) && tempNum > 0 && 
+                                const isTempBreached = isDeviceOnline && tempNum !== null && !isNaN(tempNum) && tempNum > 30.0 && !isTempDetached && 
                                     (tempNum < safetyThresholds.tempMin || tempNum > safetyThresholds.tempMax);
-                                const isSpo2Breached = spo2Num !== null && !isNaN(spo2Num) && spo2Num > 0 && 
+                                const isSpo2Breached = isDeviceOnline && spo2Num !== null && !isNaN(spo2Num) && spo2Num > 0 && !isSpo2Detached && 
                                     spo2Num < safetyThresholds.spo2Min;
 
                                 const hasSafetyBreach = isPulseBreached || isTempBreached || isSpo2Breached;
@@ -1272,10 +1298,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                     <Badge variant="outline" className={`text-[10px] h-5 px-2 font-bold uppercase tracking-wider ${
                                                         hasSafetyBreach ? 'text-rose-900 border-rose-300 bg-rose-100/90 animate-pulse' :
                                                         isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
+                                                        !isDeviceOnline ? 'text-slate-600 border-slate-200 bg-slate-100' :
                                                         isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
                                                             'text-emerald-900 border-emerald-200 bg-emerald-50'
                                                         }`}>
-                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : isUnassigned ? 'Unassigned' : 'Stable'}
+                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isDeviceOnline ? 'Offline' : isUnassigned ? 'Unassigned' : 'Stable'}
                                                     </Badge>
                                                 </div>
                                             </div>
@@ -1283,45 +1310,45 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
                                         <CardContent className="p-3.5 pt-0 space-y-2.5">
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isPulseDetached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : 'text-rose-500'}`} />
-                                                        <span className={`text-[9px] font-bold ${isPulseBreached ? 'text-rose-800' : 'text-slate-600'}`}>PULSE</span>
+                                                        <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : isPulseDetached ? 'text-slate-400' : 'text-rose-500'}`} />
+                                                        <span className={`text-[9px] font-bold ${isPulseBreached ? 'text-rose-800' : isPulseDetached ? 'text-slate-500' : 'text-slate-600'}`}>PULSE</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : 'text-slate-900'}`}>
-                                                        {pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--'}
+                                                    <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : isPulseDetached ? 'text-slate-600' : 'text-slate-900'}`}>
+                                                        {!isDeviceOnline ? '--' : isPulseDetached ? '0 (Detached)' : (pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--')}
                                                     </span>
                                                 </div>
 
-                                                <div className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-950' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-950' : isTempDetached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : 'text-amber-500'}`} />
-                                                        <span className={`text-[9px] font-bold ${isTempBreached ? 'text-amber-900' : 'text-slate-600'}`}>TEMP</span>
+                                                        <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : isTempDetached ? 'text-slate-400' : 'text-amber-500'}`} />
+                                                        <span className={`text-[9px] font-bold ${isTempBreached ? 'text-amber-900' : isTempDetached ? 'text-slate-500' : 'text-slate-600'}`}>TEMP</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : 'text-slate-900'}`}>
-                                                        {tempVal !== null && tempVal !== undefined ? Number(tempVal).toFixed(1) : '--'}
+                                                    <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : isTempDetached ? 'text-slate-600' : 'text-slate-900'}`}>
+                                                        {!isDeviceOnline ? '--' : isTempDetached ? (tempVal && Number(tempVal) > 0 ? `${Number(tempVal).toFixed(1)}° (Detached)` : '0.0° (Detached)') : (tempVal !== null && tempVal !== undefined ? `${Number(tempVal).toFixed(1)}°` : '--')}
                                                     </span>
                                                 </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isSpo2Detached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : 'text-blue-500'}`} />
-                                                        <span className={`text-[9px] font-bold ${isSpo2Breached ? 'text-rose-800' : 'text-slate-600'}`}>SPO2</span>
+                                                        <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : isSpo2Detached ? 'text-slate-400' : 'text-blue-500'}`} />
+                                                        <span className={`text-[9px] font-bold ${isSpo2Breached ? 'text-rose-800' : isSpo2Detached ? 'text-slate-500' : 'text-slate-600'}`}>SPO2</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : 'text-slate-900'}`}>
-                                                        {spo2Val !== null && spo2Val !== undefined ? Math.round(Number(spo2Val)) : '--'}
+                                                    <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : isSpo2Detached ? 'text-slate-600' : 'text-slate-900'}`}>
+                                                        {!isDeviceOnline ? '--' : isSpo2Detached ? '0% (Detached)' : (spo2Val !== null && spo2Val !== undefined ? `${Math.round(Number(spo2Val))}%` : '--')}
                                                     </span>
                                                 </div>
 
-                                                <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-200/80">
+                                                <div className={`${isWetnessDetached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Droplets className="w-3 h-3 text-teal-600" />
-                                                        <span className="text-[9px] text-slate-600 font-bold">WETNESS</span>
+                                                        <Droplets className={`w-3 h-3 ${isWetnessDetached ? 'text-slate-400' : 'text-teal-600'}`} />
+                                                        <span className={`text-[9px] font-bold ${isWetnessDetached ? 'text-slate-500' : 'text-slate-600'}`}>WETNESS</span>
                                                     </div>
-                                                    <span className="text-xs font-black text-slate-900">
-                                                        {wetnessVal !== null && wetnessVal !== undefined ? `${Math.round(Number(wetnessVal))}%` : '--'}
+                                                    <span className={`text-xs font-black ${isWetnessDetached ? 'text-slate-600' : 'text-slate-900'}`}>
+                                                        {!isDeviceOnline ? '--' : isWetnessDetached ? '0% (Detached)' : (wetnessVal !== null && wetnessVal !== undefined ? `${Math.round(Number(wetnessVal))}%` : '--')}
                                                     </span>
                                                 </div>
                                             </div>

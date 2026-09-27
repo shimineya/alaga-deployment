@@ -163,7 +163,7 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
         if (device.ip_address) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                const timeoutId = setTimeout(() => controller.abort(), 3500);
                 const probeUrl = `http://${device.ip_address}/status`;
                 const probeRes = await fetch(probeUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
@@ -181,10 +181,10 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
             }
         }
 
-        // 2. If direct probe didn't succeed, check if device sent telemetry within last 60 seconds
+        // 2. If direct probe didn't succeed, check if device sent telemetry within last 2 minutes (120s)
         if (!isReachable && device.last_heartbeat) {
             const timeSinceLastHeartbeat = Date.now() - new Date(device.last_heartbeat).getTime();
-            if (timeSinceLastHeartbeat < 60000) {
+            if (timeSinceLastHeartbeat < 120000) {
                 isReachable = true;
                 latencyMs = Math.min(Math.round(timeSinceLastHeartbeat / 100), 45) || 18;
             }
@@ -202,6 +202,15 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
                 [serialNumber, updatedBattery]
             );
 
+            // Broadcast real-time online status to all active dashboards
+            broadcastAlert('device_status_update', {
+                serial_number: serialNumber,
+                status: 'ACTIVE',
+                patient_id: device.assigned_patient_id,
+                battery_level: updatedBattery,
+                timestamp: new Date().toISOString()
+            });
+
             return res.json({
                 success: true,
                 is_online: true,
@@ -215,6 +224,14 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
                 `UPDATE device_whitelist SET status = 'INACTIVE' WHERE serial_number = $1`,
                 [serialNumber]
             );
+
+            // Broadcast real-time offline status to all active dashboards
+            broadcastAlert('device_status_update', {
+                serial_number: serialNumber,
+                status: 'INACTIVE',
+                patient_id: device.assigned_patient_id,
+                timestamp: new Date().toISOString()
+            });
 
             const lastSeenMinutes = device.last_heartbeat
                 ? Math.max(1, Math.round((Date.now() - new Date(device.last_heartbeat).getTime()) / 60000))
@@ -891,6 +908,11 @@ router.post('/patients', async (req, res) => {
             }
         }
 
+        const hrVal = Number(req.body.heart_rate || req.body.heartRate || req.body.baseline_heart_rate) || 75;
+        const tempVal = Number(req.body.temperature || req.body.baseline_temperature) || 36.8;
+        const spo2Val = Number(req.body.spo2 || req.body.baseline_spo2) || 98;
+        const moistVal = Number(req.body.moisture_threshold || req.body.moistureThreshold || req.body.baseline_moisture) || 30;
+
         const baselineData = {
             gender: gender || 'Male',
             diagnosis: diagnosis || medicalCondition || illness || '',
@@ -901,7 +923,11 @@ router.post('/patients', async (req, res) => {
             bed: resolvedBed,
             illness: illness || null,
             medicalConditions: conditions ? (Array.isArray(conditions) ? conditions : conditions.split(',').map(c => c.trim()).filter(Boolean)) : [],
-            emergencyContact: emergencyContact || null
+            emergencyContact: emergencyContact || null,
+            heart_rate: hrVal,
+            temperature: tempVal,
+            spo2: spo2Val,
+            moisture_threshold: moistVal
         };
 
         // 1. Insert Patient
@@ -916,6 +942,22 @@ router.post('/patients', async (req, res) => {
         );
 
         const newPatientId = patientRes.rows[0].patient_id;
+
+        // Seed clinical baseline in patient_baselines for AI engine
+        try {
+            await client.query(`
+                INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                VALUES 
+                    ($1, 'heart_rate', 1, $2, 60, 100, NOW()),
+                    ($1, 'temperature', 1, $3, 36.5, 37.5, NOW()),
+                    ($1, 'spo2', 1, $4, 95, 100, NOW()),
+                    ($1, 'moisture', 1, $5, 0, $5, NOW())
+                ON CONFLICT (patient_id, vital_name) DO UPDATE 
+                SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+            `, [newPatientId, hrVal, tempVal, spo2Val, moistVal]);
+        } catch (pbErr) {
+            console.warn('[PATIENT_ENROLL] Seeding patient_baselines notice:', pbErr.message);
+        }
 
         // 2. Grant Access to the Creator (Parent / Guardian / Admin)
         const creatorRelationship = (req.user.role === 'parent' || req.user.role === 'guardian')
@@ -1259,7 +1301,13 @@ router.put('/patients/:id', async (req, res) => {
             }
         }
 
-        const { name, birthdate, medicalCondition, ward, room, bed } = req.body;
+        const { 
+            name, birthdate, medicalCondition, ward, room, bed,
+            heart_rate, heartRate, baseline_heart_rate,
+            temperature, baseline_temperature,
+            spo2, baseline_spo2,
+            moisture_threshold, moistureThreshold, baseline_moisture
+        } = req.body;
 
         if (room !== undefined && (!room || !room.trim())) {
             return res.status(400).json({ success: false, message: 'Room name cannot be empty.' });
@@ -1273,13 +1321,22 @@ router.put('/patients/:id', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Patient not found.' });
         }
 
+        const hrVal = heart_rate ?? heartRate ?? baseline_heart_rate;
+        const tempVal = temperature ?? baseline_temperature;
+        const spo2Val = spo2 ?? baseline_spo2;
+        const moistVal = moisture_threshold ?? moistureThreshold ?? baseline_moisture;
+
         const newBaseline = {
             ...currentPatient.rows[0].baseline_data,
             condition: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
             diagnosis: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
             ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
             room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
-            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed
+            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed,
+            ...(hrVal !== undefined && { heart_rate: Number(hrVal) }),
+            ...(tempVal !== undefined && { temperature: Number(tempVal) }),
+            ...(spo2Val !== undefined && { spo2: Number(spo2Val) }),
+            ...(moistVal !== undefined && { moisture_threshold: Number(moistVal) })
         };
 
         // [OWASP A05] Parameterized query — no string concatenation.
@@ -1298,7 +1355,45 @@ router.put('/patients/:id', async (req, res) => {
             ]
         );
 
-        res.json({ success: true, message: 'Patient record updated successfully.' });
+        // Upsert into patient_baselines table
+        try {
+            if (hrVal !== undefined) {
+                await client.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'heart_rate', 1, $2, 60, 100, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+                `, [patientId, Number(hrVal)]);
+            }
+            if (tempVal !== undefined) {
+                await client.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'temperature', 1, $2, 36.5, 37.5, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+                `, [patientId, Number(tempVal)]);
+            }
+            if (spo2Val !== undefined) {
+                await client.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'spo2', 1, $2, 95, 100, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+                `, [patientId, Number(spo2Val)]);
+            }
+            if (moistVal !== undefined) {
+                await client.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'moisture', 1, $2, 0, $2, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, upper_bound = EXCLUDED.upper_bound, updated_at = NOW()
+                `, [patientId, Number(moistVal)]);
+            }
+        } catch (pbErr) {
+            console.warn('[UPDATE_PATIENT] Upserting patient_baselines notice:', pbErr.message);
+        }
+
+        res.json({ success: true, message: 'Patient record and baselines updated successfully.', baseline_data: newBaseline });
     } catch (err) {
         // [OWASP A10] Do not expose internal error details to the client
         console.error('Update Patient Error:', err.message);
@@ -1422,6 +1517,68 @@ router.patch('/patients/:id/toggle-monitoring', async (req, res) => {
 });
 
 // ==========================================
+// 2.4. GET SINGLE PATIENT BY ID (with Baselines)
+// ==========================================
+router.get('/patients/:id', async (req, res) => {
+    try {
+        const patientId = parseInt(req.params.id, 10);
+        if (isNaN(patientId)) {
+            return res.status(400).json({ success: false, message: 'Invalid patient ID format.' });
+        }
+        const { role, id: userId, facility_id: userFacilityId } = req.user;
+        const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(role?.toLowerCase());
+
+        let query = `
+            SELECT p.*, f.facility_name,
+                   (
+                       SELECT json_agg(json_build_object(
+                           'vital_name', pb.vital_name,
+                           'mean_value', pb.mean_value,
+                           'lower_bound', pb.lower_bound,
+                           'upper_bound', pb.upper_bound
+                       ))
+                       FROM patient_baselines pb 
+                       WHERE pb.patient_id = p.patient_id
+                   ) as clinical_baselines
+            FROM patients p
+            LEFT JOIN facilities f ON p.facility_id = f.facility_id
+            WHERE p.patient_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
+        `;
+        const params = [patientId];
+
+        if (!isSysAdmin) {
+            if (role === 'facility_admin') {
+                query += ` AND (p.facility_id = $2 OR EXISTS (
+                    SELECT 1 FROM patient_access pa 
+                    WHERE pa.patient_id = p.patient_id AND pa.user_id = $3
+                ))`;
+                params.push(userFacilityId, userId);
+            } else {
+                query += ` AND EXISTS (
+                    SELECT 1 FROM patient_access pa 
+                    WHERE pa.patient_id = p.patient_id 
+                    AND pa.user_id = $2 
+                    AND (pa.invite_status IN ('Active', 'Accepted') OR pa.invite_status IS NULL)
+                    AND pa.is_archived IS DISTINCT FROM TRUE
+                )`;
+                params.push(userId);
+            }
+        }
+
+        const result = await pool.query(query, params);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: `Patient #${patientId} not found or you lack permission to view this record.` });
+        }
+
+        const patient = result.rows[0];
+        res.json({ success: true, data: patient });
+    } catch (err) {
+        console.error('Fetch Patient by ID Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to retrieve patient.' });
+    }
+});
+
+// ==========================================
 // 3. GET MY PATIENTS (Updated with Device Info)
 // ==========================================
 router.get('/patients', async (req, res) => {
@@ -1480,12 +1637,26 @@ router.get('/patients', async (req, res) => {
                         AND device_name ILIKE '%Diaper%'
                         LIMIT 1
                     ) as diaper_device_sn,
-                    (
-                        SELECT json_build_object(
-                            'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0)
+                    COALESCE(
+                        (
+                            SELECT json_build_object(
+                                'heart_rate', COALESCE(sr.heart_rate, 0),
+                                'temperature', COALESCE(sr.temperature, 0),
+                                'spo2', COALESCE(sr.spo2, 0),
+                                'moisture', COALESCE(sr.moisture_value, 0),
+                                'recorded_at', sr.recorded_at
+                            )
+                            FROM sensor_readings sr
+                            WHERE sr.patient_id = p.patient_id
+                            ORDER BY sr.recorded_at DESC
+                            LIMIT 1
+                        ),
+                        json_build_object(
+                            'heart_rate', 0,
+                            'temperature', 0,
+                            'spo2', 0,
+                            'moisture', 0,
+                            'recorded_at', null
                         )
                     ) as latest_telemetry,
                     COALESCE(
@@ -1516,7 +1687,15 @@ router.get('/patients', async (req, res) => {
                                 json_build_object(
                                     'serial_number', dw.serial_number,
                                     'device_name', dw.device_name,
-                                    'status', dw.status
+                                    'status', CASE 
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'ACTIVE'
+                                        ELSE 'INACTIVE'
+                                    END,
+                                    'is_online', CASE 
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
+                                        ELSE false
+                                    END,
+                                    'last_heartbeat', dw.last_heartbeat
                                 )
                             )
                             FROM device_whitelist dw
@@ -1525,6 +1704,18 @@ router.get('/patients', async (req, res) => {
                         ),
                         '[]'::json
                     ) as paired_devices,
+                    (
+                        SELECT CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM device_whitelist dw 
+                                WHERE dw.assigned_patient_id = p.patient_id 
+                                AND dw.status = 'ACTIVE' 
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND dw.is_archived IS DISTINCT FROM TRUE
+                            ) THEN true 
+                            ELSE false 
+                        END
+                    ) as is_online,
                     COALESCE(
                         (
                             SELECT json_agg(
@@ -1613,12 +1804,26 @@ router.get('/patients', async (req, res) => {
                         AND device_name ILIKE '%Diaper%'
                         LIMIT 1
                     ) as diaper_device_sn,
-                    (
-                        SELECT json_build_object(
-                            'heart_rate', COALESCE((SELECT sr.heart_rate FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.heart_rate > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'temperature', COALESCE((SELECT sr.temperature FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.temperature > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'spo2', COALESCE((SELECT sr.spo2 FROM sensor_readings sr WHERE sr.patient_id = p.patient_id AND sr.spo2 > 0 ORDER BY sr.recorded_at DESC LIMIT 1), 0),
-                            'moisture', COALESCE((SELECT sr.moisture_value FROM sensor_readings sr WHERE sr.patient_id = p.patient_id ORDER BY sr.recorded_at DESC LIMIT 1), 0)
+                    COALESCE(
+                        (
+                            SELECT json_build_object(
+                                'heart_rate', COALESCE(sr.heart_rate, 0),
+                                'temperature', COALESCE(sr.temperature, 0),
+                                'spo2', COALESCE(sr.spo2, 0),
+                                'moisture', COALESCE(sr.moisture_value, 0),
+                                'recorded_at', sr.recorded_at
+                            )
+                            FROM sensor_readings sr
+                            WHERE sr.patient_id = p.patient_id
+                            ORDER BY sr.recorded_at DESC
+                            LIMIT 1
+                        ),
+                        json_build_object(
+                            'heart_rate', 0,
+                            'temperature', 0,
+                            'spo2', 0,
+                            'moisture', 0,
+                            'recorded_at', null
                         )
                     ) as latest_telemetry,
                     COALESCE(
@@ -1649,7 +1854,15 @@ router.get('/patients', async (req, res) => {
                                 json_build_object(
                                     'serial_number', dw.serial_number,
                                     'device_name', dw.device_name,
-                                    'status', dw.status
+                                    'status', CASE 
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'ACTIVE'
+                                        ELSE 'INACTIVE'
+                                    END,
+                                    'is_online', CASE 
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
+                                        ELSE false
+                                    END,
+                                    'last_heartbeat', dw.last_heartbeat
                                 )
                             )
                             FROM device_whitelist dw
@@ -1658,6 +1871,18 @@ router.get('/patients', async (req, res) => {
                         ),
                         '[]'::json
                     ) as paired_devices,
+                    (
+                        SELECT CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM device_whitelist dw 
+                                WHERE dw.assigned_patient_id = p.patient_id 
+                                AND dw.status = 'ACTIVE' 
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND dw.is_archived IS DISTINCT FROM TRUE
+                            ) THEN true 
+                            ELSE false 
+                        END
+                    ) as is_online,
                     COALESCE(
                         (
                             SELECT json_agg(

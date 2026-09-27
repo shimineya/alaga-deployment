@@ -58,24 +58,39 @@ class _PatientListScreenState extends State<PatientListScreen> {
         setState(() {
           allPatients = rawPatients.map((p) {
             final telemetry = p['latest_telemetry'] ?? {};
-            print("DEBUG TELEMETRY: $telemetry");
+            final bool isOnline = p['is_online'] == true || p['isOnline'] == true;
             // Extract raw numbers (or null) to allow for graph calculations
             final hr = telemetry['heart_rate'] as num?;
             final temp = telemetry['temperature'] as num?;
             final spo2 = telemetry['spo2'] as num?;
+            final moist = telemetry['moisture'] as num?;
+
+            final bool isHrDetached = isOnline && (hr == 0 || hr == null);
+            final bool isSpo2Detached = isOnline && (spo2 == 0 || spo2 == null);
+            final bool isTempDetached = isOnline && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrDetached && isSpo2Detached));
+            final bool isMoistDetached = isOnline && (moist == null || moist <= 0);
+
+            final String hrDisplay = !isOnline ? '---' : isHrDetached ? '0 (Detached)' : '$hr';
+            final String tempDisplay = !isOnline ? '---' : isTempDetached ? '${temp != null && temp > 0 ? temp.toStringAsFixed(1) : "0.0"}°C (Detached)' : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
+            final String spo2Display = !isOnline ? '---' : isSpo2Detached ? '0% (Detached)' : (spo2 != null ? "$spo2%" : '---');
+            final String wetDisplay = !isOnline ? '---' : isMoistDetached ? '0% (Detached)' : (moist != null && moist >= 70 ? 'Wet ($moist%)' : 'Dry ($moist%)');
 
             return <String, dynamic>{
               ...p,
               'patient_id': p['patient_id'],
               'name': p['name'] ?? 'Unknown',
               'room': p['room'] ?? p['baseline_data']?['room'] ?? 'Room Home',
-              'status': p['vital_device_sn'] != null ? 'Stable' : 'Offline',
+              'status': isOnline ? 'Stable' : 'Offline',
+              'is_online': isOnline,
+              'isOnline': isOnline,
               
               // UI Labels (Strings)
-              'hr': hr?.toString() ?? '---',
-              'temp': temp != null ? "${temp.toStringAsFixed(1)}°C" : '---',
-              'spo2': spo2 != null ? "$spo2%" : '---',
-              'wetness': (telemetry['moisture'] == 100) ? 'Wet' : 'Dry',              
+              'hr': hrDisplay,
+              'temp': tempDisplay,
+              'spo2': spo2Display,
+              'wetness': wetDisplay,
+              'is_wet': isOnline && moist != null && moist >= 70,
+              
               // Raw Numbers for Graphing (Use these in your CustomPainter)
               'hr_num': hr?.toDouble() ?? 0.0,
               'temp_num': temp?.toDouble() ?? 0.0,
@@ -737,8 +752,8 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
 
   @override
   Widget build(BuildContext context) {
-    bool isOffline = widget.patient["status"] == "Offline";
-    bool isWet = widget.patient["wetness"] == "Wet";
+    bool isOffline = widget.patient["status"] == "Offline" || widget.patient["is_online"] == false;
+    bool isWet = widget.patient["is_wet"] == true || widget.patient["wetness"]?.toString().contains("Wet") == true;
 
     return Card(
       elevation: 0,

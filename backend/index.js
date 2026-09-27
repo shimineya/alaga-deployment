@@ -1789,6 +1789,30 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, message: 'An unexpected server error occurred.' });
 });
 
+// Background Reaper: Automatically transition offline devices (no heartbeat for > 2 mins) to INACTIVE
+setInterval(async () => {
+    try {
+        const deadDevices = await pool.query(
+            `UPDATE device_whitelist
+             SET status = 'INACTIVE'
+             WHERE status = 'ACTIVE'
+               AND (last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '2 minutes')
+             RETURNING serial_number, assigned_patient_id, device_name`
+        );
+        if (deadDevices.rowCount > 0) {
+            for (const dev of deadDevices.rows) {
+                console.log(`[ALAGA REAPER] Device ${dev.device_name} (${dev.serial_number}) marked INACTIVE (no heartbeat > 2m).`);
+                broadcastAlert('device_status_update', {
+                    serial_number: dev.serial_number,
+                    status: 'INACTIVE',
+                    patient_id: dev.assigned_patient_id,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+    } catch (_) {}
+}, 30000);
+
 // --- Start Server ---
 const HOST = '0.0.0.0';
 

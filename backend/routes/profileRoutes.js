@@ -60,6 +60,7 @@ router.get('/', verifyToken, async (req, res) => {
                 u.last_name,
                 u.role,
                 u.facility_id,
+                u.preferences,
                 f.facility_name,
                 pc.notification_preferences
              FROM users u

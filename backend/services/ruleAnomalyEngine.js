@@ -287,7 +287,9 @@ function evaluateClinicalRules({
     }
 
     // 3. Body Temperature Checks (Hyperpyrexia, Fever, Hypothermia)
-    if (temp !== null) {
+    // Sensor detachment safeguard: ambient room temperature (<= 30.0°C or off-wrist 0 bpm/0% SpO2) is not clinical hypothermia
+    const isTempDetached = temp !== null && (temp <= 30.0 || (hr === 0 && (sp === null || sp === 0)));
+    if (temp !== null && !isTempDetached) {
         if (temp >= limits.temp_fever_high) {
             if (!isBaselineSuppressed('temperature', temp, baselines, 'rule_temperature')) {
                 alerts.push({

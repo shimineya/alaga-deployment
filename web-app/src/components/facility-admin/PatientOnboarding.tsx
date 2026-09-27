@@ -3,10 +3,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { toast } from 'sonner';
-import { UserPlus, Cpu, RotateCcw, Search, RefreshCw, PlusCircle, Database } from 'lucide-react';
+import { 
+    UserPlus, 
+    Cpu, 
+    RotateCcw, 
+    Search, 
+    RefreshCw, 
+    PlusCircle, 
+    Database, 
+    Heart, 
+    Thermometer, 
+    Droplets, 
+    Activity, 
+    BookOpen, 
+    CheckCircle,
+    Loader2
+} from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '../../lib/auth-context';
 import { API_URL } from '../../lib/config';
+import { BaselineGuideModal, BaselinePreset } from '../BaselineGuideModal';
 
 const getAuth = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
@@ -47,7 +63,7 @@ export default function PatientOnboarding() {
         ? `${API_URL}/api/facility-admin` 
         : `${API_URL}/api/caregiver`;
 
-    // Patient form state
+    // Patient form state with normal standard baselines
     const [form, setForm] = useState({ 
         first_name: '', 
         last_name: '', 
@@ -58,11 +74,21 @@ export default function PatientOnboarding() {
         room: isParentOrGuardian ? 'Home' : '', 
         bed: isParentOrGuardian ? '1' : '', 
         patient_type: isParentOrGuardian ? 'at_home' : 'facility', 
-        facility_name: '' 
+        facility_name: '',
+        heart_rate: 75,
+        temperature: 36.8,
+        spo2: 98,
+        moisture_threshold: 30
     });
     const [consentConfirmed, setConsentConfirmed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);
+
+    // Existing patient baseline configuration state
+    const [existingPatientId, setExistingPatientId] = useState('');
+    const [loadedPatientId, setLoadedPatientId] = useState<number | null>(null);
+    const [isSearchingExisting, setIsSearchingExisting] = useState(false);
+    const [isBaselineGuideOpen, setIsBaselineGuideOpen] = useState(false);
 
     // Device pairing state
     const [pairPatientId, setPairPatientId] = useState('');
@@ -229,6 +255,78 @@ export default function PatientOnboarding() {
         fetchUnassignedPatients();
     }, [fetchPatients, fetchUnassignedPatients]);
 
+    const handleLookupExistingPatient = async () => {
+        const id = existingPatientId.trim();
+        if (!id) return toast.error('Please enter a Patient ID to load.');
+        setIsSearchingExisting(true);
+        try {
+            const res = await fetch(`${API_URL}/api/caregiver/patients/${id}`, { headers: getAuth() });
+            const data = await res.json();
+            if (data.success && data.data) {
+                const p = data.data;
+                const base = p.baseline_data || {};
+                const nameParts = (p.name || '').trim().split(' ');
+                const firstName = nameParts[0] || '';
+                const lastName = nameParts.slice(1).join(' ') || '';
+                let ageVal = '';
+                if (p.birthdate) {
+                    const birthYear = new Date(p.birthdate).getFullYear();
+                    ageVal = Math.max(1, new Date().getFullYear() - birthYear).toString();
+                }
+
+                setForm({
+                    first_name: firstName,
+                    last_name: lastName,
+                    age: ageVal || '30',
+                    gender: base.gender || 'Male',
+                    diagnosis: base.diagnosis || base.condition || '',
+                    ward: base.ward || '',
+                    room: base.room || 'Room 1',
+                    bed: base.bed || '',
+                    patient_type: p.patient_type || 'facility',
+                    facility_name: p.facility_name || '',
+                    heart_rate: Number(base.heart_rate || base.heartRate) || 75,
+                    temperature: Number(base.temperature) || 36.8,
+                    spo2: Number(base.spo2) || 98,
+                    moisture_threshold: Number(base.moisture_threshold || base.moistureThreshold) || 30
+                });
+                setConsentConfirmed(true);
+                setLoadedPatientId(p.patient_id);
+                toast.success(`Loaded patient #${p.patient_id} (${p.name}). Baseline & details populated.`);
+            } else {
+                toast.error(data.message || `Patient #${id} not found.`);
+            }
+        } catch {
+            toast.error('Failed to lookup patient.');
+        } finally {
+            setIsSearchingExisting(false);
+        }
+    };
+
+    const handleClearExistingPatient = () => {
+        setLoadedPatientId(null);
+        setExistingPatientId('');
+        setForm({
+            first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '',
+            ward: '', room: isParentOrGuardian ? 'Home' : '', bed: isParentOrGuardian ? '1' : '',
+            patient_type: isParentOrGuardian ? 'at_home' : 'facility', facility_name: '',
+            heart_rate: 75, temperature: 36.8, spo2: 98, moisture_threshold: 30
+        });
+        setConsentConfirmed(false);
+        toast.info('Cleared patient. Ready to register new patient.');
+    };
+
+    const handleApplyPreset = (preset: BaselinePreset) => {
+        setForm(prev => ({
+            ...prev,
+            heart_rate: preset.heartRate,
+            temperature: preset.temperature,
+            spo2: preset.spo2,
+            moisture_threshold: preset.moistureThreshold
+        }));
+        toast.success('Applied standard physiological baseline preset.');
+    };
+
     const handleRegister = async () => {
         if (!form.first_name || !form.last_name || !form.age || !form.diagnosis || !form.room) {
             return toast.error('Please fill in all required fields (First Name, Last Name, Age, Diagnosis, Room).');
@@ -241,20 +339,62 @@ export default function PatientOnboarding() {
         }
         setSubmitting(true);
         try {
-            const res = await fetch(`${API}/patients`, {
-                method: 'POST', headers: getAuth(),
-                body: JSON.stringify({ ...form, age: parseInt(form.age), bed: form.bed.trim() || null, consent_confirmed: true })
-            });
-            const data = await res.json();
-            if (data.success) {
-                toast.success(data.message);
-                setLastCreatedId(data.patient_id);
-                setForm({ first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '', patient_type: 'facility', facility_name: '' });
-                setConsentConfirmed(false);
-                fetchPatients();
-                fetchUnassignedPatients();
-            } else toast.error(data.message);
-        } catch { toast.error('Registration failed.'); }
+            if (loadedPatientId) {
+                // Update existing patient and baselines
+                const res = await fetch(`${API}/patients/${loadedPatientId}`, {
+                    method: 'PUT',
+                    headers: getAuth(),
+                    body: JSON.stringify({
+                        name: `${form.first_name.trim()} ${form.last_name.trim()}`,
+                        gender: form.gender,
+                        diagnosis: form.diagnosis,
+                        ward: form.ward || null,
+                        room: form.room.trim(),
+                        bed: form.bed.trim() || null,
+                        heart_rate: Number(form.heart_rate),
+                        temperature: Number(form.temperature),
+                        spo2: Number(form.spo2),
+                        moisture_threshold: Number(form.moisture_threshold)
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast.success(data.message || `Patient #${loadedPatientId} baselines updated successfully.`);
+                    fetchPatients();
+                    fetchUnassignedPatients();
+                } else {
+                    toast.error(data.message || 'Failed to update baselines.');
+                }
+            } else {
+                // Register new patient with baselines
+                const res = await fetch(`${API}/patients`, {
+                    method: 'POST', headers: getAuth(),
+                    body: JSON.stringify({ 
+                        ...form, 
+                        age: parseInt(form.age), 
+                        bed: form.bed.trim() || null, 
+                        consent_confirmed: true,
+                        heart_rate: Number(form.heart_rate),
+                        temperature: Number(form.temperature),
+                        spo2: Number(form.spo2),
+                        moisture_threshold: Number(form.moisture_threshold)
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast.success(data.message);
+                    setLastCreatedId(data.patient_id);
+                    setForm({ 
+                        first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', 
+                        ward: '', room: '', bed: '', patient_type: 'facility', facility_name: '',
+                        heart_rate: 75, temperature: 36.8, spo2: 98, moisture_threshold: 30
+                    });
+                    setConsentConfirmed(false);
+                    fetchPatients();
+                    fetchUnassignedPatients();
+                } else toast.error(data.message);
+            }
+        } catch { toast.error('Action failed.'); }
         finally { setSubmitting(false); }
     };
 
@@ -392,13 +532,72 @@ export default function PatientOnboarding() {
 
             {/* Forms Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 shrink-0">
-                {/* Patient Registration */}
+                {/* Patient Registration & Baseline Configuration */}
                 <Card className="bg-white border-slate-200 shadow-sm">
                     <CardHeader className="py-4">
-                        <CardTitle className="text-slate-800 text-sm flex items-center gap-2"><UserPlus className="w-4 h-4 text-teal-600" /> Register New Patient</CardTitle>
-                        <CardDescription className="text-[10px] text-slate-500">Add a new clinical record to the database.</CardDescription>
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-slate-800 text-sm flex items-center gap-2">
+                                <UserPlus className="w-4 h-4 text-teal-600" />
+                                {loadedPatientId ? `Edit Patient #${loadedPatientId} Baseline` : 'Register Patient & Normal Baselines'}
+                            </CardTitle>
+                            {loadedPatientId && (
+                                <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 text-[10px]">
+                                    Existing Patient Mode
+                                </Badge>
+                            )}
+                        </div>
+                        <CardDescription className="text-[10px] text-slate-500">
+                            Enroll a new clinical record or load an existing patient to calibrate normal standard baselines.
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
+                        {/* Existing Patient Lookup Box */}
+                        <div className="p-2.5 bg-slate-50/90 border border-slate-200 rounded-lg space-y-1.5">
+                            <div className="flex items-center justify-between">
+                                <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Search className="w-3 h-3 text-teal-600" />
+                                    Existing Patient ID Lookup
+                                </label>
+                                {loadedPatientId && (
+                                    <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full">
+                                        Editing Patient #{loadedPatientId}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                <Input
+                                    value={existingPatientId}
+                                    onChange={e => setExistingPatientId(e.target.value.replace(/[^0-9]/g, ''))}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleLookupExistingPatient(); } }}
+                                    placeholder="Enter Patient ID (e.g. 5) to load baseline..."
+                                    className="h-8 text-xs bg-white flex-1"
+                                />
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={handleLookupExistingPatient}
+                                    disabled={isSearchingExisting || !existingPatientId.trim()}
+                                    className="h-8 text-xs px-3 bg-slate-800 hover:bg-slate-900 text-white font-medium cursor-pointer"
+                                >
+                                    {isSearchingExisting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Search className="w-3.5 h-3.5 mr-1" />}
+                                    Load
+                                </Button>
+                                {loadedPatientId && (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleClearExistingPatient}
+                                        className="h-8 text-xs px-2 text-slate-600 hover:text-red-600 border-slate-200 hover:bg-red-50 cursor-pointer"
+                                        title="Clear and register a new patient"
+                                    >
+                                        <RotateCcw className="w-3 h-3 mr-1" />
+                                        New
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="block text-[10px] font-semibold text-slate-600 mb-1">
@@ -500,6 +699,76 @@ export default function PatientOnboarding() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* NORMAL STANDARD BASELINES */}
+                        <div className="border-t border-slate-200/80 pt-3 mt-3 bg-slate-50/70 p-3 rounded-xl border border-slate-200">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-1.5">
+                                    <Heart className="w-3.5 h-3.5 text-rose-500" />
+                                    <h4 className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                                        NORMAL STANDARD BASELINES
+                                    </h4>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setIsBaselineGuideOpen(true)}
+                                    className="h-6 px-2 text-[10px] font-bold text-teal-700 bg-teal-50 border-teal-300 hover:bg-teal-100 hover:text-teal-800 flex items-center gap-1 shadow-2xs rounded cursor-pointer"
+                                >
+                                    <BookOpen className="w-3 h-3 text-teal-600" />
+                                    BASELINE GUIDE
+                                </Button>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mb-2.5 leading-snug">
+                                Sets the personalized normal center-point for the AI anomaly detector.
+                            </p>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Heart Rate (bpm)</label>
+                                    <Input 
+                                        type="number" 
+                                        value={form.heart_rate} 
+                                        onChange={e => setForm(f => ({ ...f, heart_rate: Number(e.target.value) || 75 }))} 
+                                        className="h-8 text-xs bg-white font-bold" 
+                                    />
+                                    <span className="text-[9px] text-slate-400">Adult: 60-100 bpm</span>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Temperature (°C)</label>
+                                    <Input 
+                                        type="number" 
+                                        step={0.1}
+                                        value={form.temperature} 
+                                        onChange={e => setForm(f => ({ ...f, temperature: Number(e.target.value) || 36.8 }))} 
+                                        className="h-8 text-xs bg-white font-bold" 
+                                    />
+                                    <span className="text-[9px] text-slate-400">Normal: 36.5-37.5°C</span>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">SpO₂ (%)</label>
+                                    <Input 
+                                        type="number" 
+                                        value={form.spo2} 
+                                        onChange={e => setForm(f => ({ ...f, spo2: Number(e.target.value) || 98 }))} 
+                                        className="h-8 text-xs bg-white font-bold" 
+                                    />
+                                    <span className="text-[9px] text-slate-400">Target: 95-100%</span>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Moisture Limit (%)</label>
+                                    <Input 
+                                        type="number" 
+                                        value={form.moisture_threshold} 
+                                        onChange={e => setForm(f => ({ ...f, moisture_threshold: Number(e.target.value) || 30 }))} 
+                                        className="h-8 text-xs bg-white font-bold" 
+                                    />
+                                    <span className="text-[9px] text-slate-400">Threshold: ≥ 30%</span>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* [DPA] Visible consent checkbox */}
                         <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                             <input type="checkbox" id="consent" checked={consentConfirmed} onChange={e => setConsentConfirmed(e.target.checked)}
@@ -508,13 +777,13 @@ export default function PatientOnboarding() {
                                 I confirm that the patient or their legal guardian has provided informed consent for health data collection and processing, as required by the Data Privacy Act of 2012 (RA 10173), Section 13.
                             </label>
                         </div>
-                        {lastCreatedId && (
+                        {lastCreatedId && !loadedPatientId && (
                             <div className="text-[10px] bg-emerald-50 border border-emerald-200 rounded px-3 py-2 text-emerald-700">
                                 Patient registered successfully. Patient ID: <strong>{lastCreatedId}</strong>. Use this ID below to pair a device.
                             </div>
                         )}
                         <Button onClick={handleRegister} disabled={submitting} className="w-full h-8 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold cursor-pointer">
-                            {submitting ? 'Registering...' : 'Register Patient'}
+                            {submitting ? 'Saving...' : (loadedPatientId ? 'Update Patient & Baselines' : 'Register Patient')}
                         </Button>
                     </CardContent>
                 </Card>
@@ -683,7 +952,11 @@ export default function PatientOnboarding() {
                 </div>
             </div>
 
-
+            <BaselineGuideModal 
+                isOpen={isBaselineGuideOpen} 
+                onClose={() => setIsBaselineGuideOpen(false)} 
+                onApplyPreset={handleApplyPreset} 
+            />
         </div>
     );
 }

@@ -40,6 +40,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     {'title': 'System Default', 'uri': ''}
   ];
 
+  // Threshold Safety Nets (Caregiver & Parent)
+  double _hrMin = 50.0;
+  double _hrMax = 120.0;
+  double _tempMin = 36.0;
+  double _tempMax = 37.5;
+  double _spo2Min = 90.0;
+
   String _text(String english, String _) => english;
 
   // [INTEGRATION] Live system info fetched from backend
@@ -139,6 +146,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isBiometricAvailable = canCheck && isSupported && available.isNotEmpty;
       _isBiometricEnabled = biometricEnabled;
 
+      final backendPrefs = profileResult['profile']?['preferences'];
+      if (backendPrefs is Map) {
+        if (backendPrefs['hr_min'] != null) AppPreferences.hrMin.value = (backendPrefs['hr_min'] as num).toDouble();
+        if (backendPrefs['hr_max'] != null) AppPreferences.hrMax.value = (backendPrefs['hr_max'] as num).toDouble();
+        if (backendPrefs['temp_min'] != null) AppPreferences.tempMin.value = (backendPrefs['temp_min'] as num).toDouble();
+        if (backendPrefs['temp_max'] != null) AppPreferences.tempMax.value = (backendPrefs['temp_max'] as num).toDouble();
+        if (backendPrefs['spo2_min'] != null) AppPreferences.spo2Min.value = (backendPrefs['spo2_min'] as num).toDouble();
+      }
+
+      _hrMin = AppPreferences.hrMin.value;
+      _hrMax = AppPreferences.hrMax.value;
+      _tempMin = AppPreferences.tempMin.value;
+      _tempMax = AppPreferences.tempMax.value;
+      _spo2Min = AppPreferences.spo2Min.value;
+
       _isLoading = false;
     });
   }
@@ -173,6 +195,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ];
       result = await ApiService.put('/user/profile',
           body: {'notification_preferences': enabledPrefs});
+
+      await AppPreferences.saveSafetyThresholds(
+        hrMinValue: _hrMin,
+        hrMaxValue: _hrMax,
+        tempMinValue: _tempMin,
+        tempMaxValue: _tempMax,
+        spo2MinValue: _spo2Min,
+      );
+
+      try {
+        await ApiService.post('/user/profile/preferences', body: {
+          'preferences': {
+            'hr_min': _hrMin,
+            'hr_max': _hrMax,
+            'temp_min': _tempMin,
+            'temp_max': _tempMax,
+            'spo2_min': _spo2Min,
+          }
+        });
+      } catch (_) {}
     } catch (_) {
       result = {'success': false, 'message': 'Failed to save settings.'};
     } finally {
@@ -545,34 +587,111 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 3. Read-only AI baseline information
+            // 3. Functioning Threshold Safety Nets (Caregiver and Parent Role)
             _buildSectionCard(
-              title: "AI Normal Standard",
+              title: "Threshold Safety Nets",
               icon: Icons.shield_outlined,
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE3F2FD),
-                    borderRadius: BorderRadius.circular(8),
+                    color: const Color(0xFFE0F2F1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF80CBC4)),
                   ),
-                  child: Column(
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        "These read-only values show the standard healthy baseline used by the AI when evaluating patient vital signs. They cannot be changed in Settings.",
-                        style: GoogleFonts.albertSans(
-                            fontSize: 12, color: Colors.blue.shade800),
+                      const Icon(Icons.info_outline, color: Color(0xFF00796B), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Configure personal threshold safety boundaries for telemetry monitoring. Patient vitals crossing these limits trigger high-priority alerts.",
+                          style: GoogleFonts.albertSans(
+                              fontSize: 12, color: const Color(0xFF004D40), height: 1.3),
+                        ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                _buildBaselineField("Heart rate minimum (bpm)", "50"),
-                _buildBaselineField("Heart rate maximum (bpm)", "120"),
-                _buildBaselineField("Temperature minimum (°C)", "36"),
-                _buildBaselineField("Temperature maximum (°C)", "37.5"),
-                _buildBaselineField("SpO₂ minimum (%)", "90"),
+                _buildThresholdStepper(
+                  label: "Heart rate minimum (BPM)",
+                  value: _hrMin,
+                  unit: "bpm",
+                  min: 30,
+                  max: 100,
+                  step: 1,
+                  onChanged: (val) => setState(() => _hrMin = val),
+                ),
+                _buildThresholdStepper(
+                  label: "Heart rate maximum (BPM)",
+                  value: _hrMax,
+                  unit: "bpm",
+                  min: 80,
+                  max: 220,
+                  step: 1,
+                  onChanged: (val) => setState(() => _hrMax = val),
+                ),
+                _buildThresholdStepper(
+                  label: "Temperature minimum (°C)",
+                  value: _tempMin,
+                  unit: "°C",
+                  min: 32.0,
+                  max: 37.0,
+                  step: 0.1,
+                  isDecimal: true,
+                  onChanged: (val) => setState(() => _tempMin = val),
+                ),
+                _buildThresholdStepper(
+                  label: "Temperature maximum (°C)",
+                  value: _tempMax,
+                  unit: "°C",
+                  min: 36.5,
+                  max: 42.0,
+                  step: 0.1,
+                  isDecimal: true,
+                  onChanged: (val) => setState(() => _tempMax = val),
+                ),
+                _buildThresholdStepper(
+                  label: "SpO₂ minimum (%)",
+                  value: _spo2Min,
+                  unit: "%",
+                  min: 70,
+                  max: 99,
+                  step: 1,
+                  onChanged: (val) => setState(() => _spo2Min = val),
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _hrMin = 50.0;
+                        _hrMax = 120.0;
+                        _tempMin = 36.0;
+                        _tempMax = 37.5;
+                        _spo2Min = 90.0;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Restored clinical standard defaults."),
+                          duration: Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.restart_alt, size: 16, color: Color(0xFF00796B)),
+                    label: Text(
+                      "Reset to Clinical Defaults",
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF00796B),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
 
@@ -777,31 +896,98 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildBaselineField(String label, String value) {
+  Widget _buildThresholdStepper({
+    required String label,
+    required double value,
+    required String unit,
+    required double min,
+    required double max,
+    required double step,
+    bool isDecimal = false,
+    required ValueChanged<double> onChanged,
+  }) {
+    final displayStr = isDecimal ? value.toStringAsFixed(1) : value.toInt().toString();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label,
-                style: GoogleFonts.albertSans(
-                    fontSize: 13, fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(width: 16),
-          Container(
-            width: 82,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F2F6),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade300),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: GoogleFonts.albertSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF2D3436),
+                    ),
+                  ),
+                  Text(
+                    "Standard threshold: $displayStr $unit",
+                    style: GoogleFonts.albertSans(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
             ),
-            child: Text(value,
-                textAlign: TextAlign.center,
-                style: GoogleFonts.albertSans(
-                    fontSize: 14, fontWeight: FontWeight.w600)),
-          ),
-        ],
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline, size: 22, color: Color(0xFF4DB6AC)),
+                  onPressed: value > min
+                      ? () {
+                          final newVal = isDecimal
+                              ? double.parse((value - step).toStringAsFixed(1))
+                              : value - step;
+                          onChanged(newVal < min ? min : newVal);
+                        }
+                      : null,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
+                Container(
+                  constraints: const BoxConstraints(minWidth: 52),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Text(
+                    displayStr,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF2D3436),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline, size: 22, color: Color(0xFF4DB6AC)),
+                  onPressed: value < max
+                      ? () {
+                          final newVal = isDecimal
+                              ? double.parse((value + step).toStringAsFixed(1))
+                              : value + step;
+                          onChanged(newVal > max ? max : newVal);
+                        }
+                      : null,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -808,6 +808,11 @@ router.post('/patients', async (req, res) => {
         const birthdate = new Date();
         birthdate.setFullYear(birthdate.getFullYear() - parseInt(age));
         
+        const hrVal = Number(req.body.heart_rate || req.body.heartRate || req.body.baseline_heart_rate) || 75;
+        const tempVal = Number(req.body.temperature || req.body.baseline_temperature) || 36.8;
+        const spo2Val = Number(req.body.spo2 || req.body.baseline_spo2) || 98;
+        const moistVal = Number(req.body.moisture_threshold || req.body.moistureThreshold || req.body.baseline_moisture) || 30;
+
         const baselineData = {
             gender,
             diagnosis,
@@ -815,7 +820,11 @@ router.post('/patients', async (req, res) => {
             condition: diagnosis,
             ward: ward ? ward.trim() : null,
             room: room.trim(),
-            bed: bed && bed.trim() ? bed.trim() : null
+            bed: bed && bed.trim() ? bed.trim() : null,
+            heart_rate: hrVal,
+            temperature: tempVal,
+            spo2: spo2Val,
+            moisture_threshold: moistVal
         };
 
         // [OWASP A05] Parameterized insert
@@ -826,6 +835,22 @@ router.post('/patients', async (req, res) => {
             [name, birthdate, JSON.stringify(baselineData), facilityId, patient_type || (facilityId ? 'facility' : 'at_home')]
         );
         const newPatientId = result.rows[0].patient_id;
+
+        // Seed clinical baseline in patient_baselines for AI engine
+        try {
+            await pool.query(`
+                INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                VALUES 
+                    ($1, 'heart_rate', 1, $2, 60, 100, NOW()),
+                    ($1, 'temperature', 1, $3, 36.5, 37.5, NOW()),
+                    ($1, 'spo2', 1, $4, 95, 100, NOW()),
+                    ($1, 'moisture', 1, $5, 0, $5, NOW())
+                ON CONFLICT (patient_id, vital_name) DO UPDATE 
+                SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+            `, [newPatientId, hrVal, tempVal, spo2Val, moistVal]);
+        } catch (pbErr) {
+            console.warn('[FACILITY_PATIENT_ENROLL] Seeding patient_baselines notice:', pbErr.message);
+        }
 
         // Grant access to the registering Facility Admin
         await pool.query(
@@ -1737,7 +1762,13 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
 router.put('/patients/:patientId', async (req, res) => {
     const facilityId = req.user.facility_id;
     const { patientId } = req.params;
-    const { name, gender, diagnosis, ward, room, bed } = req.body;
+    const { 
+        name, gender, diagnosis, ward, room, bed,
+        heart_rate, heartRate, baseline_heart_rate,
+        temperature, baseline_temperature,
+        spo2, baseline_spo2,
+        moisture_threshold, moistureThreshold, baseline_moisture
+    } = req.body;
     const isSysAdmin = req.user.is_sys_admin_override;
 
     if (room !== undefined && (!room || !room.trim())) {
@@ -1763,6 +1794,11 @@ router.put('/patients/:patientId', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Patient not found.' });
         }
 
+        const hrVal = heart_rate ?? heartRate ?? baseline_heart_rate;
+        const tempVal = temperature ?? baseline_temperature;
+        const spo2Val = spo2 ?? baseline_spo2;
+        const moistVal = moisture_threshold ?? moistureThreshold ?? baseline_moisture;
+
         const updatedName = name || currentPatient.rows[0].name;
         const newBaseline = {
             ...currentPatient.rows[0].baseline_data,
@@ -1770,7 +1806,11 @@ router.put('/patients/:patientId', async (req, res) => {
             diagnosis: diagnosis !== undefined ? diagnosis : currentPatient.rows[0].baseline_data?.diagnosis,
             ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
             room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
-            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed
+            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed,
+            ...(hrVal !== undefined && { heart_rate: Number(hrVal) }),
+            ...(tempVal !== undefined && { temperature: Number(tempVal) }),
+            ...(spo2Val !== undefined && { spo2: Number(spo2Val) }),
+            ...(moistVal !== undefined && { moisture_threshold: Number(moistVal) })
         };
 
         await pool.query(
@@ -1779,6 +1819,44 @@ router.put('/patients/:patientId', async (req, res) => {
              WHERE patient_id = $3`,
             [updatedName, newBaseline, patientId]
         );
+
+        // Upsert into patient_baselines table
+        try {
+            if (hrVal !== undefined) {
+                await pool.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'heart_rate', 1, $2, 60, 100, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+                `, [patientId, Number(hrVal)]);
+            }
+            if (tempVal !== undefined) {
+                await pool.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'temperature', 1, $2, 36.5, 37.5, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+                `, [patientId, Number(tempVal)]);
+            }
+            if (spo2Val !== undefined) {
+                await pool.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'spo2', 1, $2, 95, 100, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, updated_at = NOW()
+                `, [patientId, Number(spo2Val)]);
+            }
+            if (moistVal !== undefined) {
+                await pool.query(`
+                    INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
+                    VALUES ($1, 'moisture', 1, $2, 0, $2, NOW())
+                    ON CONFLICT (patient_id, vital_name) DO UPDATE
+                    SET mean_value = EXCLUDED.mean_value, upper_bound = EXCLUDED.upper_bound, updated_at = NOW()
+                `, [patientId, Number(moistVal)]);
+            }
+        } catch (pbErr) {
+            console.warn('[FACILITY_UPDATE_PATIENT] Upserting patient_baselines notice:', pbErr.message);
+        }
 
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected)

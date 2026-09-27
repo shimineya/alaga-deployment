@@ -175,11 +175,14 @@ void readBattery() {
   batteryPercent = constrain(batteryPercent, 0, 100);
 }
 
-// Read Body Temperature from NTC Thermistor with MAX30102 Die fallback
+// Retain last known body temperature so it doesn't disappear when sensor is detached from wrist
+static float lastKnownTemp = 0.0;
+
+// Read Body Temperature from NTC Thermistor with MAX30102 Wrist Sensor fallback
 void readTemperature() {
   int adcValue = analogRead(THERMISTOR_PIN);
 
-  // If thermistor is properly wired (ADC not zero or saturated open-circuit)
+  // If external thermistor is properly wired (ADC not zero or saturated open-circuit)
   if (adcValue > 80 && adcValue < 4000) {
     float r  = SERIES_RESISTOR * ((4095.0 / (float)adcValue) - 1.0);
     float st = log(r / NOMINAL_RESISTANCE);
@@ -188,15 +191,27 @@ void readTemperature() {
     st       = 1.0 / st - 273.15;
     temperatureC = st + TEMP_CALIBRATION;
     temperatureC = constrain(temperatureC, 25.0, 48.0);
+    lastKnownTemp = temperatureC;
   } else if (sensorFound && fingerDetected) {
-    // Only use MAX30102 on-chip temperature when patient actively has finger on sensor
+    // Read MAX30102 on-chip sensor when worn on the wrist
     float dieTemp = particleSensor.readTemperature();
-    if (dieTemp >= 30.0 && dieTemp <= 42.0) {
-      temperatureC = dieTemp;
+    if (dieTemp >= 28.0 && dieTemp <= 44.0) {
+      // Wrist skin surface is typically 1.0°C-1.5°C cooler than core body temperature
+      // Apply clinical wrist skin-to-core compensation to estimate oral/core equivalent
+      float estBodyTemp = dieTemp;
+      if (dieTemp >= 30.0 && dieTemp <= 36.5) {
+        estBodyTemp = dieTemp + 1.2; // Calibrated offset for wrist wear
+      }
+      temperatureC = constrain(estBodyTemp, 30.0, 42.0);
+      lastKnownTemp = temperatureC;
     }
   } else {
-    // No thermistor connected and no finger placed: report 0.0 (No Reading / Detached)
-    temperatureC = 0.0;
+    // When sensor is detached from wrist, retain the last valid body temperature so readings don't vanish!
+    if (lastKnownTemp >= 30.0) {
+      temperatureC = lastKnownTemp;
+    } else {
+      temperatureC = 0.0;
+    }
   }
 }
 
@@ -1123,11 +1138,11 @@ void setup() {
   } else {
     Serial.println("✅ [I2C] MAX30102 Pulse Oximeter initialized successfully.");
     sensorFound = true;
-    // Configure MAX30102 for Red + IR dual-wavelength pulse oximetry
+    // Configure MAX30102 for Red + IR dual-wavelength pulse oximetry on the WRIST
     // Mode 2 = Red + IR, 400Hz sample rate, 411us pulse width
     particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-    particleSensor.setPulseAmplitudeRed(0x24); // ~7.0mA - optimal for fingertip without saturation
-    particleSensor.setPulseAmplitudeIR(0x24);  // ~7.0mA - prevents 18-bit ADC saturation (262143)
+    particleSensor.setPulseAmplitudeRed(0x35); // ~10.6mA - enhanced penetration for wrist tissue
+    particleSensor.setPulseAmplitudeIR(0x38);  // ~11.2mA - captures microvascular pulsatile bed on wrist
     particleSensor.setPulseAmplitudeGreen(0);
   }
 
@@ -1241,17 +1256,9 @@ void loop() {
         i2cGlitchCount = 0;
       }
     } else {
-      // Check if finger is placed on optical sensor
-      // Valid finger touch: IR is above ambient noise (> 4000) and not saturated (< 250000)
-      bool validFingerTouch = (currentIR > 4000 && currentIR < 250000 && currentRed > 1200);
-
-      // Diagnostics printed to Serial Monitor every 2.0s
-      static unsigned long lastOptDebug = 0;
-      if (millis() - lastOptDebug > 2000) {
-        lastOptDebug = millis();
-        String fingerStr = validFingerTouch ? "YES" : (currentIR >= 250000 ? "SATURATED (Shade Sensor)" : "NO");
-        Serial.println("📊 [OPTICAL] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | Finger=" + fingerStr + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "%");
-      }
+      // Check if sensor is placed on patient's wrist
+      // Wrist contact: IR reflection between 3000 and 255000, Red > 800
+      bool validWristContact = (currentIR > 3000 && currentIR < 255000 && currentRed > 800);
 
       // Optical filter & peak detector states
       static float dcIR = 0;
@@ -1261,17 +1268,17 @@ void loop() {
       static float lastACIR = 0;
       static bool isSlopeRising = false;
       static unsigned long lastPulseTime = 0;
-      static bool wasFingerDetected = false;
-      static int fingerAbsentCount = 0;
+      static bool wasWristContact = false;
+      static int contactAbsentCount = 0;
 
-      if (validFingerTouch) {
-        fingerAbsentCount = 0; // Reset absence counter on valid sample
+      if (validWristContact) {
+        contactAbsentCount = 0; // Reset absence counter on valid sample
 
-        // Transition from NO finger -> FINGER DETECTED
-        if (!wasFingerDetected) {
-          wasFingerDetected = true;
-          fingerDetected = true;
-          Serial.println("👆 [OPTICAL] Finger placed on sensor. Initializing signal baseline...");
+        // Transition from NO contact -> WRIST CONTACT DETECTED
+        if (!wasWristContact) {
+          wasWristContact = true;
+          fingerDetected = true; // Signals active patient contact
+          Serial.println("⌚ [OPTICAL] Sensor attached to wrist! Locking microvascular baselines...");
           dcIR = (float)currentIR;
           dcRed = (float)currentRed;
           lastACIR = 0;
@@ -1286,9 +1293,9 @@ void loop() {
 
         fingerDetected = true;
 
-        // Exponential Moving Average filter for DC tracking
-        dcIR = (dcIR * 0.95) + ((float)currentIR * 0.05);
-        dcRed = (dcRed * 0.95) + ((float)currentRed * 0.05);
+        // Exponential Moving Average filter for DC tracking (tuned for wrist tissue perfusion)
+        dcIR = (dcIR * 0.93) + ((float)currentIR * 0.07);
+        dcRed = (dcRed * 0.93) + ((float)currentRed * 0.07);
 
         // AC pulsatile amplitude (centered around zero)
         float acIR = (float)currentIR - dcIR;
@@ -1300,12 +1307,20 @@ void loop() {
         if (acRed < ppgRedMin) ppgRedMin = acRed;
         if (acRed > ppgRedMax) ppgRedMax = acRed;
 
-        // Cardiac Systolic Peak Detector with refractory filter
+        // Dynamic Adaptive Peak Detector for Wrist Wear
+        // Wrist pulsatile amplitude is typically 6.0 to 25.0 counts (much lower than fingertips)
+        float peakThreshold = 6.5;
+        if (ppgIRMax - ppgIRMin > 18.0) {
+          peakThreshold = (ppgIRMax - ppgIRMin) * 0.30;
+          if (peakThreshold > 22.0) peakThreshold = 22.0;
+          if (peakThreshold < 6.0)  peakThreshold = 6.0;
+        }
+
         unsigned long now = millis();
-        if (!isSlopeRising && acIR > 20.0 && acIR > lastACIR && (now - lastPulseTime > 300)) {
+        if (!isSlopeRising && acIR > peakThreshold && acIR > lastACIR && (now - lastPulseTime > 320)) {
           isSlopeRising = true;
-        } else if (isSlopeRising && acIR < lastACIR && acIR > 20.0) {
-          // Local peak (systolic inflection) reached!
+        } else if (isSlopeRising && acIR < lastACIR && acIR > peakThreshold) {
+          // Local systolic peak reached on wrist!
           isSlopeRising = false;
           unsigned long beatDelta = now - lastPulseTime;
 
@@ -1320,10 +1335,10 @@ void loop() {
               beatAvg = (beatAvg * 0.65) + (instantBPM * 0.35);
             }
 
-            // Real SpO2 Calculation from physical PPG AC/DC modulation
+            // Real SpO2 Calculation from physical wrist PPG modulation
             float ptpIR = ppgIRMax - ppgIRMin;
             float ptpRed = ppgRedMax - ppgRedMin;
-            if (dcIR > 0 && dcRed > 0 && ptpIR > 10.0 && ptpRed > 10.0) {
+            if (dcIR > 0 && dcRed > 0 && ptpIR >= 4.0 && ptpRed >= 4.0) {
               float R = (ptpRed / dcRed) / (ptpIR / dcIR);
               float calcSpO2 = 110.0 - (25.0 * R);
               calcSpO2 = constrain(calcSpO2, 92.0, 100.0);
@@ -1344,14 +1359,20 @@ void loop() {
         }
         lastACIR = acIR;
 
+        // Diagnostics printed to Serial Monitor every 2.0s
+        static unsigned long lastOptDebug = 0;
+        if (millis() - lastOptDebug > 2000) {
+          lastOptDebug = millis();
+          Serial.println("📊 [WRIST-PPG] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | AC=" + String(acIR, 1) + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "% | Temp=" + String(temperatureC, 1) + "°C");
+        }
+
       } else {
-        // Finger absent: require 20 consecutive samples (~350ms) before declaring detachment
-        // This completely prevents momentary Wi-Fi RF blips or channel scans from wiping vitals!
-        fingerAbsentCount++;
-        if (fingerAbsentCount >= 20) {
-          if (wasFingerDetected) {
-            Serial.println("🖐️ [OPTICAL] Finger removed. Resetting optical baselines.");
-            wasFingerDetected = false;
+        // Wrist contact lost: require 20 consecutive absent samples (~350ms) before declaring detachment
+        contactAbsentCount++;
+        if (contactAbsentCount >= 20) {
+          if (wasWristContact) {
+            Serial.println("🖐️ [OPTICAL] Sensor detached from wrist. Retaining last body temp.");
+            wasWristContact = false;
           }
           fingerDetected       = false;
           beatAvg              = 0.0;
@@ -1369,7 +1390,7 @@ void loop() {
         }
       }
 
-      // Reset beatAvg only if finger has been continuously on for over 6 seconds with zero pulse detected
+      // Reset beatAvg only if sensor is continuously on wrist for over 6 seconds with zero pulse detected
       if (fingerDetected && lastBeatDetectedTime > 0 && (millis() - lastBeatDetectedTime > 6000)) {
         beatAvg = 0.0;
       }

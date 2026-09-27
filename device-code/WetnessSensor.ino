@@ -323,7 +323,7 @@ bool flushOfflineWetnessBuffer() {
 // Emits real-time online signal as soon as device is turned on and connected.
 // ==============================================================================
 void sendImmediateOnlineHandshake() {
-  if (WiFi.status() != WL_CONNECTED || isAPMode) return;
+  if (WiFi.status() != WL_CONNECTED) return;
   Serial.println("\n⚡ [REAL-TIME ONLINE] Moisture Sensor turned on / connected! Broadcasting instant online signal...");
 
   HTTPClient http;
@@ -367,7 +367,7 @@ void sendImmediateOnlineHandshake() {
 // AUTOMATIC BACKEND DATA TRANSMISSION
 // ==============================================================================
 void sendToBackend() {
-  if (WiFi.status() == WL_CONNECTED && !isAPMode) {
+  if (WiFi.status() == WL_CONNECTED) {
     if (hasPendingOfflineWetness) {
       flushOfflineWetnessBuffer();
     }
@@ -1150,8 +1150,7 @@ void handleNotFound() {
 // ==============================================================================
 void startAccessPointMode() {
   isAPMode = true;
-  WiFi.disconnect(false);
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(wifi_ssid.length() > 0 ? WIFI_AP_STA : WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 
   // [SECURITY] Launch Access Point with WPA2-PSK encryption
@@ -1196,10 +1195,9 @@ bool connectToWiFi() {
     }
   });
 
-  WiFi.disconnect(); // Disconnect cleanly without turning off radio PHY
-  delay(100);
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
   WiFi.setTxPower(WIFI_POWER_15dBm); // Crucial for battery power: prevents high-current RF surge from tripping battery BMS / brownout
 
   Serial.println("==================================================");
@@ -1390,10 +1388,13 @@ void loop() {
   // 3b. Persistent Wi-Fi Keepalive: Constantly try to reconnect if disconnected
   static unsigned long lastReconnectAttempt = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 15000) {
+    if (millis() - lastReconnectAttempt > 10000) {
       lastReconnectAttempt = millis();
-      Serial.println("⚠️ [WIFI] Connection lost. Requesting auto-reconnect to " + wifi_ssid + "...");
-      WiFi.reconnect();
+      Serial.println("⚠️ [WIFI] Connection lost. Re-initiating connection to " + wifi_ssid + "...");
+      if (WiFi.getMode() == WIFI_OFF) {
+        WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
+      }
+      WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
     }
   }
 

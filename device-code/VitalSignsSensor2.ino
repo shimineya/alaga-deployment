@@ -78,7 +78,7 @@ const char* DEFAULT_AP_PASS      = "AlagaSafe2026!";     // WPA2-PSK: Minimum 8 
 const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
 const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash
 const char* DEFAULT_SERVER_URL   = "http://192.168.254.113:3000/api/device/data";
-const char* DEFAULT_DEVICE_ID    = "VS-2026-0001";
+const char* DEFAULT_DEVICE_ID    = "VS-2026-0002";
 
 // ==============================================================================
 // RUNTIME VARIABLES & STORAGE

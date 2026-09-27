@@ -48,7 +48,7 @@ interface PatientProfileProps {
 export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initialPatient, onBack, caregiverName, initialTab = "overview", onRefresh }) => {
   const [patient, setPatient] = useState<Patient>(initialPatient);
   const [vitalSigns, setVitalSigns] = useState<VitalSign[]>([]);
-  const [timeRange, setTimeRange] = useState<'8h' | '24h' | '7d'>('24h');
+  const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('day');
 
   // Sync state with prop
   useEffect(() => {
@@ -139,7 +139,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
         const token = localStorage.getItem('token');
         if (!token || !patId) return;
 
-        const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/sensor/history/${patId}`, {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/sensor/history/${patId}?timeframe=${timeRange}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -198,7 +198,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
       clearInterval(interval);
       window.removeEventListener('alaga_alert_update', handleRealtimeTelemetry);
     };
-  }, [patient.id]);
+  }, [patient.id, timeRange]);
 
   const latestVital = vitalSigns[vitalSigns.length - 1];
 
@@ -206,9 +206,9 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
   const getFilteredVitals = () => {
     const now = Date.now();
     const ranges = {
-      '8h': 8 * 60 * 60 * 1000,
-      '24h': 24 * 60 * 60 * 1000,
-      '7d': 7 * 24 * 60 * 60 * 1000,
+      day: 24 * 60 * 60 * 1000,
+      week: 7 * 24 * 60 * 60 * 1000,
+      month: 30 * 24 * 60 * 60 * 1000,
     };
     return vitalSigns.filter(v => now - v.timestamp.getTime() < ranges[timeRange]);
   };
@@ -662,52 +662,132 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <div className="flex justify-between items-center">
-                <CardTitle>Vital Signs History</CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle>Vital Signs History</CardTitle>
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    LIVE STREAMING
+                  </span>
+                </div>
                 <div className="flex gap-2">
-                  {(['8h', '24h', '7d'] as const).map(range => (
+                  {(['day', 'week', 'month'] as const).map(range => (
                     <Button
                       key={range}
                       size="sm"
                       variant={timeRange === range ? 'default' : 'outline'}
                       onClick={() => setTimeRange(range)}
-                      className={timeRange === range ? 'bg-accent text-accent-foreground hover:bg-accent/90 cursor-pointer' : 'cursor-pointer'}
+                      className={timeRange === range ? 'bg-accent text-accent-foreground hover:bg-accent/90 cursor-pointer capitalize font-semibold' : 'cursor-pointer capitalize'}
                     >
-                      {range.toUpperCase()}
+                      {range === 'day' ? 'Day (24h)' : range === 'week' ? 'Week (7d)' : 'Month (30d)'}
                     </Button>
                   ))}
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-8">
-              <div className="h-[250px]">
-                <h4 className="text-sm font-medium text-slate-500 mb-4">Heart Rate (bpm)</h4>
+              {/* Heart Rate */}
+              <div className="h-[230px]">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                    Heart Rate (bpm)
+                  </h4>
+                  <span className="text-xs font-bold text-red-600">
+                    {chartData.length > 0 ? `${chartData[chartData.length - 1].heartRate} BPM` : '--'}
+                  </span>
+                </div>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="colorHr" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2} />
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="time" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis domain={[40, 160]} fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: '8px' }} />
-                    <Area type="monotone" dataKey="heartRate" stroke="#ef4444" fillOpacity={1} fill="url(#colorHr)" strokeWidth={2} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="time" fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <YAxis domain={[40, 160]} fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Area type="monotone" dataKey="heartRate" stroke="#ef4444" fillOpacity={1} fill="url(#colorHr)" strokeWidth={2.5} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
 
-              <div className="h-[250px]">
-                <h4 className="text-sm font-medium text-slate-500 mb-4">Temperature (°C)</h4>
+              {/* SpO2 Blood Oxygen */}
+              <div className="h-[230px]">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                    Blood Oxygen (SpO2 %)
+                  </h4>
+                  <span className="text-xs font-bold text-blue-600">
+                    {chartData.length > 0 ? `${chartData[chartData.length - 1].spo2}%` : '--'}
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="colorSpo2" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="time" fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <YAxis domain={[85, 100]} fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Area type="monotone" dataKey="spo2" stroke="#3b82f6" fillOpacity={1} fill="url(#colorSpo2)" strokeWidth={2.5} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Temperature */}
+              <div className="h-[230px]">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                    Body Temperature (°C)
+                  </h4>
+                  <span className="text-xs font-bold text-amber-600">
+                    {chartData.length > 0 ? `${chartData[chartData.length - 1].temperature}°C` : '--'}
+                  </span>
+                </div>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="time" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis domain={[35, 40]} fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: '8px' }} />
-                    <Line type="monotone" dataKey="temperature" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="time" fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <YAxis domain={[34, 41]} fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Line type="monotone" dataKey="temperature" stroke="#f59e0b" strokeWidth={2.5} dot={false} />
                   </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Diaper Wetness */}
+              <div className="h-[230px]">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    Diaper Wetness (%)
+                  </h4>
+                  <span className="text-xs font-bold text-emerald-600">
+                    {chartData.length > 0 ? `${chartData[chartData.length - 1].moisture}%` : '--'}
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="colorMoist" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="time" fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <YAxis domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} stroke="#94a3b8" />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Area type="monotone" dataKey="moisture" stroke="#10b981" fillOpacity={1} fill="url(#colorMoist)" strokeWidth={2.5} />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>

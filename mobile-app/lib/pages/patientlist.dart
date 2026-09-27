@@ -404,6 +404,9 @@ class MiniGraphPainter extends CustomPainter {
       if (i == 0) {
         path.moveTo(x, y);
       } else {
+        path.lineTo(x, y);
+      }
+    }
     canvas.drawPath(path, paint);
 
     // Draw active pulse dot on latest reading

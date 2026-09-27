@@ -348,9 +348,28 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 icon: const Icon(Icons.menu,
                                     size: 32, color: Colors.black87),
                               ),
-                              Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
-                                  child: _buildGreeting(today)),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.refresh, color: Color(0xFF4DB6AC), size: 22),
+                                    tooltip: 'Refresh Dashboard',
+                                    onPressed: () {
+                                      _refreshDashboard();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Refreshing dashboard data...'),
+                                          duration: Duration(seconds: 1),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: _buildGreeting(today)),
+                                ],
+                              ),
                             ],
                           ),
                           const SizedBox(height: 35),

@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/lib/auth-context';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Globe, Building2, HeartPulse } from 'lucide-react';
+import { Globe, Building2, HeartPulse, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 import CommandCenterDashboard from '../sysadmin/CommandCenterDashboard';
 import FacilityDashboard from '../facility-admin/FacilityDashboard';
@@ -12,6 +14,16 @@ import { BreakGlassWrapper } from '../security/BreakGlassWrapper';
 export default function OverviewHub() {
     const { user, permissions, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    const handleGlobalRefresh = () => {
+        setIsRefreshing(true);
+        window.dispatchEvent(new CustomEvent('alaga_manual_refresh', { detail: { timestamp: Date.now() } }));
+        toast.success('Refreshing dashboard with latest live data...', { duration: 1500 });
+        setTimeout(() => {
+            setIsRefreshing(false);
+        }, 800);
+    };
 
     // Authorization Flags
     const isAdminTier = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
@@ -56,6 +68,18 @@ export default function OverviewHub() {
                         </span>
                     </h1>
                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">Real-time patient monitoring, vital thresholds, and proactive anomaly alerts.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleGlobalRefresh}
+                        disabled={isRefreshing}
+                        className="border-teal-200/90 text-teal-800 hover:bg-teal-50 hover:text-teal-900 bg-white/90 shadow-xs font-bold text-xs flex items-center gap-2 cursor-pointer transition-all active:scale-95 px-3.5 py-2 rounded-xl"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+                        <span>{isRefreshing ? 'Refreshing...' : 'Refresh Live Data'}</span>
+                    </Button>
                 </div>
             </div>
 

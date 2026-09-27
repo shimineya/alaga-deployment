@@ -138,11 +138,20 @@ export default function FacilityDashboard() {
         fetchStats(selectedFacilityId);
         fetchPatients(selectedFacilityId);
 
+        const handleManual = () => {
+            fetchStats(selectedFacilityId);
+            fetchPatients(selectedFacilityId);
+        };
+        window.addEventListener('alaga_manual_refresh', handleManual);
+
         const t = setInterval(() => {
             fetchStats(selectedFacilityId);
             fetchPatients(selectedFacilityId);
         }, 30000);
-        return () => clearInterval(t);
+        return () => {
+            clearInterval(t);
+            window.removeEventListener('alaga_manual_refresh', handleManual);
+        };
     }, [selectedFacilityId, fetchStats, fetchPatients]);
 
     const handleFacilitySearchChange = (val: string) => {

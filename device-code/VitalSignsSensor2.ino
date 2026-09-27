@@ -401,7 +401,7 @@ void sendImmediateOnlineHandshake() {
 // 2. BACKEND DATA TRANSMISSION WITH EMBEDDED SECURITY
 // ==============================================================================
 void sendToBackend() {
-  if (WiFi.status() == WL_CONNECTED && !isAPMode) {
+  if (WiFi.status() == WL_CONNECTED) {
     // If pending offline data exists, flush it first
     if (hasPendingOfflineData) {
       flushOfflineBuffer();
@@ -1048,8 +1048,7 @@ void handleNotFound() {
 // ------------------------------------------------------------------------------
 void startAccessPointMode() {
   isAPMode = true;
-  WiFi.disconnect(false);
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(wifi_ssid.length() > 0 ? WIFI_AP_STA : WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 
   // [SECURITY] Launch Access Point with WPA2-PSK encryption (Not an open network!)
@@ -1075,12 +1074,14 @@ bool connectToWiFi() {
 
   WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+  WiFi.setTxPower(WIFI_POWER_15dBm); // Crucial for standalone battery power: prevents RF brownout!
   WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
 
   Serial.print("[WIFI] Connecting to " + wifi_ssid);
   unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 12000) {
-    delay(400);
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(300);
     Serial.print(".");
   }
 
@@ -1095,7 +1096,8 @@ bool connectToWiFi() {
     needInitialSend = true;
     return true;
   } else {
-    Serial.println("\n⚠️ [WIFI] Connection to " + wifi_ssid + " failed. Starting Setup Hotspot (" + String(DEFAULT_AP_SSID) + ")...");
+    // Keep station mode trying in background while starting setup AP
+    Serial.println("\n⚠️ [WIFI] Wi-Fi taking longer. Continuing in background while launching setup AP...");
     startAccessPointMode();
     return false;
   }
@@ -1284,9 +1286,9 @@ void loop() {
 
         fingerDetected = true;
 
-        // Exponential Moving Average filter for DC tracking (tuned for wrist tissue perfusion)
-        dcIR = (dcIR * 0.93) + ((float)currentIR * 0.07);
-        dcRed = (dcRed * 0.93) + ((float)currentRed * 0.07);
+        // Exponential Moving Average filter for DC tracking (cutoff ~0.2Hz preserves cardiac waveform)
+        dcIR = (dcIR * 0.98) + ((float)currentIR * 0.02);
+        dcRed = (dcRed * 0.98) + ((float)currentRed * 0.02);
 
         // AC pulsatile amplitude (centered around zero)
         float acIR = (float)currentIR - dcIR;
@@ -1298,25 +1300,31 @@ void loop() {
         if (acRed < ppgRedMin) ppgRedMin = acRed;
         if (acRed > ppgRedMax) ppgRedMax = acRed;
 
-        // Dynamic Adaptive Peak Detector for Wrist Wear
-        // Wrist pulsatile amplitude is typically 6.0 to 25.0 counts (much lower than fingertips)
-        float peakThreshold = 6.5;
-        if (ppgIRMax - ppgIRMin > 18.0) {
-          peakThreshold = (ppgIRMax - ppgIRMin) * 0.30;
-          if (peakThreshold > 22.0) peakThreshold = 22.0;
-          if (peakThreshold < 6.0)  peakThreshold = 6.0;
+        unsigned long now = millis();
+        bool beatDetected = false;
+
+        // 1. Official SparkFun heartRate.h beat detector (auto-calibrating FIR filter)
+        if (checkForBeat(currentIR)) {
+          beatDetected = true;
         }
 
-        unsigned long now = millis();
-        if (!isSlopeRising && acIR > peakThreshold && acIR > lastACIR && (now - lastPulseTime > 320)) {
-          isSlopeRising = true;
-        } else if (isSlopeRising && acIR < lastACIR && acIR > peakThreshold) {
-          // Local systolic peak reached on wrist!
-          isSlopeRising = false;
+        // 2. High-sensitivity adaptive slope detector fallback for wrist reflectance
+        if (!beatDetected) {
+          float peakThreshold = 8.0;
+          if (!isSlopeRising && acIR > peakThreshold && acIR > lastACIR && (now - lastPulseTime > 300)) {
+            isSlopeRising = true;
+          } else if (isSlopeRising && acIR < lastACIR && acIR > peakThreshold) {
+            isSlopeRising = false;
+            beatDetected = true;
+          }
+        }
+        lastACIR = acIR;
+
+        if (beatDetected) {
           unsigned long beatDelta = now - lastPulseTime;
+          lastPulseTime = now; // Always advance baseline so it never gets stuck
 
           if (beatDelta >= 350 && beatDelta <= 1500) { // Valid human heart rate: 40 BPM to 171 BPM
-            lastPulseTime = now;
             lastBeatDetectedTime = now;
             float instantBPM = 60000.0 / (float)beatDelta;
 
@@ -1343,12 +1351,8 @@ void loop() {
             // Reset peak-to-peak tracking for next beat
             ppgIRMin = 0; ppgIRMax = 0;
             ppgRedMin = 0; ppgRedMax = 0;
-          } else if (beatDelta > 1500) {
-            lastPulseTime = now; // Initial beat baseline
-            lastBeatDetectedTime = now;
           }
         }
-        lastACIR = acIR;
 
         // Diagnostics printed to Serial Monitor every 2.0s
         static unsigned long lastOptDebug = 0;
@@ -1421,10 +1425,10 @@ void loop() {
   // Uses non-blocking ESP-IDF reconnect without killing the radio PHY every 5s
   static unsigned long lastReconnectAttempt = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 15000) {
+    if (millis() - lastReconnectAttempt > 10000) {
       lastReconnectAttempt = millis();
-      Serial.println("⚠️ [WIFI] Connection lost. Requesting auto-reconnect to " + wifi_ssid + "...");
-      WiFi.reconnect();
+      Serial.println("⚠️ [WIFI] Still disconnected. Re-attempting connection to " + wifi_ssid + "...");
+      WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
     }
   }
 
@@ -1494,5 +1498,5 @@ void loop() {
     sendToBackend();
   }
 
-  delay(10);
+  delay(6);
 }

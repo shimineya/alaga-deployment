@@ -388,10 +388,18 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             fetchAlerts();
             fetchPatients();
         };
+
+        const handleManualRefresh = () => {
+            fetchAlerts();
+            fetchPatients();
+        };
+
         window.addEventListener('alaga_alert_update', handleSync);
+        window.addEventListener('alaga_manual_refresh', handleManualRefresh);
         return () => {
             clearInterval(poll);
             window.removeEventListener('alaga_alert_update', handleSync);
+            window.removeEventListener('alaga_manual_refresh', handleManualRefresh);
         };
     }, [fetchAlerts, fetchPatients]);
 

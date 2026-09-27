@@ -173,6 +173,11 @@ export default function CommandCenterDashboard() {
         if (token) {
             fetchDashboardData();
         }
+        const handleManual = () => {
+            if (token) fetchDashboardData(true);
+        };
+        window.addEventListener('alaga_manual_refresh', handleManual);
+        return () => window.removeEventListener('alaga_manual_refresh', handleManual);
     }, [token]);
 
     // Handle Unbanning an IP

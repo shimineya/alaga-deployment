@@ -1141,12 +1141,6 @@ void setup() {
   admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);
   ap_password   = preferences.getString("appass", DEFAULT_AP_PASS);
   moisture_pin  = preferences.getInt("mpin", 32);
-  // Auto-migrate legacy local server IP to production Render cloud URL
-  if (server_url.indexOf("192.168.254.") >= 0 || server_url.indexOf("localhost") >= 0) {
-    Serial.println("[MIGRATION] Updating local server URL to Render Cloud: " + String(DEFAULT_SERVER_URL));
-    server_url = DEFAULT_SERVER_URL;
-    preferences.putString("url", DEFAULT_SERVER_URL);
-  }
 
   // Clear obsolete/unreachable Wi-Fi SSID from flash (case-insensitive)
   String checkSSID = wifi_ssid;

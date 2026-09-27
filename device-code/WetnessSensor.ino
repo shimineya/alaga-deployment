@@ -1390,7 +1390,7 @@ void loop() {
   // 3b. Persistent Wi-Fi Keepalive: Constantly try to reconnect if disconnected
   static unsigned long lastReconnectAttempt = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 3000) {
+    if (millis() - lastReconnectAttempt > 5000) {
       lastReconnectAttempt = millis();
       Serial.println("⚠️ [WIFI] Connection lost. Auto-reconnecting to " + wifi_ssid + "...");
       WiFi.disconnect();

@@ -1243,44 +1243,57 @@ void loop() {
       Serial.println("📊 [OPTICAL] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | Finger=" + fingerStr + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "%");
     }
 
+    // Optical filter & peak detector states
+    static float dcIR = 0;
+    static float dcRed = 0;
+    static float ppgIRMin = 0, ppgIRMax = 0;
+    static float ppgRedMin = 0, ppgRedMax = 0;
+    static float lastACIR = 0;
+    static bool isSlopeRising = false;
+    static unsigned long lastPulseTime = 0;
+    static bool wasFingerDetected = false;
+
     if (validFingerTouch) {
+      // Transition from NO finger -> FINGER DETECTED
+      if (!wasFingerDetected) {
+        wasFingerDetected = true;
+        fingerDetected = true;
+        Serial.println("👆 [OPTICAL] Finger placed on sensor. Initializing signal baseline...");
+        dcIR = (float)currentIR;
+        dcRed = (float)currentRed;
+        lastACIR = 0;
+        isSlopeRising = false;
+        lastPulseTime = millis();
+        lastBeatDetectedTime = millis();
+        ppgIRMin = 0; ppgIRMax = 0;
+        ppgRedMin = 0; ppgRedMax = 0;
+        beatAvg = 0.0;
+        currentSpO2 = 0.0;
+      }
+
       fingerDetected = true;
 
       // Exponential Moving Average filter for DC tracking
-      static float dcIR = 0;
-      static float dcRed = 0;
-      if (dcIR <= 0) {
-        dcIR = currentIR;
-        dcRed = currentRed;
-      } else {
-        dcIR = (dcIR * 0.96) + ((float)currentIR * 0.04);
-        dcRed = (dcRed * 0.96) + ((float)currentRed * 0.04);
-      }
+      dcIR = (dcIR * 0.95) + ((float)currentIR * 0.05);
+      dcRed = (dcRed * 0.95) + ((float)currentRed * 0.05);
 
       // AC pulsatile amplitude (centered around zero)
       float acIR = (float)currentIR - dcIR;
       float acRed = (float)currentRed - dcRed;
 
       // Track peak-to-peak amplitude for SpO2 ratio
-      static float ppgIRMin = 0, ppgIRMax = 0;
-      static float ppgRedMin = 0, ppgRedMax = 0;
       if (acIR < ppgIRMin) ppgIRMin = acIR;
       if (acIR > ppgIRMax) ppgIRMax = acIR;
       if (acRed < ppgRedMin) ppgRedMin = acRed;
       if (acRed > ppgRedMax) ppgRedMax = acRed;
 
-      // Robust Cardiac Systolic Peak Detector
-      static float lastACIR = 0;
-      static bool isSlopeRising = false;
-      static unsigned long lastPulseTime = 0;
-
-      // Detect systolic upstroke
-      if (acIR > 25.0 && acIR > lastACIR) {
+      // Cardiac Systolic Peak Detector with refractory filter
+      unsigned long now = millis();
+      if (!isSlopeRising && acIR > 20.0 && acIR > lastACIR && (now - lastPulseTime > 300)) {
         isSlopeRising = true;
-      } else if (isSlopeRising && acIR < lastACIR && acIR > 25.0) {
+      } else if (isSlopeRising && acIR < lastACIR && acIR > 20.0) {
         // Local peak (systolic inflection) reached!
         isSlopeRising = false;
-        unsigned long now = millis();
         unsigned long beatDelta = now - lastPulseTime;
 
         if (beatDelta >= 350 && beatDelta <= 1500) { // Valid human heart rate: 40 BPM to 171 BPM
@@ -1319,14 +1332,28 @@ void loop() {
       lastACIR = acIR;
 
     } else {
-      // Finger removed or sensor saturated — clear vitals
-      fingerDetected = false;
-      beatAvg        = 0.0;
-      currentSpO2    = 0.0;
+      // Finger removed or sensor saturated — completely clear and reset state
+      if (wasFingerDetected) {
+        Serial.println("🖐️ [OPTICAL] Finger removed. Resetting optical baselines.");
+        wasFingerDetected = false;
+      }
+      fingerDetected       = false;
+      beatAvg              = 0.0;
+      currentSpO2          = 0.0;
+      dcIR                 = 0;
+      dcRed                = 0;
+      lastACIR             = 0;
+      isSlopeRising        = false;
+      lastPulseTime        = 0;
+      lastBeatDetectedTime = 0;
+      ppgIRMin             = 0;
+      ppgIRMax             = 0;
+      ppgRedMin            = 0;
+      ppgRedMax            = 0;
     }
 
-    // Reset beatAvg only if finger has been on for over 6 seconds with zero pulse
-    if (fingerDetected && lastBeatDetectedTime > 0 && millis() - lastBeatDetectedTime > 6000) {
+    // Reset beatAvg only if finger has been continuously on for over 6 seconds with zero pulse detected
+    if (fingerDetected && lastBeatDetectedTime > 0 && (millis() - lastBeatDetectedTime > 6000)) {
       beatAvg = 0.0;
     }
   }
@@ -1362,7 +1389,7 @@ void loop() {
   // Constantly and persistently retries connection to configured Wi-Fi if disconnected
   static unsigned long lastReconnectAttempt = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 3000) {
+    if (millis() - lastReconnectAttempt > 5000) {
       lastReconnectAttempt = millis();
       Serial.println("⚠️ [WIFI] Connection lost. Auto-reconnecting to " + wifi_ssid + "...");
       WiFi.disconnect();

@@ -708,6 +708,7 @@ void handleStatus() {
 void handleVerifyAdmin() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   String enteredPin = server.arg("pin");
+  if (enteredPin.length() == 0 && server.hasArg("admin_pin")) enteredPin = server.arg("admin_pin");
   enteredPin.trim();
 
   if (enteredPin == admin_pin || enteredPin == DEFAULT_ADMIN_PIN) {
@@ -723,6 +724,86 @@ void handleVerifyAdmin() {
   } else {
     server.send(401, "application/json", "{\"success\":false,\"message\":\"Invalid PIN\"}");
   }
+}
+
+// ------------------------------------------------------------------------------
+// INSTANT ADMIN SAVE ENDPOINT (/api/save-admin)
+// Allows immediate configuration of Server URL, Device ID, and Tokens without Wi-Fi resets
+// ------------------------------------------------------------------------------
+void handleSaveAdmin() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (server.method() == HTTP_OPTIONS) {
+    server.send(204);
+    return;
+  }
+
+  String enteredPin = server.arg("pin");
+  if (enteredPin.length() == 0 && server.hasArg("admin_pin")) enteredPin = server.arg("admin_pin");
+  enteredPin.trim();
+
+  if (enteredPin != admin_pin && enteredPin != DEFAULT_ADMIN_PIN) {
+    server.send(401, "application/json", "{\"success\":false,\"message\":\"Invalid Admin PIN.\"}");
+    return;
+  }
+
+  if (server.hasArg("server_url") && server.arg("server_url").length() > 0) {
+    String newUrl = server.arg("server_url");
+    newUrl.trim();
+    server_url = newUrl;
+  }
+  if (server.hasArg("device_id") && server.arg("device_id").length() > 0) {
+    String newId = server.arg("device_id");
+    newId.trim();
+    device_id = newId;
+  }
+  if (server.hasArg("device_token") && server.arg("device_token").length() > 0) {
+    String newToken = server.arg("device_token");
+    newToken.trim();
+    device_token = newToken;
+  }
+  if (server.hasArg("sensor_type")) {
+    sensor_type = server.arg("sensor_type").toInt();
+  }
+  if (server.hasArg("sensor_pin")) {
+    water_pin = server.arg("sensor_pin").toInt();
+  } else if (server.hasArg("water_pin")) {
+    water_pin = server.arg("water_pin").toInt();
+  }
+
+  // Update hardware pin mode dynamically
+  if (sensor_type == 2) {
+    pinMode(water_pin, INPUT_PULLDOWN);
+  } else if (sensor_type == 0) {
+    pinMode(water_pin, INPUT_PULLUP);
+  } else {
+    pinMode(water_pin, INPUT);
+  }
+
+  // Persist to NVS Flash
+  preferences.begin("alaga-cfg", false);
+  preferences.putString("url", server_url);
+  preferences.putString("devid", device_id);
+  preferences.putString("token", device_token);
+  preferences.putInt("senstype", sensor_type);
+  preferences.putInt("senspin", water_pin);
+  preferences.end();
+
+  Serial.println("\n✅ [NVS] Admin settings updated via /api/save-admin!");
+  Serial.println("[NVS] Target Backend URL: " + server_url);
+  Serial.println("[NVS] Target Device ID  : " + device_id);
+
+  String resp = "{";
+  resp += "\"success\":true,";
+  resp += "\"message\":\"Settings saved to ESP32 Flash! Live telemetry target updated.\",";
+  resp += "\"server_url\":\"" + server_url + "\",";
+  resp += "\"device_id\":\"" + device_id + "\",";
+  resp += "\"sensor_type\":" + String(sensor_type) + ",";
+  resp += "\"water_pin\":" + String(water_pin);
+  resp += "}";
+  server.send(200, "application/json", resp);
 }
 
 // ------------------------------------------------------------------------------
@@ -763,6 +844,21 @@ void handleSetup() {
   page += "<p class='subtitle'>Select your local network to connect your ALAGA device</p>";
   page += "</div>";
 
+  // Target Server Status Card
+  String statusBadge = (lastBackendCode == 200) 
+    ? "<span style='font-size:11px; font-weight:700; color:#059669; background:#ECFDF5; padding:2px 8px; border-radius:9999px;'>● 200 OK</span>"
+    : (lastBackendCode == 403) 
+      ? "<span style='font-size:11px; font-weight:700; color:#DC2626; background:#FEE2E2; padding:2px 8px; border-radius:9999px;'>⚠️ 403 Forbidden</span>"
+      : "<span style='font-size:11px; font-weight:700; color:#475569; background:#F1F5F9; padding:2px 8px; border-radius:9999px;'>● Status: " + String(lastBackendCode) + "</span>";
+
+  page += "<div style='background:#F8FAFC; border:1px solid var(--border); border-radius:12px; padding:12px 16px; margin-bottom:16px;'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center;'>";
+  page += "<span style='font-size:12px; font-weight:700; color:#475569;'>🎯 Target Backend Server</span>";
+  page += statusBadge;
+  page += "</div>";
+  page += "<div id='active_endpoint_display' style='margin-top:6px; font-family:monospace; font-size:12px; font-weight:700; color:#0D9488; word-break:break-all; background:#FFFFFF; border:1px solid #E2E8F0; padding:6px 10px; border-radius:6px;'>" + server_url + "</div>";
+  page += "</div>";
+
   // Battery preview in portal
   String batColor = batteryPercent > 50 ? "#10B981" : (batteryPercent > 20 ? "#F59E0B" : "#EF4444");
   page += "<div style='background: #F8FAFC; border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;'>";
@@ -770,7 +866,7 @@ void handleSetup() {
   page += "<span style='font-size: 14px; font-weight: 800; color: " + batColor + ";'>" + String(batteryPercent) + "% (" + String(batteryVoltage, 2) + "V)</span>";
   page += "</div>";
 
-  page += "<form method='POST' action='/save'>";
+  page += "<form method='POST' action='/save' id='main_config_form'>";
 
   // Device Serial Number (Visible to normal user, but Read-Only)
   page += "<div class='form-group'>";
@@ -789,9 +885,11 @@ void handleSetup() {
   page += "<a href='/setup?rescan=1' style='font-size:12px; color:var(--primary); text-decoration:none; font-weight:600;'>🔄 Rescan</a>";
   page += "</div>";
 
+  String ssidRequired = (wifi_ssid.length() > 0) ? "" : "required";
+
   if (n > 0) {
-    page += "<select id='ssid' name='ssid' required onchange='checkCustomSSID(this)'>";
-    page += "<option value=''>-- Select Available Network --</option>";
+    page += "<select id='ssid' name='ssid' " + ssidRequired + " onchange='checkCustomSSID(this)'>";
+    page += "<option value=''>-- Select Available Network (or leave unchanged) --</option>";
     for (int i = 0; i < n; ++i) {
       String netName = WiFi.SSID(i);
       int rssi = WiFi.RSSI(i);
@@ -802,7 +900,7 @@ void handleSetup() {
     page += "</select>";
     page += "<input type='text' id='custom_ssid' name='custom_ssid' placeholder='Enter Wi-Fi Network Name' style='display:none; margin-top: 8px;'>";
   } else {
-    page += "<input type='text' id='ssid' name='ssid' value='" + wifi_ssid + "' placeholder='e.g. Hospital_Staff_2.4G' required>";
+    page += "<input type='text' id='ssid' name='ssid' value='" + wifi_ssid + "' placeholder='e.g. Hospital_Staff_2.4G' " + ssidRequired + ">";
   }
   page += "</div>";
 
@@ -813,7 +911,7 @@ void handleSetup() {
     page += "<input type='password' id='password' name='password' minlength='8' placeholder='Enter password (or leave blank to keep saved)'>";
     page += "<p style='font-size:11px; color:var(--emerald); margin-top:4px;'>✓ Password saved (" + String(wifi_password.length()) + " chars). Leave blank to keep existing password.</p>";
   } else {
-    page += "<input type='password' id='password' name='password' minlength='8' placeholder='Enter network password (min 8 characters)' required>";
+    page += "<input type='password' id='password' name='password' minlength='8' placeholder='Enter network password (min 8 characters)'>";
   }
   page += "<div style='margin-top:6px; font-size:12px; display:flex; align-items:center; gap:6px;'>";
   page += "<input type='checkbox' id='show_pass' style='width:auto;' onclick='var p=document.getElementById(\"password\"); p.type=this.checked?\"text\":\"password\";'>";
@@ -829,14 +927,14 @@ void handleSetup() {
   page += "<div style='display:flex; justify-content:space-between; align-items:center;'>";
   page += "<div>";
   page += "<span style='font-size:13px; font-weight:700; color:#334155;'>⚙️ Administrator Configuration</span>";
-  page += "<p style='font-size:11px; color:#64748B; margin:2px 0 0;'>Unlock device identity, hardware token, and backend routing</p>";
+  page += "<p style='font-size:11px; color:#64748B; margin:2px 0 0;'>Configure target backend endpoint, device serial ID, and sensor pin</p>";
   page += "</div>";
   page += "</div>";
 
   // PIN Unlock Box
   page += "<div id='admin_lock_box' style='margin-top:12px;'>";
   page += "<div style='display:flex; gap:8px;'>";
-  page += "<input type='password' id='admin_pin_input' placeholder='Enter Admin PIN' autocomplete='off' style='flex:1; padding:9px 12px; font-size:13px;'>";
+  page += "<input type='password' id='admin_pin_input' placeholder='Enter Admin PIN (Default: alaga2026)' autocomplete='off' style='flex:1; padding:9px 12px; font-size:13px;'>";
   page += "<button type='button' class='btn btn-primary' onclick='unlockAdmin()' style='width:auto; padding:9px 16px; margin:0; font-size:13px;'>Unlock</button>";
   page += "</div>";
   page += "<div id='pin_error' style='display:none; color:#EF4444; font-size:11px; font-weight:700; margin-top:6px;'>❌ Invalid Admin Authorization PIN.</div>";
@@ -845,11 +943,11 @@ void handleSetup() {
   // Unlocked Admin Form Panel (Hidden until PIN is verified)
   page += "<div id='admin_unlocked_panel' style='display:none; margin-top:16px; border-top:1px solid #E2E8F0; padding-top:14px;'>";
   page += "<div style='background:#ECFDF5; border:1px solid #A7F3D0; border-radius:8px; padding:8px 12px; margin-bottom:12px; font-size:12px; font-weight:700; color:#065F46;'>";
-  page += "🔓 Admin Access Granted &bull; Device Serial Unlocked for Editing";
+  page += "🔓 Admin Access Granted &bull; Device Settings Unlocked";
   page += "</div>";
 
   page += "<div class='form-group'>";
-  page += "<label for='admin_device_id'>Edit Device Serial Number</label>";
+  page += "<label for='admin_device_id'>Device Serial Number (ID)</label>";
   page += "<input type='text' id='admin_device_id' oninput='document.getElementById(\"device_id\").value=this.value;' placeholder='e.g. SD-2026-0001'>";
   page += "</div>";
 
@@ -859,8 +957,15 @@ void handleSetup() {
   page += "</div>";
 
   page += "<div class='form-group'>";
-  page += "<label for='server_url'>Backend API Endpoint</label>";
-  page += "<input type='text' id='server_url' name='server_url' placeholder='e.g. https://alaga-backend.onrender.com/api/device/data'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;'>";
+  page += "<label for='server_url' style='margin:0;'>Backend API Endpoint</label>";
+  page += "<span style='font-size:11px; color:#64748B;'>Select preset:</span>";
+  page += "</div>";
+  page += "<div style='display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;'>";
+  page += "<button type='button' onclick='setPresetUrl(\"http://192.168.254.113:3000/api/device/data\")' class='btn' style='background:#E0F2FE; color:#0369A1; font-size:11px; font-weight:700; padding:5px 10px; width:auto; margin:0;'>📍 Local PC (192.168.254.113:3000)</button>";
+  page += "<button type='button' onclick='setPresetUrl(\"https://alaga-backend.onrender.com/api/device/data\")' class='btn' style='background:#F3E8FF; color:#7E22CE; font-size:11px; font-weight:700; padding:5px 10px; width:auto; margin:0;'>☁️ Render Cloud</button>";
+  page += "</div>";
+  page += "<input type='text' id='server_url' name='server_url' placeholder='e.g. http://192.168.254.113:3000/api/device/data'>";
   page += "</div>";
 
   page += "<div class='form-group'>";
@@ -884,7 +989,16 @@ void handleSetup() {
   page += "</div>";
 
   page += "<input type='hidden' id='admin_pin_hidden' name='admin_pin' value=''>";
-  page += "<button type='submit' class='btn' style='background:#0F172A; color:#FFF; margin-top:8px;'>💾 Save Admin & Wi-Fi Settings</button>";
+
+  // Instant Save Button (Direct AJAX, does not require Wi-Fi re-selection)
+  page += "<div style='margin-top:14px; padding:12px; background:#F0FDF4; border:1px solid #BBF7D0; border-radius:10px;'>";
+  page += "<div style='font-size:12px; font-weight:700; color:#166534; margin-bottom:6px;'>⚡ Instant Endpoint & Config Save</div>";
+  page += "<p style='font-size:11px; color:#15803D; margin-bottom:8px;'>Instantly saves Backend Endpoint & Device ID to Flash memory without disconnecting or modifying Wi-Fi.</p>";
+  page += "<button type='button' class='btn' onclick='instantSaveAdmin()' style='background:#0D9488; color:#FFF; font-weight:700; margin:0;'>⚡ Instant Save Admin Settings</button>";
+  page += "<div id='save_admin_feedback' style='display:none; font-size:12px; font-weight:700; padding:8px 12px; border-radius:8px; margin-top:8px;'></div>";
+  page += "</div>";
+
+  page += "<button type='submit' class='btn' style='background:#0F172A; color:#FFF; margin-top:12px;'>💾 Save Admin & Wi-Fi Settings (Reboot Device)</button>";
   page += "</div>"; // End admin_unlocked_panel
 
   page += "</div>"; // End admin box
@@ -905,8 +1019,11 @@ void handleSetup() {
     page += "</div>";
   }
 
-  // JavaScript to verify PIN and dynamically unlock admin fields
+  // JavaScript to verify PIN, preset endpoints, and instant save
   page += "<script>";
+  page += "function setPresetUrl(url) {";
+  page += "  document.getElementById('server_url').value = url;";
+  page += "}";
   page += "function unlockAdmin() {";
   page += "  var pin = document.getElementById('admin_pin_input').value;";
   page += "  var err = document.getElementById('pin_error');";
@@ -938,6 +1055,45 @@ void handleSetup() {
   page += "    })";
   page += "    .catch(function() { err.style.display = 'block'; });";
   page += "}";
+  page += "function instantSaveAdmin() {";
+  page += "  var pin = document.getElementById('admin_pin_hidden').value || document.getElementById('admin_pin_input').value;";
+  page += "  var sUrl = document.getElementById('server_url').value.trim();";
+  page += "  var dId = (document.getElementById('admin_device_id').value || document.getElementById('device_id').value).trim();";
+  page += "  var token = document.getElementById('device_token').value.trim();";
+  page += "  var sType = document.getElementById('sensor_type').value;";
+  page += "  var sPin = document.getElementById('sensor_pin').value;";
+  page += "  var fb = document.getElementById('save_admin_feedback');";
+  page += "  fb.style.display = 'block';";
+  page += "  fb.style.background = '#EFF6FF';";
+  page += "  fb.style.color = '#1D4ED8';";
+  page += "  fb.innerText = 'Saving settings to ESP32 Flash memory...';";
+  page += "  var params = 'pin=' + encodeURIComponent(pin)";
+  page += "    + '&server_url=' + encodeURIComponent(sUrl)";
+  page += "    + '&device_id=' + encodeURIComponent(dId)";
+  page += "    + '&device_token=' + encodeURIComponent(token)";
+  page += "    + '&sensor_type=' + encodeURIComponent(sType)";
+  page += "    + '&sensor_pin=' + encodeURIComponent(sPin);";
+  page += "  fetch('/api/save-admin?' + params, { method: 'POST' })";
+  page += "    .then(function(r) { return r.json(); })";
+  page += "    .then(function(d) {";
+  page += "      if (d.success) {";
+  page += "        fb.style.background = '#ECFDF5';";
+  page += "        fb.style.color = '#065F46';";
+  page += "        fb.innerText = '✅ ' + d.message + ' Target URL: ' + d.server_url;";
+  page += "        var ep = document.getElementById('active_endpoint_display');";
+  page += "        if (ep) ep.innerText = d.server_url;";
+  page += "      } else {";
+  page += "        fb.style.background = '#FEE2E2';";
+  page += "        fb.style.color = '#991B1B';";
+  page += "        fb.innerText = '❌ ' + (d.message || 'Error saving admin settings.');";
+  page += "      }";
+  page += "    })";
+  page += "    .catch(function(e) {";
+  page += "      fb.style.background = '#FEE2E2';";
+  page += "      fb.style.color = '#991B1B';";
+  page += "      fb.innerText = '❌ Failed to communicate with device.';";
+  page += "    });";
+  page += "}";
   page += "function checkCustomSSID(selectObj) {";
   page += "  var customInput = document.getElementById('custom_ssid');";
   page += "  if (selectObj.value === '__custom__') {";
@@ -964,6 +1120,12 @@ void handleSave() {
   Serial.println("[HTTP] Received Save Configuration Request (/save)");
 
   String submittedPin = server.arg("admin_pin");
+  if (submittedPin.length() == 0 && server.hasArg("admin_pin_hidden")) {
+    submittedPin = server.arg("admin_pin_hidden");
+  }
+  if (submittedPin.length() == 0 && server.hasArg("admin_pin_input")) {
+    submittedPin = server.arg("admin_pin_input");
+  }
   submittedPin.trim();
 
   String new_ssid = server.arg("ssid");
@@ -971,6 +1133,12 @@ void handleSave() {
     new_ssid = server.arg("custom_ssid");
   }
   new_ssid.trim();
+
+  // If SSID was left empty, retain previously saved Wi-Fi SSID
+  if (new_ssid.length() == 0 && wifi_ssid.length() > 0) {
+    new_ssid = wifi_ssid;
+    Serial.println("[HTTP] Retaining existing saved Wi-Fi SSID: " + wifi_ssid);
+  }
 
   String new_pass     = server.arg("password");     new_pass.trim();
   String new_dev_id   = server.arg("device_id");    new_dev_id.trim();
@@ -1018,24 +1186,11 @@ void handleSave() {
     water_pin   = new_water_pin;
   }
 
-  Serial.print("[HTTP] Received Target SSID: "); Serial.println(new_ssid);
-  Serial.print("[HTTP] Password Provided    : "); Serial.println(new_pass.length() > 0 ? "YES (" + String(new_pass.length()) + " chars)" : "BLANK (Keep Saved)");
-
-  if (new_pass.length() > 0 && new_pass.length() < 8) {
-    Serial.println("⚠️ [HTTP WARNING] Password is only " + String(new_pass.length()) + " chars! WPA2 networks require at least 8 characters.");
-  }
-
-  if (new_ssid.length() == 0) {
-    Serial.println("⚠️ [HTTP ERROR] Empty SSID submitted. Ignoring save.");
-    server.send(400, "text/plain", "Error: Wi-Fi SSID cannot be empty.");
-    return;
-  }
-
+  // Handle Wi-Fi credentials
   if (new_ssid.length() > 0) {
-    // If same SSID and user left password blank, keep existing password
     if (new_ssid == wifi_ssid && new_pass.length() == 0 && wifi_password.length() > 0) {
       Serial.println("[NVS] Keeping previously saved password for SSID: " + wifi_ssid);
-    } else {
+    } else if (new_pass.length() > 0) {
       wifi_password = new_pass;
     }
     wifi_ssid = new_ssid;
@@ -1043,8 +1198,10 @@ void handleSave() {
 
   // Persist to Flash NVS
   preferences.begin("alaga-cfg", false);
-  preferences.putString("ssid", wifi_ssid);
-  preferences.putString("pass", wifi_password);
+  if (wifi_ssid.length() > 0) {
+    preferences.putString("ssid", wifi_ssid);
+    preferences.putString("pass", wifi_password);
+  }
   preferences.putString("url", server_url);
   preferences.putString("devid", device_id);
   preferences.putString("token", device_token);
@@ -1053,25 +1210,32 @@ void handleSave() {
   preferences.end();
 
   Serial.println("[NVS] Credentials successfully saved to Flash.");
-  Serial.print("[NVS] Target SSID: "); Serial.println(wifi_ssid);
+  Serial.print("[NVS] Target SSID: "); Serial.println(wifi_ssid.length() > 0 ? wifi_ssid : "(None)");
+  Serial.print("[NVS] Backend URL: "); Serial.println(server_url);
+  Serial.print("[NVS] Device ID  : "); Serial.println(device_id);
 
   // Friendly Restart Confirmation Page
   String page = getHtmlHeader("Configuration Saved");
   page += "<div class='card' style='text-align:center;'>";
   page += "<div style='font-size:48px; margin-bottom: 12px;'>✅</div>";
   page += "<h1 class='title'>Settings Saved!</h1>";
-  page += "<p class='subtitle' style='margin-top:8px;'>The ESP32 is rebooting to connect to <b>" + wifi_ssid + "</b>.</p>";
+  if (wifi_ssid.length() > 0) {
+    page += "<p class='subtitle' style='margin-top:8px;'>The ESP32 is rebooting to connect to <b>" + wifi_ssid + "</b>.</p>";
+  } else {
+    page += "<p class='subtitle' style='margin-top:8px;'>Admin configuration saved. Rebooting...</p>";
+  }
   page += "<div style='background:#F1F5F9; border-radius:12px; padding:14px; margin-top:16px; text-align:left; font-size:13px; line-height:1.5;'>";
+  page += "<b>Active Backend Endpoint:</b><br><code style='color:#0D9488; word-break:break-all;'>" + server_url + "</code><br><br>";
+  page += "<b>Device Serial Number:</b> <code>" + device_id + "</code><br><br>";
   page += "<b>Next Steps:</b><br>";
-  page += "1. Reconnect your computer or phone to <b>" + wifi_ssid + "</b>.<br>";
-  page += "2. <i>Tip:</i> If Windows says <i>'Can\\'t connect to this network'</i>, simply toggle Wi-Fi <b>OFF</b> and <b>ON</b> in Windows, then connect.<br>";
-  page += "3. Open your ALAGA web application to view live patient monitoring.";
+  page += "1. Make sure your computer or phone is connected to <b>" + (wifi_ssid.length() > 0 ? wifi_ssid : "the same local network") + "</b>.<br>";
+  page += "2. Open your ALAGA web application to view live patient monitoring.";
   page += "</div>";
   page += "</div>";
   page += getHtmlFooter();
 
   server.send(200, "text/html", page);
-  delay(2000);
+  delay(1500);
   ESP.restart();
 }
 
@@ -1338,6 +1502,7 @@ void setup() {
   server.on("/setup", handleSetup);
   server.on("/status", handleStatus);
   server.on("/api/verify-admin", handleVerifyAdmin);
+  server.on("/api/save-admin", handleSaveAdmin);
   server.on("/save", handleSave);
   server.on("/reset", handleReset);
   server.on("/favicon.ico", []() { server.send(204, "text/plain", ""); });

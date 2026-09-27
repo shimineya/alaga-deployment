@@ -1107,6 +1107,8 @@ bool connectToWiFi() {
 // SETUP ROUTINE
 // ==============================================================================
 void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable hardware brownout detector to prevent boot reset
+  setCpuFrequencyMhz(80);                     // 80MHz drops base active current draw by over 60% compared to 240MHz
   Serial.begin(115200);
   delay(500);
 

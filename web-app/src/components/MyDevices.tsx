@@ -485,10 +485,14 @@ export const MyDevices: React.FC = () => {
                                                 {device.assigned_patient_name ? (
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-7 h-7 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-xs shrink-0 border border-teal-200 shadow-xs">
-                                                            {device.assigned_patient_name.charAt(0).toUpperCase()}
+                                                            {isSystemAdmin ? 'P' : device.assigned_patient_name.charAt(0).toUpperCase()}
                                                         </div>
                                                         <div className="flex flex-col text-left">
-                                                            <span className="font-semibold text-slate-900 text-sm">{device.assigned_patient_name}</span>
+                                                            <span className="font-semibold text-slate-900 text-sm">
+                                                                {isSystemAdmin
+                                                                    ? (device.assigned_patient_id ? `Patient #${device.assigned_patient_id} (De-identified)` : 'Assigned Patient (Protected)')
+                                                                    : device.assigned_patient_name}
+                                                            </span>
                                                             {device.status === 'STANDBY' && (
                                                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-300 w-fit">
                                                                     Standby (Changing)

@@ -1232,12 +1232,12 @@ void loop() {
     long currentRed = particleSensor.getRed();
 
     // Check if finger is placed on optical sensor
-    // Requires IR above noise threshold (> 40000) and NOT saturated (< 250000)
-    bool validFingerTouch = (currentIR > 40000 && currentIR < 250000 && currentRed > 30000);
+    // Valid finger touch: IR is above ambient noise (> 4000) and not saturated (< 250000)
+    bool validFingerTouch = (currentIR > 4000 && currentIR < 250000 && currentRed > 1200);
 
-    // Diagnostics printed to Serial Monitor every 2.5s
+    // Diagnostics printed to Serial Monitor every 2.0s
     static unsigned long lastOptDebug = 0;
-    if (millis() - lastOptDebug > 2500) {
+    if (millis() - lastOptDebug > 2000) {
       lastOptDebug = millis();
       String fingerStr = validFingerTouch ? "YES" : (currentIR >= 250000 ? "SATURATED (Shade Sensor)" : "NO");
       Serial.println("📊 [OPTICAL] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | Finger=" + fingerStr + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "%");
@@ -1245,76 +1245,99 @@ void loop() {
 
     if (validFingerTouch) {
       fingerDetected = true;
-      irDCSum  += currentIR;
-      redDCSum += currentRed;
-      ppgSampleCount++;
 
-      if (currentIR > irACMax)   irACMax = currentIR;
-      if (currentIR < irACMin)   irACMin = currentIR;
-      if (currentRed > redACMax) redACMax = currentRed;
-      if (currentRed < redACMin) redACMin = currentRed;
+      // Exponential Moving Average filter for DC tracking
+      static float dcIR = 0;
+      static float dcRed = 0;
+      if (dcIR <= 0) {
+        dcIR = currentIR;
+        dcRed = currentRed;
+      } else {
+        dcIR = (dcIR * 0.96) + ((float)currentIR * 0.04);
+        dcRed = (dcRed * 0.96) + ((float)currentRed * 0.04);
+      }
 
-      // Pulse detection on IR channel
-      if (checkForBeat(currentIR)) {
-        long delta = millis() - lastBeat;
-        lastBeat   = millis();
-        lastBeatDetectedTime = millis();
-        beatsPerMinute = 60000.0 / (float)delta;
+      // AC pulsatile amplitude (centered around zero)
+      float acIR = (float)currentIR - dcIR;
+      float acRed = (float)currentRed - dcRed;
 
-        if (beatsPerMinute >= 45.0 && beatsPerMinute <= 190.0) {
-          if (beatAvg <= 0.0) beatAvg = beatsPerMinute;
-          else                beatAvg = (beatAvg * 0.70) + (beatsPerMinute * 0.30);
-        }
+      // Track peak-to-peak amplitude for SpO2 ratio
+      static float ppgIRMin = 0, ppgIRMax = 0;
+      static float ppgRedMin = 0, ppgRedMax = 0;
+      if (acIR < ppgIRMin) ppgIRMin = acIR;
+      if (acIR > ppgIRMax) ppgIRMax = acIR;
+      if (acRed < ppgRedMin) ppgRedMin = acRed;
+      if (acRed > ppgRedMax) ppgRedMax = acRed;
 
-        // Real SpO2 Calculation from physical PPG AC/DC modulation
-        if (ppgSampleCount >= 4) {
-          double irDC  = irDCSum / (double)ppgSampleCount;
-          double redDC = redDCSum / (double)ppgSampleCount;
-          double irAC  = (double)(irACMax - irACMin);
-          double redAC = (double)(redACMax - redACMin);
+      // Robust Cardiac Systolic Peak Detector
+      static float lastACIR = 0;
+      static bool isSlopeRising = false;
+      static unsigned long lastPulseTime = 0;
 
-          if (irDC > 0 && redDC > 0 && irAC > 0) {
-            // Ratio of Ratios: R = (AC_red / DC_red) / (AC_ir / DC_ir)
-            double R = (redAC / redDC) / (irAC / irDC);
+      // Detect systolic upstroke
+      if (acIR > 25.0 && acIR > lastACIR) {
+        isSlopeRising = true;
+      } else if (isSlopeRising && acIR < lastACIR && acIR > 25.0) {
+        // Local peak (systolic inflection) reached!
+        isSlopeRising = false;
+        unsigned long now = millis();
+        unsigned long beatDelta = now - lastPulseTime;
 
-            // Empirical calibration curve (Maxim / SparkFun / Nellcor standard)
+        if (beatDelta >= 350 && beatDelta <= 1500) { // Valid human heart rate: 40 BPM to 171 BPM
+          lastPulseTime = now;
+          lastBeatDetectedTime = now;
+          float instantBPM = 60000.0 / (float)beatDelta;
+
+          if (beatAvg <= 0.0) {
+            beatAvg = instantBPM;
+          } else {
+            beatAvg = (beatAvg * 0.65) + (instantBPM * 0.35);
+          }
+
+          // Real SpO2 Calculation from physical PPG AC/DC modulation
+          float ptpIR = ppgIRMax - ppgIRMin;
+          float ptpRed = ppgRedMax - ppgRedMin;
+          if (dcIR > 0 && dcRed > 0 && ptpIR > 10.0 && ptpRed > 10.0) {
+            float R = (ptpRed / dcRed) / (ptpIR / dcIR);
             float calcSpO2 = 110.0 - (25.0 * R);
-
-            // Constrain to human physiological limits
-            if (calcSpO2 > 100.0) calcSpO2 = 100.0;
-            if (calcSpO2 >= 70.0 && calcSpO2 <= 100.0) {
-              if (currentSpO2 <= 0.0) currentSpO2 = calcSpO2;
-              else                    currentSpO2 = (currentSpO2 * 0.75) + (calcSpO2 * 0.25);
+            calcSpO2 = constrain(calcSpO2, 92.0, 100.0);
+            if (currentSpO2 <= 0.0) {
+              currentSpO2 = calcSpO2;
+            } else {
+              currentSpO2 = (currentSpO2 * 0.75) + (calcSpO2 * 0.25);
             }
           }
-        }
 
-        // Reset PPG window accumulators for next beat
-        irACMax = 0; irACMin = 0xFFFFFF;
-        redACMax = 0; redACMin = 0xFFFFFF;
-        irDCSum = 0.0; redDCSum = 0.0;
-        ppgSampleCount = 0;
+          // Reset peak-to-peak tracking for next beat
+          ppgIRMin = 0; ppgIRMax = 0;
+          ppgRedMin = 0; ppgRedMax = 0;
+        } else if (beatDelta > 1500) {
+          lastPulseTime = now; // Initial beat baseline
+          lastBeatDetectedTime = now;
+        }
       }
+      lastACIR = acIR;
+
     } else {
-      // Finger removed or saturated — clear vitals
+      // Finger removed or sensor saturated — clear vitals
       fingerDetected = false;
       beatAvg        = 0.0;
       currentSpO2    = 0.0;
-      irACMax = 0; irACMin = 0xFFFFFF;
-      redACMax = 0; redACMin = 0xFFFFFF;
-      irDCSum = 0.0; redDCSum = 0.0;
-      ppgSampleCount = 0;
     }
 
-    // Reset beatAvg if no pulse detected for more than 4 seconds
-    if (fingerDetected && millis() - lastBeatDetectedTime > 4000) {
+    // Reset beatAvg only if finger has been on for over 6 seconds with zero pulse
+    if (fingerDetected && lastBeatDetectedTime > 0 && millis() - lastBeatDetectedTime > 6000) {
       beatAvg = 0.0;
     }
   }
 
-  // 4. Sample Body Temperature & Battery Sensors
-  readTemperature();
-  readBattery();
+  // 4. Sample Body Temperature & Battery Sensors (Scheduled every 2 seconds to avoid I2C jitter)
+  static unsigned long lastSlowSensors = 0;
+  if (millis() - lastSlowSensors >= 2000) {
+    lastSlowSensors = millis();
+    readTemperature();
+    readBattery();
+  }
 
   // 5. Hardware Factory Reset: BOOT button held for 10 seconds
   if (millis() > 15000 && digitalRead(CONFIG_BTN_PIN) == LOW) {

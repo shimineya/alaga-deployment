@@ -238,8 +238,10 @@ export default function SystemAdminDeviceAssignment() {
                                                 <div className="flex items-center gap-2">
                                                     <User className="w-4 h-4 text-slate-400" />
                                                     <div>
-                                                        <span className="font-bold text-slate-800 block">{a.patient_name}</span>
-                                                        <span className="text-[9px] text-slate-400 block font-medium">ID: #{a.patient_id}</span>
+                                                        <span className="font-bold text-slate-800 block">
+                                                            {a.patient_name.includes('De-identified') ? a.patient_name : `Patient #${a.patient_id} (De-identified)`}
+                                                        </span>
+                                                        <span className="text-[9px] text-teal-600 block font-medium">HIPAA Privacy Protected</span>
                                                     </div>
                                                 </div>
                                             </td>

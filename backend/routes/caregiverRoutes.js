@@ -23,11 +23,15 @@ router.get('/devices', async (req, res) => {
         let result;
 
         if (isSysAdmin) {
-            // Full inventory for system admin / sysadmin ONLY
+            // Full inventory for system admin / sysadmin ONLY with PHI De-identification
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
                         d.pending_firmware_version, d.battery_level, d.signal_strength,
-                        d.assigned_patient_id, d.added_by, d.created_at, p.name as assigned_patient_name,
+                        d.assigned_patient_id, d.added_by, d.created_at,
+                        CASE 
+                            WHEN p.patient_id IS NOT NULL THEN 'Patient #' || p.patient_id || ' (De-identified)'
+                            ELSE NULL 
+                        END AS assigned_patient_name,
                         p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id

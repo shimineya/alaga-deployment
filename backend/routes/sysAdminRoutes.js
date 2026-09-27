@@ -1242,7 +1242,8 @@ router.get('/device-assignments', async (req, res) => {
         const [assignments, unassigned, patients] = await Promise.all([
             pool.query(
                 `SELECT dw.serial_number, dw.device_name, dw.status,
-                        p.patient_id, p.name AS patient_name,
+                        p.patient_id, 
+                        'Patient #' || p.patient_id || ' (De-identified)' AS patient_name,
                         f.facility_name,
                         u.username AS assigned_by_username
                  FROM device_whitelist dw
@@ -1251,7 +1252,7 @@ router.get('/device-assignments', async (req, res) => {
                  LEFT JOIN users u ON dw.added_by = u.user_id
                  WHERE dw.is_archived IS DISTINCT FROM TRUE
                    AND p.is_archived IS DISTINCT FROM TRUE
-                 ORDER BY p.name ASC`
+                 ORDER BY p.patient_id ASC`
             ),
             pool.query(
                 `SELECT dw.serial_number, dw.device_name, dw.status,

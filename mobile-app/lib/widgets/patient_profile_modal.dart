@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../services/alert_notification_service.dart';
 
 /// Displays a hospital-grade, interactive Patient Profile bottom sheet modal.
 /// Accessible from both the Dashboard patient cards and the Patient List.
@@ -14,17 +16,68 @@ void showPatientProfileModal(BuildContext context, Map<String, dynamic> patient)
   );
 }
 
-class PatientProfileModal extends StatelessWidget {
+class PatientProfileModal extends StatefulWidget {
   final Map<String, dynamic> patient;
 
   const PatientProfileModal({super.key, required this.patient});
 
   @override
-  Widget build(BuildContext context) {
-    // 1. Extract Telemetry & Device Data
-    final telemetry = (patient['latest_telemetry'] is Map)
-        ? Map<String, dynamic>.from(patient['latest_telemetry'])
+  State<PatientProfileModal> createState() => _PatientProfileModalState();
+}
+
+class _PatientProfileModalState extends State<PatientProfileModal> {
+  late Map<String, dynamic> _patient;
+  late Map<String, dynamic> _telemetry;
+  StreamSubscription<Map<String, dynamic>>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _patient = Map<String, dynamic>.from(widget.patient);
+    _telemetry = (_patient['latest_telemetry'] is Map)
+        ? Map<String, dynamic>.from(_patient['latest_telemetry'])
         : <String, dynamic>{};
+
+    final targetPatientId = (_patient['patient_id'] ?? _patient['id'])?.toString();
+
+    _sub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      final data = eventData['data'] is Map<String, dynamic>
+          ? eventData['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update') {
+        final updatePatientId = (data['patient_id'] ?? data['patientId'])?.toString();
+        if (updatePatientId == targetPatientId) {
+          setState(() {
+            final hr = data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'];
+            final temp = data['temperature'] ?? data['latest_telemetry']?['temperature'];
+            final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
+            final moist = data['moisture'] ?? data['latest_telemetry']?['moisture'];
+
+            if (hr != null) _telemetry['heart_rate'] = hr;
+            if (temp != null) _telemetry['temperature'] = temp;
+            if (sp != null) _telemetry['spo2'] = sp;
+            if (moist != null) _telemetry['moisture'] = moist;
+
+            _patient['latest_telemetry'] = _telemetry;
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final patient = _patient;
+    final telemetry = _telemetry;
 
     final isDeviceActive = patient['device_status'] == 'active' ||
         patient['status'] == 'Stable' ||
@@ -95,14 +148,20 @@ class PatientProfileModal extends StatelessWidget {
     }
 
     // Vitals readings
-    final hr = telemetry['heart_rate']?.toString() ?? patient['hr']?.toString() ?? '--';
-    final temp = telemetry['temperature'] != null
-        ? '${telemetry['temperature']}°C'
-        : patient['temp']?.toString() ?? '--';
-    final spo2 = telemetry['spo2'] != null
-        ? '${telemetry['spo2']}%'
-        : patient['spo2']?.toString() ?? '--';
-    final isWet = telemetry['moisture'] == 100 || patient['wetness'] == 'Wet';
+    final hrNum = telemetry['heart_rate'] is num ? (telemetry['heart_rate'] as num).round() : int.tryParse(telemetry['heart_rate']?.toString() ?? '');
+    final hr = (hrNum != null && hrNum > 0) ? '$hrNum' : (patient['hr']?.toString() ?? '--');
+
+    final tempNum = telemetry['temperature'] is num ? (telemetry['temperature'] as num).toDouble() : double.tryParse(telemetry['temperature']?.toString() ?? '');
+    final temp = (tempNum != null && tempNum > 0) ? '${tempNum.toStringAsFixed(1)}°C' : (patient['temp']?.toString() ?? '--');
+
+    final spo2Num = telemetry['spo2'] is num ? (telemetry['spo2'] as num).round() : int.tryParse(telemetry['spo2']?.toString() ?? '');
+    final spo2 = (spo2Num != null && spo2Num > 0) ? '$spo2Num%' : (patient['spo2']?.toString() ?? '--');
+
+    final rawMoist = telemetry['moisture'];
+    final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
+    final isWet = mNum >= 70 || mNum == 100 || patient['wetness'] == 'Wet';
+    final isDamp = mNum >= 30 && !isWet;
+    final wetnessLabel = mNum <= 0 ? 'Dry & Clean' : isWet ? 'Wet ($mNum%)' : isDamp ? 'Damp ($mNum%)' : 'Dry ($mNum%)';
 
     return Container(
       constraints: BoxConstraints(
@@ -414,12 +473,12 @@ class PatientProfileModal extends StatelessWidget {
                       Expanded(
                         child: _buildMetricTile(
                           label: 'DIAPER SENSOR',
-                          value: isWet ? 'Wetness' : 'Dry & Clean',
+                          value: wetnessLabel,
                           unit: '',
                           icon: Icons.opacity,
-                          color: isWet ? const Color(0xFFEA580C) : const Color(0xFF0D9488),
-                          bg: isWet ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDFA),
-                          border: isWet ? const Color(0xFFFED7AA) : const Color(0xFF99F6E4),
+                          color: isWet ? const Color(0xFFEA580C) : isDamp ? const Color(0xFFD97706) : const Color(0xFF0D9488),
+                          bg: isWet ? const Color(0xFFFFF7ED) : isDamp ? const Color(0xFFFFFBEB) : const Color(0xFFF0FDFA),
+                          border: isWet ? const Color(0xFFFED7AA) : isDamp ? const Color(0xFFFDE68A) : const Color(0xFF99F6E4),
                         ),
                       ),
                     ],

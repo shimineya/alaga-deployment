@@ -47,6 +47,8 @@ async function refreshClientAccess(client) {
                 SELECT pa2.patient_id FROM patient_access pa2 WHERE pa2.invited_by = $1
                 UNION
                 SELECT p2.patient_id FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text
+                UNION
+                SELECT p3.patient_id FROM patients p3 WHERE p3.facility_id IS NOT NULL AND p3.facility_id = (SELECT facility_id FROM users WHERE user_id = $1)
             `, [client.userId]);
         } else {
             // caregiver, medical_staff, parent, nurse, doctor
@@ -54,6 +56,10 @@ async function refreshClientAccess(client) {
                 SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1 AND pa.is_archived IS DISTINCT FROM TRUE
                 UNION
                 SELECT dw.assigned_patient_id FROM device_whitelist dw WHERE dw.assigned_patient_id IS NOT NULL AND dw.added_by = $1
+                UNION
+                SELECT p2.patient_id FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text
+                UNION
+                SELECT p3.patient_id FROM patients p3 WHERE p3.facility_id IS NOT NULL AND p3.facility_id = (SELECT facility_id FROM users WHERE user_id = $1)
             `, [client.userId]);
         }
         client.accessiblePatientIds = new Set(res.rows.map(r => String(r.patient_id)));
@@ -180,12 +186,18 @@ async function broadcastAlert(eventType, payload = {}) {
                                 SELECT 1 FROM patient_access pa2 WHERE pa2.invited_by = $1 AND pa2.patient_id = $2
                                 UNION
                                 SELECT 1 FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text AND p2.patient_id = $2
+                                UNION
+                                SELECT 1 FROM patients p3 WHERE p3.facility_id IS NOT NULL AND p3.facility_id = (SELECT facility_id FROM users WHERE user_id = $1) AND p3.patient_id = $2
                             `, [client.userId, targetPatientId]);
                         } else {
                             chk = await pool.query(`
                                 SELECT 1 FROM patient_access pa WHERE pa.user_id = $1 AND pa.patient_id = $2 AND pa.is_archived IS DISTINCT FROM TRUE
                                 UNION
                                 SELECT 1 FROM device_whitelist dw WHERE dw.assigned_patient_id = $2 AND dw.added_by = $1
+                                UNION
+                                SELECT 1 FROM patients p2 WHERE p2.baseline_data->>'created_by' = $1::text AND p2.patient_id = $2
+                                UNION
+                                SELECT 1 FROM patients p3 WHERE p3.facility_id IS NOT NULL AND p3.facility_id = (SELECT facility_id FROM users WHERE user_id = $1) AND p3.patient_id = $2
                             `, [client.userId, targetPatientId]);
                         }
                         if (chk.rows.length > 0) {

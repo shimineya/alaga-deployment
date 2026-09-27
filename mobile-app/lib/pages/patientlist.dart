@@ -4,6 +4,7 @@ import 'dart:async';
 
 // [INTEGRATION] Import API service for fetching patient data
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
 import 'newpatient.dart';
 import '../widgets/patient_profile_modal.dart';
@@ -24,11 +25,19 @@ class _PatientListScreenState extends State<PatientListScreen> {
   // [INTEGRATION] Live patient data from the backend
   List<Map<String, dynamic>> allPatients = [];
   bool _isLoading = true;
+  StreamSubscription<Map<String, dynamic>>? _alertSyncSub;
 
   @override
   void initState() {
     super.initState();
     _fetchPatients();
+    _alertSyncSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update' || eventType == 'new_alert') {
+        _fetchPatients();
+      }
+    });
   }
 
   // [INTEGRATION] Fetches patient list from GET /api/caregiver/patients.
@@ -98,6 +107,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
 
   @override
   void dispose() {
+    _alertSyncSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }

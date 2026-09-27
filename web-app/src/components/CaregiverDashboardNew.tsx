@@ -339,7 +339,52 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
     useEffect(() => {
         fetchAlerts();
         const poll = setInterval(fetchAlerts, 15000);
-        const handleSync = () => {
+        const handleSync = (e?: any) => {
+            const detail = e?.detail;
+            if (detail && (detail.type === 'patient_telemetry_update' || detail.type === 'device_status_update')) {
+                const targetPatientId = String(detail.patient_id || detail.patientId);
+                const hr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
+                const temp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
+                const sp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
+                const moist = detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture;
+
+                // 1. Immediately update patient cards in real-time without waiting for network roundtrip
+                setPatients(prev => prev.map(p => {
+                    if (String(p.id) === targetPatientId) {
+                        const existingTelem = (p as any).latest_telemetry || {};
+                        return {
+                            ...p,
+                            deviceConnected: true,
+                            latest_telemetry: {
+                                ...existingTelem,
+                                heart_rate: hr !== undefined && hr !== null ? Number(hr) : existingTelem.heart_rate,
+                                temperature: temp !== undefined && temp !== null ? Number(temp) : existingTelem.temperature,
+                                spo2: sp !== undefined && sp !== null ? Number(sp) : existingTelem.spo2,
+                                moisture: moist !== undefined && moist !== null ? Number(moist) : existingTelem.moisture,
+                                recorded_at: detail.recorded_at || new Date().toISOString()
+                            }
+                        };
+                    }
+                    return p;
+                }));
+
+                // 2. Also immediately update vitalSigns state so latestVital calculates instantly
+                setVitalSigns(prev => {
+                    const filtered = prev.filter(v => String(v.patientId) !== targetPatientId);
+                    return [
+                        ...filtered,
+                        {
+                            id: `v-live-${Date.now()}`,
+                            patientId: targetPatientId,
+                            heartRate: hr !== undefined && hr !== null ? Number(hr) : 0,
+                            temperature: temp !== undefined && temp !== null ? Number(temp) : 0,
+                            spo2: sp !== undefined && sp !== null ? Number(sp) : 0,
+                            moistureLevel: moist !== undefined && moist !== null ? Number(moist) : 0,
+                            timestamp: new Date()
+                        } as any
+                    ];
+                });
+            }
             fetchAlerts();
             fetchPatients();
         };

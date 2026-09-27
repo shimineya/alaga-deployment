@@ -162,9 +162,41 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
     fetchVitals();
     const interval = setInterval(fetchVitals, 3000); // Live poll every 3 seconds
 
+    const handleRealtimeTelemetry = (e: any) => {
+      const detail = e?.detail;
+      if (!detail) return;
+      if (detail.type === 'patient_telemetry_update' || detail.type === 'device_status_update') {
+        const updatePatientId = String(detail.patient_id || detail.patientId);
+        if (updatePatientId === patId) {
+          const hr = Number(detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate) || 0;
+          const temp = Number(detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature) || 0;
+          const sp = Number(detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2) || 0;
+          const moist = Number(detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture) || 0;
+          const ts = new Date(detail.recorded_at || Date.now());
+
+          if (isMounted) {
+            setVitalSigns(prev => [
+              ...prev,
+              {
+                id: `v-live-${ts.getTime()}`,
+                timestamp: ts,
+                heartRate: hr,
+                temperature: temp,
+                spo2: sp,
+                moistureLevel: moist,
+              }
+            ]);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('alaga_alert_update', handleRealtimeTelemetry);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('alaga_alert_update', handleRealtimeTelemetry);
     };
   }, [patient.id]);
 

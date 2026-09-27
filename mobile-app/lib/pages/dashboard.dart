@@ -104,9 +104,47 @@ class _DashboardScreenState extends State<DashboardScreen>
     AlertNotificationService.initialize();
     AlertNotificationService.startMonitoring();
 
-    // Re-fetch dashboard when an alert arrives or is acknowledged in real-time
-    _alertSyncSub = AlertNotificationService.onAlertUpdate.listen((_) {
-      if (mounted) _fetchDashboardData();
+    // Re-fetch dashboard when an alert arrives or is acknowledged in real-time,
+    // and instantly update patient vitals from real-time telemetry events
+    _alertSyncSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      final data = eventData['data'] is Map<String, dynamic>
+          ? eventData['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update') {
+        final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
+        if (targetId != null) {
+          setState(() {
+            for (var i = 0; i < _patients.length; i++) {
+              final p = _patients[i];
+              if ((p['patient_id'] ?? p['id'])?.toString() == targetId) {
+                final existingTelem = p['latest_telemetry'] is Map
+                    ? Map<String, dynamic>.from(p['latest_telemetry'])
+                    : <String, dynamic>{};
+
+                final hr = data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'];
+                final temp = data['temperature'] ?? data['latest_telemetry']?['temperature'];
+                final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
+                final moist = data['moisture'] ?? data['latest_telemetry']?['moisture'];
+
+                if (hr != null) existingTelem['heart_rate'] = hr;
+                if (temp != null) existingTelem['temperature'] = temp;
+                if (sp != null) existingTelem['spo2'] = sp;
+                if (moist != null) existingTelem['moisture'] = moist;
+
+                _patients[i] = {
+                  ...p,
+                  'latest_telemetry': existingTelem,
+                };
+                break;
+              }
+            }
+          });
+        }
+      }
+      _fetchDashboardData();
     });
   }
 
@@ -2417,20 +2455,28 @@ class _DashboardScreenState extends State<DashboardScreen>
                 Row(
                   children: [
                     Expanded(
-                      child: _vitalStat(
-                        "BPM",
-                        telemetry['heart_rate']?.toString() ?? "--",
-                        Icons.favorite,
-                        Colors.red,
-                      ),
+                      child: () {
+                        final rawHr = telemetry['heart_rate'];
+                        final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
+                        return _vitalStat(
+                          "BPM",
+                          (hrNum != null && hrNum > 0) ? "$hrNum" : "--",
+                          Icons.favorite,
+                          Colors.red,
+                        );
+                      }(),
                     ),
                     Expanded(
-                      child: _vitalStat(
-                        "TEMP",
-                        "${telemetry['temperature'] ?? '--'}°C",
-                        Icons.thermostat,
-                        Colors.orange,
-                      ),
+                      child: () {
+                        final rawTemp = telemetry['temperature'];
+                        final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
+                        return _vitalStat(
+                          "TEMP",
+                          (tempNum != null && tempNum > 0) ? "${tempNum.toStringAsFixed(1)}°C" : "--",
+                          Icons.thermostat,
+                          Colors.orange,
+                        );
+                      }(),
                     ),
                   ],
                 ),
@@ -2438,20 +2484,31 @@ class _DashboardScreenState extends State<DashboardScreen>
                 Row(
                   children: [
                     Expanded(
-                      child: _vitalStat(
-                        "SpO2",
-                        "${telemetry['spo2'] ?? '--'}%",
-                        Icons.water_drop,
-                        Colors.blue,
-                      ),
+                      child: () {
+                        final rawSpo2 = telemetry['spo2'];
+                        final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
+                        return _vitalStat(
+                          "SpO2",
+                          (spo2Num != null && spo2Num > 0) ? "$spo2Num%" : "--",
+                          Icons.water_drop,
+                          Colors.blue,
+                        );
+                      }(),
                     ),
                     Expanded(
-                      child: _vitalStat(
-                        "MOISTURE",
-                        telemetry['moisture'] == 100 ? 'Wet' : 'Dry',
-                        Icons.dry,
-                        telemetry['moisture'] == 100 ? Colors.blue : Colors.teal,
-                      ),
+                      child: () {
+                        final rawMoist = telemetry['moisture'];
+                        final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
+                        final isWet = mNum >= 70 || mNum == 100;
+                        final isDamp = mNum >= 30 && !isWet;
+                        final label = mNum <= 0 ? 'Dry' : isWet ? 'Wet ($mNum%)' : isDamp ? 'Damp ($mNum%)' : 'Dry ($mNum%)';
+                        return _vitalStat(
+                          "MOISTURE",
+                          label,
+                          Icons.water_drop_outlined,
+                          isWet ? Colors.red : isDamp ? Colors.amber.shade800 : Colors.teal,
+                        );
+                      }(),
                     ),
                   ],
                 ),

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service for fetching device data
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
 
 class DeviceManagementScreen extends StatefulWidget {
@@ -26,6 +28,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
   // does not need a separate StatefulWidget to manage its own async fetch.
   List<Map<String, dynamic>> _patientList = [];
   bool _isFetchingPatients = false;
+  StreamSubscription? _alertSub;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -35,14 +39,62 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     if (UserSession.current != null) {
       _fetchPatientsForDialog();
     }
+
+    _alertSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      final data = eventData['data'] is Map<String, dynamic>
+          ? eventData['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (eventType == 'device_status_update' || eventType == 'patient_telemetry_update') {
+        final sn = data['serial_number']?.toString();
+        final status = data['status']?.toString();
+        final battery = data['battery_level'];
+        final signal = data['signal_strength'];
+
+        if (sn != null) {
+          setState(() {
+            for (var i = 0; i < _allDevices.length; i++) {
+              if (_allDevices[i]['serial_number'] == sn) {
+                final isOnline = (status ?? _allDevices[i]['status']) == 'ACTIVE';
+                _allDevices[i] = {
+                  ..._allDevices[i],
+                  if (status != null) 'status': status,
+                  'is_online': isOnline,
+                  if (battery != null) 'battery_level': battery,
+                  if (signal != null) 'signal_strength': signal,
+                };
+                break;
+              }
+            }
+          });
+        }
+        _fetchDevices(silent: true);
+      }
+    });
+
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) _fetchDevices(silent: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _alertSub?.cancel();
+    _refreshTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   // [INTEGRATION] Fetches device inventory from GET /api/caregiver/devices.
-  Future<void> _fetchDevices() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _fetchDevices({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     final result = await ApiService.get('/api/caregiver/devices');
 
@@ -54,10 +106,12 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
         _isLoading = false;
       });
     } else {
-      setState(() {
-        _errorMessage = result['message'] ?? 'Failed to load devices.';
-        _isLoading = false;
-      });
+      if (!silent) {
+        setState(() {
+          _errorMessage = result['message'] ?? 'Failed to load devices.';
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -722,7 +776,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                     decoration: BoxDecoration(
                       color: isStandby
                           ? Colors.orange.withValues(alpha: 0.15)
-                          : isAssigned
+                          : status == 'ACTIVE'
                               ? Colors.green.withValues(alpha: 0.1)
                               : Colors.grey.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
@@ -734,7 +788,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                         fontWeight: FontWeight.bold,
                         color: isStandby
                             ? Colors.orange.shade800
-                            : isAssigned
+                            : status == 'ACTIVE'
                                 ? Colors.green
                                 : Colors.grey,
                       ),
@@ -801,7 +855,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                     _deviceDetailChip(Icons.battery_5_bar,
                         battery == null ? 'Battery —' : 'Battery $battery%'),
                     _deviceDetailChip(Icons.network_cell,
-                        signal == null ? 'Signal —' : 'Signal $signal'),
+                        status != 'ACTIVE' ? 'Signal Offline' : (signal == null ? 'Signal Good' : 'Signal $signal')),
                     _deviceDetailChip(
                         Icons.memory, 'Firmware $firmware'),
                   ],

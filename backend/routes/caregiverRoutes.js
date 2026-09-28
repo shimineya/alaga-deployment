@@ -111,9 +111,9 @@ router.get('/devices', async (req, res) => {
             );
         }
 
-        // Dynamically compute real-time connection status (Online if heartbeat received within last 60 seconds)
+        // Dynamically compute real-time connection status (Online if heartbeat received within last 120 seconds / 2 minutes)
         const processedRows = result.rows.map(row => {
-            const isOnline = row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 60000;
+            const isOnline = row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 120000;
             let displayStatus = isOnline ? 'ACTIVE' : 'INACTIVE';
             if (row.status === 'STANDBY') {
                 displayStatus = 'STANDBY';
@@ -1695,6 +1695,8 @@ router.get('/patients', async (req, res) => {
                                         WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
                                         ELSE false
                                     END,
+                                    'battery_level', dw.battery_level,
+                                    'signal_strength', dw.signal_strength,
                                     'last_heartbeat', dw.last_heartbeat
                                 )
                             )
@@ -1716,6 +1718,32 @@ router.get('/patients', async (req, res) => {
                             ELSE false 
                         END
                     ) as is_online,
+                    (
+                        SELECT CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM device_whitelist dw 
+                                WHERE dw.assigned_patient_id = p.patient_id 
+                                AND dw.status = 'ACTIVE' 
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
+                                AND dw.is_archived IS DISTINCT FROM TRUE
+                            ) THEN true 
+                            ELSE false 
+                        END
+                    ) as is_vitals_online,
+                    (
+                        SELECT CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM device_whitelist dw 
+                                WHERE dw.assigned_patient_id = p.patient_id 
+                                AND dw.status = 'ACTIVE' 
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
+                                AND dw.is_archived IS DISTINCT FROM TRUE
+                            ) THEN true 
+                            ELSE false 
+                        END
+                    ) as is_moisture_online,
                     COALESCE(
                         (
                             SELECT json_agg(
@@ -1862,6 +1890,8 @@ router.get('/patients', async (req, res) => {
                                         WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
                                         ELSE false
                                     END,
+                                    'battery_level', dw.battery_level,
+                                    'signal_strength', dw.signal_strength,
                                     'last_heartbeat', dw.last_heartbeat
                                 )
                             )
@@ -1883,6 +1913,32 @@ router.get('/patients', async (req, res) => {
                             ELSE false 
                         END
                     ) as is_online,
+                    (
+                        SELECT CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM device_whitelist dw 
+                                WHERE dw.assigned_patient_id = p.patient_id 
+                                AND dw.status = 'ACTIVE' 
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
+                                AND dw.is_archived IS DISTINCT FROM TRUE
+                            ) THEN true 
+                            ELSE false 
+                        END
+                    ) as is_vitals_online,
+                    (
+                        SELECT CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM device_whitelist dw 
+                                WHERE dw.assigned_patient_id = p.patient_id 
+                                AND dw.status = 'ACTIVE' 
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
+                                AND dw.is_archived IS DISTINCT FROM TRUE
+                            ) THEN true 
+                            ELSE false 
+                        END
+                    ) as is_moisture_online,
                     COALESCE(
                         (
                             SELECT json_agg(

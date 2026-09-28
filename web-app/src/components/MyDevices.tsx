@@ -85,40 +85,81 @@ export const MyDevices: React.FC = () => {
     };
 
     // [HIPAA Audit Trail] Fetching device logs for oversight
-    const fetchInventory = async () => {
-        setIsLoading(true);
+    const fetchInventory = async (showLoading = true) => {
+        if (showLoading) setIsLoading(true);
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
             if (data.success) {
-                console.log("Fetched Devices:", data.data);
-
-                const mappedDevices = data.data.map((d: any) => ({
-                    ...d,
-                    device_name: d.device_name || 'Unknown Device',
-                    status: (d.status || 'INACTIVE').toUpperCase(),
-                    is_online: Boolean(d.is_online),
-                    battery_level: d.battery_level !== undefined && d.battery_level !== null ? Number(d.battery_level) : null,
-                    signal_strength: d.is_online ? (d.signal_strength || 'Good') : 'No Signal',
-                    assigned_patient_id: d.assigned_patient_id || null,
-                    assigned_patient_name: d.assigned_patient_name || null,
-                    assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
-                    firmware_version: d.firmware_version || 'v1.0.0',
-                    pending_firmware_version: d.pending_firmware_version || null,
-                    assigned_patient_baseline: d.assigned_patient_baseline || null
-                }));
+                const mappedDevices = data.data.map((d: any) => {
+                    const isOnline = d.status === 'ACTIVE' || Boolean(d.is_online);
+                    return {
+                        ...d,
+                        device_name: d.device_name || 'Unknown Device',
+                        status: (d.status || 'INACTIVE').toUpperCase(),
+                        is_online: isOnline,
+                        battery_level: d.battery_level !== undefined && d.battery_level !== null ? Number(d.battery_level) : null,
+                        signal_strength: isOnline ? (d.signal_strength || 'Good') : 'No Signal',
+                        assigned_patient_id: d.assigned_patient_id || null,
+                        assigned_patient_name: d.assigned_patient_name || null,
+                        assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
+                        firmware_version: d.firmware_version || 'v1.0.0',
+                        pending_firmware_version: d.pending_firmware_version || null,
+                        assigned_patient_baseline: d.assigned_patient_baseline || null
+                    };
+                });
                 setDevices(mappedDevices);
             }
         } catch (err) {
-            toast.error("Failed to sync device inventory.");
+            if (showLoading) toast.error("Failed to sync device inventory.");
         } finally {
-            setIsLoading(false);
+            if (showLoading) setIsLoading(false);
         }
     };
 
-    useEffect(() => { fetchInventory(); }, []);
+    useEffect(() => { 
+        fetchInventory(true);
+
+        const handleRealtimeSync = (e: any) => {
+            const detail = e?.detail;
+            if (!detail) return;
+            if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
+                const sn = detail.serial_number;
+                const newStatus = (detail.status || 'ACTIVE').toUpperCase();
+                const newBattery = detail.battery_level !== undefined && detail.battery_level !== null ? Number(detail.battery_level) : undefined;
+                const newSignal = detail.signal_strength;
+
+                if (sn) {
+                    setDevices(prev => prev.map(dev => {
+                        if (dev.serial_number === sn) {
+                            const isOnline = newStatus === 'ACTIVE';
+                            return {
+                                ...dev,
+                                status: newStatus as any,
+                                is_online: isOnline,
+                                battery_level: newBattery !== undefined ? newBattery : dev.battery_level,
+                                signal_strength: isOnline ? (newSignal || dev.signal_strength || 'Good') : 'No Signal',
+                                last_heartbeat: detail.timestamp || new Date().toISOString()
+                            };
+                        }
+                        return dev;
+                    }));
+                }
+                // Silent refresh to fetch updated inventory without flickering
+                fetchInventory(false);
+            }
+        };
+
+        window.addEventListener('alaga_alert_update', handleRealtimeSync);
+        const poll = setInterval(() => fetchInventory(false), 10000);
+
+        return () => {
+            window.removeEventListener('alaga_alert_update', handleRealtimeSync);
+            clearInterval(poll);
+        };
+    }, [token]);
 
     // --- STATE ---
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE'>('ALL');

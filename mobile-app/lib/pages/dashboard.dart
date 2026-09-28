@@ -116,15 +116,34 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (eventType == 'device_status_update') {
         final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
         final isAct = data['status'] == 'ACTIVE';
+        final sn = data['serial_number']?.toString() ?? '';
+        final isVS = sn.startsWith('VS-');
+        final isSD = sn.startsWith('SD-');
+
         setState(() {
           for (var i = 0; i < _patients.length; i++) {
             final p = _patients[i];
             if (targetId == null || (p['patient_id'] ?? p['id'])?.toString() == targetId) {
+              final paired = p['paired_devices'] is List ? List<dynamic>.from(p['paired_devices']) : [];
+              for (var j = 0; j < paired.length; j++) {
+                if (paired[j] is Map && paired[j]['serial_number'] == sn) {
+                  paired[j] = {
+                    ...paired[j],
+                    'status': isAct ? 'ACTIVE' : 'INACTIVE',
+                    'is_online': isAct,
+                    if (data['battery_level'] != null) 'battery_level': data['battery_level'],
+                    if (data['signal_strength'] != null) 'signal_strength': data['signal_strength'],
+                  };
+                }
+              }
               _patients[i] = {
                 ...p,
                 'is_online': isAct,
                 'isOnline': isAct,
                 'device_status': isAct ? 'active' : 'inactive',
+                'is_vitals_online': isVS ? isAct : p['is_vitals_online'],
+                'is_moisture_online': isSD ? isAct : p['is_moisture_online'],
+                'paired_devices': paired,
               };
             }
           }
@@ -132,6 +151,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       } else if (eventType == 'patient_telemetry_update') {
         final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (targetId != null) {
+          final sn = data['serial_number']?.toString() ?? '';
+          final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
+          final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
+
           setState(() {
             for (var i = 0; i < _patients.length; i++) {
               final p = _patients[i];
@@ -145,9 +168,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                 final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
                 final moist = data['moisture'] ?? data['latest_telemetry']?['moisture'];
 
-                if (hr != null) existingTelem['heart_rate'] = hr;
-                if (temp != null) existingTelem['temperature'] = temp;
-                if (sp != null) existingTelem['spo2'] = sp;
+                if (hr != null && ((hr is num && hr > 0) || !isSD)) existingTelem['heart_rate'] = hr;
+                if (temp != null && ((temp is num && temp > 0) || !isSD)) existingTelem['temperature'] = temp;
+                if (sp != null && ((sp is num && sp > 0) || !isSD)) existingTelem['spo2'] = sp;
                 if (moist != null) existingTelem['moisture'] = moist;
 
                 _patients[i] = {
@@ -155,6 +178,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                   'is_online': true,
                   'isOnline': true,
                   'device_status': 'active',
+                  'is_vitals_online': isVS ? true : p['is_vitals_online'],
+                  'is_moisture_online': isSD ? true : p['is_moisture_online'],
                   'latest_telemetry': existingTelem,
                 };
                 break;
@@ -2363,10 +2388,24 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildPatientCard(Map<String, dynamic> patient) {
     final telemetry = patient['latest_telemetry'] ?? {};
+    final pairedList = patient['paired_devices'] is List ? (patient['paired_devices'] as List) : [];
     final bool isDeviceActive = patient['is_online'] == true ||
         patient['isOnline'] == true ||
         patient['device_status']?.toString().toLowerCase() == 'active' ||
-        (patient['paired_devices'] is List && (patient['paired_devices'] as List).any((d) => d['is_online'] == true || d['status'] == 'ACTIVE'));
+        pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
+
+    final bool isVitalsActive = patient['is_vitals_online'] == true ||
+        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+            ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
+             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false))) ||
+        (pairedList.isEmpty && isDeviceActive);
+
+    final bool isMoistureActive = patient['is_moisture_online'] == true ||
+        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+            ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
+             (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false))) ||
+        (pairedList.isEmpty && isDeviceActive);
 
     final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
     final patientName = (patient['name'] ?? '').toString().toLowerCase().trim();
@@ -2388,9 +2427,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
     final rawSpo2 = telemetry['spo2'];
     final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
+    final rawMoist = telemetry['moisture'];
+    final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
 
     final List<String> safetyBreaches = [];
-    if (isDeviceActive) {
+    if (isVitalsActive) {
       if (spo2Num != null && spo2Num > 0 && spo2Num < AppPreferences.spo2Min.value) {
         safetyBreaches.add("SpO₂ $spo2Num% (<${AppPreferences.spo2Min.value.toInt()}%)");
       }
@@ -2408,6 +2449,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           safetyBreaches.add("Temp ${tempNum.toStringAsFixed(1)}°C (>${AppPreferences.tempMax.value.toStringAsFixed(1)})");
         }
       }
+    }
+    if (isMoistureActive && mNum >= 70) {
+      safetyBreaches.add("Diaper Wet ($mNum%)");
     }
     final bool hasBreaches = safetyBreaches.isNotEmpty;
     final bool isHighlighted = hasActiveAlerts || hasBreaches;
@@ -2579,13 +2623,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawHr = telemetry['heart_rate'];
                         final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
-                        final isDetached = isDeviceActive && (hrNum == 0 || hrNum == null);
+                        final isDetached = isVitalsActive && (hrNum == 0 || hrNum == null);
                         return _vitalStat(
                           "BPM",
-                          !isDeviceActive ? "--" : (isDetached ? "0" : "$hrNum"),
+                          !isVitalsActive ? "--" : (isDetached ? "0" : "$hrNum"),
                           Icons.favorite,
-                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.red),
-                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
+                          !isVitalsActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.red),
+                          subtitle: !isVitalsActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
                         );
                       }(),
                     ),
@@ -2597,14 +2641,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                         final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
                         final rawSpo2 = telemetry['spo2'];
                         final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
-                        final isDetached = isDeviceActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (hrNum == 0 && spo2Num == 0));
-                        final displayVal = !isDeviceActive ? "--" : (isDetached ? "${tempNum != null && tempNum > 0 ? tempNum.toStringAsFixed(1) : '0.0'}°C" : "${tempNum!.toStringAsFixed(1)}°C");
+                        final isDetached = isVitalsActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (hrNum == 0 && spo2Num == 0));
+                        final displayVal = !isVitalsActive ? "--" : (isDetached ? "${tempNum != null && tempNum > 0 ? tempNum.toStringAsFixed(1) : '0.0'}°C" : "${tempNum!.toStringAsFixed(1)}°C");
                         return _vitalStat(
                           "TEMP",
                           displayVal,
                           Icons.thermostat,
-                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.orange),
-                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
+                          !isVitalsActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.orange),
+                          subtitle: !isVitalsActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
                         );
                       }(),
                     ),
@@ -2617,13 +2661,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawSpo2 = telemetry['spo2'];
                         final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
-                        final isDetached = isDeviceActive && (spo2Num == 0 || spo2Num == null);
+                        final isDetached = isVitalsActive && (spo2Num == 0 || spo2Num == null);
                         return _vitalStat(
                           "SpO2",
-                          !isDeviceActive ? "--" : (isDetached ? "0%" : "$spo2Num%"),
+                          !isVitalsActive ? "--" : (isDetached ? "0%" : "$spo2Num%"),
                           Icons.water_drop,
-                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.blue),
-                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
+                          !isVitalsActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.blue),
+                          subtitle: !isVitalsActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
                         );
                       }(),
                     ),
@@ -2631,16 +2675,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: () {
                         final rawMoist = telemetry['moisture'];
                         final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
-                        final isDetached = isDeviceActive && (rawMoist == null || mNum <= 0);
                         final isWet = mNum >= 70 || mNum == 100;
                         final isDamp = mNum >= 30 && !isWet;
-                        final label = !isDeviceActive ? "--" : (isDetached ? "0%" : (isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)")));
+                        final label = !isMoistureActive ? "--" : (isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)"));
                         return _vitalStat(
                           "DIAPER WETNESS",
                           label,
                           Icons.opacity,
-                          !isDeviceActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : (isWet ? Colors.red : (isDamp ? Colors.amber.shade800 : Colors.teal))),
-                          subtitle: !isDeviceActive ? "OFFLINE" : (isDetached ? "DETACHED" : (isWet ? "WET" : null)),
+                          !isMoistureActive ? Colors.grey : (isWet ? Colors.red : (isDamp ? Colors.amber.shade800 : Colors.teal)),
+                          subtitle: !isMoistureActive ? "OFFLINE" : (isWet ? "CHANGE DIAPER" : (isDamp ? "DAMP" : "DRY & CLEAN")),
                         );
                       }(),
                     ),

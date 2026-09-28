@@ -358,51 +358,83 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     }
                     return p;
                 }));
-            } else if (detail && detail.type === 'patient_telemetry_update') {
-                const targetPatientId = String(detail.patient_id || detail.patientId);
-                const hr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
-                const temp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
-                const sp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
-                const moist = detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture;
+            } else if (detail && (detail.type === 'patient_telemetry_update' || detail.type === 'device_status_update')) {
+                const targetPatientId = String(detail.patient_id || detail.patientId || '');
+                const sn = String(detail.serial_number || '');
+                const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
+                const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
 
-                // 1. Immediately update patient cards in real-time without waiting for network roundtrip
-                setPatients(prev => prev.map(p => {
-                    if (String(p.id) === targetPatientId) {
-                        const existingTelem = (p as any).latest_telemetry || {};
-                        return {
-                            ...p,
-                            deviceConnected: true,
-                            is_online: true,
-                            isOnline: true,
-                            latest_telemetry: {
-                                ...existingTelem,
-                                heart_rate: hr !== undefined && hr !== null ? Number(hr) : existingTelem.heart_rate,
-                                temperature: temp !== undefined && temp !== null ? Number(temp) : existingTelem.temperature,
-                                spo2: sp !== undefined && sp !== null ? Number(sp) : existingTelem.spo2,
-                                moisture: moist !== undefined && moist !== null ? Number(moist) : existingTelem.moisture,
-                                recorded_at: detail.recorded_at || new Date().toISOString()
-                            }
-                        };
-                    }
-                    return p;
-                }));
+                const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
+                const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
+                const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
+                const rawMoist = detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture;
 
-                // 2. Also immediately update vitalSigns state so latestVital calculates instantly
-                setVitalSigns(prev => {
-                    const filtered = prev.filter(v => String(v.patientId) !== targetPatientId);
-                    return [
-                        ...filtered,
-                        {
-                            id: `v-live-${Date.now()}`,
-                            patientId: targetPatientId,
-                            heartRate: hr !== undefined && hr !== null ? Number(hr) : 0,
-                            temperature: temp !== undefined && temp !== null ? Number(temp) : 0,
-                            spo2: sp !== undefined && sp !== null ? Number(sp) : 0,
-                            moistureLevel: moist !== undefined && moist !== null ? Number(moist) : 0,
-                            timestamp: new Date()
-                        } as any
-                    ];
-                });
+                if (targetPatientId) {
+                    // 1. Immediately update patient cards in real-time without waiting for network roundtrip
+                    setPatients(prev => prev.map(p => {
+                        if (String(p.id) === targetPatientId) {
+                            const existingTelem = (p as any).latest_telemetry || {};
+                            const pairedDevs = ((p as any).paired_devices || []).map((dev: any) => {
+                                if (dev.serial_number === sn) {
+                                    return {
+                                        ...dev,
+                                        status: 'ACTIVE',
+                                        is_online: true,
+                                        battery_level: detail.battery_level !== undefined ? detail.battery_level : dev.battery_level,
+                                        signal_strength: detail.signal_strength || dev.signal_strength,
+                                        last_heartbeat: new Date().toISOString()
+                                    };
+                                }
+                                return dev;
+                            });
+
+                            const isVOnline = isVS ? true : ((p as any).is_vitals_online || pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital'))));
+                            const isMOnline = isSD ? true : ((p as any).is_moisture_online || pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture'))));
+
+                            return {
+                                ...p,
+                                deviceConnected: true,
+                                is_online: true,
+                                isOnline: true,
+                                is_vitals_online: isVOnline,
+                                is_moisture_online: isMOnline,
+                                paired_devices: pairedDevs,
+                                latest_telemetry: {
+                                    ...existingTelem,
+                                    heart_rate: rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : existingTelem.heart_rate,
+                                    temperature: rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : existingTelem.temperature,
+                                    spo2: rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : existingTelem.spo2,
+                                    moisture: rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture,
+                                    recorded_at: detail.recorded_at || new Date().toISOString()
+                                }
+                            };
+                        }
+                        return p;
+                    }));
+
+                    // 2. Also immediately update vitalSigns state intelligently merging complementary sensor readings
+                    setVitalSigns(prev => {
+                        const prevVital = prev.find(v => String(v.patientId) === targetPatientId);
+                        const filtered = prev.filter(v => String(v.patientId) !== targetPatientId);
+                        const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : (prevVital?.heartRate ?? 0);
+                        const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : (prevVital?.temperature ?? 0);
+                        const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : (prevVital?.spo2 ?? 0);
+                        const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0);
+
+                        return [
+                            ...filtered,
+                            {
+                                id: `v-live-${Date.now()}`,
+                                patientId: targetPatientId,
+                                heartRate: finalHr,
+                                temperature: finalTemp,
+                                spo2: finalSp,
+                                moistureLevel: finalMoist,
+                                timestamp: new Date()
+                            } as any
+                        ];
+                    });
+                }
             }
             fetchAlerts();
             fetchPatients();
@@ -1228,33 +1260,50 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 const hasUnackAlerts = patientUnackAlerts.length > 0;
 
                                 const activeAlerts = alerts.filter(a => a.patientId === patient.id && !a.acknowledged);
-                                const isCritical = activeAlerts.some(a => a.severity === 'critical') || patientUnackAlerts.some(a => a.severity?.toLowerCase() === 'critical');                                const isDeviceOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
-                                const hasPairedDevices = ((patient as any).active_devices && (patient as any).active_devices.length > 0) || ((patient as any).paired_devices && (patient as any).paired_devices.length > 0);
+                                const isCritical = activeAlerts.some(a => a.severity === 'critical') || patientUnackAlerts.some(a => a.severity?.toLowerCase() === 'critical');
+                                
+                                const pairedDevs = ((patient as any).paired_devices || (patient as any).devices || []) as any[];
+                                const hasPairedDevices = pairedDevs.length > 0 || ((patient as any).active_devices && (patient as any).active_devices.length > 0);
                                 const isUnassigned = !hasPairedDevices;
 
-                                const pulseVal = isDeviceOnline && latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;
-                                const tempVal = isDeviceOnline && latestVital ? (latestVital.temperature) : null;
-                                const spo2Val = isDeviceOnline && latestVital ? (latestVital.spo2) : null;
-                                const wetnessVal = isDeviceOnline && latestVital ? (latestVital.moistureLevel ?? latestVital.moisture ?? latestVital.moisture_value) : null;
+                                const isDeviceOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+                                
+                                // Decoupled sensor online statuses
+                                const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
+                                    ? !!(patient as any).is_vitals_online 
+                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+                                
+                                const isMoistureOnline = (patient as any).is_moisture_online !== undefined 
+                                    ? !!(patient as any).is_moisture_online 
+                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
+
+                                const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDeviceOnline);
+                                const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDeviceOnline);
+                                const isAnySensorOnline = effectiveVitalsOnline || effectiveMoistureOnline;
+
+                                const pulseVal = effectiveVitalsOnline && latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;
+                                const tempVal = effectiveVitalsOnline && latestVital ? (latestVital.temperature) : null;
+                                const spo2Val = effectiveVitalsOnline && latestVital ? (latestVital.spo2) : null;
+                                const wetnessVal = effectiveMoistureOnline && latestVital ? (latestVital.moistureLevel ?? latestVital.moisture ?? latestVital.moisture_value) : null;
 
                                 const pulseNum = pulseVal !== null && pulseVal !== undefined ? Number(pulseVal) : null;
                                 const tempNum = tempVal !== null && tempVal !== undefined ? Number(tempVal) : null;
                                 const spo2Num = spo2Val !== null && spo2Val !== undefined ? Number(spo2Val) : null;
                                 const wetnessNum = wetnessVal !== null && wetnessVal !== undefined ? Number(wetnessVal) : null;
 
-                                const isPulseDetached = isDeviceOnline && pulseNum === 0;
-                                const isSpo2Detached = isDeviceOnline && spo2Num === 0;
-                                const isTempDetached = isDeviceOnline && (tempNum === 0 || (tempNum !== null && tempNum <= 30.0) || (pulseNum === 0 && spo2Num === 0));
-                                const isWetnessDetached = isDeviceOnline && (wetnessNum === 0 || wetnessNum === null);
+                                const isPulseDetached = effectiveVitalsOnline && pulseNum === 0;
+                                const isSpo2Detached = effectiveVitalsOnline && spo2Num === 0;
+                                const isTempDetached = effectiveVitalsOnline && (tempNum === 0 || (tempNum !== null && tempNum <= 30.0) || (pulseNum === 0 && spo2Num === 0));
 
-                                const isPulseBreached = isDeviceOnline && pulseNum !== null && !isNaN(pulseNum) && pulseNum > 0 && !isPulseDetached && 
+                                const isPulseBreached = effectiveVitalsOnline && pulseNum !== null && !isNaN(pulseNum) && pulseNum > 0 && !isPulseDetached && 
                                     (pulseNum < safetyThresholds.heartRateMin || pulseNum > safetyThresholds.heartRateMax);
-                                const isTempBreached = isDeviceOnline && tempNum !== null && !isNaN(tempNum) && tempNum > 30.0 && !isTempDetached && 
+                                const isTempBreached = effectiveVitalsOnline && tempNum !== null && !isNaN(tempNum) && tempNum > 30.0 && !isTempDetached && 
                                     (tempNum < safetyThresholds.tempMin || tempNum > safetyThresholds.tempMax);
-                                const isSpo2Breached = isDeviceOnline && spo2Num !== null && !isNaN(spo2Num) && spo2Num > 0 && !isSpo2Detached && 
+                                const isSpo2Breached = effectiveVitalsOnline && spo2Num !== null && !isNaN(spo2Num) && spo2Num > 0 && !isSpo2Detached && 
                                     spo2Num < safetyThresholds.spo2Min;
+                                const isWetnessBreached = effectiveMoistureOnline && wetnessNum !== null && !isNaN(wetnessNum) && wetnessNum >= 70;
 
-                                const hasSafetyBreach = isPulseBreached || isTempBreached || isSpo2Breached;
+                                const hasSafetyBreach = isPulseBreached || isTempBreached || isSpo2Breached || isWetnessBreached;
                                 const isCardCritical = isCritical || hasSafetyBreach;
 
                                 return (
@@ -1298,11 +1347,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                     <Badge variant="outline" className={`text-[10px] h-5 px-2 font-bold uppercase tracking-wider ${
                                                         hasSafetyBreach ? 'text-rose-900 border-rose-300 bg-rose-100/90 animate-pulse' :
                                                         isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
-                                                        !isDeviceOnline ? 'text-slate-600 border-slate-200 bg-slate-100' :
+                                                        !isAnySensorOnline ? 'text-slate-600 border-slate-200 bg-slate-100' :
                                                         isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
                                                             'text-emerald-900 border-emerald-200 bg-emerald-50'
                                                         }`}>
-                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isDeviceOnline ? 'Offline' : isUnassigned ? 'Unassigned' : 'Stable'}
+                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isAnySensorOnline ? 'Offline' : isUnassigned ? 'Unassigned' : 'Stable'}
                                                     </Badge>
                                                 </div>
                                             </div>
@@ -1316,7 +1365,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className={`text-[9px] font-bold ${isPulseBreached ? 'text-rose-800' : isPulseDetached ? 'text-slate-500' : 'text-slate-600'}`}>PULSE</span>
                                                     </div>
                                                     <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : isPulseDetached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!isDeviceOnline ? '--' : isPulseDetached ? '0 (Detached)' : (pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--')}
+                                                        {!effectiveVitalsOnline ? '--' : isPulseDetached ? '0 (Detached)' : (pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--')}
                                                     </span>
                                                 </div>
 
@@ -1326,7 +1375,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className={`text-[9px] font-bold ${isTempBreached ? 'text-amber-900' : isTempDetached ? 'text-slate-500' : 'text-slate-600'}`}>TEMP</span>
                                                     </div>
                                                     <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : isTempDetached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!isDeviceOnline ? '--' : isTempDetached ? (tempVal && Number(tempVal) > 0 ? `${Number(tempVal).toFixed(1)}° (Detached)` : '0.0° (Detached)') : (tempVal !== null && tempVal !== undefined ? `${Number(tempVal).toFixed(1)}°` : '--')}
+                                                        {!effectiveVitalsOnline ? '--' : isTempDetached ? (tempVal && Number(tempVal) > 0 ? `${Number(tempVal).toFixed(1)}° (Detached)` : '0.0° (Detached)') : (tempVal !== null && tempVal !== undefined ? `${Number(tempVal).toFixed(1)}°` : '--')}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1338,17 +1387,17 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         <span className={`text-[9px] font-bold ${isSpo2Breached ? 'text-rose-800' : isSpo2Detached ? 'text-slate-500' : 'text-slate-600'}`}>SPO2</span>
                                                     </div>
                                                     <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : isSpo2Detached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!isDeviceOnline ? '--' : isSpo2Detached ? '0% (Detached)' : (spo2Val !== null && spo2Val !== undefined ? `${Math.round(Number(spo2Val))}%` : '--')}
+                                                        {!effectiveVitalsOnline ? '--' : isSpo2Detached ? '0% (Detached)' : (spo2Val !== null && spo2Val !== undefined ? `${Math.round(Number(spo2Val))}%` : '--')}
                                                     </span>
                                                 </div>
 
-                                                <div className={`${isWetnessDetached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div className={`${isWetnessBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : wetnessNum !== null && wetnessNum >= 30 ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-slate-50 border-slate-200/80 text-slate-900'} p-2 rounded-xl text-center border transition-colors`}>
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Droplets className={`w-3 h-3 ${isWetnessDetached ? 'text-slate-400' : 'text-teal-600'}`} />
-                                                        <span className={`text-[9px] font-bold ${isWetnessDetached ? 'text-slate-500' : 'text-slate-600'}`}>WETNESS</span>
+                                                        <Droplets className={`w-3 h-3 ${isWetnessBreached ? 'text-rose-600' : wetnessNum !== null && wetnessNum >= 30 ? 'text-amber-600' : 'text-teal-600'}`} />
+                                                        <span className={`text-[9px] font-bold ${isWetnessBreached ? 'text-rose-800' : 'text-slate-600'}`}>WETNESS</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isWetnessDetached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!isDeviceOnline ? '--' : isWetnessDetached ? '0% (Detached)' : (wetnessVal !== null && wetnessVal !== undefined ? `${Math.round(Number(wetnessVal))}%` : '--')}
+                                                    <span className={`text-xs font-black`}>
+                                                        {!effectiveMoistureOnline ? '--' : wetnessNum !== null ? `${Math.round(wetnessNum)}%` : '--'}
                                                     </span>
                                                 </div>
                                             </div>

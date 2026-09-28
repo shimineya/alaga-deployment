@@ -60,18 +60,25 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
       } else if (eventType == 'patient_telemetry_update') {
         final updatePatientId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (updatePatientId == targetPatientId) {
+          final sn = data['serial_number']?.toString() ?? '';
+          final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
+          final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
+
           setState(() {
             _patient['is_online'] = true;
             _patient['isOnline'] = true;
             _patient['device_status'] = 'active';
+            _patient['is_vitals_online'] = isVS ? true : _patient['is_vitals_online'];
+            _patient['is_moisture_online'] = isSD ? true : _patient['is_moisture_online'];
+
             final hr = data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'];
             final temp = data['temperature'] ?? data['latest_telemetry']?['temperature'];
             final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
             final moist = data['moisture'] ?? data['latest_telemetry']?['moisture'];
 
-            if (hr != null) _telemetry['heart_rate'] = hr;
-            if (temp != null) _telemetry['temperature'] = temp;
-            if (sp != null) _telemetry['spo2'] = sp;
+            if (hr != null && ((hr is num && hr > 0) || !isSD)) _telemetry['heart_rate'] = hr;
+            if (temp != null && ((temp is num && temp > 0) || !isSD)) _telemetry['temperature'] = temp;
+            if (sp != null && ((sp is num && sp > 0) || !isSD)) _telemetry['spo2'] = sp;
             if (moist != null) _telemetry['moisture'] = moist;
 
             _patient['latest_telemetry'] = _telemetry;
@@ -92,10 +99,24 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final patient = _patient;
     final telemetry = _telemetry;
 
+    final pairedList = patient['paired_devices'] is List ? (patient['paired_devices'] as List) : [];
     final isDeviceActive = patient['is_online'] == true ||
         patient['isOnline'] == true ||
         patient['device_status']?.toString().toLowerCase() == 'active' ||
-        (patient['paired_devices'] is List && (patient['paired_devices'] as List).any((d) => d['is_online'] == true || d['status'] == 'ACTIVE'));
+        pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
+
+    final bool isVitalsActive = patient['is_vitals_online'] == true ||
+        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+            ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
+             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false))) ||
+        (pairedList.isEmpty && isDeviceActive);
+
+    final bool isMoistureActive = patient['is_moisture_online'] == true ||
+        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+            ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
+             (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false))) ||
+        (pairedList.isEmpty && isDeviceActive);
 
     // 2. Parse Birthday & Age
     final dynamic rawBday = patient['birthdate'] ??
@@ -163,35 +184,34 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
 
     // Vitals readings
     final hrNum = telemetry['heart_rate'] is num ? (telemetry['heart_rate'] as num).round() : int.tryParse(telemetry['heart_rate']?.toString() ?? '');
-    final bool isHrDetached = isDeviceActive && (hrNum == 0 || hrNum == null);
-    final hr = !isDeviceActive ? '--' : isHrDetached ? '0' : '$hrNum';
-    final hrBadge = !isDeviceActive ? 'OFFLINE' : isHrDetached ? 'DETACHED' : (hrNum != null && (hrNum > 120 || hrNum < 50) ? 'CRITICAL' : 'NORMAL');
-    final hrBadgeColor = !isDeviceActive || isHrDetached ? const Color(0xFF64748B) : (hrBadge == 'CRITICAL' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
-    final hrBadgeBg = !isDeviceActive || isHrDetached ? const Color(0xFFF1F5F9) : (hrBadge == 'CRITICAL' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+    final bool isHrDetached = isVitalsActive && (hrNum == 0 || hrNum == null);
+    final hr = !isVitalsActive ? '--' : isHrDetached ? '0' : '$hrNum';
+    final hrBadge = !isVitalsActive ? 'OFFLINE' : isHrDetached ? 'DETACHED' : (hrNum != null && (hrNum > 120 || hrNum < 50) ? 'CRITICAL' : 'NORMAL');
+    final hrBadgeColor = !isVitalsActive || isHrDetached ? const Color(0xFF64748B) : (hrBadge == 'CRITICAL' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
+    final hrBadgeBg = !isVitalsActive || isHrDetached ? const Color(0xFFF1F5F9) : (hrBadge == 'CRITICAL' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
     final tempNum = telemetry['temperature'] is num ? (telemetry['temperature'] as num).toDouble() : double.tryParse(telemetry['temperature']?.toString() ?? '');
     final spo2Num = telemetry['spo2'] is num ? (telemetry['spo2'] as num).round() : int.tryParse(telemetry['spo2']?.toString() ?? '');
-    final bool isTempDetached = isDeviceActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrDetached && (spo2Num == 0 || spo2Num == null)));
-    final temp = !isDeviceActive ? '--' : isTempDetached ? (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '0.0°C') : (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '--');
-    final tempBadge = !isDeviceActive ? 'OFFLINE' : isTempDetached ? 'DETACHED' : (tempNum != null && tempNum > 38.0 ? 'FEVER' : 'NORMAL');
-    final tempBadgeColor = !isDeviceActive || isTempDetached ? const Color(0xFF64748B) : (tempBadge == 'FEVER' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
-    final tempBadgeBg = !isDeviceActive || isTempDetached ? const Color(0xFFF1F5F9) : (tempBadge == 'FEVER' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+    final bool isTempDetached = isVitalsActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrDetached && (spo2Num == 0 || spo2Num == null)));
+    final temp = !isVitalsActive ? '--' : isTempDetached ? (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '0.0°C') : (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '--');
+    final tempBadge = !isVitalsActive ? 'OFFLINE' : isTempDetached ? 'DETACHED' : (tempNum != null && tempNum > 38.0 ? 'FEVER' : 'NORMAL');
+    final tempBadgeColor = !isVitalsActive || isTempDetached ? const Color(0xFF64748B) : (tempBadge == 'FEVER' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
+    final tempBadgeBg = !isVitalsActive || isTempDetached ? const Color(0xFFF1F5F9) : (tempBadge == 'FEVER' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
-    final bool isSpo2Detached = isDeviceActive && (spo2Num == 0 || spo2Num == null);
-    final spo2 = !isDeviceActive ? '--' : isSpo2Detached ? '0%' : (spo2Num != null && spo2Num > 0 ? '$spo2Num%' : '--');
-    final spo2Badge = !isDeviceActive ? 'OFFLINE' : isSpo2Detached ? 'DETACHED' : (spo2Num != null && spo2Num < 90 ? 'HYPOXIA' : 'OPTIMAL');
-    final spo2BadgeColor = !isDeviceActive || isSpo2Detached ? const Color(0xFF64748B) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
-    final spo2BadgeBg = !isDeviceActive || isSpo2Detached ? const Color(0xFFF1F5F9) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+    final bool isSpo2Detached = isVitalsActive && (spo2Num == 0 || spo2Num == null);
+    final spo2 = !isVitalsActive ? '--' : isSpo2Detached ? '0%' : (spo2Num != null && spo2Num > 0 ? '$spo2Num%' : '--');
+    final spo2Badge = !isVitalsActive ? 'OFFLINE' : isSpo2Detached ? 'DETACHED' : (spo2Num != null && spo2Num < 90 ? 'HYPOXIA' : 'OPTIMAL');
+    final spo2BadgeColor = !isVitalsActive || isSpo2Detached ? const Color(0xFF64748B) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
+    final spo2BadgeBg = !isVitalsActive || isSpo2Detached ? const Color(0xFFF1F5F9) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
     final rawMoist = telemetry['moisture'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
-    final bool isMoistDetached = isDeviceActive && (rawMoist == null || mNum <= 0);
     final isWet = mNum >= 70 || mNum == 100 || patient['wetness'] == 'Wet';
     final isDamp = mNum >= 30 && !isWet;
-    final wetnessVal = !isDeviceActive ? '--' : isMoistDetached ? '0%' : '$mNum%';
-    final wetnessBadge = !isDeviceActive ? 'OFFLINE' : isMoistDetached ? 'DETACHED' : isWet ? 'WET / CHANGE' : isDamp ? 'DAMP' : 'DRY & CLEAN';
-    final wetnessBadgeColor = !isDeviceActive || isMoistDetached ? const Color(0xFF64748B) : (isWet ? const Color(0xFFDC2626) : isDamp ? const Color(0xFFD97706) : const Color(0xFF16A34A));
-    final wetnessBadgeBg = !isDeviceActive || isMoistDetached ? const Color(0xFFF1F5F9) : (isWet ? const Color(0xFFFEE2E2) : isDamp ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7));
+    final wetnessVal = !isMoistureActive ? '--' : '$mNum%';
+    final wetnessBadge = !isMoistureActive ? 'OFFLINE' : isWet ? 'WET / CHANGE' : isDamp ? 'DAMP' : 'DRY & CLEAN';
+    final wetnessBadgeColor = !isMoistureActive ? const Color(0xFF64748B) : (isWet ? const Color(0xFFDC2626) : isDamp ? const Color(0xFFD97706) : const Color(0xFF16A34A));
+    final wetnessBadgeBg = !isMoistureActive ? const Color(0xFFF1F5F9) : (isWet ? const Color(0xFFFEE2E2) : isDamp ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7));
 
     return Container(
       constraints: BoxConstraints(

@@ -169,30 +169,59 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
         const updatePatientId = String(detail.patient_id || detail.patientId || '');
         if (!updatePatientId || updatePatientId === patId) {
           const isAct = detail.status === 'ACTIVE';
-          setPatient((prev: any) => ({ ...prev, is_online: isAct, isOnline: isAct, deviceConnected: isAct }));
+          const sn = String(detail.serial_number || '');
+          const isVS = sn.startsWith('VS-');
+          const isSD = sn.startsWith('SD-');
+          setPatient((prev: any) => ({
+            ...prev,
+            is_online: isAct,
+            isOnline: isAct,
+            deviceConnected: isAct,
+            is_vitals_online: isVS ? isAct : prev.is_vitals_online,
+            is_moisture_online: isSD ? isAct : prev.is_moisture_online,
+          }));
         }
       } else if (detail.type === 'patient_telemetry_update') {
         const updatePatientId = String(detail.patient_id || detail.patientId);
         if (updatePatientId === patId) {
-          const hr = Number(detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate) || 0;
-          const temp = Number(detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature) || 0;
-          const sp = Number(detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2) || 0;
-          const moist = Number(detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture) || 0;
+          const sn = String(detail.serial_number || '');
+          const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
+          const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
+
+          const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
+          const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
+          const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
+          const rawMoist = detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture;
           const ts = new Date(detail.recorded_at || Date.now());
 
           if (isMounted) {
-            setPatient((prev: any) => ({ ...prev, is_online: true, isOnline: true, deviceConnected: true }));
-            setVitalSigns(prev => [
+            setPatient((prev: any) => ({
               ...prev,
-              {
-                id: `v-live-${ts.getTime()}`,
-                timestamp: ts,
-                heartRate: hr,
-                temperature: temp,
-                spo2: sp,
-                moistureLevel: moist,
-              }
-            ]);
+              is_online: true,
+              isOnline: true,
+              deviceConnected: true,
+              is_vitals_online: isVS ? true : prev.is_vitals_online,
+              is_moisture_online: isSD ? true : prev.is_moisture_online,
+            }));
+            setVitalSigns(prev => {
+              const prevVital = prev[prev.length - 1];
+              const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : (prevVital?.heartRate ?? 0);
+              const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : (prevVital?.temperature ?? 0);
+              const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : (prevVital?.spo2 ?? 0);
+              const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0);
+
+              return [
+                ...prev,
+                {
+                  id: `v-live-${ts.getTime()}`,
+                  timestamp: ts,
+                  heartRate: finalHr,
+                  temperature: finalTemp,
+                  spo2: finalSp,
+                  moistureLevel: finalMoist,
+                }
+              ];
+            });
           }
         }
       }
@@ -319,14 +348,20 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             {/* Heart Rate Card */}
             {(() => {
+              const pairedDevs = ((patient as any).paired_devices || (patient as any).devices || []) as any[];
               const isDevOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+              const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
+                ? !!(patient as any).is_vitals_online 
+                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+              const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
+
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
-              const isDetached = isDevOnline && (hr === 0 || hr === null);
-              const isCrit = isDevOnline && hr !== null && !isDetached && (hr > 130 || hr < 50);
-              const isWarn = isDevOnline && hr !== null && !isDetached && (hr > 100 || hr < 60) && !isCrit;
-              const statusText = !isDevOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? 'Critical' : isWarn ? 'Elevated' : 'Normal';
-              const statusBadge = !isDevOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !isDevOnline ? '--' : isDetached ? '0' : (hr !== null ? `${hr}` : '--');
+              const isDetached = effectiveVitalsOnline && (hr === 0 || hr === null);
+              const isCrit = effectiveVitalsOnline && hr !== null && !isDetached && (hr > 130 || hr < 50);
+              const isWarn = effectiveVitalsOnline && hr !== null && !isDetached && (hr > 100 || hr < 60) && !isCrit;
+              const statusText = !effectiveVitalsOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? 'Critical' : isWarn ? 'Elevated' : 'Normal';
+              const statusBadge = !effectiveVitalsOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const displayVal = !effectiveVitalsOnline ? '--' : isDetached ? '0' : (hr !== null ? `${hr}` : '--');
 
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
@@ -338,7 +373,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Heart Rate</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!isDevOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!isDevOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
                     </div>
 
                     <div className="flex items-baseline gap-1.5 pt-0.5">
@@ -358,8 +393,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : isDevOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: isDevOnline && hr && !isDetached ? `${Math.min(100, Math.max(15, (hr / 160) * 100))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: effectiveVitalsOnline && hr && !isDetached ? `${Math.min(100, Math.max(15, (hr / 160) * 100))}%` : '0%' }}
                       />
                     </div>
                   </CardContent>
@@ -369,16 +404,22 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
 
             {/* Body Temperature Card */}
             {(() => {
+              const pairedDevs = ((patient as any).paired_devices || (patient as any).devices || []) as any[];
               const isDevOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+              const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
+                ? !!(patient as any).is_vitals_online 
+                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+              const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
+
               const temp = latestVital ? latestVital.temperature : null;
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
               const sp = latestVital ? Math.round(latestVital.spo2) : null;
-              const isDetached = isDevOnline && (temp === 0 || temp === null || temp <= 30.0 || (hr === 0 && (sp === 0 || sp === null)));
-              const isCrit = isDevOnline && temp !== null && !isDetached && (temp > 38.5 || temp < 35.0);
-              const isWarn = isDevOnline && temp !== null && !isDetached && (temp > 37.5 || temp < 36.0) && !isCrit;
-              const statusText = !isDevOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? (temp > 38.5 ? 'Fever / High' : 'Hypothermia') : isWarn ? 'Elevated' : 'Normal';
-              const statusBadge = !isDevOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !isDevOnline ? '--' : isDetached ? (temp && temp > 0 ? temp.toFixed(1) : '0.0') : (temp !== null ? temp.toFixed(1) : '--');
+              const isDetached = effectiveVitalsOnline && (temp === 0 || temp === null || temp <= 30.0 || (hr === 0 && (sp === 0 || sp === null)));
+              const isCrit = effectiveVitalsOnline && temp !== null && !isDetached && (temp > 38.5 || temp < 35.0);
+              const isWarn = effectiveVitalsOnline && temp !== null && !isDetached && (temp > 37.5 || temp < 36.0) && !isCrit;
+              const statusText = !effectiveVitalsOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? (temp > 38.5 ? 'Fever / High' : 'Hypothermia') : isWarn ? 'Elevated' : 'Normal';
+              const statusBadge = !effectiveVitalsOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const displayVal = !effectiveVitalsOnline ? '--' : isDetached ? (temp && temp > 0 ? temp.toFixed(1) : '0.0') : (temp !== null ? temp.toFixed(1) : '--');
 
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
@@ -390,7 +431,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Body Temp</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!isDevOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!isDevOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
                     </div>
 
                     <div className="flex items-baseline gap-1.5 pt-0.5">
@@ -410,8 +451,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : isDevOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: isDevOnline && temp && !isDetached ? `${Math.min(100, Math.max(15, ((temp - 34) / 7) * 100))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: effectiveVitalsOnline && temp && !isDetached ? `${Math.min(100, Math.max(15, ((temp - 34) / 7) * 100))}%` : '0%' }}
                       />
                     </div>
                   </CardContent>
@@ -421,14 +462,20 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
 
             {/* SpO2 Oxygen Saturation Card */}
             {(() => {
+              const pairedDevs = ((patient as any).paired_devices || (patient as any).devices || []) as any[];
               const isDevOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+              const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
+                ? !!(patient as any).is_vitals_online 
+                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+              const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
+
               const spo2 = latestVital ? Math.round(latestVital.spo2) : null;
-              const isDetached = isDevOnline && (spo2 === 0 || spo2 === null);
-              const isCrit = isDevOnline && spo2 !== null && !isDetached && spo2 < 90;
-              const isWarn = isDevOnline && spo2 !== null && !isDetached && spo2 < 95 && !isCrit;
-              const statusText = !isDevOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? 'Hypoxia' : isWarn ? 'Low SpO₂' : 'Optimal';
-              const statusBadge = !isDevOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !isDevOnline ? '--' : isDetached ? '0' : (spo2 !== null ? `${spo2}` : '--');
+              const isDetached = effectiveVitalsOnline && (spo2 === 0 || spo2 === null);
+              const isCrit = effectiveVitalsOnline && spo2 !== null && !isDetached && spo2 < 90;
+              const isWarn = effectiveVitalsOnline && spo2 !== null && !isDetached && spo2 < 95 && !isCrit;
+              const statusText = !effectiveVitalsOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? 'Hypoxia' : isWarn ? 'Low SpO₂' : 'Optimal';
+              const statusBadge = !effectiveVitalsOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const displayVal = !effectiveVitalsOnline ? '--' : isDetached ? '0' : (spo2 !== null ? `${spo2}` : '--');
 
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
@@ -440,7 +487,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">SpO₂ Oxygen</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!isDevOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!isDevOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
                     </div>
 
                     <div className="flex items-baseline gap-1.5 pt-0.5">
@@ -460,8 +507,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : isDevOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: isDevOnline && spo2 && !isDetached ? `${Math.min(100, Math.max(10, spo2))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: effectiveVitalsOnline && spo2 && !isDetached ? `${Math.min(100, Math.max(10, spo2))}%` : '0%' }}
                       />
                     </div>
                   </CardContent>
@@ -471,14 +518,19 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
 
             {/* Diaper Moisture Card */}
             {(() => {
+              const pairedDevs = ((patient as any).paired_devices || (patient as any).devices || []) as any[];
               const isDevOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+              const isMoistureOnline = (patient as any).is_moisture_online !== undefined 
+                ? !!(patient as any).is_moisture_online 
+                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
+              const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDevOnline);
+
               const moisture = latestVital ? Math.round(latestVital.moistureLevel) : null;
-              const isDetached = isDevOnline && (moisture === null || moisture === 0);
-              const isWet = isDevOnline && moisture !== null && moisture >= 70;
-              const isDamp = isDevOnline && moisture !== null && moisture >= 30 && !isWet;
-              const statusText = !isDevOnline ? 'Offline' : isDetached ? 'Detached' : isWet ? 'Change Diaper' : isDamp ? 'Damp' : 'Dry & Clean';
-              const statusBadge = !isDevOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isWet ? 'bg-rose-50 text-rose-900 border-rose-300' : isDamp ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !isDevOnline ? '--' : isDetached ? '0' : (moisture !== null ? `${moisture}` : '--');
+              const isWet = effectiveMoistureOnline && moisture !== null && moisture >= 70;
+              const isDamp = effectiveMoistureOnline && moisture !== null && moisture >= 30 && !isWet;
+              const statusText = !effectiveMoistureOnline ? 'Offline' : isWet ? 'Change Diaper' : isDamp ? 'Damp' : 'Dry & Clean';
+              const statusBadge = !effectiveMoistureOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isWet ? 'bg-rose-50 text-rose-900 border-rose-300' : isDamp ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              const displayVal = !effectiveMoistureOnline ? '--' : (moisture !== null ? `${moisture}` : '0');
 
               return (
                 <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
@@ -490,7 +542,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Diaper Wetness</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!isDevOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!isDevOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveMoistureOnline ? 'bg-slate-300' : isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveMoistureOnline ? 'Offline' : 'Live Streaming'} />
                     </div>
 
                     <div className="flex items-baseline gap-1.5 pt-0.5">
@@ -510,8 +562,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-500' : isDevOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: isDevOnline && moisture && !isDetached ? `${Math.min(100, Math.max(5, moisture))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-500' : effectiveMoistureOnline ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: effectiveMoistureOnline && moisture !== null ? `${Math.min(100, Math.max(5, moisture))}%` : '0%' }}
                       />
                     </div>
                   </CardContent>

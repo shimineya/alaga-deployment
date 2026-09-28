@@ -1695,13 +1695,24 @@ app.post('/api/device/data', async (req, res) => {
 
         broadcastAlert('patient_telemetry_update', {
             patient_id: patientId,
+            serial_number: device_id,
+            device_type: isSD ? 'moisture' : (isVS ? 'vitals' : 'unified'),
             device_status: 'ACTIVE',
             heart_rate: hr,
             temperature: temp,
             spo2: sp,
             moisture: moist,
+            battery_level: batteryVal,
+            signal_strength: signalVal,
             recorded_at: recordedAt,
-            is_offline_buffer: !!req.body.is_offline_buffer
+            is_offline_buffer: !!req.body.is_offline_buffer,
+            latest_telemetry: {
+                heart_rate: hr,
+                temperature: temp,
+                spo2: sp,
+                moisture: moist,
+                recorded_at: recordedAt
+            }
         });
 
         res.status(200).json({

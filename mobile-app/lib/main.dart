@@ -9,6 +9,7 @@ import 'services/alert_notification_service.dart';
 import 'pages/start.dart';
 import 'pages/login.dart';
 import 'pages/profile.dart';
+import 'pages/dashboard.dart';
 import 'theme/alaga_theme.dart';
 import 'pages/manual.dart';
 

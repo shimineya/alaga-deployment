@@ -76,7 +76,32 @@ export default function ForensicAuditTrails() {
             toast.info(`Generating DPO forensic audit ${format.toUpperCase()} spreadsheet...`);
             const res = await fetch(`${API_URL}/api/sysadmin/audit-logs/export?format=${format}`, { headers: getAuth() });
             if (!res.ok) throw new Error('Spreadsheet export failed');
-            const blob = await res.blob();
+
+            const textData = await res.text();
+            let finalCsv = textData;
+
+            // Failsafe: if an outdated backend process or proxy returned a PDF stream, format logs client-side
+            if (textData.startsWith('%PDF')) {
+                const headers = ['Timestamp', 'Event Action', 'Severity', 'User', 'IP Address', 'Resource / Details'];
+                const escapeCell = (val: unknown) => {
+                    if (val === null || val === undefined) return '""';
+                    return `"${String(val).replace(/"/g, '""')}"`;
+                };
+                const rows = logs.map((r: any) => [
+                    escapeCell(r.timestamp ? new Date(r.timestamp).toISOString() : ''),
+                    escapeCell(r.action || ''),
+                    escapeCell(r.severity || ''),
+                    escapeCell(r.username || r.user_id || 'System'),
+                    escapeCell(r.ip_address || 'N/A'),
+                    escapeCell(r.resource_affected || '')
+                ].join(','));
+                finalCsv = '\uFEFF' + [headers.map(escapeCell).join(','), ...rows].join('\r\n');
+            } else if (!finalCsv.startsWith('\uFEFF')) {
+                // Ensure UTF-8 BOM is present so Excel displays character sets and delimiters properly
+                finalCsv = '\uFEFF' + finalCsv;
+            }
+
+            const blob = new Blob([finalCsv], { type: 'text/csv;charset=utf-8;' });
             const blobUrl = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';

@@ -7,30 +7,20 @@ import '../widgets/interactive_tutorial.dart';
 /// Provides comprehensive documentation, operational guidelines, and clinical protocols
 /// specifically tailored for both Caregivers and Family Parents/Guardians.
 class ManualScreen extends StatefulWidget {
-  final String? initialTab;
+  final String? initialRole;
 
-  const ManualScreen({super.key, this.initialTab});
+  const ManualScreen({super.key, this.initialRole});
 
   @override
   State<ManualScreen> createState() => _ManualScreenState();
 }
 
-class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _ManualScreenState extends State<ManualScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
   @override
-  void initState() {
-    super.initState();
-    final role = UserSession.current?.role.toLowerCase();
-    final initialIndex = (widget.initialTab == 'Caregiver' || (widget.initialTab == null && role == 'caregiver')) ? 0 : 1;
-    _tabController = TabController(length: 2, vsync: this, initialIndex: initialIndex);
-  }
-
-  @override
   void dispose() {
-    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -295,8 +285,12 @@ class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    final filteredCaregiver = _filterChapters(_caregiverChapters);
-    final filteredParent = _filterChapters(_parentChapters);
+    final bool isParent = (widget.initialRole != null)
+        ? (widget.initialRole!.toLowerCase() == 'parent')
+        : (UserSession.current?.isParent ?? true);
+
+    final activeChapters = isParent ? _parentChapters : _caregiverChapters;
+    final filtered = _filterChapters(activeChapters);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -312,7 +306,7 @@ class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderSt
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'HELP & DOCUMENTATION',
+              isParent ? 'FAMILY & HOME CARE GUIDE' : 'CLINICAL OPERATIONS MANUAL',
               style: GoogleFonts.poppins(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
@@ -321,7 +315,7 @@ class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderSt
               ),
             ),
             Text(
-              'ALAGA User Manual',
+              isParent ? 'Parent User Manual' : 'Caregiver User Manual',
               style: GoogleFonts.poppins(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -331,13 +325,12 @@ class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderSt
           ],
         ),
         actions: [
-          // Quick button to launch interactive tutorial
+          // Quick button to launch role-scoped interactive tutorial
           Padding(
             padding: const EdgeInsets.only(right: 12.0),
             child: OutlinedButton.icon(
               onPressed: () {
-                final role = _tabController.index == 0 ? 'Caregiver' : 'Parent';
-                showInteractiveTutorial(context, initialRole: role);
+                showInteractiveTutorial(context, initialRole: isParent ? 'Parent' : 'Caregiver');
               },
               icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
               label: const Text('Tutorial'),
@@ -352,70 +345,46 @@ class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderSt
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(104),
-          child: Column(
-            children: [
-              // Search Field
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Container(
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (v) => setState(() => _searchQuery = v),
-                    style: GoogleFonts.albertSans(fontSize: 13, color: const Color(0xFF0F172A)),
-                    decoration: InputDecoration(
-                      hintText: 'Search chapters, sensors, vitals, alerts...',
-                      hintStyle: GoogleFonts.albertSans(color: const Color(0xFF94A3B8), fontSize: 12.5),
-                      prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF00796B)),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 16, color: Color(0xFF64748B)),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _searchQuery = '');
-                              },
-                            )
-                          : null,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                  ),
+          preferredSize: const Size.fromHeight(58),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Container(
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (v) => setState(() => _searchQuery = v),
+                style: GoogleFonts.albertSans(fontSize: 13, color: const Color(0xFF0F172A)),
+                decoration: InputDecoration(
+                  hintText: isParent
+                      ? 'Search infant/elderly vitals, diaper, fever, safe limits...'
+                      : 'Search clinical triage, sensors, alerts, pairing...',
+                  hintStyle: GoogleFonts.albertSans(color: const Color(0xFF94A3B8), fontSize: 12.5),
+                  prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF00796B)),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 16, color: Color(0xFF64748B)),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 ),
               ),
-
-              // Tab Bar (Caregiver vs Parent)
-              TabBar(
-                controller: _tabController,
-                indicatorColor: const Color(0xFF00796B),
-                indicatorWeight: 3,
-                labelColor: const Color(0xFF00796B),
-                unselectedLabelColor: const Color(0xFF64748B),
-                labelStyle: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.bold),
-                unselectedLabelStyle: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.w500),
-                tabs: const [
-                  Tab(text: 'Caregiver Handbook'),
-                  Tab(text: 'Family Guide (Parent)'),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildChapterList(filteredCaregiver, isCaregiver: true),
-          _buildChapterList(filteredParent, isCaregiver: false),
-        ],
-      ),
+      body: _buildChapterList(filtered, isCaregiver: !isParent),
     );
   }
 
@@ -435,7 +404,9 @@ class _ManualScreenState extends State<ManualScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 4),
               Text(
-                'Try searching for "sensor", "vitals", "fever", "diaper", or "pairing".',
+                isCaregiver
+                    ? 'Try searching for "sensor", "vitals", "fever", "diaper", or "pairing".'
+                    : 'Try searching for "vitals", "diaper", "comfort", "fever", or "safety".',
                 style: GoogleFonts.albertSans(fontSize: 12, color: const Color(0xFF64748B)),
                 textAlign: TextAlign.center,
               ),

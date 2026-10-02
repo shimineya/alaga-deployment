@@ -789,11 +789,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.auto_stories_rounded, color: AlagaColors.primary, size: 20),
                   ),
                   title: Text(
-                    "ALAGA User Manual",
+                    UserSession.current?.isParent == true ? "Parent User Manual" : "Caregiver User Manual",
                     style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                   ),
                   subtitle: Text(
-                    "Categorized reference for Caregivers (clinical operations, sensor placement) and Parents (interpretations, comfort, hygiene).",
+                    UserSession.current?.isParent == true
+                        ? "Comprehensive family guide for interpreting vitals, diaper comfort, and personal safety thresholds."
+                        : "Comprehensive clinical operations guide, vital signs triage protocols, and sensor hardware maintenance.",
                     style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
@@ -816,11 +818,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.school_rounded, color: AlagaColors.accent, size: 20),
                   ),
                   title: Text(
-                    "Interactive App Tutorial",
+                    UserSession.current?.isParent == true ? "Parent App Tutorial" : "Caregiver App Tutorial",
                     style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                   ),
                   subtitle: Text(
-                    "Step-by-step interactive walkthrough tailored to both Caregiver and Parent workflows.",
+                    UserSession.current?.isParent == true
+                        ? "Interactive step-by-step walkthrough for family monitoring, diaper comfort, and notifications."
+                        : "Interactive step-by-step walkthrough for clinical telemetry roster, vital triage, and care logs.",
                     style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),

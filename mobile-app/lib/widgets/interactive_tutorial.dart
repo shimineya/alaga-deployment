@@ -29,14 +29,10 @@ class _InteractiveTutorialDialogState extends State<InteractiveTutorialDialog> {
   @override
   void initState() {
     super.initState();
-    final userRole = UserSession.current?.role.toLowerCase();
-    if (widget.initialRole != null) {
-      _currentRole = widget.initialRole!;
-    } else if (userRole == 'caregiver') {
-      _currentRole = 'Caregiver';
-    } else {
-      _currentRole = 'Parent';
-    }
+    final bool isParent = (widget.initialRole != null)
+        ? (widget.initialRole!.toLowerCase() == 'parent')
+        : (UserSession.current?.isParent ?? true);
+    _currentRole = isParent ? 'Parent' : 'Caregiver';
   }
 
   @override
@@ -269,7 +265,7 @@ class _InteractiveTutorialDialogState extends State<InteractiveTutorialDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'INTERACTIVE GUIDE',
+                          _currentRole == 'Parent' ? 'FAMILY & PARENT GUIDE' : 'CLINICAL CAREGIVER GUIDE',
                           style: GoogleFonts.poppins(
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
@@ -278,7 +274,7 @@ class _InteractiveTutorialDialogState extends State<InteractiveTutorialDialog> {
                           ),
                         ),
                         Text(
-                          'ALAGA Interactive Tutorial',
+                          _currentRole == 'Parent' ? 'Parent App Walkthrough' : 'Caregiver Clinical Walkthrough',
                           style: GoogleFonts.poppins(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -288,47 +284,26 @@ class _InteractiveTutorialDialogState extends State<InteractiveTutorialDialog> {
                       ],
                     ),
                   ),
-                  // Role Toggle
+                  // Dedicated Role Badge (Strictly role-scoped, no cross-switching)
                   Container(
-                    padding: const EdgeInsets.all(2),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
+                      color: _currentRole == 'Parent' ? const Color(0xFFEFF6FF) : const Color(0xFFE0F2F1),
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _currentRole == 'Parent' ? const Color(0xFFBFDBFE) : const Color(0xFF80CBC4),
+                      ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: ['Caregiver', 'Parent'].map((role) {
-                        final isSel = _currentRole == role;
-                        return GestureDetector(
-                          onTap: () {
-                            if (_currentRole != role) {
-                              setState(() {
-                                _currentRole = role;
-                                _currentStep = 0;
-                              });
-                              _pageController.jumpToPage(0);
-                            }
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: isSel ? const Color(0xFF00796B) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              role,
-                              style: GoogleFonts.poppins(
-                                fontSize: 10,
-                                fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
-                                color: isSel ? Colors.white : const Color(0xFF475569),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                    child: Text(
+                      _currentRole == 'Parent' ? 'Parent' : 'Caregiver',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _currentRole == 'Parent' ? const Color(0xFF1D4ED8) : const Color(0xFF004D40),
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 4),
                   IconButton(
                     icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
                     onPressed: () => Navigator.pop(context),

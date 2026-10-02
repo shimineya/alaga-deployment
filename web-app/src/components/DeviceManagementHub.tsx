@@ -122,23 +122,43 @@ export const DeviceManagementHub: React.FC = () => {
                                 <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
                                     <tr>
                                         <th className="px-6 py-3">Device Name</th>
+                                        <th className="px-6 py-3">Status</th>
                                         <th className="px-6 py-3">Battery</th>
                                         <th className="px-6 py-3">WiFi Signal</th>
                                         <th className="px-6 py-3">Assigned Patient</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {devices.map((device) => (
+                                    {devices.map((device) => {
+                                        const isOnline = device.status === 'ACTIVE';
+                                        const bat = device.battery_level !== undefined && device.battery_level !== null ? Number(device.battery_level) : null;
+                                        return (
                                         <tr key={device.serial_number} className="hover:bg-teal-50/30 transition-colors">
-                                            <td className="px-6 py-4 font-medium text-slate-800">{device.device_name}</td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <Battery className="w-4 h-4 text-emerald-500" />
-                                                    <span className="text-xs font-semibold">92%</span>
+                                            <td className="px-6 py-4 font-medium text-slate-800">
+                                                <div>
+                                                    <span className="font-semibold text-slate-800">{device.device_name}</span>
+                                                    <span className="block text-[10px] font-mono text-slate-400">SN: {device.serial_number}</span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700">Excellent</Badge>
+                                                <Badge variant="outline" className={`text-[10px] ${
+                                                    device.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                    device.status === 'STANDBY' ? 'bg-amber-50 text-amber-700 border-amber-300' :
+                                                    'bg-slate-100 text-slate-600 border-slate-200'
+                                                }`}>
+                                                    {device.status}
+                                                </Badge>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Battery className={`w-4 h-4 ${!isOnline ? 'text-slate-400' : (bat || 0) < 20 ? 'text-red-500' : 'text-emerald-500'}`} />
+                                                    <span className="text-xs font-semibold">{isOnline && bat !== null ? `${bat}%` : '--'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <Badge variant="secondary" className={`text-[10px] ${isOnline ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                    {isOnline ? ((device as any).signal_strength || 'Good') : 'Offline'}
+                                                </Badge>
                                             </td>
                                             <td className="px-6 py-4 text-xs text-slate-700">
                                                 {device.assigned_patient_name ? (

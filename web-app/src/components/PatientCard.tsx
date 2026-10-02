@@ -58,29 +58,45 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
       </CardHeader>
 
       <CardContent className="p-4 pt-2">
-        {/* Vitals Grid - Integrated from MiniVitalCard */}
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          {/* Heart Rate */}
-          <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-            <Activity className="h-4 w-4 text-rose-500 mb-1" />
-            <span className="text-lg font-bold text-slate-900">{patient.heart_rate || '--'}</span>
-            <span className="text-[10px] text-muted-foreground uppercase">BPM</span>
-          </div>
+        {(() => {
+          const telem = (patient as any)?.latest_telemetry || {};
+          const hr = (patient as any).heart_rate ?? (patient as any).heartRate ?? telem.heart_rate;
+          const sp = (patient as any).spo2 ?? telem.spo2;
+          const temp = (patient as any).temperature ?? telem.temperature;
+          const moist = (patient as any).moisture ?? (patient as any).moisture_value ?? telem.moisture ?? telem.moisture_value;
 
-          {/* SpO2 */}
-          <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-            <Droplets className="h-4 w-4 text-sky-500 mb-1" />
-            <span className="text-lg font-bold text-slate-900">{patient.spo2 || '--'}</span>
-            <span className="text-[10px] text-muted-foreground uppercase">%</span>
-          </div>
+          return (
+            <div className="grid grid-cols-4 gap-2 mt-2">
+              {/* Heart Rate */}
+              <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                <Activity className="h-4 w-4 text-rose-500 mb-1" />
+                <span className="text-sm sm:text-base font-bold text-slate-900">{hr !== undefined && hr !== null ? hr : '--'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">BPM</span>
+              </div>
 
-          {/* Temperature */}
-          <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-            <Thermometer className="h-4 w-4 text-amber-500 mb-1" />
-            <span className="text-lg font-bold text-slate-900">{patient.temperature || '--'}</span>
-            <span className="text-[10px] text-muted-foreground uppercase">°C</span>
-          </div>
-        </div>
+              {/* SpO2 */}
+              <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                <Droplets className="h-4 w-4 text-sky-500 mb-1" />
+                <span className="text-sm sm:text-base font-bold text-slate-900">{sp !== undefined && sp !== null ? `${sp}%` : '--'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">SpO2</span>
+              </div>
+
+              {/* Temperature */}
+              <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                <Thermometer className="h-4 w-4 text-amber-500 mb-1" />
+                <span className="text-sm sm:text-base font-bold text-slate-900">{temp !== undefined && temp !== null ? `${Number(temp).toFixed(1)}°` : '--'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">°C</span>
+              </div>
+
+              {/* Diaper Wetness / Moisture */}
+              <div className="flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                <Droplets className="h-4 w-4 text-teal-500 mb-1" />
+                <span className="text-sm sm:text-base font-bold text-slate-900">{moist !== undefined && moist !== null ? `${Math.round(Number(moist))}%` : '--'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Wet</span>
+              </div>
+            </div>
+          );
+        })()}
       </CardContent>
     </Card>
   );

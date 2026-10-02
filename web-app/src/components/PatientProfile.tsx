@@ -132,7 +132,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
   // Load Vitals from Backend
   useEffect(() => {
     let isMounted = true;
-    const patId = String(patient.id).replace(/\D/g, '') || patient.id;
+    const patId = String((patient as any).patient_id || patient.id).replace(/\D/g, '') || String(patient.id);
 
     const fetchVitals = async () => {
       try {
@@ -144,15 +144,29 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
         });
         const data = await response.json();
 
-        if (isMounted && data.success && Array.isArray(data.history) && data.history.length > 0) {
-          setVitalSigns(data.history.map((row: any, idx: number) => ({
-            id: `v-${idx}-${new Date(row.recorded_at).getTime()}`,
-            timestamp: new Date(row.recorded_at),
-            heartRate: Number(row.heart_rate) || 0,
-            temperature: Number(row.temperature) || 0,
-            spo2: Number(row.spo2) || 0,
-            moistureLevel: Number(row.moisture_value) || 0,
-          })));
+        if (isMounted && data.success && Array.isArray(data.history)) {
+          if (data.history.length > 0) {
+            setVitalSigns(data.history.map((row: any, idx: number) => ({
+              id: `v-${idx}-${new Date(row.recorded_at).getTime()}`,
+              timestamp: new Date(row.recorded_at),
+              heartRate: Number(row.heart_rate) || 0,
+              temperature: Number(row.temperature) || 0,
+              spo2: Number(row.spo2) || 0,
+              moistureLevel: Number(row.moisture_value ?? row.moisture) || 0,
+            })));
+          } else if ((patient as any)?.latest_telemetry) {
+            const telem = (patient as any).latest_telemetry;
+            if (telem.heart_rate || telem.temperature || telem.spo2 || telem.moisture || telem.moisture_value) {
+              setVitalSigns([{
+                id: `v-telem-${Date.now()}`,
+                timestamp: new Date(telem.recorded_at || Date.now()),
+                heartRate: Number(telem.heart_rate) || 0,
+                temperature: Number(telem.temperature) || 0,
+                spo2: Number(telem.spo2) || 0,
+                moistureLevel: Number(telem.moisture ?? telem.moisture_value) || 0,
+              }]);
+            }
+          }
         }
       } catch (err) {
         console.error('Error fetching live vitals:', err);
@@ -234,9 +248,25 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
       clearInterval(interval);
       window.removeEventListener('alaga_alert_update', handleRealtimeTelemetry);
     };
-  }, [patient.id, timeRange]);
+  }, [patient.id, (patient as any).patient_id, timeRange]);
 
-  const latestVital = vitalSigns[vitalSigns.length - 1];
+  const latestHistoryVital = vitalSigns.length > 0 ? vitalSigns[vitalSigns.length - 1] : null;
+  const latestTelem = (patient as any)?.latest_telemetry;
+  const effectiveHr = latestHistoryVital ? latestHistoryVital.heartRate : (latestTelem?.heart_rate ?? (patient as any)?.heart_rate ?? (patient as any)?.heartRate);
+  const effectiveTemp = latestHistoryVital ? latestHistoryVital.temperature : (latestTelem?.temperature ?? (patient as any)?.temperature);
+  const effectiveSpo2 = latestHistoryVital ? latestHistoryVital.spo2 : (latestTelem?.spo2 ?? (patient as any)?.spo2);
+  const effectiveMoist = latestHistoryVital ? latestHistoryVital.moistureLevel : (latestTelem?.moisture ?? latestTelem?.moisture_value ?? (patient as any)?.moisture_value ?? (patient as any)?.moisture);
+
+  const latestVital = (effectiveHr !== undefined && effectiveHr !== null) || (effectiveTemp !== undefined && effectiveTemp !== null) || (effectiveSpo2 !== undefined && effectiveSpo2 !== null) || (effectiveMoist !== undefined && effectiveMoist !== null)
+    ? {
+        id: latestHistoryVital?.id || 'v-latest',
+        timestamp: latestHistoryVital?.timestamp || (latestTelem?.recorded_at ? new Date(latestTelem.recorded_at) : new Date()),
+        heartRate: effectiveHr !== null && effectiveHr !== undefined ? Number(effectiveHr) : 0,
+        temperature: effectiveTemp !== null && effectiveTemp !== undefined ? Number(effectiveTemp) : 0,
+        spo2: effectiveSpo2 !== null && effectiveSpo2 !== undefined ? Number(effectiveSpo2) : 0,
+        moistureLevel: effectiveMoist !== null && effectiveMoist !== undefined ? Number(effectiveMoist) : 0,
+      }
+    : null;
 
   // Logic for Vital Reports Tab
   const getFilteredVitals = () => {
@@ -352,7 +382,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const isDevOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
               const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
                 ? !!(patient as any).is_vitals_online 
-                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital') || (!String(d.serial_number || '').startsWith('SD-') && !String(d.device_name || '').toLowerCase().includes('diaper') && !String(d.device_name || '').toLowerCase().includes('moisture'))));
               const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
@@ -522,7 +552,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const isDevOnline = !!((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
               const isMoistureOnline = (patient as any).is_moisture_online !== undefined 
                 ? !!(patient as any).is_moisture_online 
-                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
+                : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture') || (!String(d.serial_number || '').startsWith('VS-') && !String(d.device_name || '').toLowerCase().includes('vital'))));
               const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const moisture = latestVital ? Math.round(latestVital.moistureLevel) : null;

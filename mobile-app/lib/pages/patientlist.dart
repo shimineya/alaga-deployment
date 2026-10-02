@@ -8,6 +8,7 @@ import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
 import 'newpatient.dart';
 import '../widgets/patient_profile_modal.dart';
+import '../theme/alaga_theme.dart';
 
 class PatientListScreen extends StatefulWidget {
   final VoidCallback? onBack; 
@@ -58,43 +59,69 @@ class _PatientListScreenState extends State<PatientListScreen> {
         setState(() {
           allPatients = rawPatients.map((p) {
             final telemetry = p['latest_telemetry'] ?? {};
-            final bool isOnline = p['is_online'] == true || p['isOnline'] == true;
+            final pairedList = p['paired_devices'] is List ? (p['paired_devices'] as List) : [];
+            final bool isDeviceActive = p['is_online'] == true ||
+                p['isOnline'] == true ||
+                p['device_status']?.toString().toLowerCase() == 'active' ||
+                pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
+
+            final bool isVitalsActive = p['is_vitals_online'] == true ||
+                pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+                    ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
+                     (d['device_name']?.toString().toLowerCase().contains('vital') ?? false) ||
+                     (d['serial_number']?.toString().startsWith('SD-') != true &&
+                      d['device_name']?.toString().toLowerCase().contains('diaper') != true &&
+                      d['device_name']?.toString().toLowerCase().contains('moisture') != true))) ||
+                (pairedList.isEmpty && isDeviceActive);
+
+            final bool isMoistureActive = p['is_moisture_online'] == true ||
+                pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+                    ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
+                     (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+                     (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false) ||
+                     (d['serial_number']?.toString().startsWith('VS-') != true &&
+                      d['device_name']?.toString().toLowerCase().contains('vital') != true))) ||
+                (pairedList.isEmpty && isDeviceActive);
+
             // Extract raw numbers (or null) to allow for graph calculations
-            final hr = telemetry['heart_rate'] as num?;
-            final temp = telemetry['temperature'] as num?;
-            final spo2 = telemetry['spo2'] as num?;
-            final moist = telemetry['moisture'] as num?;
+            final hr = (telemetry['heart_rate'] ?? p['heart_rate'] ?? p['heartRate']) as num?;
+            final temp = (telemetry['temperature'] ?? p['temperature']) as num?;
+            final spo2 = (telemetry['spo2'] ?? p['spo2']) as num?;
+            final moist = (telemetry['moisture'] ?? telemetry['moisture_value'] ?? p['moisture'] ?? p['moisture_value']) as num?;
 
-            final bool isHrDetached = isOnline && (hr == 0 || hr == null);
-            final bool isSpo2Detached = isOnline && (spo2 == 0 || spo2 == null);
-            final bool isTempDetached = isOnline && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrDetached && isSpo2Detached));
-            final bool isMoistDetached = isOnline && (moist == null || moist <= 0);
+            final bool isHrDetached = isVitalsActive && (hr == 0 || hr == null);
+            final bool isSpo2Detached = isVitalsActive && (spo2 == 0 || spo2 == null);
+            final bool isTempDetached = isVitalsActive && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrDetached && isSpo2Detached));
+            final bool isMoistDetached = isMoistureActive && (moist == null || moist <= 0);
 
-            final String hrDisplay = !isOnline ? '---' : isHrDetached ? '0 (Detached)' : '$hr';
-            final String tempDisplay = !isOnline ? '---' : isTempDetached ? '${temp != null && temp > 0 ? temp.toStringAsFixed(1) : "0.0"}°C (Detached)' : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
-            final String spo2Display = !isOnline ? '---' : isSpo2Detached ? '0% (Detached)' : (spo2 != null ? "$spo2%" : '---');
-            final String wetDisplay = !isOnline ? '---' : isMoistDetached ? '0% (Detached)' : (moist != null && moist >= 70 ? 'Wet ($moist%)' : 'Dry ($moist%)');
+            final String hrDisplay = !isVitalsActive ? '---' : isHrDetached ? '0 (Detached)' : '$hr';
+            final String tempDisplay = !isVitalsActive ? '---' : isTempDetached ? '${temp != null && temp > 0 ? temp.toStringAsFixed(1) : "0.0"}°C (Detached)' : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
+            final String spo2Display = !isVitalsActive ? '---' : isSpo2Detached ? '0% (Detached)' : (spo2 != null ? "$spo2%" : '---');
+            final String wetDisplay = !isMoistureActive ? '---' : isMoistDetached ? '0% (Detached)' : (moist != null && moist >= 70 ? 'Wet ($moist%)' : 'Dry ($moist%)');
 
             return <String, dynamic>{
               ...p,
-              'patient_id': p['patient_id'],
+              'patient_id': p['patient_id'] ?? p['id'],
               'name': p['name'] ?? 'Unknown',
               'room': p['room'] ?? p['baseline_data']?['room'] ?? 'Room Home',
-              'status': isOnline ? 'Stable' : 'Offline',
-              'is_online': isOnline,
-              'isOnline': isOnline,
+              'status': isDeviceActive ? 'Stable' : 'Offline',
+              'is_online': isDeviceActive,
+              'isOnline': isDeviceActive,
+              'is_vitals_online': isVitalsActive,
+              'is_moisture_online': isMoistureActive,
               
               // UI Labels (Strings)
               'hr': hrDisplay,
               'temp': tempDisplay,
               'spo2': spo2Display,
               'wetness': wetDisplay,
-              'is_wet': isOnline && moist != null && moist >= 70,
+              'is_wet': isMoistureActive && moist != null && moist >= 70,
               
               // Raw Numbers for Graphing (Use these in your CustomPainter)
               'hr_num': hr?.toDouble() ?? 0.0,
               'temp_num': temp?.toDouble() ?? 0.0,
               'spo2_num': spo2?.toDouble() ?? 0.0,
+              'moist_num': moist?.toDouble() ?? 0.0,
               
               'vs_id': p['vital_device_sn'] ?? 'None',
               'sd_id': p['diaper_device_sn'] ?? 'None',
@@ -131,7 +158,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
   Widget build(BuildContext context) {
     final mainTextStyle = GoogleFonts.poppins(fontWeight: FontWeight.bold, color: const Color(0xFF2D3436));
     final descriptionStyle = GoogleFonts.albertSans(color: Colors.grey, fontSize: 13);
-    const Color bgColor = Color(0xFFF5F5F0);
+    const Color bgColor = AlagaColors.background;
 
     final filteredPatients = allPatients.where((p) {
       bool matchesFilter = selectedFilter == "All Patients" || p['status'] == "Stable";
@@ -152,7 +179,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
             MaterialPageRoute(builder: (context) => const NewPatientScreen()),
           ).then((_) => _fetchPatients());
         },
-        backgroundColor: const Color(0xFF4DB6AC),
+        backgroundColor: AlagaColors.primary,
         icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
         label: Text(
           "Enroll Patient",
@@ -239,8 +266,8 @@ class _PatientListScreenState extends State<PatientListScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300, width: 1),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                border: Border.all(color: AlagaColors.cardBorder, width: 1),
+                boxShadow: const [BoxShadow(color: Color(0x0A0F172A), blurRadius: 10, offset: Offset(0, 4))],
               ),
               child: TextField(
                 controller: _searchController,
@@ -248,7 +275,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
                 decoration: InputDecoration(
                   hintText: "Search patient, room, or device ID...",
                   hintStyle: descriptionStyle.copyWith(color: Colors.grey),
-                  prefixIcon: const Icon(Icons.search, color: Color(0xFF4DB6AC), size: 20),
+                  prefixIcon: const Icon(Icons.search, color: AlagaColors.primary, size: 20),
                   suffixIcon: searchQuery.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear, size: 18),
@@ -275,12 +302,12 @@ class _PatientListScreenState extends State<PatientListScreen> {
           ),
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9)))
+                ? const Center(child: CircularProgressIndicator(color: AlagaColors.primary))
                 : filteredPatients.isEmpty
                     ? _buildEmptyState(descriptionStyle)
                     : RefreshIndicator(
                         onRefresh: _fetchPatients,
-                        color: const Color(0xFF5FA9A9),
+                        color: AlagaColors.primary,
                         child: ListView.builder(
                           padding: const EdgeInsets.all(16),
                           itemCount: filteredPatients.length,
@@ -323,9 +350,9 @@ class _PatientListScreenState extends State<PatientListScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF4DB6AC) : Colors.white,
+          color: isSelected ? AlagaColors.primary : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? const Color(0xFF4DB6AC) : Colors.grey.shade300),
+          border: Border.all(color: isSelected ? AlagaColors.primary : AlagaColors.cardBorder),
         ),
         child: Text(label, style: style.copyWith(fontSize: 12, color: isSelected ? Colors.white : Colors.grey)),
       ),
@@ -528,11 +555,12 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
 
     try {
       final tfParam = _selectedTimeframe.toLowerCase();
-      final result = await ApiService.get('/sensor/history/${widget.patient['patient_id']}?timeframe=$tfParam');
+      final targetPatientId = widget.patient['patient_id'] ?? widget.patient['id'];
+      final result = await ApiService.get('/sensor/history/$targetPatientId?timeframe=$tfParam');
       
       if (mounted && result['success'] == true) {
         final List<dynamic> historyData = result['history'] ?? [];
-        final chronological = historyData.reversed.toList();
+        final chronological = historyData;
 
         setState(() {
           hrHistory = chronological.map((d) {
@@ -557,7 +585,7 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
           }).where((val) => val > 0).toList();
           
           moistureHistory = chronological.map((d) {
-            final m = d['moisture_value'];
+            final m = d['moisture_value'] ?? d['moisture'];
             if (m is num) return m.toDouble();
             if (m is String) return double.tryParse(m) ?? 0.0;
             return 0.0;

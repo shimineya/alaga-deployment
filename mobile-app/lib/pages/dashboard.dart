@@ -22,6 +22,9 @@ import 'notification.dart';
 import 'medicationtracker.dart';
 import 'ai_insights.dart';
 import '../widgets/patient_profile_modal.dart';
+import '../theme/alaga_theme.dart';
+import 'manual.dart';
+import '../widgets/interactive_tutorial.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int initialIndex;
@@ -166,7 +169,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 final hr = data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'];
                 final temp = data['temperature'] ?? data['latest_telemetry']?['temperature'];
                 final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
-                final moist = data['moisture'] ?? data['latest_telemetry']?['moisture'];
+                final moist = data['moisture'] ?? data['moisture_value'] ?? data['latest_telemetry']?['moisture'] ?? data['latest_telemetry']?['moisture_value'];
 
                 if (hr != null && ((hr is num && hr > 0) || !isSD)) existingTelem['heart_rate'] = hr;
                 if (temp != null && ((temp is num && temp > 0) || !isSD)) existingTelem['temperature'] = temp;
@@ -320,7 +323,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: AlagaColors.background,
       drawer: Drawer(
         backgroundColor: const Color(0xFF1B393D),
         child: Column(
@@ -362,6 +365,41 @@ class _DashboardScreenState extends State<DashboardScreen>
                     _configureDataRefresh();
                     setState(() {});
                   }),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Divider(color: Colors.white24, height: 1),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                    child: Text(
+                      'GUIDES & ASSISTANCE',
+                      style: GoogleFonts.poppins(
+                        color: Colors.tealAccent.withValues(alpha: 0.7),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                  ),
+                  _drawerIconItem(
+                    Icons.menu_book_rounded,
+                    'User Manual',
+                    () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ManualScreen()),
+                      );
+                    },
+                  ),
+                  _drawerIconItem(
+                    Icons.school_rounded,
+                    'Interactive Tutorial',
+                    () {
+                      Navigator.pop(context);
+                      showInteractiveTutorial(context);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -374,7 +412,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _refreshDashboard,
-                color: const Color(0xFF4DB6AC),
+                color: AlagaColors.primary,
                 child: CustomScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
@@ -396,7 +434,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.refresh, color: Color(0xFF4DB6AC), size: 22),
+                                    icon: const Icon(Icons.help_outline_rounded, color: AlagaColors.accent, size: 22),
+                                    tooltip: 'Interactive Tutorial & Manual',
+                                    onPressed: () => showInteractiveTutorial(context),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.refresh, color: AlagaColors.primary, size: 22),
                                     tooltip: 'Refresh Dashboard',
                                     onPressed: () {
                                       _refreshDashboard();
@@ -420,11 +463,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                           Text("PATIENT MONITORING",
                               style: GoogleFonts.poppins(
                                   fontSize: 13,
-                                  color: const Color(0xFF5FA9A9),
-                                  fontWeight: FontWeight.w500)),
+                                  color: AlagaColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1.1)),
                           Text("DASHBOARD",
                               style: GoogleFonts.poppins(
-                                  fontSize: 22, fontWeight: FontWeight.bold)),
+                                  fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
                           const SizedBox(height: 20),
 
                           // Top row: Slideshow widget + Full-Month Mini Calendar widget
@@ -2397,14 +2441,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     final bool isVitalsActive = patient['is_vitals_online'] == true ||
         pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
             ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false))) ||
+             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false) ||
+             (d['serial_number']?.toString().startsWith('SD-') != true &&
+              d['device_name']?.toString().toLowerCase().contains('diaper') != true &&
+              d['device_name']?.toString().toLowerCase().contains('moisture') != true))) ||
         (pairedList.isEmpty && isDeviceActive);
 
     final bool isMoistureActive = patient['is_moisture_online'] == true ||
         pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
             ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
              (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false))) ||
+             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false) ||
+             (d['serial_number']?.toString().startsWith('VS-') != true &&
+              d['device_name']?.toString().toLowerCase().contains('vital') != true))) ||
         (pairedList.isEmpty && isDeviceActive);
 
     final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
@@ -2421,13 +2470,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     final bool hasActiveAlerts = patientAlerts.isNotEmpty;
 
     // Threshold safety net evaluation for Caregiver and Parent
-    final rawHr = telemetry['heart_rate'];
+    final rawHr = telemetry['heart_rate'] ?? patient['heart_rate'] ?? patient['heartRate'];
     final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
-    final rawTemp = telemetry['temperature'];
+    final rawTemp = telemetry['temperature'] ?? patient['temperature'];
     final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
-    final rawSpo2 = telemetry['spo2'];
+    final rawSpo2 = telemetry['spo2'] ?? patient['spo2'];
     final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
-    final rawMoist = telemetry['moisture'];
+    final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
 
     final List<String> safetyBreaches = [];
@@ -2621,8 +2670,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                   children: [
                     Expanded(
                       child: () {
-                        final rawHr = telemetry['heart_rate'];
-                        final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
                         final isDetached = isVitalsActive && (hrNum == 0 || hrNum == null);
                         return _vitalStat(
                           "BPM",
@@ -2635,12 +2682,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                     Expanded(
                       child: () {
-                        final rawTemp = telemetry['temperature'];
-                        final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
-                        final rawHr = telemetry['heart_rate'];
-                        final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
-                        final rawSpo2 = telemetry['spo2'];
-                        final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
                         final isDetached = isVitalsActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (hrNum == 0 && spo2Num == 0));
                         final displayVal = !isVitalsActive ? "--" : (isDetached ? "${tempNum != null && tempNum > 0 ? tempNum.toStringAsFixed(1) : '0.0'}°C" : "${tempNum!.toStringAsFixed(1)}°C");
                         return _vitalStat(
@@ -2659,8 +2700,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                   children: [
                     Expanded(
                       child: () {
-                        final rawSpo2 = telemetry['spo2'];
-                        final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
                         final isDetached = isVitalsActive && (spo2Num == 0 || spo2Num == null);
                         return _vitalStat(
                           "SpO2",
@@ -2673,8 +2712,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                     Expanded(
                       child: () {
-                        final rawMoist = telemetry['moisture'];
-                        final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
                         final isWet = mNum >= 70 || mNum == 100;
                         final isDamp = mNum >= 30 && !isWet;
                         final label = !isMoistureActive ? "--" : (isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)"));
@@ -2979,13 +3016,41 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _drawerIconItem(
+      IconData icon, String title, VoidCallback onTap) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ListTile(
+        leading: Icon(icon, size: 22, color: Colors.white),
+        title: Text(title,
+            style: GoogleFonts.poppins(color: Colors.white, fontSize: 13)),
+        onTap: onTap,
+      ),
+    );
+  }
+
   Widget _buildBottomNav() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 30),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-            color: const Color(0xFF5FA9A9),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF004D40), Color(0xFF00796B)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF004D40).withValues(alpha: 0.28),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
             borderRadius: BorderRadius.circular(50)),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -3064,7 +3129,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             shape: BoxShape.circle),
         child: Image.asset('assets/images/$icon.png',
             width: 24,
-            color: selected ? const Color(0xFF5FA9A9) : Colors.white),
+            color: selected ? AlagaColors.primary : Colors.white),
       ),
     );
   }

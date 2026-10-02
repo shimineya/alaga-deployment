@@ -9,7 +9,8 @@ import 'services/alert_notification_service.dart';
 import 'pages/start.dart';
 import 'pages/login.dart';
 import 'pages/profile.dart';
-import 'pages/dashboard.dart';
+import 'theme/alaga_theme.dart';
+import 'pages/manual.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,15 +39,13 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Alaga',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6ECCD9)),
-        useMaterial3: true,
-      ),
+      theme: AlagaTheme.themeData,
       home: const SessionGate(),
       routes: {
         '/login': (context) => const LoginPage(),
         '/profile': (context) => const ProfileScreen(),
         '/start': (context) => const StartPage(),
+        '/manual': (context) => const ManualScreen(),
       },
     );
   }
@@ -102,9 +101,9 @@ class _SessionGateState extends State<SessionGate> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFFF5F5F0),
+        backgroundColor: AlagaColors.background,
         body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF5FA9A9)),
+          child: CircularProgressIndicator(color: AlagaColors.primary),
         ),
       );
     }

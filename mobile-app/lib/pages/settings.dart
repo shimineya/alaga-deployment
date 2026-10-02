@@ -8,6 +8,9 @@ import '../services/schedule_reminder_service.dart';
 import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
 import 'biometrics.dart';
+import '../theme/alaga_theme.dart';
+import 'manual.dart';
+import '../widgets/interactive_tutorial.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -434,14 +437,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFFF5F5F0),
+        backgroundColor: AlagaColors.background,
         body:
-            Center(child: CircularProgressIndicator(color: Color(0xFF4DB6AC))),
+            Center(child: CircularProgressIndicator(color: AlagaColors.primary)),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: AlagaColors.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -460,7 +463,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: GoogleFonts.poppins(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF80CBC4),
+                color: AlagaColors.primary,
                 letterSpacing: 1.2,
               ),
             ),
@@ -770,7 +773,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 5. System Information (live data)
+            // Help, Manual & Interactive Tutorials
+            _buildSectionCard(
+              title: "Help & Interactive Guides",
+              icon: Icons.menu_book_outlined,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AlagaColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.auto_stories_rounded, color: AlagaColors.primary, size: 20),
+                  ),
+                  title: Text(
+                    "ALAGA User Manual",
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                  ),
+                  subtitle: Text(
+                    "Categorized reference for Caregivers (clinical operations, sensor placement) and Parents (interpretations, comfort, hygiene).",
+                    style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ManualScreen()),
+                    );
+                  },
+                ),
+                const Divider(height: 20),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AlagaColors.accent.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.school_rounded, color: AlagaColors.accent, size: 20),
+                  ),
+                  title: Text(
+                    "Interactive App Tutorial",
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                  ),
+                  subtitle: Text(
+                    "Step-by-step interactive walkthrough tailored to both Caregiver and Parent workflows.",
+                    style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () => showInteractiveTutorial(context),
+                ),
+              ],
+            ),
+
+            // 6. System Information (live data)
             _buildSystemInfo(),
 
             const SizedBox(height: 20),
@@ -780,7 +839,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: ElevatedButton(
                     onPressed: _isSaving ? null : _saveSettings,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4DB6AC),
+                      backgroundColor: AlagaColors.primary,
                       padding: const EdgeInsets.symmetric(vertical: 15),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8)),
@@ -826,15 +885,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AlagaColors.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x080F172A),
+            blurRadius: 12,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 20, color: const Color(0xFF4DB6AC)),
+              Icon(icon, size: 20, color: AlagaColors.primary),
               const SizedBox(width: 10),
               Text(title,
                   style: GoogleFonts.poppins(

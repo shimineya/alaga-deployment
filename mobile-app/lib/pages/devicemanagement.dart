@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
+import '../theme/alaga_theme.dart';
 
 class DeviceManagementScreen extends StatefulWidget {
   const DeviceManagementScreen({super.key});
@@ -74,7 +75,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       }
     });
 
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted) _fetchDevices(silent: true);
     });
   }
@@ -495,7 +496,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     final isParent = UserSession.current?.isParent == true;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: AlagaColors.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -504,10 +505,10 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
             onPressed: () => Navigator.pop(context)),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF5FA9A9)))
+          ? const Center(child: CircularProgressIndicator(color: AlagaColors.primary))
           : RefreshIndicator(
                   onRefresh: _fetchDevices,
-                  color: const Color(0xFF5FA9A9),
+                  color: AlagaColors.primary,
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     clipBehavior: Clip.none,
@@ -520,7 +521,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                               style: GoogleFonts.poppins(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 24,
-                                  color: const Color(0xFF5FA9A9))),
+                                  color: AlagaColors.primary)),
                           const SizedBox(height: 3),
                           Text(
                             "Manage connected hardware, sensors, and firmware infrastructure.",
@@ -752,6 +753,12 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     final color = isVital ? Colors.blue : Colors.orange;
     final isParent = UserSession.current?.isParent == true;
     final isStandby = status == 'STANDBY';
+    final String batteryText = (battery == null || battery.toString().isEmpty)
+        ? 'Battery —'
+        : (battery.toString().endsWith('%') ? 'Battery $battery' : 'Battery $battery%');
+    final String signalText = (status != 'ACTIVE' || signal == 'Offline')
+        ? 'Signal Offline'
+        : (signal == null ? 'Signal Good' : (signal.toString().toLowerCase().startsWith('signal') ? signal.toString() : 'Signal $signal'));
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -852,10 +859,8 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    _deviceDetailChip(Icons.battery_5_bar,
-                        battery == null ? 'Battery —' : 'Battery $battery%'),
-                    _deviceDetailChip(Icons.network_cell,
-                        status != 'ACTIVE' ? 'Signal Offline' : (signal == null ? 'Signal Good' : 'Signal $signal')),
+                    _deviceDetailChip(Icons.battery_5_bar, batteryText),
+                    _deviceDetailChip(Icons.network_cell, signalText),
                     _deviceDetailChip(
                         Icons.memory, 'Firmware $firmware'),
                   ],
@@ -1007,7 +1012,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
 
     if (confirmed != true) return;
 
-    final result = await ApiService.post('/api/caregiver/devices/unpair', {
+    final result = await ApiService.post('/api/caregiver/devices/unpair', body: {
       'serialNumber': serialNumber,
       'action': isChange ? 'change' : 'permanent',
     });
@@ -1088,7 +1093,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
 
     if (confirmed != true) return;
 
-    final result = await ApiService.post('/api/caregiver/devices/pair', {
+    final result = await ApiService.post('/api/caregiver/devices/pair', body: {
       'serialNumber': serialNumber,
       'patientId': patientId,
     });

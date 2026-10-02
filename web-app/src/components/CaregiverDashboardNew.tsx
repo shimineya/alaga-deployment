@@ -289,6 +289,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         deviceConnected: !!p.is_online,
                         is_online: !!p.is_online,
                         isOnline: !!p.is_online,
+                        is_vitals_online: !!p.is_vitals_online,
+                        is_moisture_online: !!p.is_moisture_online,
                         assignedCaregiverName: p.assigned_caregiver_name || (p.caregivers && p.caregivers.length > 0 ? (p.caregivers[0].username || p.caregivers[0].name) : undefined) || (p.assigned_users && p.assigned_users.length > 0 ? (p.assigned_users[0].username || p.assigned_users[0].first_name) : undefined),
                         deleted: false,
                         archived: false,
@@ -300,6 +302,37 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                     } as any;
                 });
                 setPatients(mappedPatients);
+
+                // Hydrate live vitalSigns state for cards/graphs
+                const initialVitals: any[] = [];
+                data.data.forEach((p: any) => {
+                    const telem = p.latest_telemetry;
+                    if (telem && (telem.heart_rate || telem.temperature || telem.spo2 || telem.moisture || telem.moisture_value)) {
+                        initialVitals.push({
+                            id: `v-init-${p.patient_id}`,
+                            patientId: String(p.patient_id),
+                            heartRate: Number(telem.heart_rate) || 0,
+                            temperature: Number(telem.temperature) || 0,
+                            spo2: Number(telem.spo2) || 0,
+                            moistureLevel: Number(telem.moisture ?? telem.moisture_value) || 0,
+                            timestamp: new Date(telem.recorded_at || Date.now())
+                        });
+                    }
+                });
+                if (initialVitals.length > 0) {
+                    setVitalSigns(prev => {
+                        const copy = [...prev];
+                        initialVitals.forEach(iv => {
+                            const idx = copy.findIndex(v => String(v.patientId) === String(iv.patientId));
+                            if (idx >= 0) {
+                                copy[idx] = iv;
+                            } else {
+                                copy.push(iv);
+                            }
+                        });
+                        return copy;
+                    });
+                }
             }
         } catch (err) {
             console.error("Failed to fetch patients:", err);
@@ -1271,11 +1304,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 // Decoupled sensor online statuses
                                 const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
                                     ? !!(patient as any).is_vitals_online 
-                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital') || (!String(d.serial_number || '').startsWith('SD-') && !String(d.device_name || '').toLowerCase().includes('diaper') && !String(d.device_name || '').toLowerCase().includes('moisture'))));
                                 
                                 const isMoistureOnline = (patient as any).is_moisture_online !== undefined 
                                     ? !!(patient as any).is_moisture_online 
-                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
+                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture') || (!String(d.serial_number || '').startsWith('VS-') && !String(d.device_name || '').toLowerCase().includes('vital'))));
 
                                 const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDeviceOnline);
                                 const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDeviceOnline);

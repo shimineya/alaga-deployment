@@ -137,10 +137,48 @@ router.post('/reading', readingValidation, async (req, res) => {
     }
 
     // Step 3: Extract and sanitize readings
-    const heartRate   = parseFloat(req.body.heart_rate);
-    const temperature = parseFloat(req.body.temperature);
-    const spo2        = parseFloat(req.body.spo2);
-    const moisture    = parseInt(req.body.moisture, 10);
+    let heartRate   = parseFloat(req.body.heart_rate);
+    let temperature = parseFloat(req.body.temperature);
+    let spo2        = parseFloat(req.body.spo2);
+    let moisture    = parseInt(req.body.moisture, 10);
+
+    const isVS = String(deviceSerial).startsWith('VS-');
+    const isSD = String(deviceSerial).startsWith('SD-');
+
+    // Carry forward previous complementary sensor readings for disjoint separate devices
+    try {
+        const lastSnapshot = await pool.query(
+            `SELECT heart_rate, temperature, spo2, moisture_value 
+             FROM sensor_readings 
+             WHERE patient_id = $1 
+             ORDER BY recorded_at DESC LIMIT 1`,
+            [patientId]
+        );
+
+        if (lastSnapshot.rows.length > 0) {
+            const prev = lastSnapshot.rows[0];
+            if (isSD) {
+                // Smart Diaper Moisture Sensor: preserves vitals from Vital Signs Sensor
+                heartRate = parseFloat(prev.heart_rate) || 0;
+                temperature = parseFloat(prev.temperature) || 0;
+                spo2 = parseFloat(prev.spo2) || 0;
+            } else if (isVS) {
+                // Vital Signs Sensor: preserves diaper moisture from Smart Diaper Moisture Sensor
+                moisture = parseInt(prev.moisture_value, 10) || 0;
+            } else {
+                if (heartRate <= 0 && temperature <= 0 && spo2 <= 0) {
+                    heartRate = parseFloat(prev.heart_rate) || 0;
+                    temperature = parseFloat(prev.temperature) || 0;
+                    spo2 = parseFloat(prev.spo2) || 0;
+                }
+                if (moisture <= 0 && prev.moisture_value !== undefined && prev.moisture_value !== null) {
+                    moisture = parseInt(prev.moisture_value, 10) || 0;
+                }
+            }
+        }
+    } catch (snapErr) {
+        console.warn('[SENSOR] Snapshot carry-forward error:', snapErr.message);
+    }
 
     let readingId;
 
@@ -159,10 +197,11 @@ router.post('/reading', readingValidation, async (req, res) => {
     }
 
     // Step 4.1: Automated Hardware Diagnostics (Battery, Wireless Signal, Probe Status)
+    const rawBattery = req.body.battery !== undefined ? req.body.battery : req.body.battery_level;
+    const battery = rawBattery !== undefined && rawBattery !== null ? parseFloat(rawBattery) : null;
+    const rssi = req.body.rssi !== undefined && req.body.rssi !== null ? parseFloat(req.body.rssi) : null;
+    const signal = req.body.signal ? String(req.body.signal).slice(0, 20) : (rssi !== null ? (rssi > -65 ? 'Excellent' : rssi > -80 ? 'Good' : 'Weak') : 'Good');
     try {
-        const rawBattery = req.body.battery !== undefined ? req.body.battery : req.body.battery_level;
-        const battery = rawBattery !== undefined && rawBattery !== null ? parseFloat(rawBattery) : null;
-        const rssi = req.body.rssi !== undefined && req.body.rssi !== null ? parseFloat(req.body.rssi) : null;
         const probeDetached = req.body.probe_detached === true || req.body.probe_detached === 'true' || (heartRate === 0 && spo2 === 0);
         const sensorError = req.body.sensor_error === true || req.body.sensor_error === 'true';
 
@@ -393,42 +432,60 @@ router.post('/reading', readingValidation, async (req, res) => {
         ai_status    : aiResult.status
     });
 
-    // Step 8: Update device heartbeat timestamp & auto-apply pending firmware update when it connects online
+    // Step 8: Update device heartbeat timestamp, status, battery, signal & auto-apply pending firmware update when it connects online
     await pool.query(
         `UPDATE device_whitelist 
          SET last_heartbeat = NOW(),
              status = 'ACTIVE',
+             battery_level = COALESCE($2, battery_level),
+             signal_strength = COALESCE($3, signal_strength),
              firmware_version = COALESCE(pending_firmware_version, firmware_version),
              pending_firmware_version = NULL
          WHERE serial_number = $1`,
-        [deviceSerial]
+        [deviceSerial, battery, signal]
     ).catch(() => {});
+
+    const telemetryTimestamp = new Date().toISOString();
 
     // Real-time SSE Broadcast: device turned online or refreshed telemetry
     broadcastAlert('device_status_update', {
         serial_number: deviceSerial,
         status: 'ACTIVE',
         patient_id: patientId,
+        battery_level: battery,
+        signal_strength: signal,
         is_offline_buffer: !!req.body.is_offline_buffer,
         event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
         latest_telemetry: {
-            heart_rate: hr,
-            temperature: temp,
-            spo2: sp,
-            moisture: moist,
-            recorded_at: new Date().toISOString()
+            heart_rate: heartRate,
+            temperature: temperature,
+            spo2: spo2,
+            moisture: moisture,
+            recorded_at: telemetryTimestamp
         },
-        timestamp: new Date().toISOString()
+        timestamp: telemetryTimestamp
     });
 
     broadcastAlert('patient_telemetry_update', {
         patient_id: patientId,
+        serial_number: deviceSerial,
+        device_type: isSD ? 'moisture' : (isVS ? 'vitals' : 'unified'),
         device_status: 'ACTIVE',
-        heart_rate: hr,
-        temperature: temp,
-        spo2: sp,
-        moisture: moist,
-        is_offline_buffer: !!req.body.is_offline_buffer
+        heart_rate: heartRate,
+        temperature: temperature,
+        spo2: spo2,
+        moisture: moisture,
+        battery_level: battery,
+        signal_strength: signal,
+        recorded_at: telemetryTimestamp,
+        is_offline_buffer: !!req.body.is_offline_buffer,
+        latest_telemetry: {
+            heart_rate: heartRate,
+            temperature: temperature,
+            spo2: spo2,
+            moisture: moisture,
+            recorded_at: telemetryTimestamp
+        }
     });
 
     // Step 9: Respond to ESP32

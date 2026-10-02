@@ -1658,8 +1658,10 @@ app.post('/api/device/data', async (req, res) => {
         }
 
         // 3. Update device heartbeat, battery level, signal strength, and IP address
-        const batteryVal = req.body.battery !== undefined && req.body.battery !== null ? parseInt(req.body.battery, 10) : null;
-        const signalVal = req.body.signal ? String(req.body.signal).slice(0, 20) : 'Good';
+        const rawBattery = req.body.battery !== undefined ? req.body.battery : req.body.battery_level;
+        const batteryVal = rawBattery !== undefined && rawBattery !== null ? parseInt(rawBattery, 10) : null;
+        const rawRssi = req.body.rssi !== undefined && req.body.rssi !== null ? parseFloat(req.body.rssi) : null;
+        const signalVal = req.body.signal ? String(req.body.signal).slice(0, 20) : (rawRssi !== null ? (rawRssi > -65 ? 'Excellent' : rawRssi > -80 ? 'Good' : 'Weak') : 'Good');
         const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
         const clientIp = String(rawIp).split(',')[0].trim().replace(/^.*:/, '');
 
@@ -1668,7 +1670,7 @@ app.post('/api/device/data', async (req, res) => {
              SET last_heartbeat = NOW(),
                  status = 'ACTIVE',
                  battery_level = COALESCE($2, battery_level),
-                 signal_strength = $3,
+                 signal_strength = COALESCE($3, signal_strength),
                  ip_address = COALESCE(NULLIF($4, ''), ip_address)
              WHERE serial_number = $1`,
             [device_id, batteryVal, signalVal, clientIp]

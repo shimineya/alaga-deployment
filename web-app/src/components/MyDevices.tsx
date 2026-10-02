@@ -153,7 +153,7 @@ export const MyDevices: React.FC = () => {
         };
 
         window.addEventListener('alaga_alert_update', handleRealtimeSync);
-        const poll = setInterval(() => fetchInventory(false), 10000);
+        const poll = setInterval(() => fetchInventory(false), 3000);
 
         return () => {
             window.removeEventListener('alaga_alert_update', handleRealtimeSync);

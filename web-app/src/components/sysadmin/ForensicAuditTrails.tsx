@@ -79,12 +79,15 @@ export default function ForensicAuditTrails() {
             const blob = await res.blob();
             const blobUrl = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
+            a.style.display = 'none';
+            a.setAttribute('download', `Alaga_DPO_Audit_Report_${new Date().toISOString().slice(0, 10)}.csv`);
             a.href = blobUrl;
-            a.download = `Alaga_DPO_Audit_Report_${new Date().toISOString().slice(0, 10)}.csv`;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(blobUrl);
-            a.remove();
+            setTimeout(() => {
+                a.remove();
+                window.URL.revokeObjectURL(blobUrl);
+            }, 1000);
             toast.success('DPO forensic audit spreadsheet (CSV/Excel) downloaded successfully.');
         } catch {
             toast.error('Failed to export DPO spreadsheet.');

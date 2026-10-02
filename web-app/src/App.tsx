@@ -9,6 +9,7 @@ import { UserTypeSelection } from './components/UserTypeSelection';
 import { EmailVerification } from './components/EmailVerification';
 import { LandingPage } from './components/LandingPage';
 import { Toaster } from './components/ui/sonner';
+import AntiAutomationGuard from './components/security/AntiAutomationGuard';
 
 // [OWASP A01] Unified Layout — single source of truth for authenticated navigation
 import MainLayout from './components/layout/MainLayout';
@@ -140,7 +141,9 @@ function App() {
     <Router>
       <AuthProvider>
         <CaregiverLanguageProvider>
-          <AppContent />
+          <AntiAutomationGuard>
+            <AppContent />
+          </AntiAutomationGuard>
           <Toaster />
         </CaregiverLanguageProvider>
       </AuthProvider>

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { FileSearch, Download, Filter, RefreshCw } from 'lucide-react';
+import { FileSearch, Download, Filter, RefreshCw, FileSpreadsheet } from 'lucide-react';
 import { API_URL } from '@/lib/config';
 
 const API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
@@ -71,22 +71,23 @@ export default function ForensicAuditTrails() {
     };
 
 
-    const handleExportPdf = async () => {
+    const handleExportSpreadsheet = async (format: 'csv' | 'excel' = 'csv') => {
         try {
-            toast.info('Generating forensic audit PDF...');
-            const res = await fetch(`${API_URL}/api/sysadmin/audit-logs/export`, { headers: getAuth() });
-            if (!res.ok) throw new Error('PDF export failed');
+            toast.info(`Generating DPO forensic audit ${format.toUpperCase()} spreadsheet...`);
+            const res = await fetch(`${API_URL}/api/sysadmin/audit-logs/export?format=${format}`, { headers: getAuth() });
+            if (!res.ok) throw new Error('Spreadsheet export failed');
             const blob = await res.blob();
             const blobUrl = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = blobUrl;
-            a.download = `Alaga_Audit_Report_${Date.now()}.pdf`;
+            a.download = `Alaga_DPO_Audit_Report_${new Date().toISOString().slice(0, 10)}.csv`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(blobUrl);
-            toast.success('Forensic audit PDF downloaded successfully.');
+            a.remove();
+            toast.success('DPO forensic audit spreadsheet (CSV/Excel) downloaded successfully.');
         } catch {
-            toast.error('Failed to export audit PDF.');
+            toast.error('Failed to export DPO spreadsheet.');
         }
     };
 
@@ -107,12 +108,13 @@ export default function ForensicAuditTrails() {
                     </p>
                 </div>
                 <Button
-                    onClick={handleExportPdf}
+                    onClick={() => handleExportSpreadsheet('csv')}
                     variant="outline"
                     size="sm"
-                    className="border-slate-200 text-slate-600"
+                    className="border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-semibold shadow-sm transition-all"
+                    title="Export forensic audit trail as CSV spreadsheet for Data Protection Officer (DPO)"
                 >
-                    <Download className="w-4 h-4 mr-2" /> Export PDF for DPO
+                    <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-700" /> Export CSV / Excel for DPO
                 </Button>
             </div>
 

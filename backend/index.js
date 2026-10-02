@@ -80,10 +80,11 @@ app.use(helmet({
 }));
 app.use(express.json());
  
-// Mount Firewall & Maintenance checks
-const { checkMaintenance, checkIpBan } = require('./middleware/authMiddleware');
+// Mount Firewall, Maintenance & Anti-Automation checks
+const { checkMaintenance, checkIpBan, blockAutomationAgents } = require('./middleware/authMiddleware');
 app.use(checkIpBan);
 app.use(checkMaintenance);
+app.use(blockAutomationAgents);
 
 // [NOTE] JSON parse error handler moved to AFTER all route registrations
 // (Express error-handling middleware requires 4 params and must be placed after routes).

@@ -641,53 +641,83 @@ router.get('/audit-logs/auth-failures', requirePermission('audit_logs'), async (
     }
 });
 
-// PDF export of audit logs
+// DPO Spreadsheet Export of audit logs (CSV / Excel spreadsheet format)
 router.get('/audit-logs/export', requirePermission('audit_logs'), async (req, res) => {
     try {
+        const format = (req.query.format || 'csv').toLowerCase();
+
         const result = await pool.query(
             `SELECT a.timestamp, a.action, a.severity, a.ip_address,
                     u.username, a.resource_affected
              FROM access_logs a
              LEFT JOIN users u ON a.user_id = u.user_id
-             ORDER BY a.timestamp DESC LIMIT 1000`
+             ORDER BY a.timestamp DESC LIMIT 5000`
         );
-
-        const doc = new PDFDocument({ margin: 50 });
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=Alaga_Audit_Report_${Date.now()}.pdf`);
-        doc.pipe(res);
-
-        doc.fontSize(20).text('Alaga System: Forensic Audit Report', { align: 'center' });
-        doc.moveDown();
-        doc.fontSize(12).text(`Generated Date: ${new Date().toLocaleString()}`);
-        doc.text('CLASSIFICATION: CONFIDENTIAL - For Data Protection Officer use only.');
-        doc.moveDown();
-        doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-        doc.moveDown();
-        doc.fontSize(10);
-
-        result.rows.forEach(log => {
-            const y = doc.y;
-            doc.fillColor(log.severity === 'CRITICAL' ? 'red' : log.severity === 'WARNING' ? 'orange' : 'black');
-            doc.text(new Date(log.timestamp).toLocaleString(), 50, y, { width: 130 });
-            doc.text(log.action, 180, y, { width: 120 });
-            doc.text(log.username || 'System', 300, y, { width: 100 });
-            doc.text(log.ip_address || 'N/A', 400, y, { width: 100 });
-            doc.moveDown(0.5);
-            doc.fillColor('black');
-            if (doc.y > 700) doc.addPage();
-        });
 
         // [OWASP A09] Audit the export itself
         await pool.query(
             `INSERT INTO access_logs (user_id, action, severity, resource_affected)
-             VALUES ($1, 'AUDIT_LOG_EXPORT', 'WARNING', 'PDF Export triggered — notify DPO')`,
+             VALUES ($1, 'AUDIT_LOG_EXPORT', 'WARNING', 'DPO Spreadsheet Export triggered')`,
             [req.user.id]
         );
 
-        doc.end();
+        if (format === 'pdf') {
+            const doc = new PDFDocument({ margin: 50 });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename=Alaga_Audit_Report_${Date.now()}.pdf`);
+            doc.pipe(res);
+
+            doc.fontSize(20).text('Alaga System: Forensic Audit Report for DPO', { align: 'center' });
+            doc.moveDown();
+            doc.fontSize(12).text(`Generated Date: ${new Date().toLocaleString()}`);
+            doc.text('CLASSIFICATION: CONFIDENTIAL - For Data Protection Officer use only.');
+            doc.moveDown();
+            doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+            doc.moveDown();
+            doc.fontSize(10);
+
+            result.rows.forEach(log => {
+                const y = doc.y;
+                doc.fillColor(log.severity === 'CRITICAL' ? 'red' : log.severity === 'WARNING' ? 'orange' : 'black');
+                doc.text(new Date(log.timestamp).toLocaleString(), 50, y, { width: 130 });
+                doc.text(log.action, 180, y, { width: 120 });
+                doc.text(log.username || 'System', 300, y, { width: 100 });
+                doc.text(log.ip_address || 'N/A', 400, y, { width: 100 });
+                doc.moveDown(0.5);
+                doc.fillColor('black');
+                if (doc.y > 700) doc.addPage();
+            });
+
+            doc.end();
+            return;
+        }
+
+        // Generate CSV / Excel Spreadsheet (RFC 4180 with UTF-8 BOM so Microsoft Excel opens it seamlessly)
+        const headers = ['Timestamp', 'Event Action', 'Severity', 'User', 'IP Address', 'Resource / Details'];
+        const escapeCell = (val) => {
+            if (val === null || val === undefined) return '""';
+            return `"${String(val).replace(/"/g, '""')}"`;
+        };
+
+        const rows = result.rows.map(r => [
+            escapeCell(new Date(r.timestamp).toISOString()),
+            escapeCell(r.action),
+            escapeCell(r.severity),
+            escapeCell(r.username || 'System'),
+            escapeCell(r.ip_address || 'N/A'),
+            escapeCell(r.resource_affected || '')
+        ].join(','));
+
+        const spreadsheetData = '\uFEFF' + [headers.map(escapeCell).join(','), ...rows].join('\r\n');
+        const filename = `Alaga_DPO_Audit_Report_${new Date().toISOString().slice(0, 10)}.csv`;
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        return res.send(spreadsheetData);
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Export failed.' });
+        console.error('[DPO SPREADSHEET EXPORT ERROR]', err);
+        res.status(500).json({ success: false, message: 'DPO spreadsheet export failed.' });
     }
 });
 

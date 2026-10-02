@@ -395,5 +395,40 @@ const enforceBreakGlassForSysAdmin = (req, res, next) => {
     next();
 };
 
+// [OWASP A07 / HIPAA] Anti-Automation & Headless Scraper Blocker
+const blockAutomationAgents = (req, res, next) => {
+    const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+    
+    // Check known headless/driver UA patterns
+    const isAutomationAgent = 
+        userAgent.includes('headlesschrome') ||
+        userAgent.includes('puppeteer') ||
+        userAgent.includes('playwright') ||
+        userAgent.includes('selenium') ||
+        userAgent.includes('phantomjs') ||
+        userAgent.includes('webdriver');
+
+    if (isAutomationAgent) {
+        return res.status(403).json({
+            success: false,
+            message: 'Access Denied: Automated browser agent or headless runtime detected. UI automation is prohibited under HIPAA § 164.312 & OWASP A07.'
+        });
+    }
+
+    next();
+};
+
 // [OWASP A01] Export all middleware
-module.exports = { verifyToken, verifyAdmin, verifySuperAdmin, verifyFacilityAdmin, checkMaintenance, checkIpBan, requireRole, requirePermission, enforceBreakGlassForSysAdmin, computeRoleDefaults };
+module.exports = { 
+    verifyToken, 
+    verifyAdmin, 
+    verifySuperAdmin, 
+    verifyFacilityAdmin, 
+    checkMaintenance, 
+    checkIpBan, 
+    requireRole, 
+    requirePermission, 
+    enforceBreakGlassForSysAdmin, 
+    computeRoleDefaults,
+    blockAutomationAgents
+};

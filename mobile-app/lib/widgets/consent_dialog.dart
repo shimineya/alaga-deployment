@@ -193,7 +193,7 @@ class _ConsentAgreementDialogState extends State<ConsentAgreementDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Please scroll to the end and agree to all compliance documents.',
+            'Please read each document to the end and confirm your agreement.',
             style: GoogleFonts.albertSans(),
           ),
           backgroundColor: Colors.amber.shade800,
@@ -219,6 +219,10 @@ class _ConsentAgreementDialogState extends State<ConsentAgreementDialog> {
       );
 
       if (res['success'] == true) {
+        if (UserSession.current != null) {
+          UserSession.current!.mustAcceptConsent = false;
+          await SessionManager.saveSession(UserSession.current!);
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -313,7 +317,7 @@ class _ConsentAgreementDialogState extends State<ConsentAgreementDialog> {
                         Text(
                           widget.isReadOnly
                               ? 'Active Legal Terms & Data Privacy Notices'
-                              : 'Review & Scroll to Accept Mandatory Policies',
+                              : 'Review & Read to the End to Acknowledge Terms',
                           style: GoogleFonts.albertSans(
                             color: Colors.white.withValues(alpha: 0.85),
                             fontSize: 11,
@@ -485,7 +489,7 @@ class _ConsentAgreementDialogState extends State<ConsentAgreementDialog> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            isCurrentScrolled ? 'Reached End' : 'Scroll to End',
+                            isCurrentScrolled ? 'Fully Reviewed' : 'Read to the End',
                             style: GoogleFonts.poppins(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
@@ -562,7 +566,7 @@ class _ConsentAgreementDialogState extends State<ConsentAgreementDialog> {
                           child: Text(
                             isCurrentScrolled
                                 ? 'I have read and agree to ${currentForm?['title'] ?? 'this policy'}'
-                                : 'Please scroll to the end of this document to enable agreement',
+                                : 'Please read to the end of this document to enable agreement',
                             style: GoogleFonts.albertSans(
                               fontSize: 11,
                               fontWeight: isCurrentScrolled

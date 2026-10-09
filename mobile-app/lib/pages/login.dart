@@ -113,6 +113,8 @@ class _LoginPageState extends State<LoginPage> {
           userRole: session.role,
         );
         if (agreed != true || !mounted) return;
+        session.mustAcceptConsent = false;
+        await SessionManager.saveSession(session);
       }
 
       Navigator.pushAndRemoveUntil(

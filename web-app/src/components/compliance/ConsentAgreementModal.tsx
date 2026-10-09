@@ -166,7 +166,7 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
               <p className="text-xs text-teal-100/80 mt-0.5">
                 {isReadOnly 
                   ? 'Active legal policies, data protection notices, and clinical telemetry authorizations' 
-                  : 'Review each document and scroll to the bottom to acknowledge terms before continuing'}
+                  : 'Review and read each document to the end to acknowledge terms before continuing'}
               </p>
             </div>
           </div>
@@ -240,11 +240,11 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
                   <div className="shrink-0">
                     {currentScrolled ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Reached Bottom
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Fully Reviewed
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 animate-pulse">
-                        <ArrowDown className="w-3.5 h-3.5" /> Scroll to End
+                        <ArrowDown className="w-3.5 h-3.5" /> Read to the End
                       </span>
                     )}
                   </div>
@@ -287,7 +287,7 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
                     >
                       {currentScrolled
                         ? `I have reviewed and agree to the ${activeForm.title}`
-                        : `Please scroll to the bottom of this document before agreeing`}
+                        : `Please read to the end of this document before confirming agreement`}
                     </label>
                   </div>
                 )}

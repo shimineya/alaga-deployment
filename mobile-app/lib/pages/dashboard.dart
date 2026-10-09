@@ -25,7 +25,6 @@ import '../widgets/patient_profile_modal.dart';
 import '../theme/alaga_theme.dart';
 import 'manual.dart';
 import '../widgets/interactive_tutorial.dart';
-import '../widgets/consent_dialog.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int initialIndex;
@@ -107,23 +106,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _configureDataRefresh();
     AlertNotificationService.initialize();
     AlertNotificationService.startMonitoring();
-
-    // Enforce compliance consent if pending
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (UserSession.current?.mustAcceptConsent == true && mounted) {
-        final agreed = await showConsentAgreementDialog(
-          context,
-          userId: UserSession.current?.id,
-          userRole: UserSession.current?.role,
-          isReadOnly: false,
-        );
-        if (agreed == true && mounted) {
-          setState(() {
-            UserSession.current?.mustAcceptConsent = false;
-          });
-        }
-      }
-    });
 
     // Re-fetch dashboard when an alert arrives or is acknowledged in real-time,
     // and instantly update patient vitals from real-time telemetry events

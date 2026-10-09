@@ -112,6 +112,10 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
           userRole: result['user']?['role'] ?? 'parent',
         );
         if (agreed != true || !mounted) return;
+        if (UserSession.current != null) {
+          UserSession.current!.mustAcceptConsent = false;
+          await SessionManager.saveSession(UserSession.current!);
+        }
       }
 
       // Navigate to the registration success page

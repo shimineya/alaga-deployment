@@ -123,7 +123,6 @@ class _RoleScreenState extends State<RoleScreen> {
 
         if (!mounted) return;
         await _showIncompatibleRoleWarning(
-          facilityName: res['facility_name'] ?? 'Healthcare Facility',
           role: res['role'] ?? 'medical_staff',
         );
         return;
@@ -158,7 +157,6 @@ class _RoleScreenState extends State<RoleScreen> {
   }
 
   Future<void> _showIncompatibleRoleWarning({
-    required String facilityName,
     required String role,
   }) async {
     final roleDisplay = role.replaceAll('_', ' ').toUpperCase();
@@ -199,7 +197,7 @@ class _RoleScreenState extends State<RoleScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'This invitation token is designated for a $roleDisplay account at $facilityName.',
+              'This invitation token is designated for a $roleDisplay account.',
               style: GoogleFonts.albertSans(
                 fontSize: 14,
                 color: const Color(0xFF334155),
@@ -306,7 +304,6 @@ class _RoleScreenState extends State<RoleScreen> {
       if (_verifiedRole != null && _verifiedRole!.trim().toLowerCase() != 'caregiver') {
         setState(() => _tokenError = 'Medical Staff tokens are not allowed. A Caregiver token is required.');
         await _showIncompatibleRoleWarning(
-          facilityName: _verifiedFacilityName ?? 'Healthcare Facility',
           role: _verifiedRole!,
         );
         return;

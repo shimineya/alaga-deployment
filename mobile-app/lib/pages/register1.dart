@@ -3,7 +3,8 @@ import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/registration_data.dart';
-import 'privacy.dart'; 
+import '../services/api_service.dart';
+import 'otp.dart';
 import 'login.dart'; 
 
 class CreateCredentialsPage extends StatefulWidget {
@@ -25,6 +26,7 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _submitted = false;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -241,13 +243,22 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
                     SizedBox(
                       width: 200,
                       child: ElevatedButton(
-                        onPressed: _proceedToAgreement,
+                        onPressed: _isLoading ? null : _registerAndProceedToOTP,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF5FA9A9),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
                         ),
-                        child: Text('Next', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text('Register', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -287,22 +298,58 @@ class _CreateCredentialsPageState extends State<CreateCredentialsPage> {
     );
   }
 
-  // Validates credentials and forwards RegistrationData to PrivacyPolicyScreen
-  void _proceedToAgreement() {
+  // Registers the account and forwards directly to OTP Verification
+  Future<void> _registerAndProceedToOTP() async {
     setState(() => _submitted = true);
     if (!_formKey.currentState!.validate()) return;
 
     // Attach credentials to the registration model
-    widget.registrationData.username = _usernameCtrl.text;
+    widget.registrationData.username = _usernameCtrl.text.trim();
     widget.registrationData.password = _passwordCtrl.text;
 
-    // Navigate to Privacy Policy screen
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PrivacyPolicyScreen(
-          registrationData: widget.registrationData,
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await ApiService.post(
+        '/api/auth/register',
+        body: widget.registrationData.toJson(),
+        requiresAuth: false,
+        timeoutSeconds: 45,
+      );
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (result['success'] == true) {
+        // Proceed directly to OTP Verification without redundant terms screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => OTPVerificationPage(
+              userId: result['user_id'] ?? result['userId'],
+              email: result['email'] ?? widget.registrationData.email,
+              purpose: result['otpPurpose'] ?? 'REGISTER_VERIFY',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Registration failed. Please try again.'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Registration network error: $e'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
         ),
-      ),
-    );
+      );
+    }
   }
 }

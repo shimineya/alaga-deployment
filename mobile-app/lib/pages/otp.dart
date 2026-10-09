@@ -106,9 +106,10 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
 
       // Show mandatory clinical consent dialog after OTP
       if (result['must_accept_consent'] != false) {
+        final effectiveUserId = result['user']?['id'] ?? result['user']?['user_id'] ?? widget.userId;
         final agreed = await showConsentAgreementDialog(
           context,
-          userId: widget.userId,
+          userId: effectiveUserId,
           userRole: result['user']?['role'] ?? 'parent',
         );
         if (agreed != true || !mounted) return;
@@ -117,6 +118,8 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
           await SessionManager.saveSession(UserSession.current!);
         }
       }
+
+      if (!mounted) return;
 
       // Navigate to the registration success page
       Navigator.pushReplacement(

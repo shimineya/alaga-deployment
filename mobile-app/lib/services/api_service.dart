@@ -102,7 +102,7 @@ class ApiService {
 
   // [OWASP A02] Base URL sourced from environment file — never hard-coded.
   static String get _baseUrl {
-    final url = dotenv.env['API_BASE_URL'];
+    final url = dotenv.env['API_BASE_URL'] ?? dotenv.env['API_URL'];
     if (url != null && url.trim().isNotEmpty) {
       return url.trim();
     }

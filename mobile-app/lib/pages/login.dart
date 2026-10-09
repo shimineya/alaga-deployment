@@ -103,10 +103,12 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
 
-      // [COMPLIANCE] If provisioned account or first login, pop up mandatory consent agreement
-      if (result['must_accept_consent'] == true ||
-          result['user']?['must_accept_consent'] == true ||
-          result['user']?['must_accept_terms'] == true) {
+      // [COMPLIANCE] Only provisioned accounts that have not yet consented see the dialog on login
+      final isProvisioned = result['user']?['is_provisioned'] == true ||
+          (result['user']?['created_by'] != null);
+      final alreadyAgreed = result['user']?['consent_agreed_at'] != null;
+
+      if (isProvisioned && !alreadyAgreed && (result['must_accept_consent'] == true || result['user']?['must_accept_terms'] == true)) {
         final agreed = await showConsentAgreementDialog(
           context,
           userId: session.id,
@@ -116,6 +118,8 @@ class _LoginPageState extends State<LoginPage> {
         session.mustAcceptConsent = false;
         await SessionManager.saveSession(session);
       }
+
+      if (!mounted) return;
 
       Navigator.pushAndRemoveUntil(
         context,

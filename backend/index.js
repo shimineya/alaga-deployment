@@ -880,7 +880,7 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             `SELECT u.user_id, u.username, u.email, u.role, u.first_name,
                     u.account_status, u.is_locked, u.is_verified, u.is_archived,
                     u.password_hash, u.profile_picture_url, u.facility_id,
-                    u.consent_agreed_at, u.must_accept_terms,
+                    u.consent_agreed_at, u.must_accept_terms, u.created_by,
                     f.facility_name
              FROM users u
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
@@ -952,7 +952,10 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             { expiresIn: '8h' }
         );
 
-        const mustAcceptConsent = !user.consent_agreed_at || user.must_accept_terms === true;
+        const isProvisioned = user.created_by !== null && user.created_by !== undefined;
+        // Consent agreement is mandatory post-OTP for self-registered users.
+        // On login, prompt for consent ONLY IF the account was provisioned by an admin/facility and has not yet consented.
+        const mustAcceptConsent = isProvisioned && (!user.consent_agreed_at || user.must_accept_terms === true);
 
         res.json({
             success: true,
@@ -969,7 +972,10 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
                 account_status: user.account_status,
                 facility_id: user.facility_id || null,
                 facility_name: user.facility_name || null,
+                created_by: user.created_by || null,
+                is_provisioned: isProvisioned,
                 must_accept_consent: mustAcceptConsent,
+                must_accept_terms: user.must_accept_terms === true && isProvisioned,
                 consent_agreed_at: user.consent_agreed_at || null,
                 // [FIX] Include profile picture URL so the dashboard avatar
                 // renders immediately after login without a separate API call.
@@ -1007,7 +1013,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
         const result = await pool.query(
             `SELECT u.user_id, u.username, u.email, u.role, u.first_name, u.last_name,
                     u.account_status, u.profile_picture_url, u.facility_id,
-                    u.consent_agreed_at, u.must_accept_terms,
+                    u.consent_agreed_at, u.must_accept_terms, u.created_by,
                     f.facility_name
              FROM users u
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
@@ -1018,11 +1024,13 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
         const u = result.rows[0];
-        const mustAcceptConsent = !u.consent_agreed_at || u.must_accept_terms === true;
+        const isProvisioned = u.created_by !== null && u.created_by !== undefined;
+        const mustAcceptConsent = isProvisioned && (!u.consent_agreed_at || u.must_accept_terms === true);
         res.json({
             success: true,
             user: {
                 id: u.user_id,
+                user_id: u.user_id,
                 username: u.username,
                 email: u.email,
                 role: u.role,
@@ -1033,7 +1041,10 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
                 profile_picture_url: u.profile_picture_url,
                 facility_id: u.facility_id,
                 facility_name: u.facility_name,
+                created_by: u.created_by || null,
+                is_provisioned: isProvisioned,
                 must_accept_consent: mustAcceptConsent,
+                must_accept_terms: u.must_accept_terms === true && isProvisioned,
                 consent_agreed_at: u.consent_agreed_at || null,
             }
         });

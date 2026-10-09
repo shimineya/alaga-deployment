@@ -108,6 +108,27 @@ class _RoleScreenState extends State<RoleScreen> {
     setState(() => _isVerifyingToken = false);
 
     if (res['success'] == true && res['valid'] == true) {
+      final designatedRole = (res['role'] as String?)?.trim().toLowerCase();
+
+      // [ROLE ENFORCEMENT] The mobile application strictly supports Caregivers and Parents.
+      // Medical staff accounts must use the web portal.
+      if (designatedRole != 'caregiver') {
+        setState(() {
+          _verifiedFacilityName = null;
+          _verifiedRole = null;
+          _data.inviteToken = '';
+          _data.facilityName = '';
+          _tokenError = 'Medical Staff tokens are not permitted on mobile. Please provide a Caregiver invitation token.';
+        });
+
+        if (!mounted) return;
+        await _showIncompatibleRoleWarning(
+          facilityName: res['facility_name'] ?? 'Healthcare Facility',
+          role: res['role'] ?? 'medical_staff',
+        );
+        return;
+      }
+
       setState(() {
         _verifiedFacilityName = res['facility_name'];
         _verifiedRole = res['role'];
@@ -115,16 +136,14 @@ class _RoleScreenState extends State<RoleScreen> {
         _data.inviteToken = token;
         _data.facilityName = res['facility_name'] ?? '';
         _data.caregiverType = 'facility';
-        if (res['role'] != null) {
-          _data.role = res['role'];
-        }
+        _data.role = 'caregiver';
         if (res['email'] != null && (res['email'] as String).isNotEmpty) {
           _data.email = (res['email'] as String).trim();
         }
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Verified: Affiliated with ${res['facility_name']}!'),
+          content: Text('Verified: Affiliated with ${res['facility_name']} as Caregiver!'),
           backgroundColor: const Color(0xFF00796B),
           behavior: SnackBarBehavior.floating,
         ),
@@ -138,6 +157,140 @@ class _RoleScreenState extends State<RoleScreen> {
     }
   }
 
+  Future<void> _showIncompatibleRoleWarning({
+    required String facilityName,
+    required String role,
+  }) async {
+    final roleDisplay = role.replaceAll('_', ' ').toUpperCase();
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.warning_amber_rounded,
+                color: Color(0xFFD97706),
+                size: 26,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Incompatible Role',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 17,
+                  color: const Color(0xFF1E293B),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This invitation token is designated for a $roleDisplay account at $facilityName.',
+              style: GoogleFonts.albertSans(
+                fontSize: 14,
+                color: const Color(0xFF334155),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFCA5A5)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.block, color: Color(0xFFDC2626), size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Mobile App Access Restricted',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFFB91C1C),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'The Alaga Mobile App is exclusively for Caregivers and Parents.\n\nMedical Staff must register and access clinical ward dashboards using the Alaga Web Application.',
+                    style: GoogleFonts.albertSans(
+                      fontSize: 12,
+                      color: const Color(0xFF7F1D1D),
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'You cannot proceed in the mobile app with a Medical Staff token. Please enter a valid Caregiver invitation token or use the web app.',
+              style: GoogleFonts.albertSans(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFFDC2626),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00796B),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(
+                'Understand & Enter Caregiver Token',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool get _canProceed {
+    if (selectedRole == null) return false;
+    if (selectedRole == 'CAREGIVER' && _isAffiliatedWithFacility) {
+      return _verifiedFacilityName != null &&
+          _verifiedRole != null &&
+          _verifiedRole!.trim().toLowerCase() == 'caregiver';
+    }
+    return true;
+  }
+
   void _handleContinue() async {
     if (selectedRole == null) return;
 
@@ -149,6 +302,14 @@ class _RoleScreenState extends State<RoleScreen> {
         }
         await _verifyToken();
         if (_verifiedFacilityName == null) return;
+      }
+      if (_verifiedRole != null && _verifiedRole!.trim().toLowerCase() != 'caregiver') {
+        setState(() => _tokenError = 'Medical Staff tokens are not allowed. A Caregiver token is required.');
+        await _showIncompatibleRoleWarning(
+          facilityName: _verifiedFacilityName ?? 'Healthcare Facility',
+          role: _verifiedRole!,
+        );
+        return;
       }
     } else {
       _data.inviteToken = '';
@@ -532,7 +693,7 @@ class _RoleScreenState extends State<RoleScreen> {
               SizedBox(
                 width: 220,
                 child: ElevatedButton(
-                  onPressed: selectedRole == null ? null : _handleContinue,
+                  onPressed: !_canProceed ? null : _handleContinue,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF5FA9A9),
                     disabledBackgroundColor: Colors.grey.shade300,
@@ -547,7 +708,7 @@ class _RoleScreenState extends State<RoleScreen> {
                     style: GoogleFonts.poppins(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: selectedRole == null ? Colors.grey.shade600 : Colors.black,
+                      color: !_canProceed ? Colors.grey.shade600 : Colors.black,
                     ),
                   ),
                 ),

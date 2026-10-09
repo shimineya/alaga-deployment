@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -30,6 +31,13 @@ class _RoleScreenState extends State<RoleScreen> {
   String? _verifiedRole;
   String? _tokenError;
 
+  // Incompatible role attempt limit & cooldown
+  int _incompatibleRoleAttempts = 0;
+  int _cooldownSecondsRemaining = 0;
+  Timer? _cooldownTimer;
+
+  bool get _isLockedOut => _cooldownSecondsRemaining > 0;
+
   @override
   void initState() {
     super.initState();
@@ -55,8 +63,35 @@ class _RoleScreenState extends State<RoleScreen> {
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _tokenCtrl.dispose();
     super.dispose();
+  }
+
+  void _startCooldown(int seconds) {
+    _cooldownTimer?.cancel();
+    setState(() {
+      _cooldownSecondsRemaining = seconds;
+    });
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_cooldownSecondsRemaining <= 1) {
+        timer.cancel();
+        setState(() {
+          _cooldownSecondsRemaining = 0;
+          _incompatibleRoleAttempts = 0;
+          _tokenError = null;
+        });
+      } else {
+        setState(() {
+          _cooldownSecondsRemaining--;
+          _tokenError = 'Too many incompatible attempts. Please wait $_cooldownSecondsRemaining second${_cooldownSecondsRemaining == 1 ? '' : 's'} before trying again.';
+        });
+      }
+    });
   }
 
   String get _roleDescription {
@@ -81,6 +116,11 @@ class _RoleScreenState extends State<RoleScreen> {
   }
 
   Future<void> _verifyToken() async {
+    if (_isLockedOut) {
+      setState(() => _tokenError = 'Too many incompatible attempts. Please wait $_cooldownSecondsRemaining second${_cooldownSecondsRemaining == 1 ? '' : 's'} before trying again.');
+      return;
+    }
+
     final raw = _tokenCtrl.text;
     final token = raw
         .replaceAll(RegExp(r'[\u200B-\u200D\uFEFF\u00A0\s\r\n]'), '')
@@ -113,20 +153,34 @@ class _RoleScreenState extends State<RoleScreen> {
       // [ROLE ENFORCEMENT] The mobile application strictly supports Caregivers and Parents.
       // Medical staff accounts must use the web portal.
       if (designatedRole != 'caregiver') {
+        _incompatibleRoleAttempts++;
+        final isLocked = _incompatibleRoleAttempts >= 3;
+
+        if (isLocked) {
+          _startCooldown(60);
+        }
+
         setState(() {
           _verifiedFacilityName = null;
           _verifiedRole = null;
           _data.inviteToken = '';
           _data.facilityName = '';
-          _tokenError = 'Medical Staff tokens are not permitted on mobile. Please provide a Caregiver invitation token.';
+          _tokenError = isLocked
+              ? 'Maximum attempts reached (3/3). Verification locked for 60 seconds.'
+              : 'Medical Staff tokens are not permitted on mobile ($_incompatibleRoleAttempts/3 attempts used).';
         });
 
         if (!mounted) return;
         await _showIncompatibleRoleWarning(
           role: res['role'] ?? 'medical_staff',
+          attemptCount: _incompatibleRoleAttempts,
+          isLocked: isLocked,
         );
         return;
       }
+
+      // Successful caregiver token: reset counter
+      _incompatibleRoleAttempts = 0;
 
       setState(() {
         _verifiedFacilityName = res['facility_name'];
@@ -158,6 +212,8 @@ class _RoleScreenState extends State<RoleScreen> {
 
   Future<void> _showIncompatibleRoleWarning({
     required String role,
+    required int attemptCount,
+    required bool isLocked,
   }) async {
     final roleDisplay = role.replaceAll('_', ' ').toUpperCase();
     return showDialog(
@@ -170,19 +226,19 @@ class _RoleScreenState extends State<RoleScreen> {
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
+                color: isLocked ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(
-                Icons.warning_amber_rounded,
-                color: Color(0xFFD97706),
+              child: Icon(
+                isLocked ? Icons.lock_clock_outlined : Icons.warning_amber_rounded,
+                color: isLocked ? const Color(0xFFDC2626) : const Color(0xFFD97706),
                 size: 26,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Incompatible Role',
+                isLocked ? 'Attempt Limit Reached' : 'Incompatible Role',
                 style: GoogleFonts.poppins(
                   fontWeight: FontWeight.w700,
                   fontSize: 17,
@@ -233,7 +289,7 @@ class _RoleScreenState extends State<RoleScreen> {
                   Text(
                     'The Alaga Mobile App is exclusively for Caregivers and Parents.\n\nMedical Staff must register and access clinical ward dashboards using the Alaga Web Application.',
                     style: GoogleFonts.albertSans(
-                      fontSize: 12,
+                      fontSize: 12.5,
                       color: const Color(0xFF7F1D1D),
                       height: 1.4,
                     ),
@@ -241,6 +297,58 @@ class _RoleScreenState extends State<RoleScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+            if (isLocked) ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF1F2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFDA4AF)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.timer_outlined, color: Color(0xFFBE123C), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Attempt 3 of 3: Cooldown active. Token verification is locked for 60 seconds.',
+                        style: GoogleFonts.albertSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF9F1239),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFCD34D)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: Color(0xFFB45309), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Attempt $attemptCount of 3 (${3 - attemptCount} attempt${3 - attemptCount == 1 ? '' : 's'} remaining before a 60-second cooldown).',
+                        style: GoogleFonts.albertSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Text(
               'You cannot proceed in the mobile app with a Medical Staff token. Please enter a valid Caregiver invitation token or use the web app.',
@@ -265,7 +373,7 @@ class _RoleScreenState extends State<RoleScreen> {
                 ),
               ),
               child: Text(
-                'Understand & Enter Caregiver Token',
+                isLocked ? 'Close' : 'Understand & Enter Caregiver Token',
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -280,7 +388,7 @@ class _RoleScreenState extends State<RoleScreen> {
   }
 
   bool get _canProceed {
-    if (selectedRole == null) return false;
+    if (selectedRole == null || _isLockedOut) return false;
     if (selectedRole == 'CAREGIVER' && _isAffiliatedWithFacility) {
       return _verifiedFacilityName != null &&
           _verifiedRole != null &&
@@ -290,7 +398,7 @@ class _RoleScreenState extends State<RoleScreen> {
   }
 
   void _handleContinue() async {
-    if (selectedRole == null) return;
+    if (selectedRole == null || _isLockedOut) return;
 
     if (selectedRole == 'CAREGIVER' && _isAffiliatedWithFacility) {
       if (_verifiedFacilityName == null) {
@@ -302,9 +410,20 @@ class _RoleScreenState extends State<RoleScreen> {
         if (_verifiedFacilityName == null) return;
       }
       if (_verifiedRole != null && _verifiedRole!.trim().toLowerCase() != 'caregiver') {
-        setState(() => _tokenError = 'Medical Staff tokens are not allowed. A Caregiver token is required.');
+        _incompatibleRoleAttempts++;
+        final isLocked = _incompatibleRoleAttempts >= 3;
+        if (isLocked) {
+          _startCooldown(60);
+        }
+        setState(() {
+          _tokenError = isLocked
+              ? 'Maximum attempts reached (3/3). Input locked for 60 seconds.'
+              : 'Medical Staff tokens are not allowed ($_incompatibleRoleAttempts/3 attempts used).';
+        });
         await _showIncompatibleRoleWarning(
           role: _verifiedRole!,
+          attemptCount: _incompatibleRoleAttempts,
+          isLocked: isLocked,
         );
         return;
       }
@@ -556,15 +675,16 @@ class _RoleScreenState extends State<RoleScreen> {
                             Expanded(
                               child: TextFormField(
                                 controller: _tokenCtrl,
+                                enabled: !_isLockedOut,
                                 textCapitalization: TextCapitalization.characters,
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 1.5,
-                                  color: const Color(0xFF004D40),
+                                  color: _isLockedOut ? Colors.grey : const Color(0xFF004D40),
                                 ),
                                 decoration: InputDecoration(
-                                  hintText: "FAC-XXXXXXXX",
+                                  hintText: _isLockedOut ? "Cooldown active (${_cooldownSecondsRemaining}s)" : "FAC-XXXXXXXX",
                                   hintStyle: GoogleFonts.poppins(
                                     fontSize: 12,
                                     letterSpacing: 1.0,
@@ -572,11 +692,15 @@ class _RoleScreenState extends State<RoleScreen> {
                                     fontWeight: FontWeight.normal,
                                   ),
                                   filled: true,
-                                  fillColor: const Color(0xFFF5F5F0),
+                                  fillColor: _isLockedOut ? Colors.grey.shade200 : const Color(0xFFF5F5F0),
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
                                     borderSide: BorderSide(color: Colors.grey.shade400),
+                                  ),
+                                  disabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(color: Colors.grey.shade300),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
@@ -595,9 +719,9 @@ class _RoleScreenState extends State<RoleScreen> {
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
-                              onPressed: _isVerifyingToken ? null : _verifyToken,
+                              onPressed: (_isVerifyingToken || _isLockedOut) ? null : _verifyToken,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF00796B),
+                                backgroundColor: _isLockedOut ? Colors.grey.shade400 : const Color(0xFF00796B),
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
@@ -610,7 +734,7 @@ class _RoleScreenState extends State<RoleScreen> {
                                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                                     )
                                   : Text(
-                                      "Verify",
+                                      _isLockedOut ? "${_cooldownSecondsRemaining}s" : "Verify",
                                       style: GoogleFonts.poppins(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,

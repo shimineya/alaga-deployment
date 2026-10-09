@@ -22,6 +22,49 @@ interface ConsentAgreementModalProps {
   onClose?: () => void;  // For read-only settings view
 }
 
+const DEFAULT_FALLBACK_FORMS: LegalForm[] = [
+  {
+    id: 'terms_and_conditions',
+    title: 'Platform Terms and Conditions',
+    category: 'Legal & Terms of Service',
+    role_scope: 'all',
+    summary: 'Governs acceptable use of the ALAGA healthcare monitoring portal, account responsibilities, system uptime, and auxiliary hardware disclaimers.',
+    content: `1. ACCEPTANCE OF TERMS\nBy accessing or using the ALAGA Healthcare Monitoring System (Web and Mobile Applications, firmware-enabled IoT clips, and cloud services), you acknowledge and agree to be bound by these Platform Terms and Conditions. If you do not agree with any provision herein, you must refrain from accessing or utilizing the platform.\n\n2. AUXILIARY HARDWARE DISCLAIMER\nALAGA HARDWARE DEVICES ARE AUXILIARY MONITORING AIDS AND ARE NOT CERTIFIED AS LIFE-SUPPORT SYSTEMS. The system is designed to augment, not substitute, hands-on clinical observation, parental attentiveness, and professional medical supervision.\n\n3. ACCOUNT CREDENTIALS & SECURITY OBLIGATIONS\nUsers are solely responsible for preserving the confidentiality of their credentials and session tokens.\n\n4. CONNECTIVITY LIMITATIONS\nTelemetry streaming relies on Wi-Fi, battery capacity, cellular internet connectivity, and cloud backend availability. ALAGA implements automatic store-and-forward buffers during network drops.`
+  },
+  {
+    id: 'privacy_policy',
+    title: 'Platform Privacy Policy (RA 10173)',
+    category: 'Data Governance & Privacy',
+    role_scope: 'all',
+    summary: 'Details lawful processing of Personal Health Information (PHI) under Philippine Republic Act 10173 (Data Privacy Act of 2012).',
+    content: `1. STATUTORY COMPLIANCE\nIn accordance with Republic Act No. 10173 (Philippine Data Privacy Act of 2012), ALAGA adheres to transparency, legitimate purpose, and proportionality in collecting and processing Personal Health Information.\n\n2. INFORMATION COLLECTED\nDemographics, real-time vital telemetry (heart rate, SpO2, body temperature), diaper moisture percentages, sensor attachment status, and device battery/signal telemetry.\n\n3. ENCRYPTION & DATA STORAGE\nAll telemetry transmitted between IoT sensors, mobile devices, and backend endpoints is encrypted in transit using TLS 1.3. Database records are encrypted at rest with AES-256 standards.\n\n4. ACCESS CONTROL\nAccess to patient telemetry is strictly scoped to enrolled parents or assigned clinical staff.`
+  },
+  {
+    id: 'telemetry_authorization',
+    title: 'Informed Health Data Consent & Telemetry Authorization',
+    category: 'Clinical Telemetry Consent',
+    role_scope: 'all',
+    summary: 'Explicit authorization for continuous optical biometric streaming and smart diaper moisture sampling.',
+    content: `1. PURPOSE OF CONTINUOUS MONITORING\nContinuous telemetry collection enables immediate identification of acute physiological changes, fever onset, hypoxia episodes, and wet diaper saturation.\n\n2. NATURE OF WEARABLE SENSORS\nYou authorize placement and operation of MAX30102 Optical PPG clips and conductive diaper moisture probes.\n\n3. POTENTIAL RISKS & SKIN INTEGRITY\nSensor components utilize medical-grade hypoallergenic casings. Caregivers agree to routinely inspect skin during diaper changes.`
+  },
+  {
+    id: 'ai_decision_support_disclaimer',
+    title: 'AI Decision-Support & Clinical Telemetry Disclaimer',
+    category: 'AI & Algorithm Disclaimer',
+    role_scope: 'all',
+    summary: 'Auxiliary decision-support safeguard declaring algorithms serve non-diagnostic functions only.',
+    content: `1. NON-DIAGNOSTIC NATURE OF ALGORITHMIC OUTPUTS\nALL AI INSIGHTS, PREDICTIVE TRENDS, RISK INDICATORS, AND AUTOMATED RECOMMENDATIONS ARE CLASSIFIED AS NON-DIAGNOSTIC CLINICAL DECISION-SUPPORT AIDS.\n\n2. PRESERVATION OF CLINICAL AUTONOMY\nLicensed healthcare providers, caregivers, and legal guardians retain complete clinical authority and responsibility for patient care.`
+  },
+  {
+    id: 'emergency_escalation_protocol',
+    title: 'Emergency Care & Escalation Protocol Acknowledgment',
+    category: 'Emergency Protocols',
+    role_scope: 'all',
+    summary: 'Operational instructions and escalation protocols when emergency vital signs are triggered.',
+    content: `1. CRITICAL VITAL ACTION THRESHOLDS\nWhen an alarm status switches to "CRITICAL", immediately perform physical assessment of the patient and verify sensor seating before escalating according to facility clinical protocol.\n\n2. NETWORK DISRUPTIONS IN EMERGENCIES\nIn life-threatening emergencies, never delay contacting emergency medical responders while troubleshooting connectivity.`
+  }
+];
+
 export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
   isOpen,
   userId,
@@ -31,9 +74,9 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
   isReadOnly = false,
   onClose,
 }) => {
-  const [forms, setForms] = useState<LegalForm[]>([]);
+  const [forms, setForms] = useState<LegalForm[]>(DEFAULT_FALLBACK_FORMS);
   const [activeFormIndex, setActiveFormIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState<Record<string, boolean>>({});
   const [acceptedCheckboxes, setAcceptedCheckboxes] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -43,7 +86,6 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
     if (!isOpen) return;
 
     const fetchForms = async () => {
-      setLoading(true);
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (authToken) {
@@ -52,7 +94,7 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
         const roleQuery = userRole ? `?role=${encodeURIComponent(userRole)}` : '';
         const res = await fetch(`${API_URL}/api/compliance/forms${roleQuery}`, { headers });
         const data = await res.json();
-        if (data.success && Array.isArray(data.forms)) {
+        if (data.success && Array.isArray(data.forms) && data.forms.length > 0) {
           setForms(data.forms);
           // If in read-only mode, mark all as scrolled
           if (isReadOnly) {
@@ -62,8 +104,7 @@ export const ConsentAgreementModal: React.FC<ConsentAgreementModalProps> = ({
           }
         }
       } catch (err) {
-        console.error('Failed to load compliance forms', err);
-        toast.error('Failed to load required compliance documents. Retrying...');
+        console.warn('Compliance API forms fetch failed, utilizing embedded fallback forms:', err);
       } finally {
         setLoading(false);
       }

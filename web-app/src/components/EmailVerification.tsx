@@ -28,6 +28,7 @@ export const EmailVerification: React.FC = () => {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [verifiedUserId, setVerifiedUserId] = useState<number | null>(null);
   const [verifiedUserRole, setVerifiedUserRole] = useState<string>('all');
+  const [verifiedAuthToken, setVerifiedAuthToken] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // [OWASP A07] Pending verification context stored by SignUp.tsx after successful registration.
@@ -145,9 +146,15 @@ export const EmailVerification: React.FC = () => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        if (data.must_accept_consent !== false) {
-          setVerifiedUserId(data.user_id || pendingData.user_id);
-          setVerifiedUserRole(data.role || 'all');
+        const mustConsent = data.must_accept_consent !== false && data.user?.must_accept_consent !== false;
+        if (mustConsent) {
+          const resolvedUserId = data.user?.id || data.user_id || pendingData.user_id;
+          const resolvedRole = data.user?.role || data.role || 'all';
+          setVerifiedUserId(resolvedUserId);
+          setVerifiedUserRole(resolvedRole);
+          if (data.token) {
+            setVerifiedAuthToken(data.token);
+          }
           setShowConsentModal(true);
           toast.success('Email verified! Please review and accept ALAGA clinical policies and consents.');
         } else {
@@ -378,6 +385,7 @@ export const EmailVerification: React.FC = () => {
         isOpen={showConsentModal}
         userId={verifiedUserId || undefined}
         userRole={verifiedUserRole}
+        authToken={verifiedAuthToken}
         onAccepted={() => {
           sessionStorage.removeItem('pendingOtpVerification');
           toast.success('All clinical consents recorded! You can now log in.');

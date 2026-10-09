@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Mail, Shield, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConsentAgreementModal } from './compliance/ConsentAgreementModal';
 
 // [OWASP A07] Masks the email address for display so the user can confirm
 // it is correct without fully exposing it on screen.
@@ -24,6 +25,9 @@ export const EmailVerification: React.FC = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [shakeActive, setShakeActive] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [verifiedUserId, setVerifiedUserId] = useState<number | null>(null);
+  const [verifiedUserRole, setVerifiedUserRole] = useState<string>('all');
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // [OWASP A07] Pending verification context stored by SignUp.tsx after successful registration.
@@ -141,10 +145,16 @@ export const EmailVerification: React.FC = () => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Verification succeeded — clean up and send user to login
-        sessionStorage.removeItem('pendingOtpVerification');
-        toast.success('Email verified successfully! You can now log in.');
-        setTimeout(() => navigate('/login'), 1200);
+        if (data.must_accept_consent !== false) {
+          setVerifiedUserId(data.user_id || pendingData.user_id);
+          setVerifiedUserRole(data.role || 'all');
+          setShowConsentModal(true);
+          toast.success('Email verified! Please review and accept ALAGA clinical policies and consents.');
+        } else {
+          sessionStorage.removeItem('pendingOtpVerification');
+          toast.success('Email verified successfully! You can now log in.');
+          setTimeout(() => navigate('/login'), 1200);
+        }
       } else {
         // [OWASP A10] Show only the server's message — no stack trace
         triggerShake();
@@ -362,6 +372,18 @@ export const EmailVerification: React.FC = () => {
           animation: shake 0.5s;
         }
       `}</style>
+
+      {/* Mandatory Clinical Consent & Legal Forms Modal */}
+      <ConsentAgreementModal
+        isOpen={showConsentModal}
+        userId={verifiedUserId || undefined}
+        userRole={verifiedUserRole}
+        onAccepted={() => {
+          sessionStorage.removeItem('pendingOtpVerification');
+          toast.success('All clinical consents recorded! You can now log in.');
+          setTimeout(() => navigate('/login'), 1000);
+        }}
+      />
     </div>
   );
 };

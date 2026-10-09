@@ -309,7 +309,7 @@ bool flushOfflineBuffer() {
   http.addHeader("X-Device-Serial", device_id);
   http.addHeader("X-Device-Token", device_token);
   http.addHeader("Authorization", "Bearer " + device_token);
-  http.setTimeout(8000);
+  http.setTimeout(3000);
 
   int rssi = WiFi.RSSI();
   String signalStr = (rssi >= -65) ? "Excellent" : (rssi >= -75) ? "Good" : (rssi >= -85) ? "Fair" : "Poor";
@@ -368,7 +368,7 @@ void sendImmediateOnlineHandshake() {
   http.addHeader("X-Device-Serial", device_id);
   http.addHeader("X-Device-Token", device_token);
   http.addHeader("Authorization", "Bearer " + device_token);
-  http.setTimeout(5000);
+  http.setTimeout(3000);
 
   readBattery();
   readTemperature();
@@ -419,7 +419,7 @@ void sendToBackend() {
     http.addHeader("X-Device-Serial", device_id);
     http.addHeader("X-Device-Token", device_token);
     http.addHeader("Authorization", "Bearer " + device_token);
-    http.setTimeout(8000); // 8-second timeout for cloud TLS handshake
+    http.setTimeout(3000); // 3-second non-blocking timeout prevents loop freezes
 
     // Determine Wi-Fi Signal Strength
     int rssi = WiFi.RSSI();
@@ -720,6 +720,7 @@ void handleVerifyAdmin() {
     json += "\"device_id\":\"" + device_id + "\",";
     json += "\"device_token\":\"" + device_token + "\",";
     json += "\"server_url\":\"" + server_url + "\",";
+    json += "\"ap_password\":\"" + ap_password + "\",";
     json += "\"moisture_pin\":" + String(moisture_pin);
     json += "}";
     server.send(200, "application/json", json);
@@ -766,6 +767,11 @@ void handleSaveAdmin() {
     newToken.trim();
     device_token = newToken;
   }
+  if (server.hasArg("ap_password") && server.arg("ap_password").length() >= 8) {
+    String newApPass = server.arg("ap_password");
+    newApPass.trim();
+    ap_password = newApPass;
+  }
   if (server.hasArg("moisture_pin")) {
     moisture_pin = server.arg("moisture_pin").toInt();
   }
@@ -775,18 +781,21 @@ void handleSaveAdmin() {
   preferences.putString("url", server_url);
   preferences.putString("devid", device_id);
   preferences.putString("token", device_token);
+  preferences.putString("appass", ap_password);
   preferences.putInt("mpin", moisture_pin);
   preferences.end();
 
   Serial.println("\n✅ [NVS] Admin settings updated via /api/save-admin!");
   Serial.println("[NVS] Target Backend URL: " + server_url);
   Serial.println("[NVS] Target Device ID  : " + device_id);
+  Serial.println("[NVS] Setup AP Password : " + ap_password);
 
   String resp = "{";
   resp += "\"success\":true,";
   resp += "\"message\":\"Settings saved to ESP32 Flash! Live telemetry target updated.\",";
   resp += "\"server_url\":\"" + server_url + "\",";
   resp += "\"device_id\":\"" + device_id + "\",";
+  resp += "\"ap_password\":\"" + ap_password + "\",";
   resp += "\"moisture_pin\":" + String(moisture_pin);
   resp += "}";
   server.send(200, "application/json", resp);
@@ -887,8 +896,22 @@ void handleSetup() {
   page += "</div>";
   page += "</div>";
 
+  // Setup Hotspot Access Password (WPA2 Setup AP)
+  page += "<div class='form-group' style='background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:12px; margin-top:14px;'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;'>";
+  page += "<label for='ap_password' style='margin:0; font-weight:700; color:#334155;'>🔑 Setup Hotspot Wi-Fi Password</label>";
+  page += "<span style='font-size:10px; font-weight:700; color:#0D9488; background:#CCFBF1; padding:2px 8px; border-radius:9999px;'>Hotspot Security</span>";
+  page += "</div>";
+  page += "<p style='font-size:11px; color:#64748B; margin:0 0 8px 0;'>Change the password you type when connecting your phone or PC to this device from your Wi-Fi list (min 8 characters).</p>";
+  page += "<input type='password' id='ap_password' name='ap_password' minlength='8' placeholder='Enter new hotspot password (min 8 chars, or leave blank to keep)'>";
+  page += "<div style='margin-top:6px; font-size:12px; display:flex; align-items:center; gap:6px;'>";
+  page += "<input type='checkbox' id='show_ap_pass' style='width:auto;' onclick='var p=document.getElementById(\"ap_password\"); p.type=this.checked?\"text\":\"password\";'>";
+  page += "<label for='show_ap_pass' style='margin-bottom:0; cursor:pointer;'>Show Hotspot Password</label>";
+  page += "</div>";
+  page += "</div>";
+
   // Primary Connect Button (For Users & Caregivers)
-  page += "<button type='submit' class='btn btn-primary' style='margin-top:8px;'>📶 Connect Device to Wi-Fi</button>";
+  page += "<button type='submit' class='btn btn-primary' style='margin-top:14px;'>💾 Connect & Save Settings</button>";
 
   // [ADVANCED / ADMIN SETTINGS] Hidden completely until PIN is entered
   page += "<div style='margin-top:24px; border:1.5px dashed #CBD5E1; border-radius:12px; padding:14px; background:#F8FAFC;'>";
@@ -1078,6 +1101,7 @@ void handleSave() {
   }
 
   String new_pass     = server.arg("password");     new_pass.trim();
+  String new_ap_pass  = server.arg("ap_password");  new_ap_pass.trim();
   String new_dev_id   = server.arg("device_id");    new_dev_id.trim();
   String new_token    = server.arg("device_token"); new_token.trim();
   String new_url      = server.arg("server_url");   new_url.trim();
@@ -1113,6 +1137,12 @@ void handleSave() {
     if (new_mpin.length() > 0)   moisture_pin = new_mpin.toInt();
   }
 
+  // Update Setup AP hotspot password if submitted and at least 8 characters
+  if (new_ap_pass.length() >= 8) {
+    ap_password = new_ap_pass;
+    Serial.println("🔒 [SECURITY] Updated device setup hotspot password.");
+  }
+
   // Update Wi-Fi credentials
   if (new_ssid.length() > 0) {
     if (new_ssid == wifi_ssid && new_pass.length() == 0 && wifi_password.length() > 0) {
@@ -1132,6 +1162,7 @@ void handleSave() {
   preferences.putString("url",    server_url);
   preferences.putString("devid",  device_id);
   preferences.putString("token",  device_token);
+  preferences.putString("appass", ap_password);
   preferences.putInt("mpin",      moisture_pin);
   preferences.end();
 
@@ -1243,10 +1274,23 @@ void startAccessPointMode() {
 bool connectToWiFi() {
   if (wifi_ssid.length() == 0) return false;
 
+  // Register event listener for disconnect auto-reconnection
+  static bool eventRegistered = false;
+  if (!eventRegistered) {
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+      if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        Serial.print("⚠️ [WIFI EVENT] Disconnected from AP. Reason: ");
+        Serial.println(info.wifi_sta_disconnected.reason);
+        WiFi.reconnect();
+      }
+    });
+    eventRegistered = true;
+  }
+
   WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
-  WiFi.setTxPower(WIFI_POWER_15dBm); // Crucial for standalone battery power: prevents RF brownout!
+  WiFi.setTxPower(WIFI_POWER_13dBm); // 13dBm prevents instantaneous battery voltage sag / brownout!
   WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
 
   Serial.print("[WIFI] Connecting to " + wifi_ssid);
@@ -1597,15 +1641,26 @@ void loop() {
   }
 
   // 6. Wi-Fi Auto-Reconnect Keepalive
-  // Constantly and persistently retries connection to configured Wi-Fi if disconnected
-  // Uses non-blocking ESP-IDF reconnect without killing the radio PHY every 5s
+  // Uses non-blocking reconnect with gentle fallback, avoiding stack thrashing
   static unsigned long lastReconnectAttempt = 0;
+  static unsigned long disconnectedStart = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 10000) {
+    if (disconnectedStart == 0) disconnectedStart = millis();
+    if (millis() - lastReconnectAttempt > 12000) {
       lastReconnectAttempt = millis();
-      Serial.println("⚠️ [WIFI] Still disconnected. Re-attempting connection to " + wifi_ssid + "...");
-      WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+      if (millis() - disconnectedStart > 60000) {
+        Serial.println("🔄 [WIFI AUTO-RECOVERY] Prolonged disconnect (>60s). Refreshing connection stack to " + wifi_ssid + "...");
+        WiFi.disconnect(false);
+        delay(100);
+        WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+        disconnectedStart = millis();
+      } else {
+        Serial.println("🔄 [WIFI AUTO-RECONNECT] Re-associating with " + wifi_ssid + "...");
+        WiFi.reconnect();
+      }
     }
+  } else if (WiFi.status() == WL_CONNECTED) {
+    disconnectedStart = 0;
   }
 
   static bool wasVSWiFiConnected = false;

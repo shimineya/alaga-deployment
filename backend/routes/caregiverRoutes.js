@@ -1533,6 +1533,137 @@ router.get('/patients/:id', async (req, res) => {
         let query = `
             SELECT p.*, f.facility_name,
                    (
+                       SELECT u.user_id
+                       FROM patient_access pa2 
+                       JOIN users u ON pa2.user_id = u.user_id 
+                       WHERE pa2.patient_id = p.patient_id 
+                       AND (
+                           pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                           OR pa2.relationship ILIKE '%Caregiver%'
+                           OR u.role IN ('caregiver', 'medical_staff')
+                       )
+                       AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                       AND pa2.is_archived IS DISTINCT FROM TRUE
+                       ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
+                       LIMIT 1
+                   ) as assigned_caregiver_id,
+                   (
+                       SELECT COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username, u.email)
+                       FROM patient_access pa2 
+                       JOIN users u ON pa2.user_id = u.user_id 
+                       WHERE pa2.patient_id = p.patient_id 
+                       AND (
+                           pa2.relationship IN ('Assigned Caregiver', 'Primary Caregiver', 'Caregiver', 'Attending Physician', 'Assigned Staff', 'Doctor', 'Nurse')
+                           OR pa2.relationship ILIKE '%Caregiver%'
+                           OR u.role IN ('caregiver', 'medical_staff')
+                       )
+                       AND (pa2.invite_status IN ('Active', 'Accepted') OR pa2.invite_status IS NULL)
+                       AND pa2.is_archived IS DISTINCT FROM TRUE
+                       ORDER BY CASE WHEN pa2.invite_status IN ('Active', 'Accepted') THEN 1 ELSE 2 END, pa2.access_id DESC
+                       LIMIT 1
+                   ) as assigned_caregiver_name,
+                   (
+                       SELECT serial_number 
+                       FROM device_whitelist 
+                       WHERE assigned_patient_id = p.patient_id 
+                       AND device_name ILIKE '%Vital%'
+                       LIMIT 1
+                   ) as vital_device_sn,
+                   (
+                       SELECT serial_number 
+                       FROM device_whitelist 
+                       WHERE assigned_patient_id = p.patient_id 
+                       AND device_name ILIKE '%Diaper%'
+                       LIMIT 1
+                   ) as diaper_device_sn,
+                   COALESCE(
+                       (
+                           SELECT json_build_object(
+                               'heart_rate', COALESCE(sr.heart_rate, 0),
+                               'temperature', COALESCE(sr.temperature, 0),
+                               'spo2', COALESCE(sr.spo2, 0),
+                               'moisture', COALESCE(sr.moisture_value, 0),
+                               'recorded_at', sr.recorded_at
+                           )
+                           FROM sensor_readings sr
+                           WHERE sr.patient_id = p.patient_id
+                           ORDER BY sr.recorded_at DESC
+                           LIMIT 1
+                       ),
+                       json_build_object(
+                           'heart_rate', 0,
+                           'temperature', 0,
+                           'spo2', 0,
+                           'moisture', 0,
+                           'recorded_at', null
+                       )
+                   ) as latest_telemetry,
+                   COALESCE(
+                       (
+                           SELECT json_agg(
+                               json_build_object(
+                                   'serial_number', dw.serial_number,
+                                   'device_name', dw.device_name,
+                                   'status', CASE 
+                                       WHEN dw.status = 'STANDBY' THEN 'STANDBY'
+                                       WHEN dw.status = 'MAINTENANCE' THEN 'MAINTENANCE'
+                                       WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'ACTIVE'
+                                       ELSE 'INACTIVE'
+                                   END,
+                                   'is_online', CASE 
+                                       WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
+                                       ELSE false
+                                   END,
+                                   'battery_level', dw.battery_level,
+                                   'signal_strength', dw.signal_strength,
+                                   'last_heartbeat', dw.last_heartbeat
+                               )
+                           )
+                           FROM device_whitelist dw
+                           WHERE dw.assigned_patient_id = p.patient_id
+                           AND dw.is_archived IS DISTINCT FROM TRUE
+                       ),
+                       '[]'::json
+                   ) as paired_devices,
+                   (
+                       SELECT CASE 
+                           WHEN EXISTS (
+                               SELECT 1 FROM device_whitelist dw 
+                               WHERE dw.assigned_patient_id = p.patient_id 
+                               AND dw.status = 'ACTIVE' 
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                               AND dw.is_archived IS DISTINCT FROM TRUE
+                           ) THEN true 
+                           ELSE false 
+                       END
+                   ) as is_online,
+                   (
+                       SELECT CASE 
+                           WHEN EXISTS (
+                               SELECT 1 FROM device_whitelist dw 
+                               WHERE dw.assigned_patient_id = p.patient_id 
+                               AND dw.status = 'ACTIVE' 
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                               AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%' OR (dw.serial_number NOT LIKE 'SD-%' AND dw.device_name NOT ILIKE '%Diaper%' AND dw.device_name NOT ILIKE '%Moisture%'))
+                               AND dw.is_archived IS DISTINCT FROM TRUE
+                           ) THEN true 
+                           ELSE false 
+                       END
+                   ) as is_vitals_online,
+                   (
+                       SELECT CASE 
+                           WHEN EXISTS (
+                               SELECT 1 FROM device_whitelist dw 
+                               WHERE dw.assigned_patient_id = p.patient_id 
+                               AND dw.status = 'ACTIVE' 
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                               AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%' OR (dw.serial_number NOT LIKE 'VS-%' AND dw.device_name NOT ILIKE '%Vital%'))
+                               AND dw.is_archived IS DISTINCT FROM TRUE
+                           ) THEN true 
+                           ELSE false 
+                       END
+                   ) as is_moisture_online,
+                   (
                        SELECT json_agg(json_build_object(
                            'vital_name', pb.vital_name,
                            'mean_value', pb.mean_value,

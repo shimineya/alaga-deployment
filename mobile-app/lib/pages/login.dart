@@ -14,6 +14,7 @@ import 'biometrics.dart';
 import 'dashboard.dart';
 import 'otp.dart';
 import 'account_role_picker.dart';
+import '../widgets/consent_dialog.dart';
 
 class LoginPage extends StatefulWidget {
   final String? initialUsername;
@@ -101,6 +102,18 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       if (!mounted) return;
+
+      // [COMPLIANCE] If provisioned account or first login, pop up mandatory consent agreement
+      if (result['must_accept_consent'] == true ||
+          result['user']?['must_accept_consent'] == true ||
+          result['user']?['must_accept_terms'] == true) {
+        final agreed = await showConsentAgreementDialog(
+          context,
+          userId: session.id,
+          userRole: session.role,
+        );
+        if (agreed != true || !mounted) return;
+      }
 
       Navigator.pushAndRemoveUntil(
         context,

@@ -28,9 +28,11 @@ import SettingsHub from './components/hubs/SettingsHub';
 import AssignmentCommandCenter from './components/AssignmentCommandCenter';
 import ArchiveHub from './components/hubs/ArchiveHub';
 
+import { ConsentAgreementModal } from './components/compliance/ConsentAgreementModal';
+
 // [OWASP A01] Role-Based Route Guard
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -42,6 +44,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  // [COMPLIANCE GUARD] Strictly block all access until user agrees to all clinical consent forms
+  if (user?.must_accept_consent === true || (user as any)?.must_accept_terms === true) {
+    return (
+      <div className="h-screen w-screen bg-slate-900 flex items-center justify-center p-4">
+        <ConsentAgreementModal
+          isOpen={true}
+          userId={user.user_id || user.id}
+          userRole={user.role}
+          authToken={localStorage.getItem('token')}
+          onAccepted={() => {
+            const updated = { ...user, must_accept_consent: false, must_accept_terms: false };
+            localStorage.setItem('user', JSON.stringify(updated));
+            window.location.reload();
+          }}
+        />
+      </div>
+    );
   }
 
   return <>{children}</>;

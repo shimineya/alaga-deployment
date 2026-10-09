@@ -600,7 +600,8 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
                 [user_id]
             );
             const userRes = await pool.query(
-                `SELECT user_id, username, email, role, first_name, account_status, profile_picture_url
+                `SELECT user_id, username, email, role, first_name, account_status, profile_picture_url,
+                        consent_agreed_at, must_accept_terms
                  FROM users WHERE user_id = $1`,
                 [user_id]
             );
@@ -613,10 +614,13 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
                 { expiresIn: '8h' }
             );
 
+            const mustAcceptConsent = !user.consent_agreed_at || user.must_accept_terms === true;
+
             return res.json({
                 success: true,
                 message: 'Email verified successfully.',
                 token,
+                must_accept_consent: mustAcceptConsent,
                 user: {
                     id: user.user_id,
                     username: user.username,
@@ -626,6 +630,8 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
                     account_status: user.account_status,
                     profilePictureUrl: user.profile_picture_url || null,
                     profile_picture_url: user.profile_picture_url || null,
+                    must_accept_consent: mustAcceptConsent,
+                    consent_agreed_at: user.consent_agreed_at || null,
                 },
             });
         } catch (txErr) {
@@ -874,6 +880,7 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             `SELECT u.user_id, u.username, u.email, u.role, u.first_name,
                     u.account_status, u.is_locked, u.is_verified, u.is_archived,
                     u.password_hash, u.profile_picture_url, u.facility_id,
+                    u.consent_agreed_at, u.must_accept_terms,
                     f.facility_name
              FROM users u
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
@@ -945,10 +952,13 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
             { expiresIn: '8h' }
         );
 
+        const mustAcceptConsent = !user.consent_agreed_at || user.must_accept_terms === true;
+
         res.json({
             success: true,
             message: "Welcome back!",
             token,
+            must_accept_consent: mustAcceptConsent,
             user: {
                 id: user.user_id,
                 user_id: user.user_id,
@@ -959,6 +969,8 @@ app.post(['/login', '/api/auth/login'], authLimiter, async (req, res) => {
                 account_status: user.account_status,
                 facility_id: user.facility_id || null,
                 facility_name: user.facility_name || null,
+                must_accept_consent: mustAcceptConsent,
+                consent_agreed_at: user.consent_agreed_at || null,
                 // [FIX] Include profile picture URL so the dashboard avatar
                 // renders immediately after login without a separate API call.
                 profilePictureUrl: user.profile_picture_url || null,
@@ -995,6 +1007,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
         const result = await pool.query(
             `SELECT u.user_id, u.username, u.email, u.role, u.first_name, u.last_name,
                     u.account_status, u.profile_picture_url, u.facility_id,
+                    u.consent_agreed_at, u.must_accept_terms,
                     f.facility_name
              FROM users u
              LEFT JOIN facilities f ON u.facility_id = f.facility_id
@@ -1005,22 +1018,23 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
         const u = result.rows[0];
+        const mustAcceptConsent = !u.consent_agreed_at || u.must_accept_terms === true;
         res.json({
             success: true,
             user: {
                 id: u.user_id,
-                user_id: u.user_id,
                 username: u.username,
                 email: u.email,
                 role: u.role,
-                name: u.first_name || u.username,
+                name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
                 first_name: u.first_name,
                 last_name: u.last_name,
                 account_status: u.account_status,
-                facility_id: u.facility_id || null,
-                facility_name: u.facility_name || null,
-                profilePictureUrl: u.profile_picture_url || null,
-                profile_picture_url: u.profile_picture_url || null,
+                profile_picture_url: u.profile_picture_url,
+                facility_id: u.facility_id,
+                facility_name: u.facility_name,
+                must_accept_consent: mustAcceptConsent,
+                consent_agreed_at: u.consent_agreed_at || null,
             }
         });
     } catch (e) {
@@ -1782,6 +1796,10 @@ app.use('/api/alerts', alertsRoutes);
 // URL Prefix: http://localhost:3000/api/sensor/
 const sensorRoutes = require('./routes/sensorRoutes');
 app.use('/api/sensor', sensorRoutes);
+
+// Legal, Consent, and Compliance Agreement Routes
+const complianceRoutes = require('./routes/complianceRoutes');
+app.use('/api/compliance', complianceRoutes);
 
 // ==========================================
 // ERROR HANDLERS (must be AFTER all route registrations)

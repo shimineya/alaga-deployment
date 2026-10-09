@@ -98,6 +98,31 @@ pool.connect((err, client, release) => {
       CREATE INDEX IF NOT EXISTS idx_facility_invitations_token ON public.facility_invitations (token);
       CREATE INDEX IF NOT EXISTS idx_facility_invitations_facility ON public.facility_invitations (facility_id);
     `).catch(err => console.error('Failed to run facility_invitations migration:', err));
+
+    // Auto-migration: Compliance Consent Tracking & Audit Table (Philippine DPA & HIPAA)
+    pool.query(`
+      ALTER TABLE public.users 
+      ADD COLUMN IF NOT EXISTS consent_agreed_at TIMESTAMPTZ DEFAULT NULL;
+
+      ALTER TABLE public.users 
+      ADD COLUMN IF NOT EXISTS consent_version VARCHAR(20) DEFAULT NULL;
+
+      ALTER TABLE public.users 
+      ADD COLUMN IF NOT EXISTS must_accept_terms BOOLEAN DEFAULT TRUE;
+
+      CREATE TABLE IF NOT EXISTS public.user_consents (
+        consent_id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        consent_version VARCHAR(20) NOT NULL DEFAULT 'v1.0',
+        forms_accepted JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        agreed_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_user_consents_user_id ON public.user_consents (user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_consents_agreed_at ON public.user_consents (agreed_at);
+    `).catch(err => console.error('Failed to run compliance consent migrations:', err));
   }
   if (release) release();
 });

@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 // [INTEGRATION] Import API service and session management
 import '../services/api_service.dart';
 import '../models/user_session.dart';
+import '../widgets/consent_dialog.dart';
 import 'biometrics.dart';
 
 class OTPVerificationPage extends StatefulWidget {
@@ -102,6 +103,16 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
       }
 
       if (!mounted) return;
+
+      // Show mandatory clinical consent dialog after OTP
+      if (result['must_accept_consent'] != false) {
+        final agreed = await showConsentAgreementDialog(
+          context,
+          userId: widget.userId,
+          userRole: result['user']?['role'] ?? 'parent',
+        );
+        if (agreed != true || !mounted) return;
+      }
 
       // Navigate to the registration success page
       Navigator.pushReplacement(

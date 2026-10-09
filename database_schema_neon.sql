@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS public.users (
     preferences JSONB DEFAULT '{}'::jsonb,
     deleted_at TIMESTAMP WITH TIME ZONE,
     is_active BOOLEAN DEFAULT true,
+    consent_agreed_at TIMESTAMP WITH TIME ZONE,
+    consent_version VARCHAR(20),
+    must_accept_terms BOOLEAN DEFAULT true,
     CONSTRAINT users_pkey PRIMARY KEY (user_id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username)
@@ -265,6 +268,23 @@ CREATE TABLE IF NOT EXISTS public.facility_invitations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_facility_invitations_token ON public.facility_invitations (token);
+
+-- ----------------------------------------------------------------------------
+-- TABLE: user_consents (Compliance, DPA, and Telemetry Consent Audit Trail)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.user_consents (
+    consent_id SERIAL,
+    user_id INTEGER NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
+    consent_version VARCHAR(20) NOT NULL DEFAULT 'v1.0',
+    forms_accepted JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    agreed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_consents_pkey PRIMARY KEY (consent_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_consents_user_id ON public.user_consents(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_consents_agreed_at ON public.user_consents(agreed_at);
 CREATE INDEX IF NOT EXISTS idx_facility_invitations_facility ON public.facility_invitations (facility_id);
 
 -- ----------------------------------------------------------------------------

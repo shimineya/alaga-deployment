@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Alert, AlertDescription } from './ui/alert';
 import { Activity, ShieldAlert, Lock, Loader2, MailWarning, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConsentAgreementModal } from './compliance/ConsentAgreementModal';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -18,13 +19,23 @@ export const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [pendingLoggedInUser, setPendingLoggedInUser] = useState<any>(null);
 
-  // [OWASP A07] Tracks whether the login failure is due to an unverified email.
-  // When true, the UI shows a prominent link to resume the OTP verification flow.
   const [unverifiedContext, setUnverifiedContext] = useState<{
     user_id: number;
     email: string;
   } | null>(null);
+
+  const proceedToDashboard = (role: string) => {
+    if (role === 'system_admin' || role === 'admin') {
+      navigate('/sysadmin', { replace: true });
+    } else if (role === 'facility_admin') {
+      navigate('/facility-admin', { replace: true });
+    } else {
+      navigate('/dashboard', { replace: true });
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,17 +52,15 @@ export const LoginPage: React.FC = () => {
       const result = await login(username, password);
 
       if (result.success && result.user) {
-        toast.success('Welcome back!');
-
-        // [OWASP A01] Route to the correct dashboard based on role
-        const role = result.user.role;
-        if (role === 'system_admin' || role === 'admin') {
-          navigate('/sysadmin', { replace: true });
-        } else if (role === 'facility_admin') {
-          navigate('/facility-admin', { replace: true });
-        } else {
-          navigate('/dashboard', { replace: true });
+        if (result.user.must_accept_consent === true) {
+          setPendingLoggedInUser(result.user);
+          setShowConsentModal(true);
+          toast.info('Mandatory clinical governance policies require your review and acknowledgment.');
+          return;
         }
+
+        toast.success('Welcome back!');
+        proceedToDashboard(result.user.role);
       } else if (result.requiresOtp && result.user_id && result.email) {
         // [OWASP A07] Account exists but the email has not been verified yet.
         // Store the context so the user can proceed directly to /verify-email.
@@ -186,6 +195,23 @@ export const LoginPage: React.FC = () => {
           </form>
         </CardContent>
       </Card>
+
+      {/* Mandatory Consent Modal for Provisioned / First-Time Login Accounts */}
+      <ConsentAgreementModal
+        isOpen={showConsentModal}
+        userId={pendingLoggedInUser?.user_id || pendingLoggedInUser?.id}
+        userRole={pendingLoggedInUser?.role || 'all'}
+        authToken={localStorage.getItem('token')}
+        onAccepted={() => {
+          setShowConsentModal(false);
+          if (pendingLoggedInUser) {
+            const updated = { ...pendingLoggedInUser, must_accept_consent: false };
+            localStorage.setItem('user', JSON.stringify(updated));
+            toast.success('Clinical consents recorded. Welcome to ALAGA!');
+            proceedToDashboard(pendingLoggedInUser.role);
+          }
+        }}
+      />
     </div>
   );
 };

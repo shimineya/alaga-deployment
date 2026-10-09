@@ -17,6 +17,7 @@ class UserSession {
   final String? profilePictureUrl;
   final int? facilityId;
   final String? facilityName;
+  bool mustAcceptConsent;
 
   UserSession({
     required this.id,
@@ -29,6 +30,7 @@ class UserSession {
     this.profilePictureUrl,
     this.facilityId,
     this.facilityName,
+    this.mustAcceptConsent = false,
   });
 
   // Facility distinction getters
@@ -61,14 +63,12 @@ class UserSession {
       name: json['name'] ?? json['first_name'] ?? '',
       token: token.isNotEmpty ? token : (json['token'] as String? ?? ''),
       biometricToken: json['biometricToken'],
-      // [FIX] The backend login route sends the field as camelCase
-      // ('profilePictureUrl'). The profile route returns snake_case
-      // ('profile_picture_url'). Check both so the session is always
-      // hydrated correctly regardless of which endpoint produced the JSON.
       profilePictureUrl:
           json['profilePictureUrl'] ?? json['profile_picture_url'],
       facilityId: json['facilityId'] ?? json['facility_id'],
       facilityName: json['facilityName'] ?? json['facility_name'],
+      mustAcceptConsent: json['must_accept_consent'] == true ||
+          json['must_accept_terms'] == true,
     );
   }
 
@@ -84,6 +84,7 @@ class UserSession {
       'profilePictureUrl': profilePictureUrl,
       'facilityId': facilityId,
       'facilityName': facilityName,
+      'must_accept_consent': mustAcceptConsent,
     };
   }
 

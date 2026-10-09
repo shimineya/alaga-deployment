@@ -20,9 +20,11 @@ import { toast } from 'sonner';
 interface Device {
     serial_number: string;
     device_name: string;
-    status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+    status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'STANDBY';
     last_heartbeat: string;
     battery_level?: number;
+    signal_strength?: string;
+    is_online?: boolean;
     assigned_patient_name?: string;
     assigned_patient_baseline?: {
         ward?: string;
@@ -36,9 +38,9 @@ export const DeviceManagementHub: React.FC = () => {
     const [devices, setDevices] = useState<Device[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // [HIPAA Audit Trail] Fetching device logs for oversight
-    const fetchInventory = async () => {
+    const fetchInventory = async (silent = false) => {
         try {
+            if (!silent) setIsLoading(true);
             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -51,13 +53,52 @@ export const DeviceManagementHub: React.FC = () => {
                 setDevices(mapped);
             }
         } catch (err) {
-            toast.error("Failed to sync device inventory.");
+            if (!silent) toast.error("Failed to sync device inventory.");
         } finally {
-            setIsLoading(false);
+            if (!silent) setIsLoading(false);
         }
     };
 
-    useEffect(() => { fetchInventory(); }, []);
+    useEffect(() => { 
+        fetchInventory(false); 
+
+        const handleRealtimeSync = (e: any) => {
+            const detail = e?.detail;
+            if (!detail) return;
+            if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
+                const sn = detail.serial_number;
+                const newStatus = (detail.status || 'ACTIVE').toUpperCase();
+                const newBattery = detail.battery_level !== undefined && detail.battery_level !== null ? Number(detail.battery_level) : undefined;
+                const newSignal = detail.signal_strength;
+
+                if (sn) {
+                    setDevices(prev => prev.map(dev => {
+                        if (dev.serial_number === sn) {
+                            const isOnline = newStatus === 'ACTIVE';
+                            return {
+                                ...dev,
+                                status: newStatus as any,
+                                is_online: isOnline,
+                                battery_level: newBattery !== undefined ? newBattery : dev.battery_level,
+                                signal_strength: isOnline ? (newSignal || dev.signal_strength || 'Good') : 'Offline',
+                                last_heartbeat: detail.timestamp || new Date().toISOString()
+                            };
+                        }
+                        return dev;
+                    }));
+                }
+                fetchInventory(true);
+            }
+        };
+
+        window.addEventListener('alaga_alert_update', handleRealtimeSync);
+        const poll = setInterval(() => fetchInventory(true), 3000);
+
+        return () => {
+            window.removeEventListener('alaga_alert_update', handleRealtimeSync);
+            clearInterval(poll);
+        };
+    }, []);
 
     return (
         <div className="w-full max-w-[1600px] mx-auto px-4 pb-4 pt-2 space-y-4">

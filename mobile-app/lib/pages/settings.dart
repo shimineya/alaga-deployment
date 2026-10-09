@@ -11,6 +11,7 @@ import 'biometrics.dart';
 import '../theme/alaga_theme.dart';
 import 'manual.dart';
 import '../widgets/interactive_tutorial.dart';
+import '../widgets/consent_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -829,6 +830,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                   onTap: () => showInteractiveTutorial(context),
+                ),
+                const Divider(height: 20),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AlagaColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.gavel_rounded, color: AlagaColors.primary, size: 20),
+                  ),
+                  title: Text(
+                    "Legal Policies & Consents",
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                  ),
+                  subtitle: Text(
+                    "Review platform terms, Data Privacy Act (RA 10173), telemetry authorization, and AI decision-support disclaimers.",
+                    style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () => showConsentAgreementDialog(context, isReadOnly: true),
                 ),
               ],
             ),

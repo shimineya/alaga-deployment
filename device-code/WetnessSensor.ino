@@ -284,7 +284,7 @@ bool flushOfflineWetnessBuffer() {
   http.addHeader("X-Device-Serial", device_id);
   http.addHeader("X-Device-Token", device_token);
   http.addHeader("Authorization", "Bearer " + device_token);
-  http.setTimeout(8000);
+  http.setTimeout(3000);
 
   int rssi = WiFi.RSSI();
   String signalStr = (rssi >= -65) ? "Excellent" : (rssi >= -75) ? "Good" : (rssi >= -85) ? "Fair" : "Poor";
@@ -340,7 +340,7 @@ void sendImmediateOnlineHandshake() {
   http.addHeader("X-Device-Serial", device_id);
   http.addHeader("X-Device-Token", device_token);
   http.addHeader("Authorization", "Bearer " + device_token);
-  http.setTimeout(5000);
+  http.setTimeout(3000);
 
   readBattery();
   readSensors();
@@ -387,7 +387,7 @@ void sendToBackend() {
     http.addHeader("X-Device-Serial", device_id);
     http.addHeader("X-Device-Token", device_token);
     http.addHeader("Authorization", "Bearer " + device_token);
-    http.setTimeout(8000); // 8s timeout for cloud TLS handshake
+    http.setTimeout(3000); // 3s non-blocking timeout prevents loop freezes
 
     // Determine Wi-Fi Signal Strength rating from RSSI
     int rssi = WiFi.RSSI();
@@ -717,6 +717,7 @@ void handleVerifyAdmin() {
     json += "\"device_id\":\"" + device_id + "\",";
     json += "\"device_token\":\"" + device_token + "\",";
     json += "\"server_url\":\"" + server_url + "\",";
+    json += "\"ap_password\":\"" + ap_password + "\",";
     json += "\"sensor_type\":" + String(sensor_type) + ",";
     json += "\"water_pin\":" + String(water_pin);
     json += "}";
@@ -764,6 +765,11 @@ void handleSaveAdmin() {
     newToken.trim();
     device_token = newToken;
   }
+  if (server.hasArg("ap_password") && server.arg("ap_password").length() >= 8) {
+    String newApPass = server.arg("ap_password");
+    newApPass.trim();
+    ap_password = newApPass;
+  }
   if (server.hasArg("sensor_type")) {
     sensor_type = server.arg("sensor_type").toInt();
   }
@@ -787,6 +793,7 @@ void handleSaveAdmin() {
   preferences.putString("url", server_url);
   preferences.putString("devid", device_id);
   preferences.putString("token", device_token);
+  preferences.putString("appass", ap_password);
   preferences.putInt("senstype", sensor_type);
   preferences.putInt("senspin", water_pin);
   preferences.end();
@@ -794,12 +801,14 @@ void handleSaveAdmin() {
   Serial.println("\n✅ [NVS] Admin settings updated via /api/save-admin!");
   Serial.println("[NVS] Target Backend URL: " + server_url);
   Serial.println("[NVS] Target Device ID  : " + device_id);
+  Serial.println("[NVS] Setup AP Password : " + ap_password);
 
   String resp = "{";
   resp += "\"success\":true,";
   resp += "\"message\":\"Settings saved to ESP32 Flash! Live telemetry target updated.\",";
   resp += "\"server_url\":\"" + server_url + "\",";
   resp += "\"device_id\":\"" + device_id + "\",";
+  resp += "\"ap_password\":\"" + ap_password + "\",";
   resp += "\"sensor_type\":" + String(sensor_type) + ",";
   resp += "\"water_pin\":" + String(water_pin);
   resp += "}";
@@ -919,8 +928,22 @@ void handleSetup() {
   page += "</div>";
   page += "</div>";
 
+  // Setup Hotspot Access Password (WPA2 Setup AP)
+  page += "<div class='form-group' style='background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:12px; margin-top:14px;'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;'>";
+  page += "<label for='ap_password' style='margin:0; font-weight:700; color:#334155;'>🔑 Setup Hotspot Wi-Fi Password</label>";
+  page += "<span style='font-size:10px; font-weight:700; color:#0D9488; background:#CCFBF1; padding:2px 8px; border-radius:9999px;'>Hotspot Security</span>";
+  page += "</div>";
+  page += "<p style='font-size:11px; color:#64748B; margin:0 0 8px 0;'>Change the password you type when connecting your phone or PC directly to this device's setup Wi-Fi (min 8 characters).</p>";
+  page += "<input type='password' id='ap_password' name='ap_password' minlength='8' placeholder='Enter new hotspot password (min 8 chars, or leave blank to keep)'>";
+  page += "<div style='margin-top:6px; font-size:12px; display:flex; align-items:center; gap:6px;'>";
+  page += "<input type='checkbox' id='show_ap_pass' style='width:auto;' onclick='var p=document.getElementById(\"ap_password\"); p.type=this.checked?\"text\":\"password\";'>";
+  page += "<label for='show_ap_pass' style='margin-bottom:0; cursor:pointer;'>Show Hotspot Password</label>";
+  page += "</div>";
+  page += "</div>";
+
   // Primary Connect Button (For Users & Caregivers)
-  page += "<button type='submit' class='btn btn-primary' style='margin-top:8px;'>📶 Connect Device to Wi-Fi</button>";
+  page += "<button type='submit' class='btn btn-primary' style='margin-top:14px;'>💾 Connect & Save Settings</button>";
 
   // [ADVANCED / ADMIN SETTINGS] Hidden completely until PIN is entered
   page += "<div style='margin-top:24px; border:1.5px dashed #CBD5E1; border-radius:12px; padding:14px; background:#F8FAFC;'>";
@@ -1141,6 +1164,7 @@ void handleSave() {
   }
 
   String new_pass     = server.arg("password");     new_pass.trim();
+  String new_ap_pass  = server.arg("ap_password");  new_ap_pass.trim();
   String new_dev_id   = server.arg("device_id");    new_dev_id.trim();
   String new_token    = server.arg("device_token"); new_token.trim();
   String new_url      = server.arg("server_url");   new_url.trim();
@@ -1186,6 +1210,12 @@ void handleSave() {
     water_pin   = new_water_pin;
   }
 
+  // Update Setup AP hotspot password if provided (min 8 chars)
+  if (new_ap_pass.length() >= 8) {
+    ap_password = new_ap_pass;
+    Serial.println("🔒 [SECURITY] Updated device setup hotspot password: " + ap_password);
+  }
+
   // Handle Wi-Fi credentials
   if (new_ssid.length() > 0) {
     if (new_ssid == wifi_ssid && new_pass.length() == 0 && wifi_password.length() > 0) {
@@ -1205,6 +1235,7 @@ void handleSave() {
   preferences.putString("url", server_url);
   preferences.putString("devid", device_id);
   preferences.putString("token", device_token);
+  preferences.putString("appass", ap_password);
   preferences.putInt("senstype", sensor_type);
   preferences.putInt("senspin", water_pin);
   preferences.end();
@@ -1341,28 +1372,33 @@ bool connectToWiFi() {
     return false;
   }
 
-  // Register Wi-Fi Event Listener for exact failure reason
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-      uint8_t reason = info.wifi_sta_disconnected.reason;
-      Serial.print("\n[WIFI EVENT] Disconnect Reason Code: ");
-      Serial.print(reason);
-      if (reason == 2 || reason == 15 || reason == 202 || reason == 204) {
-        Serial.println(" -> (AUTH_FAIL: Incorrect Wi-Fi Password!)");
-      } else if (reason == 201) {
-        Serial.println(" -> (NO_AP_FOUND: 2.4GHz network out of range or not broadcasting)");
-      } else if (reason == 203) {
-        Serial.println(" -> (ASSOC_FAIL: Router refused connection or max clients reached)");
-      } else {
-        Serial.println();
+  // Register Wi-Fi Event Listener for exact failure reason and auto-reconnect
+  static bool eventRegistered = false;
+  if (!eventRegistered) {
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+      if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        uint8_t reason = info.wifi_sta_disconnected.reason;
+        Serial.print("\n[WIFI EVENT] Disconnect Reason Code: ");
+        Serial.print(reason);
+        if (reason == 2 || reason == 15 || reason == 202 || reason == 204) {
+          Serial.println(" -> (AUTH_FAIL: Incorrect Wi-Fi Password!)");
+        } else if (reason == 201) {
+          Serial.println(" -> (NO_AP_FOUND: 2.4GHz network out of range or not broadcasting)");
+        } else if (reason == 203) {
+          Serial.println(" -> (ASSOC_FAIL: Router refused connection or max clients reached)");
+        } else {
+          Serial.println(" -> Triggering fast auto-reconnect...");
+        }
+        WiFi.reconnect();
       }
-    }
-  });
+    });
+    eventRegistered = true;
+  }
 
   WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
-  WiFi.setTxPower(WIFI_POWER_15dBm); // Crucial for battery power: prevents high-current RF surge from tripping battery BMS / brownout
+  WiFi.setTxPower(WIFI_POWER_13dBm); // 13dBm prevents high-current RF surge from tripping battery BMS / brownout
 
   Serial.println("==================================================");
   Serial.print("[WIFI] Target SSID      : "); Serial.println(wifi_ssid);
@@ -1550,17 +1586,26 @@ void loop() {
     }
   }
 
-  // 3b. Persistent Wi-Fi Keepalive: Constantly try to reconnect if disconnected
+  // 3b. Persistent Wi-Fi Keepalive: Non-blocking re-association without thrashing stack
   static unsigned long lastReconnectAttempt = 0;
+  static unsigned long disconnectedStart = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 10000) {
+    if (disconnectedStart == 0) disconnectedStart = millis();
+    if (millis() - lastReconnectAttempt > 12000) {
       lastReconnectAttempt = millis();
-      Serial.println("⚠️ [WIFI] Connection lost. Re-initiating connection to " + wifi_ssid + "...");
-      if (WiFi.getMode() == WIFI_OFF) {
-        WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
+      if (millis() - disconnectedStart > 60000) {
+        Serial.println("🔄 [WIFI AUTO-RECOVERY] Prolonged disconnect (>60s). Refreshing connection stack to " + wifi_ssid + "...");
+        WiFi.disconnect(false);
+        delay(100);
+        WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+        disconnectedStart = millis();
+      } else {
+        Serial.println("🔄 [WIFI AUTO-RECONNECT] Re-associating with " + wifi_ssid + "...");
+        WiFi.reconnect();
       }
-      WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
     }
+  } else if (WiFi.status() == WL_CONNECTED) {
+    disconnectedStart = 0;
   }
 
   static bool wasWetnessWiFiConnected = false;

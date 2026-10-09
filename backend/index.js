@@ -307,14 +307,22 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
         let matchedInvitationId = null;
 
         if (invite_token && invite_token.trim() !== '') {
-            const cleanToken = invite_token.trim().toUpperCase();
+            const cleanToken = String(invite_token)
+                .replace(/[\u200B-\u200D\uFEFF\u00A0\s]/g, '')
+                .replace(/[^a-zA-Z0-9-]/g, '')
+                .trim()
+                .toUpperCase();
+            const alphanumToken = cleanToken.replace(/[^a-zA-Z0-9]/g, '');
             const inviteCheck = await client.query(
                 `SELECT fi.invitation_id, fi.facility_id, fi.role, fi.status, fi.expires_at, fi.email AS invited_email,
                         f.facility_name
                  FROM facility_invitations fi
                  JOIN facilities f ON fi.facility_id = f.facility_id
-                 WHERE UPPER(TRIM(fi.token)) = $1`,
-                [cleanToken]
+                 WHERE UPPER(TRIM(fi.token)) = $1
+                    OR UPPER(REGEXP_REPLACE(fi.token, '[^a-zA-Z0-9]', '', 'g')) = $2
+                    OR UPPER(REGEXP_REPLACE(fi.token, '[^a-zA-Z0-9]', '', 'g')) = 'FAC' || $2
+                    OR ('FAC' || UPPER(REGEXP_REPLACE(fi.token, '[^a-zA-Z0-9]', '', 'g'))) = $2`,
+                [cleanToken, alphanumToken]
             );
 
             if (inviteCheck.rows.length === 0) {
@@ -495,14 +503,22 @@ app.all(['/api/auth/verify-invite-token', '/api/auth/verify-invite-token/:token'
         if (!rawToken || !rawToken.trim()) {
             return res.status(400).json({ success: false, valid: false, message: 'Invitation token is required.' });
         }
-        const cleanToken = rawToken.trim().toUpperCase();
+        const cleanToken = String(rawToken)
+            .replace(/[\u200B-\u200D\uFEFF\u00A0\s]/g, '')
+            .replace(/[^a-zA-Z0-9-]/g, '')
+            .trim()
+            .toUpperCase();
+        const alphanumToken = cleanToken.replace(/[^a-zA-Z0-9]/g, '');
         const result = await pool.query(
             `SELECT fi.invitation_id, fi.facility_id, fi.email, fi.role, fi.status, fi.expires_at,
                     f.facility_name, f.address
              FROM facility_invitations fi
              JOIN facilities f ON fi.facility_id = f.facility_id
-             WHERE UPPER(TRIM(fi.token)) = $1`,
-            [cleanToken]
+             WHERE UPPER(TRIM(fi.token)) = $1
+                OR UPPER(REGEXP_REPLACE(fi.token, '[^a-zA-Z0-9]', '', 'g')) = $2
+                OR UPPER(REGEXP_REPLACE(fi.token, '[^a-zA-Z0-9]', '', 'g')) = 'FAC' || $2
+                OR ('FAC' || UPPER(REGEXP_REPLACE(fi.token, '[^a-zA-Z0-9]', '', 'g'))) = $2`,
+            [cleanToken, alphanumToken]
         );
 
         if (result.rows.length === 0) {

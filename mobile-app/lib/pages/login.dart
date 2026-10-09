@@ -8,7 +8,7 @@ import '../services/api_service.dart';
 import '../models/user_session.dart';
 
 // Import your pages
-import 'register.dart';
+import 'role.dart';
 import 'forgot_password.dart';
 import 'biometrics.dart';
 import 'dashboard.dart';
@@ -443,10 +443,10 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             recognizer: TapGestureRecognizer()
                               ..onTap = () {
-                                Navigator.pushReplacement(
+                                Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) => const RegisterPage()),
+                                      builder: (_) => const RoleScreen()),
                                 );
                               },
                           ),

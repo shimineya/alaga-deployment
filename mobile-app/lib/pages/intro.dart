@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart'; 
-import 'register.dart';
+import 'role.dart';
 
 class IntroPage extends StatefulWidget {
   const IntroPage({super.key});
@@ -16,7 +16,7 @@ class _IntroPageState extends State<IntroPage> {
   void _navigateToRegister() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => const RegisterPage()),
+      MaterialPageRoute(builder: (context) => const RoleScreen()),
     );
   }
 

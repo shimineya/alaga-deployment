@@ -1,24 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// [INTEGRATION] Role selection is part of the registration flow.
-// It receives RegistrationData from register.dart and passes it to register1.dart.
+// [INTEGRATION] Role selection is Step 1 of the registration flow.
+// It allows users to pick their account type (Parent or Caregiver) and
+// verify facility affiliation before filling out personal details.
 import '../models/registration_data.dart';
 import '../services/api_service.dart';
-import 'register1.dart';
+import 'register.dart';
+import 'login.dart';
 
 class RoleScreen extends StatefulWidget {
-  // [OWASP A01] RegistrationData is required -- the user must provide personal info
-  // before selecting a role. This enforces the intended sequential flow.
-  final RegistrationData registrationData;
+  final RegistrationData? registrationData;
 
-  const RoleScreen({super.key, required this.registrationData});
+  const RoleScreen({super.key, this.registrationData});
 
   @override
   State<RoleScreen> createState() => _RoleScreenState();
 }
 
 class _RoleScreenState extends State<RoleScreen> {
+  late RegistrationData _data;
   String? selectedRole;
 
   // Facility affiliation state
@@ -28,6 +29,29 @@ class _RoleScreenState extends State<RoleScreen> {
   String? _verifiedFacilityName;
   String? _verifiedRole;
   String? _tokenError;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = widget.registrationData ?? RegistrationData();
+    if (_data.role.isNotEmpty) {
+      if (_data.role.toLowerCase() == 'parent') {
+        selectedRole = 'PARENT';
+      } else {
+        selectedRole = 'CAREGIVER';
+      }
+    }
+    if (_data.inviteToken.isNotEmpty) {
+      _tokenCtrl.text = _data.inviteToken;
+      _isAffiliatedWithFacility = true;
+      if (_data.facilityName.isNotEmpty) {
+        _verifiedFacilityName = _data.facilityName;
+      }
+      if (_data.role.isNotEmpty) {
+        _verifiedRole = _data.role;
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -57,11 +81,18 @@ class _RoleScreenState extends State<RoleScreen> {
   }
 
   Future<void> _verifyToken() async {
-    final token = _tokenCtrl.text.trim().toUpperCase();
+    final raw = _tokenCtrl.text;
+    final token = raw
+        .replaceAll(RegExp(r'[\u200B-\u200D\uFEFF\u00A0\s\r\n]'), '')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\-]'), '')
+        .toUpperCase();
+
     if (token.isEmpty) {
       setState(() => _tokenError = 'Please enter your invitation token.');
       return;
     }
+
+    _tokenCtrl.text = token;
     setState(() {
       _isVerifyingToken = true;
       _tokenError = null;
@@ -81,11 +112,14 @@ class _RoleScreenState extends State<RoleScreen> {
         _verifiedFacilityName = res['facility_name'];
         _verifiedRole = res['role'];
         _tokenError = null;
-        widget.registrationData.inviteToken = token;
-        widget.registrationData.facilityName = res['facility_name'] ?? '';
-        widget.registrationData.caregiverType = 'facility';
+        _data.inviteToken = token;
+        _data.facilityName = res['facility_name'] ?? '';
+        _data.caregiverType = 'facility';
         if (res['role'] != null) {
-          widget.registrationData.role = res['role'];
+          _data.role = res['role'];
+        }
+        if (res['email'] != null && (res['email'] as String).isNotEmpty) {
+          _data.email = (res['email'] as String).trim();
         }
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -117,19 +151,19 @@ class _RoleScreenState extends State<RoleScreen> {
         if (_verifiedFacilityName == null) return;
       }
     } else {
-      widget.registrationData.inviteToken = '';
-      widget.registrationData.caregiverType = selectedRole == 'CAREGIVER' ? 'freelance' : '';
-      widget.registrationData.facilityName = '';
+      _data.inviteToken = '';
+      _data.caregiverType = selectedRole == 'CAREGIVER' ? 'freelance' : '';
+      _data.facilityName = '';
     }
 
-    widget.registrationData.role = _verifiedRole ?? _mapRoleToBackend(selectedRole!);
+    _data.role = _verifiedRole ?? _mapRoleToBackend(selectedRole!);
 
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CreateCredentialsPage(
-          registrationData: widget.registrationData,
+        builder: (context) => RegisterPage(
+          registrationData: _data,
         ),
       ),
     );
@@ -139,13 +173,39 @@ class _RoleScreenState extends State<RoleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F0),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black87),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+              );
+            }
+          },
+        ),
+        centerTitle: true,
+        title: Text(
+          "Step 1 of 2: Account Type",
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF004D40),
+          ),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
 
               // Title
               Text(
@@ -158,7 +218,7 @@ class _RoleScreenState extends State<RoleScreen> {
                 ),
               ),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
 
               // Subtitle
               Text(
@@ -170,7 +230,7 @@ class _RoleScreenState extends State<RoleScreen> {
                 ),
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
 
               // Role cards side by side
               Row(
@@ -186,9 +246,9 @@ class _RoleScreenState extends State<RoleScreen> {
                         _verifiedFacilityName = null;
                         _verifiedRole = null;
                         _tokenError = null;
-                        widget.registrationData.caregiverType = '';
-                        widget.registrationData.facilityName = '';
-                        widget.registrationData.inviteToken = '';
+                        _data.caregiverType = '';
+                        _data.facilityName = '';
+                        _data.inviteToken = '';
                       }),
                     ),
                   ),
@@ -199,8 +259,8 @@ class _RoleScreenState extends State<RoleScreen> {
                       imagePath: 'assets/images/med staff.png',
                       onTap: () => setState(() {
                         selectedRole = 'CAREGIVER';
-                        widget.registrationData.caregiverType = 'freelance';
-                        widget.registrationData.facilityName = '';
+                        _data.caregiverType = 'freelance';
+                        _data.facilityName = '';
                       }),
                     ),
                   ),
@@ -281,23 +341,43 @@ class _RoleScreenState extends State<RoleScreen> {
                               ],
                             ),
                           ),
-                          Switch(
-                            value: _isAffiliatedWithFacility,
-                            activeThumbColor: const Color(0xFF00796B),
-                            onChanged: (val) {
-                              setState(() {
-                                _isAffiliatedWithFacility = val;
-                                if (!val) {
-                                  _tokenCtrl.clear();
-                                  _verifiedFacilityName = null;
-                                  _verifiedRole = null;
-                                  _tokenError = null;
-                                  widget.registrationData.inviteToken = '';
-                                  widget.registrationData.caregiverType = 'freelance';
-                                  widget.registrationData.facilityName = '';
-                                }
-                              });
-                            },
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Radio Selection
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _facilityRadioOption(
+                              label: "Freelance",
+                              sublabel: "Independent caregiver",
+                              icon: Icons.person_outline_rounded,
+                              isSelected: !_isAffiliatedWithFacility,
+                              onTap: () => setState(() {
+                                _isAffiliatedWithFacility = false;
+                                _tokenCtrl.clear();
+                                _verifiedFacilityName = null;
+                                _verifiedRole = null;
+                                _tokenError = null;
+                                _data.inviteToken = '';
+                                _data.caregiverType = 'freelance';
+                                _data.facilityName = '';
+                              }),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _facilityRadioOption(
+                              label: "Facility Staff",
+                              sublabel: "Has invitation token",
+                              icon: Icons.local_hospital_outlined,
+                              isSelected: _isAffiliatedWithFacility,
+                              onTap: () => setState(() {
+                                _isAffiliatedWithFacility = true;
+                                _data.caregiverType = 'facility';
+                              }),
+                            ),
                           ),
                         ],
                       ),
@@ -450,7 +530,7 @@ class _RoleScreenState extends State<RoleScreen> {
 
               // Continue button
               SizedBox(
-                width: 200,
+                width: 220,
                 child: ElevatedButton(
                   onPressed: selectedRole == null ? null : _handleContinue,
                   style: ElevatedButton.styleFrom(
@@ -463,9 +543,9 @@ class _RoleScreenState extends State<RoleScreen> {
                     elevation: 0,
                   ),
                   child: Text(
-                    "Continue",
+                    "Continue to Details",
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: selectedRole == null ? Colors.grey.shade600 : Colors.black,
                     ),
@@ -473,9 +553,98 @@ class _RoleScreenState extends State<RoleScreen> {
                 ),
               ),
 
+              const SizedBox(height: 24),
+
+              // Link to log in
+              GestureDetector(
+                onTap: () {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                  );
+                },
+                child: RichText(
+                  text: TextSpan(
+                    text: 'Already registered? ',
+                    style: GoogleFonts.albertSans(fontSize: 13, color: Colors.black87),
+                    children: [
+                      TextSpan(
+                        text: 'Log in',
+                        style: GoogleFonts.albertSans(
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF00796B),
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                      const TextSpan(text: ' instead.'),
+                    ],
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 32),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _facilityRadioOption({
+    required String label,
+    required String sublabel,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFE0F2F1) : const Color(0xFFF5F5F0),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade300,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade600,
+                ),
+                const Spacer(),
+                Icon(
+                  isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                  size: 16,
+                  color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade400,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? const Color(0xFF004D40) : Colors.black87,
+              ),
+            ),
+            Text(
+              sublabel,
+              style: GoogleFonts.albertSans(
+                fontSize: 9.5,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
         ),
       ),
     );

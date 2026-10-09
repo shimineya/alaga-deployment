@@ -392,15 +392,30 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
             [username, safeEmail]
         );
 
+        let targetExistingUserId = null;
         if (userCheck.rows.length > 0) {
-            const existing = userCheck.rows[0];
-            if (existing.email && existing.email.toLowerCase() === safeEmail) {
-                return res.status(409).json({ success: false, message: 'This email address is already registered to an account. Please sign in or use a different email.' });
+            const existing = userCheck.rows.find(u => u.email && u.email.toLowerCase() === safeEmail);
+            // If invited with a valid token, permit reactivation/re-registration for their invited email
+            if (matchedInvitationId && existing) {
+                // Ensure chosen username is not already claimed by a DIFFERENT user
+                const usernameConflict = await client.query(
+                    'SELECT user_id FROM users WHERE LOWER(username) = LOWER($1) AND user_id != $2',
+                    [username, existing.user_id]
+                );
+                if (usernameConflict.rows.length > 0) {
+                    return res.status(409).json({ success: false, message: 'This username is already taken. Please choose another username.' });
+                }
+                targetExistingUserId = existing.user_id;
+            } else {
+                const first = userCheck.rows[0];
+                if (first.email && first.email.toLowerCase() === safeEmail) {
+                    return res.status(409).json({ success: false, message: 'This email address is already registered to an account. Please sign in or use a different email.' });
+                }
+                if (first.username && first.username.toLowerCase() === username.toLowerCase()) {
+                    return res.status(409).json({ success: false, message: 'This username is already taken. Please choose another username.' });
+                }
+                return res.status(409).json({ success: false, message: 'An account with this email or username already exists.' });
             }
-            if (existing.username && existing.username.toLowerCase() === username.toLowerCase()) {
-                return res.status(409).json({ success: false, message: 'This username is already taken. Please choose another username.' });
-            }
-            return res.status(409).json({ success: false, message: 'An account with this email or username already exists.' });
         }
 
         // [OWASP A04] bcrypt with 12 salt rounds
@@ -410,28 +425,60 @@ app.post(['/api/auth/register', '/api/auth/signup'], authLimiter, registerValida
         // --- DB TRANSACTION: covers only writes, not network I/O ---
         await client.query('BEGIN');
 
-        const newUser = await client.query(
-            `INSERT INTO users (
-                username, password_hash, email, role, 
-                mobile_number, first_name, last_name, middle_initial, 
-                facility_id, account_status, is_verified, created_at
-            ) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Pending_Review', FALSE, NOW()) 
-             RETURNING user_id, username, role, email, account_status, is_verified`,
-            [
-                username,
-                password_hash,
-                safeEmail,
-                role || 'caregiver',
-                mobile_number,
-                first_name,
-                last_name,
-                middle_initial || null,
-                facilityIdToAssign
-            ]
-        );
-
-        const createdUser = newUser.rows[0];
+        let createdUser;
+        if (targetExistingUserId) {
+            const updatedUser = await client.query(
+                `UPDATE users SET 
+                    username = $1, 
+                    password_hash = $2, 
+                    role = $3, 
+                    mobile_number = COALESCE($4, mobile_number), 
+                    first_name = COALESCE($5, first_name), 
+                    last_name = COALESCE($6, last_name), 
+                    middle_initial = COALESCE($7, middle_initial), 
+                    facility_id = $8, 
+                    account_status = 'Pending_Review', 
+                    is_archived = false, 
+                    is_verified = false,
+                    force_logout_at = NOW()
+                 WHERE user_id = $9
+                 RETURNING user_id, username, role, email, account_status, is_verified`,
+                [
+                    username,
+                    password_hash,
+                    role || 'caregiver',
+                    mobile_number,
+                    first_name,
+                    last_name,
+                    middle_initial || null,
+                    facilityIdToAssign,
+                    targetExistingUserId
+                ]
+            );
+            createdUser = updatedUser.rows[0];
+        } else {
+            const newUser = await client.query(
+                `INSERT INTO users (
+                    username, password_hash, email, role, 
+                    mobile_number, first_name, last_name, middle_initial, 
+                    facility_id, account_status, is_verified, created_at
+                ) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Pending_Review', FALSE, NOW()) 
+                 RETURNING user_id, username, role, email, account_status, is_verified`,
+                [
+                    username,
+                    password_hash,
+                    safeEmail,
+                    role || 'caregiver',
+                    mobile_number,
+                    first_name,
+                    last_name,
+                    middle_initial || null,
+                    facilityIdToAssign
+                ]
+            );
+            createdUser = newUser.rows[0];
+        }
         const otp = generateOtp();
         const otpHash = hashOtp(otp);
 

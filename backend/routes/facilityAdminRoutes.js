@@ -160,17 +160,21 @@ router.post('/staff/invite', async (req, res) => {
         }
         const facilityName = facRes.rows[0].facility_name;
 
-        // Check if user is already registered in the system
+        // Check if user is already an active member of this facility with the SAME role
         const existingUser = await pool.query(
-            'SELECT user_id, email, role, facility_id FROM users WHERE LOWER(email) = LOWER($1)',
+            `SELECT user_id, email, role, facility_id, is_archived, account_status 
+             FROM users 
+             WHERE LOWER(email) = LOWER($1)`,
             [safeEmail]
         );
         if (existingUser.rows.length > 0) {
             const eu = existingUser.rows[0];
-            if (eu.facility_id === facilityId) {
+            const isArchived = eu.is_archived === true || eu.account_status === 'Archived';
+            // Only block if they are actively affiliated with this facility AND already have this exact role
+            if (eu.facility_id === facilityId && !isArchived && eu.role === role) {
                 return res.status(400).json({
                     success: false,
-                    message: `User with email ${safeEmail} is already a member of this facility.`
+                    message: `User with email ${safeEmail} is already an active ${role === 'medical_staff' ? 'Medical Staff' : 'Caregiver'} in this facility.`
                 });
             }
         }
@@ -402,8 +406,25 @@ router.delete('/staff/:id', async (req, res) => {
         const targetFacId = ownerCheck.rows[0].facility_id || facilityId;
 
         await client.query('BEGIN');
-        await client.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+        await client.query(
+            "UPDATE users SET is_archived = true, account_status = 'Archived', facility_id = NULL, force_logout_at = NOW() WHERE user_id = $1",
+            [targetUserId]
+        );
         await client.query("UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+        await client.query(
+            `INSERT INTO session_revocations (user_id, revoked_before, revoked_by, reason)
+             VALUES ($1, NOW(), $2, 'Staff Removed by Facility Admin')
+             ON CONFLICT (user_id) DO UPDATE SET revoked_before = NOW(), revoked_by = $2`,
+            [targetUserId, req.user.id]
+        );
+        await client.query(
+            `UPDATE facility_invitations 
+             SET status = 'revoked' 
+             WHERE facility_id = $1 
+               AND LOWER(email) = (SELECT LOWER(email) FROM users WHERE user_id = $2) 
+               AND status = 'pending'`,
+            [targetFacId, targetUserId]
+        );
 
         await client.query(
             `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)

@@ -147,7 +147,9 @@ export default function WardStaffManagement() {
             if (data.success) {
                 toast.success(data.message || 'Invitation sent successfully!');
                 setInviteResult(data.invitation);
+                setInviteEmail('');
                 fetchInvitations();
+                fetchStaff();
             } else {
                 toast.error(data.message || 'Failed to send invitation.');
             }
@@ -237,6 +239,7 @@ export default function WardStaffManagement() {
                 toast.success(`Staff member ${username} removed.`);
                 setStaff(prev => prev.filter(s => s.user_id !== userId));
                 fetchStaff();
+                fetchInvitations();
             } else {
                 toast.error(data.message || 'Failed to delete staff member.');
             }

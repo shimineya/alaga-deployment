@@ -78,7 +78,11 @@ pool.connect((err, client, release) => {
       WHERE patient_id IN (
           SELECT patient_id FROM public.patient_access WHERE relationship IN ('Parent', 'Guardian')
       ) AND facility_id IS NOT NULL;
-    `).catch(err => console.error('Failed to run parent facility_id cleanup migration:', err));
+
+      UPDATE public.users 
+      SET facility_id = NULL 
+      WHERE (is_archived IS TRUE OR account_status = 'Archived') AND facility_id IS NOT NULL;
+    `).catch(err => console.error('Failed to run parent/archived facility_id cleanup migration:', err));
 
     // Auto-migration: Create facility_invitations table
     pool.query(`

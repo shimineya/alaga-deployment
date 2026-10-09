@@ -29,7 +29,7 @@ const DEFAULT_FALLBACK_FORMS: LegalForm[] = [
     category: 'Legal & Terms of Service',
     role_scope: 'all',
     summary: 'Governs acceptable use of the ALAGA healthcare monitoring portal, account responsibilities, system uptime, and auxiliary hardware disclaimers.',
-    content: `1. ACCEPTANCE OF TERMS\nBy accessing or using the ALAGA Healthcare Monitoring System (Web and Mobile Applications, firmware-enabled IoT clips, and cloud services), you acknowledge and agree to be bound by these Platform Terms and Conditions. If you do not agree with any provision herein, you must refrain from accessing or utilizing the platform.\n\n2. AUXILIARY HARDWARE DISCLAIMER\nALAGA HARDWARE DEVICES ARE AUXILIARY MONITORING AIDS AND ARE NOT CERTIFIED AS LIFE-SUPPORT SYSTEMS. The system is designed to augment, not substitute, hands-on clinical observation, parental attentiveness, and professional medical supervision.\n\n3. ACCOUNT CREDENTIALS & SECURITY OBLIGATIONS\nUsers are solely responsible for preserving the confidentiality of their credentials and session tokens.\n\n4. CONNECTIVITY LIMITATIONS\nTelemetry streaming relies on Wi-Fi, battery capacity, cellular internet connectivity, and cloud backend availability. ALAGA implements automatic store-and-forward buffers during network drops.`
+    content: `1. ACCEPTANCE OF TERMS\nBy accessing or using the ALAGA Healthcare Monitoring System (Web and Mobile Applications, firmware-enabled IoT clips, and cloud services), you acknowledge and agree to be bound by these Platform Terms and Conditions. If you do not agree with any provision herein, you must refrain from accessing or utilizing the platform.\n\n2. AUXILIARY HARDWARE DISCLAIMER\nALAGA HARDWARE DEVICES ARE AUXILIARY MONITORING AIDS AND ARE NOT CERTIFIED AS LIFE-SUPPORT SYSTEMS. The system is designed to augment, not substitute, hands-on clinical observation, parental attentiveness, and professional medical supervision.\n\n3. ACCOUNT CREDENTIALS & SECURITY OBLIGATIONS\nUsers are solely responsible for preserving the confidentiality of their credentials and session tokens.\n\n4. CONNECTIVITY LIMITATIONS\nContinuous vital sign and sensor monitoring relies on Wi-Fi, battery capacity, cellular internet connectivity, and cloud backend availability. ALAGA implements automatic store-and-forward buffers during network drops.`
   },
   {
     id: 'privacy_policy',
@@ -37,19 +37,19 @@ const DEFAULT_FALLBACK_FORMS: LegalForm[] = [
     category: 'Data Governance & Privacy',
     role_scope: 'all',
     summary: 'Details lawful processing of Personal Health Information (PHI) under Philippine Republic Act 10173 (Data Privacy Act of 2012).',
-    content: `1. STATUTORY COMPLIANCE\nIn accordance with Republic Act No. 10173 (Philippine Data Privacy Act of 2012), ALAGA adheres to transparency, legitimate purpose, and proportionality in collecting and processing Personal Health Information.\n\n2. INFORMATION COLLECTED\nDemographics, real-time vital telemetry (heart rate, SpO2, body temperature), diaper moisture percentages, sensor attachment status, and device battery/signal telemetry.\n\n3. ENCRYPTION & DATA STORAGE\nAll telemetry transmitted between IoT sensors, mobile devices, and backend endpoints is encrypted in transit using TLS 1.3. Database records are encrypted at rest with AES-256 standards.\n\n4. ACCESS CONTROL\nAccess to patient telemetry is strictly scoped to enrolled parents or assigned clinical staff.`
+    content: `1. STATUTORY COMPLIANCE\nIn accordance with Republic Act No. 10173 (Philippine Data Privacy Act of 2012), ALAGA adheres to transparency, legitimate purpose, and proportionality in collecting and processing Personal Health Information.\n\n2. INFORMATION COLLECTED\nDemographics, real-time vital signs (heart rate, SpO2, body temperature), diaper moisture percentages, sensor attachment status, and device battery and signal status.\n\n3. ENCRYPTION & DATA STORAGE\nAll vital signs and sensor data transmitted between IoT sensors, mobile devices, and backend endpoints is encrypted in transit using TLS 1.3. Database records are encrypted at rest with AES-256 standards.\n\n4. ACCESS CONTROL\nAccess to patient vital signs and health records is strictly scoped to enrolled parents or assigned clinical staff.`
   },
   {
     id: 'telemetry_authorization',
-    title: 'Informed Health Data Consent & Telemetry Authorization',
-    category: 'Clinical Telemetry Consent',
+    title: 'Informed Health Data Consent & Continuous Monitoring Authorization',
+    category: 'Continuous Health Monitoring Consent',
     role_scope: 'all',
-    summary: 'Explicit authorization for continuous optical biometric streaming and smart diaper moisture sampling.',
-    content: `1. PURPOSE OF CONTINUOUS MONITORING\nContinuous telemetry collection enables immediate identification of acute physiological changes, fever onset, hypoxia episodes, and wet diaper saturation.\n\n2. NATURE OF WEARABLE SENSORS\nYou authorize placement and operation of MAX30102 Optical PPG clips and conductive diaper moisture probes.\n\n3. POTENTIAL RISKS & SKIN INTEGRITY\nSensor components utilize medical-grade hypoallergenic casings. Caregivers agree to routinely inspect skin during diaper changes.`
+    summary: 'Explicit authorization for continuous optical vital sign monitoring and smart diaper moisture detection.',
+    content: `1. PURPOSE OF CONTINUOUS MONITORING\nContinuous vital signs monitoring enables immediate identification of acute physiological changes, fever onset, hypoxia episodes, and wet diaper saturation.\n\n2. NATURE OF WEARABLE SENSORS\nYou authorize placement and operation of MAX30102 Optical PPG clips and conductive diaper moisture probes.\n\n3. POTENTIAL RISKS & SKIN INTEGRITY\nSensor components utilize medical-grade hypoallergenic casings. Caregivers agree to routinely inspect skin during diaper changes.`
   },
   {
     id: 'ai_decision_support_disclaimer',
-    title: 'AI Decision-Support & Clinical Telemetry Disclaimer',
+    title: 'AI Decision-Support & Monitoring Disclaimer',
     category: 'AI & Algorithm Disclaimer',
     role_scope: 'all',
     summary: 'Auxiliary decision-support safeguard declaring algorithms serve non-diagnostic functions only.',

@@ -138,7 +138,7 @@ export default function SettingsHub() {
                                 <div>
                                     <h2 className="text-base font-bold text-slate-800">Legal Agreements &amp; Clinical Consents</h2>
                                     <p className="text-xs text-slate-500 mt-0.5">
-                                        Review the binding terms, Philippine Republic Act 10173 data privacy disclosures, AI non-diagnostic disclaimers, and continuous telemetry authorizations governing your ALAGA account.
+                                        Review the binding terms, Philippine Republic Act 10173 data privacy disclosures, AI non-diagnostic disclaimers, and continuous health monitoring authorizations governing your ALAGA account.
                                     </p>
                                 </div>
                                 <button
@@ -174,7 +174,7 @@ export default function SettingsHub() {
                                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1.5">
                                     <div className="text-xs font-bold text-slate-800 flex items-center gap-2">
                                         <span className="w-2 h-2 rounded-full bg-teal-500"></span>
-                                        Informed Health Data &amp; Telemetry Consent
+                                        Informed Health Data &amp; Continuous Monitoring Consent
                                     </div>
                                     <p className="text-[11px] text-slate-600 leading-relaxed">
                                         Explicit authorization for continuous optical biometric tracking (heart rate, SpO2), body temperature, and smart diaper moisture detection.

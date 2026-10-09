@@ -21,16 +21,16 @@ const COMPLIANCE_FORMS = [
 By accessing or using the ALAGA Healthcare Monitoring System (Web and Mobile Applications, firmware-enabled IoT clips, and cloud services), you acknowledge and agree to be bound by these Platform Terms and Conditions. If you do not agree with any provision herein, you must refrain from accessing or utilizing the platform.
 
 2. SERVICE SCOPE & HARDWARE DISCLAIMER
-ALAGA provides continuous, auxiliary non-invasive physiological vital sign tracking (heart rate, blood oxygen SpO2, body temperature) and diaper moisture telemetry. ALAGA HARDWARE DEVICES ARE AUXILIARY MONITORING AIDS AND ARE NOT CERTIFIED AS LIFE-SUPPORT SYSTEMS. The system is designed to augment, not substitute, hands-on clinical observation, parental attentiveness, and professional medical supervision.
+ALAGA provides continuous, auxiliary non-invasive vital sign tracking (heart rate, blood oxygen SpO2, body temperature) and diaper moisture monitoring. ALAGA HARDWARE DEVICES ARE AUXILIARY MONITORING AIDS AND ARE NOT CERTIFIED AS LIFE-SUPPORT SYSTEMS. The system is designed to augment, not substitute, hands-on clinical observation, parental attentiveness, and professional medical supervision.
 
 3. ACCOUNT CREDENTIALS & SECURITY OBLIGATIONS
 Users are solely responsible for preserving the confidentiality of their login credentials, one-time passwords (OTP), and two-factor authentication tokens. Any activity conducted under your authenticated session is deemed authorized. Unauthorized sharing of credentials with third parties constitutes a violation of these terms and may result in immediate suspension.
 
 4. SYSTEM AVAILABILITY & CONNECTIVITY LIMITATIONS
-Telemetry streaming relies on local Wi-Fi, battery capacity, cellular internet connectivity, and cloud backend availability. While ALAGA implements automatic store-and-forward buffers during network drops, ALAGA does not guarantee continuous uninterrupted service in environments experiencing power outages, RF interference, or ISP disruptions.
+Continuous health and sensor monitoring relies on local Wi-Fi, battery capacity, cellular internet connectivity, and cloud backend availability. While ALAGA implements automatic store-and-forward buffers during network drops, ALAGA does not guarantee continuous uninterrupted service in environments experiencing power outages, RF interference, or ISP disruptions.
 
 5. INTELLECTUAL PROPERTY
-All software code, user interface designs, ML algorithms, algorithms, diagnostic graphs, trademarks, and documentation are proprietary property of ALAGA and its licensors, protected under applicable copyright and intellectual property legislation.
+All software code, user interface designs, ML algorithms, diagnostic graphs, trademarks, and documentation are proprietary property of ALAGA and its licensors, protected under applicable copyright and intellectual property legislation.
 
 6. TERMINATION & SUSPENSION
 ALAGA reserves the right to suspend or revoke access to any user who engages in automated screen scraping, unauthorized reverse engineering of hardware endpoints, or violations of privacy laws.`,
@@ -48,33 +48,33 @@ In strict accordance with Republic Act No. 10173 (Philippine Data Privacy Act of
 We collect and securely process:
 - Account Demographics: Full name, verified email address, mobile number, assigned clinical facility, and system role.
 - Patient Demographics: Patient full name, birthdate, room/ward assignment, diagnosis, emergency contacts, and assigned care team.
-- Real-Time Clinical Telemetry: Heart rate (BPM), blood oxygen saturation (SpO2 %), estimated body temperature (°C), diaper moisture percentages, sensor attachment status, and device battery/signal telemetry.
+- Real-Time Vital Signs & Sensor Readings: Heart rate (BPM), blood oxygen saturation (SpO2 %), estimated body temperature (°C), diaper moisture percentages, sensor attachment status, and device battery and signal status.
 - Security & Audit Trails: IP addresses, access timestamps, authentication outcomes, and operator acknowledgment actions.
 
 3. ENCRYPTION & DATA STORAGE
-All telemetry transmitted between IoT sensors, mobile devices, web clients, and backend endpoints is encrypted in transit using Transport Layer Security (TLS 1.3). Database records are encrypted at rest with AES-256 standards. Direct device-to-cloud streams require SHA-256 cryptographic hardware token verification.
+All vital signs and sensor data transmitted between IoT sensors, mobile devices, web clients, and backend endpoints is encrypted in transit using Transport Layer Security (TLS 1.3). Database records are encrypted at rest with AES-256 standards. Direct device-to-cloud streams require SHA-256 cryptographic hardware token verification.
 
 4. ACCESS CONTROL & ROLE-BASED SEGREGATION
-Access to patient telemetry is strictly scoped:
+Access to patient vital signs and health records is strictly scoped:
 - Parents & Guardians: Access exclusively to their enrolled children or dependents.
 - Caregivers & Medical Staff: Access limited exclusively to patients assigned to their active roster or facility ward.
-- System Administrators: Access to de-identified telemetry and administrative governance records without unauthorized exposure of confidential clinical charts.
+- System Administrators: Access to de-identified monitoring data and administrative governance records without unauthorized exposure of confidential clinical charts.
 
 5. DATA SUBJECT RIGHTS
 Under the Data Privacy Act, you maintain the right to:
 - Be informed whether personal health data is being processed.
-- Reasonable access to your personal information and historical telemetry logs.
+- Reasonable access to your personal information and historical vital sign logs.
 - Dispute inaccuracies or rectify erroneous records.
 - Suspend, withdraw, or order the removal of your personal health data upon formal written notification, subject to legal clinical record retention obligations.`,
     },
     {
         id: 'telemetry_authorization',
-        title: 'Informed Health Data Consent & Continuous Telemetry Authorization',
-        category: 'Clinical Telemetry Consent',
+        title: 'Informed Health Data Consent & Continuous Monitoring Authorization',
+        category: 'Continuous Health Monitoring Consent',
         role_scope: 'all',
-        summary: 'Explicit authorization for continuous optical biometric streaming, smart diaper moisture sampling, and multi-user care team monitoring.',
+        summary: 'Explicit authorization for continuous optical vital sign monitoring, smart diaper moisture detection, and multi-user care team monitoring.',
         content: `1. PURPOSE OF CONTINUOUS MONITORING
-Continuous telemetry collection enables immediate identification of acute physiological changes, fever onset, hypoxia episodes, and wet diaper saturation, minimizing complications such as skin dermatitis, pressure ulcers, and undetected vital sign deterioration.
+Continuous vital signs monitoring enables immediate identification of acute physiological changes, fever onset, hypoxia episodes, and wet diaper saturation, minimizing complications such as skin dermatitis, pressure ulcers, and undetected vital sign deterioration.
 
 2. NATURE OF WEARABLE SENSORS
 You authorize the placement and operation of:
@@ -86,11 +86,11 @@ You authorize the placement and operation of:
 While sensor components utilize medical-grade, hypoallergenic casings and operate at negligible electrical potential (<3.3V), prolonged contact against sensitive skin may occasionally cause minor redness or localized indentation. Caregivers and parents agree to routinely inspect patient skin during diaper changes and reposition sensor bands as needed.
 
 4. MULTI-USER CARE TEAM DISCLOSURE
-By enrolling a patient in ALAGA, you authorize designated caregivers, attending nurses, and clinic administrators associated with the patient's care team to view live telemetry, acknowledge notifications, and review historical trends.`,
+By enrolling a patient in ALAGA, you authorize designated caregivers, attending nurses, and clinic administrators associated with the patient's care team to view live vital sign readings, acknowledge notifications, and review historical trends.`,
     },
     {
         id: 'ai_decision_support_disclaimer',
-        title: 'AI Assistive Decision-Support & Clinical Telemetry Disclaimer',
+        title: 'AI Assistive Decision-Support & Monitoring Disclaimer',
         category: 'AI & Algorithm Disclaimer',
         role_scope: 'all',
         summary: 'Important clinical safeguard declaring that Machine Learning anomaly algorithms (One-Class SVM) and threshold rule engines serve auxiliary decision-support functions only.',
@@ -142,7 +142,7 @@ When an alarm status switches to "CRITICAL" (e.g. SpO2 < 90%, Heart Rate > 140 b
 - Step 3: Initiate standard facility clinical protocol or call designated physician / emergency services (e.g. 911 / Hospital Emergency Department).
 
 2. NETWORK DISRUPTIONS IN EMERGENCIES
-If network status indicates "Offline" or "Disconnected", the mobile application will alert you that telemetry is suspended. IN CRITICAL OR LIFE-THREATENING EMERGENCIES, NEVER DELAY CONTACTING EMERGENCY MEDICAL RESPONDERS WHILE TROUBLESHOOTING WI-FI OR MOBILE CONNECTIVITY.
+If network status indicates "Offline" or "Disconnected", the mobile application will alert you that live vital signs monitoring is paused. IN CRITICAL OR LIFE-THREATENING EMERGENCIES, NEVER DELAY CONTACTING EMERGENCY MEDICAL RESPONDERS WHILE TROUBLESHOOTING WI-FI OR MOBILE CONNECTIVITY.
 
 3. ACKNOWLEDGMENT OF RESPONSIBILITY
 By signing below, you acknowledge that you have reviewed the emergency escalation protocols and understand the imperative of swift physical clinical evaluation upon receiving critical alarms.`,

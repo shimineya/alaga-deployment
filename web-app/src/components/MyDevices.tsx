@@ -317,7 +317,7 @@ export const MyDevices: React.FC = () => {
         }
 
         const patientName = device.assigned_patient_name || 'the patient';
-        if (!confirm(`Pair ${device.device_name} (SN: ${device.serial_number}) to ${patientName}?\n\nThis will activate real-time telemetry streaming and clinical monitoring for this patient.`)) return;
+        if (!confirm(`Pair ${device.device_name} (SN: ${device.serial_number}) to ${patientName}?\n\nThis will activate real-time vital signs and health monitoring for this patient.`)) return;
 
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/pair`, {

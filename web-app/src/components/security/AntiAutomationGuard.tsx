@@ -61,7 +61,7 @@ export const AntiAutomationGuard: React.FC<AntiAutomationGuardProps> = ({ childr
           <p className="text-sm text-slate-400 leading-relaxed mb-6">
             An automated browser controller, script driver, or headless environment has been detected. In accordance with 
             <span className="text-slate-200 font-medium"> HIPAA § 164.312</span> and 
-            <span className="text-slate-200 font-medium"> OWASP A07</span>, automated programmatic interaction with Alaga clinical telemetry, patient records, and devices is strictly blocked.
+            <span className="text-slate-200 font-medium"> OWASP A07</span>, automated programmatic interaction with Alaga patient vital signs, medical records, and monitoring devices is strictly blocked.
           </p>
 
           <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 text-left mb-6 space-y-2">

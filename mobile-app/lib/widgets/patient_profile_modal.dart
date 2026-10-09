@@ -575,7 +575,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
 
                   // 2. LIVE VITALS STREAM
                   Text(
-                    'TELEMETRY & CLINICAL VITALS',
+                    'VITAL SIGNS & READINGS',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,

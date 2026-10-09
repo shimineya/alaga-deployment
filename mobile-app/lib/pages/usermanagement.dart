@@ -239,7 +239,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            action == 'accept' ? 'Invitation accepted! Telemetry now active.' : 'Invitation declined.',
+            action == 'accept' ? 'Invitation accepted! Patient monitoring is now active.' : 'Invitation declined.',
             style: GoogleFonts.albertSans(),
           ),
           backgroundColor: action == 'accept' ? _caregiverGreen : Colors.grey[700],
@@ -339,7 +339,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: _dangerRed),
         ),
         content: Text(
-          "Are you sure you want to resign from caring for $patientName? You will lose real-time telemetry access.",
+          "Are you sure you want to resign from caring for $patientName? You will lose real-time monitoring access.",
           style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[700]),
         ),
         actions: [

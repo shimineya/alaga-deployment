@@ -44,7 +44,7 @@ class _InteractiveTutorialDialogState extends State<InteractiveTutorialDialog> {
   List<Map<String, dynamic>> get _caregiverSteps => [
     {
       'title': 'Welcome to ALAGA Clinical Care',
-      'subtitle': 'Real-Time Biometric & Hygiene Telemetry Platform',
+      'subtitle': 'Real-Time Health & Hygiene Monitoring Platform',
       'icon': Icons.local_hospital_rounded,
       'color': const Color(0xFF00796B),
       'badge': 'CLINICAL OVERVIEW',
@@ -103,7 +103,7 @@ class _InteractiveTutorialDialogState extends State<InteractiveTutorialDialog> {
       'subtitle': 'Day, Week, and Month Trend Analysis',
       'icon': Icons.show_chart_rounded,
       'color': const Color(0xFF3B82F6),
-      'badge': 'HISTORICAL TELEMETRY',
+      'badge': 'HEALTH HISTORY',
       'description':
           'Access chronological trend lines directly in the patient profile and patient list to evaluate recovery trajectories and response to treatment.',
       'highlights': [

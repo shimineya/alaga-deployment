@@ -847,7 +847,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                   ),
                   subtitle: Text(
-                    "Review platform terms, Data Privacy Act (RA 10173), telemetry authorization, and AI decision-support disclaimers.",
+                    "Review platform terms, Data Privacy Act (RA 10173), health monitoring consent, and AI decision-support disclaimers.",
                     style: GoogleFonts.albertSans(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),

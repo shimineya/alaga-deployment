@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 // [INTEGRATION] Role selection is Step 1 of the registration flow.
 // It allows users to pick their account type (Parent or Caregiver) and
@@ -20,6 +21,9 @@ class RoleScreen extends StatefulWidget {
 }
 
 class _RoleScreenState extends State<RoleScreen> {
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const int _lockoutDurationSeconds = 3600; // 1-Hour Cooldown Lockout
+
   late RegistrationData _data;
   String? selectedRole;
 
@@ -41,6 +45,7 @@ class _RoleScreenState extends State<RoleScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCooldownState();
     _data = widget.registrationData ?? RegistrationData();
     if (_data.role.isNotEmpty) {
       if (_data.role.toLowerCase() == 'parent') {
@@ -61,6 +66,60 @@ class _RoleScreenState extends State<RoleScreen> {
     }
   }
 
+  Future<void> _loadCooldownState() async {
+    try {
+      final attemptsStr = await _storage.read(key: 'token_incompatible_attempts');
+      if (attemptsStr != null) {
+        _incompatibleRoleAttempts = int.tryParse(attemptsStr) ?? 0;
+      }
+      final lockoutStr = await _storage.read(key: 'token_lockout_until');
+      if (lockoutStr != null) {
+        final lockoutUntil = DateTime.tryParse(lockoutStr);
+        if (lockoutUntil != null && lockoutUntil.isAfter(DateTime.now())) {
+          final diff = lockoutUntil.difference(DateTime.now()).inSeconds;
+          if (diff > 0) {
+            _startCooldown(diff, persist: false);
+          }
+        } else {
+          await _clearCooldownState();
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _clearCooldownState() async {
+    try {
+      await _storage.delete(key: 'token_lockout_until');
+      await _storage.delete(key: 'token_incompatible_attempts');
+    } catch (_) {}
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds >= 3600) {
+      final hours = seconds ~/ 3600;
+      final mins = (seconds % 3600) ~/ 60;
+      return '$hours hr${hours > 1 ? 's' : ''}${mins > 0 ? ' $mins min' : ''}';
+    } else if (seconds >= 60) {
+      final mins = seconds ~/ 60;
+      final secs = seconds % 60;
+      return '$mins min${secs > 0 ? ' $secs s' : ''}';
+    }
+    return '$seconds second${seconds == 1 ? '' : 's'}';
+  }
+
+  String _formatDurationShort(int seconds) {
+    if (seconds >= 3600) {
+      final hours = seconds ~/ 3600;
+      final mins = (seconds % 3600) ~/ 60;
+      return '${hours}h ${mins}m';
+    } else if (seconds >= 60) {
+      final mins = seconds ~/ 60;
+      final secs = seconds % 60;
+      return '${mins}m ${secs}s';
+    }
+    return '${seconds}s';
+  }
+
   @override
   void dispose() {
     _cooldownTimer?.cancel();
@@ -68,8 +127,14 @@ class _RoleScreenState extends State<RoleScreen> {
     super.dispose();
   }
 
-  void _startCooldown(int seconds) {
+  void _startCooldown(int seconds, {bool persist = true}) {
     _cooldownTimer?.cancel();
+    if (persist) {
+      final lockoutUntil = DateTime.now().add(Duration(seconds: seconds));
+      _storage.write(key: 'token_lockout_until', value: lockoutUntil.toIso8601String());
+      _storage.write(key: 'token_incompatible_attempts', value: '$_incompatibleRoleAttempts');
+    }
+
     setState(() {
       _cooldownSecondsRemaining = seconds;
     });
@@ -80,6 +145,7 @@ class _RoleScreenState extends State<RoleScreen> {
       }
       if (_cooldownSecondsRemaining <= 1) {
         timer.cancel();
+        _clearCooldownState();
         setState(() {
           _cooldownSecondsRemaining = 0;
           _incompatibleRoleAttempts = 0;
@@ -88,7 +154,7 @@ class _RoleScreenState extends State<RoleScreen> {
       } else {
         setState(() {
           _cooldownSecondsRemaining--;
-          _tokenError = 'Too many incompatible attempts. Please wait $_cooldownSecondsRemaining second${_cooldownSecondsRemaining == 1 ? '' : 's'} before trying again.';
+          _tokenError = 'Too many incompatible attempts. Please wait ${_formatDuration(_cooldownSecondsRemaining)} before trying again.';
         });
       }
     });
@@ -117,7 +183,7 @@ class _RoleScreenState extends State<RoleScreen> {
 
   Future<void> _verifyToken() async {
     if (_isLockedOut) {
-      setState(() => _tokenError = 'Too many incompatible attempts. Please wait $_cooldownSecondsRemaining second${_cooldownSecondsRemaining == 1 ? '' : 's'} before trying again.');
+      setState(() => _tokenError = 'Too many incompatible attempts. Please wait ${_formatDuration(_cooldownSecondsRemaining)} before trying again.');
       return;
     }
 
@@ -157,7 +223,9 @@ class _RoleScreenState extends State<RoleScreen> {
         final isLocked = _incompatibleRoleAttempts >= 3;
 
         if (isLocked) {
-          _startCooldown(60);
+          _startCooldown(_lockoutDurationSeconds);
+        } else {
+          _storage.write(key: 'token_incompatible_attempts', value: '$_incompatibleRoleAttempts');
         }
 
         setState(() {
@@ -166,7 +234,7 @@ class _RoleScreenState extends State<RoleScreen> {
           _data.inviteToken = '';
           _data.facilityName = '';
           _tokenError = isLocked
-              ? 'Maximum attempts reached (3/3). Verification locked for 60 seconds.'
+              ? 'Maximum attempts reached (3/3). Verification locked for 1 hour.'
               : 'Medical Staff tokens are not permitted on mobile ($_incompatibleRoleAttempts/3 attempts used).';
         });
 
@@ -179,8 +247,9 @@ class _RoleScreenState extends State<RoleScreen> {
         return;
       }
 
-      // Successful caregiver token: reset counter
+      // Successful caregiver token: reset counter and storage
       _incompatibleRoleAttempts = 0;
+      _clearCooldownState();
 
       setState(() {
         _verifiedFacilityName = res['facility_name'];
@@ -312,7 +381,7 @@ class _RoleScreenState extends State<RoleScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Attempt 3 of 3: Cooldown active. Token verification is locked for 60 seconds.',
+                        'Attempt 3 of 3: Cooldown active. Token verification is locked for 1 hour.',
                         style: GoogleFonts.albertSans(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -337,7 +406,7 @@ class _RoleScreenState extends State<RoleScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Attempt $attemptCount of 3 (${3 - attemptCount} attempt${3 - attemptCount == 1 ? '' : 's'} remaining before a 60-second cooldown).',
+                        'Attempt $attemptCount of 3 (${3 - attemptCount} attempt${3 - attemptCount == 1 ? '' : 's'} remaining before a 1-hour cooldown).',
                         style: GoogleFonts.albertSans(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -413,11 +482,13 @@ class _RoleScreenState extends State<RoleScreen> {
         _incompatibleRoleAttempts++;
         final isLocked = _incompatibleRoleAttempts >= 3;
         if (isLocked) {
-          _startCooldown(60);
+          _startCooldown(_lockoutDurationSeconds);
+        } else {
+          _storage.write(key: 'token_incompatible_attempts', value: '$_incompatibleRoleAttempts');
         }
         setState(() {
           _tokenError = isLocked
-              ? 'Maximum attempts reached (3/3). Input locked for 60 seconds.'
+              ? 'Maximum attempts reached (3/3). Input locked for 1 hour.'
               : 'Medical Staff tokens are not allowed ($_incompatibleRoleAttempts/3 attempts used).';
         });
         await _showIncompatibleRoleWarning(
@@ -684,7 +755,7 @@ class _RoleScreenState extends State<RoleScreen> {
                                   color: _isLockedOut ? Colors.grey : const Color(0xFF004D40),
                                 ),
                                 decoration: InputDecoration(
-                                  hintText: _isLockedOut ? "Cooldown active (${_cooldownSecondsRemaining}s)" : "FAC-XXXXXXXX",
+                                  hintText: _isLockedOut ? "Cooldown active (${_formatDurationShort(_cooldownSecondsRemaining)})" : "FAC-XXXXXXXX",
                                   hintStyle: GoogleFonts.poppins(
                                     fontSize: 12,
                                     letterSpacing: 1.0,
@@ -734,7 +805,7 @@ class _RoleScreenState extends State<RoleScreen> {
                                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                                     )
                                   : Text(
-                                      _isLockedOut ? "${_cooldownSecondsRemaining}s" : "Verify",
+                                      _isLockedOut ? _formatDurationShort(_cooldownSecondsRemaining) : "Verify",
                                       style: GoogleFonts.poppins(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,

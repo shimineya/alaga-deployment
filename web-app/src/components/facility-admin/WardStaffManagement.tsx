@@ -235,6 +235,7 @@ export default function WardStaffManagement() {
             const data = await res.json();
             if (data.success) {
                 toast.success(`Staff member ${username} removed.`);
+                setStaff(prev => prev.filter(s => s.user_id !== userId));
                 fetchStaff();
             } else {
                 toast.error(data.message || 'Failed to delete staff member.');

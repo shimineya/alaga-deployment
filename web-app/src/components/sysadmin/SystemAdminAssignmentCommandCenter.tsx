@@ -205,6 +205,7 @@ export default function SystemAdminAssignmentCommandCenter() {
             const data = await res.json();
             if (data.success) {
                 toast.success('Assignment archived successfully.');
+                setAssignments(prev => prev.filter(a => a.access_id !== id));
                 fetchData();
             } else {
                 toast.error(data.message || 'Failed to archive assignment.');
@@ -257,6 +258,8 @@ export default function SystemAdminAssignmentCommandCenter() {
             const data = await res.json();
             if (data.success) {
                 toast.success('Staff account deleted successfully.');
+                setStaff(prev => prev.filter(s => s.user_id !== id));
+                setAssignments(prev => prev.filter(a => a.user_id !== id));
                 fetchData();
             } else {
                 toast.error(data.message || 'Failed to delete staff.');

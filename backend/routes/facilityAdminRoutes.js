@@ -100,6 +100,7 @@ router.get('/staff', async (req, res) => {
                         CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
                  FROM users
                  WHERE role IN ('caregiver', 'medical_staff', 'facility_admin')
+                   AND is_archived IS DISTINCT FROM TRUE
                  ORDER BY created_at DESC`
             );
         } else {
@@ -111,6 +112,7 @@ router.get('/staff', async (req, res) => {
                         CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
                  FROM users
                  WHERE facility_id = $1 AND role IN ('caregiver', 'medical_staff')
+                   AND is_archived IS DISTINCT FROM TRUE
                  ORDER BY created_at DESC`,
                 [facilityId]
             );
@@ -384,34 +386,45 @@ router.post('/staff', async (req, res) => {
 router.delete('/staff/:id', async (req, res) => {
     const facilityId = req.user.facility_id;
     const targetUserId = parseInt(req.params.id);
+    const client = await pool.connect();
 
     try {
-        const ownerCheck = await pool.query(
-            'SELECT user_id, username FROM users WHERE user_id = $1 AND facility_id = $2',
-            [targetUserId, facilityId]
+        const ownerCheck = await client.query(
+            'SELECT user_id, username, facility_id FROM users WHERE user_id = $1 AND (facility_id = $2 OR created_by = $3)',
+            [targetUserId, facilityId, req.user.id]
         );
         if (ownerCheck.rows.length === 0) {
+            client.release();
             return res.status(403).json({ success: false, message: 'User does not belong to your facility.' });
         }
 
-        await pool.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+        const username = ownerCheck.rows[0].username;
+        const targetFacId = ownerCheck.rows[0].facility_id || facilityId;
 
-        await pool.query(
+        await client.query('BEGIN');
+        await client.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+        await client.query("UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+
+        await client.query(
             `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
              VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
-            [targetUserId.toString(), ownerCheck.rows[0].username, req.user.id, facilityId]
+            [targetUserId.toString(), username, req.user.id, targetFacId]
         );
 
-        await pool.query(
+        await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'STAFF_ARCHIVED', $2, 'CRITICAL')`,
-            [req.user.id, `Archived staff member: ${ownerCheck.rows[0].username} (ID ${targetUserId})`]
+            [req.user.id, `Archived staff member: ${username} (ID ${targetUserId})`]
         );
 
+        await client.query('COMMIT');
         res.json({ success: true, message: 'Staff member archived successfully.' });
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error("Archive staff error:", err);
         res.status(500).json({ success: false, message: 'Failed to archive staff member.' });
+    } finally {
+        client.release();
     }
 });
 
@@ -707,7 +720,7 @@ router.delete('/patients/:patientId/unassign-staff', async (req, res) => {
         // Remove the specific caregiver assignment
         const result = await pool.query(
             `DELETE FROM patient_access
-             WHERE patient_id = $1 AND user_id = $2 AND relationship = 'Assigned Caregiver'`,
+             WHERE patient_id = $1 AND user_id = $2`,
             [patientId, caregiver_id]
         );
 
@@ -745,13 +758,15 @@ router.get('/patients', async (req, res) => {
                     COALESCE(
                         json_agg(
                             json_build_object('user_id', pa.user_id, 'username', u.username, 'invite_status', pa.invite_status)
-                        ) FILTER (WHERE pa.user_id IS NOT NULL),
+                        ) FILTER (WHERE pa.user_id IS NOT NULL AND u.is_archived IS DISTINCT FROM TRUE AND pa.is_archived IS DISTINCT FROM TRUE),
                         '[]'::json
                     ) AS caregivers
              FROM patients p
              LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
                  AND pa.relationship = 'Assigned Caregiver'
+                 AND pa.is_archived IS DISTINCT FROM TRUE
              LEFT JOIN users u ON pa.user_id = u.user_id
+                 AND u.is_archived IS DISTINCT FROM TRUE
              WHERE p.facility_id = $1 AND p.is_archived IS DISTINCT FROM TRUE
              GROUP BY p.patient_id
              ORDER BY p.name ASC`,
@@ -1251,8 +1266,11 @@ router.get('/assignments', async (req, res) => {
              JOIN users u ON pa.user_id = u.user_id
              JOIN patients p ON pa.patient_id = p.patient_id
              LEFT JOIN users inv ON pa.invited_by = inv.user_id
-             WHERE pa.invited_by = $1
-                OR pa.user_id IN (SELECT user_id FROM users WHERE created_by = $1)
+             WHERE (pa.invited_by = $1
+                OR pa.user_id IN (SELECT user_id FROM users WHERE created_by = $1))
+                AND pa.is_archived IS DISTINCT FROM TRUE
+                AND u.is_archived IS DISTINCT FROM TRUE
+                AND p.is_archived IS DISTINCT FROM TRUE
              ORDER BY pa.assigned_at DESC`,
             [adminId]
         );
@@ -1360,9 +1378,10 @@ router.delete('/assignments/:accessId', async (req, res) => {
     }
 });
 
-// 4. GET ALL STAFF ACCOUNTS CREATED BY THIS ADMIN
+// 4. GET ALL STAFF ACCOUNTS CREATED BY THIS ADMIN OR IN THIS FACILITY
 router.get('/staff-given-accounts', async (req, res) => {
     const adminId = req.user.id;
+    const facilityId = req.user.facility_id;
     try {
         const result = await pool.query(
             `SELECT user_id, username, email, role, account_status, is_locked,
@@ -1370,9 +1389,10 @@ router.get('/staff-given-accounts', async (req, res) => {
                     last_activity_at,
                     CASE WHEN last_activity_at > NOW() - INTERVAL '2 minutes' THEN true ELSE false END as is_online
              FROM users
-             WHERE created_by = $1
+             WHERE (created_by = $1 OR (facility_id = $2 AND facility_id IS NOT NULL AND role IN ('caregiver', 'medical_staff')))
+               AND is_archived IS DISTINCT FROM TRUE
              ORDER BY created_at DESC`,
-            [adminId]
+            [adminId, facilityId]
         );
         res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -1384,6 +1404,7 @@ router.get('/staff-given-accounts', async (req, res) => {
 // 5. PUT /staff-given-accounts/:id - Edit details of a staff account created by this admin
 router.put('/staff-given-accounts/:id', async (req, res) => {
     const adminId = req.user.id;
+    const facilityId = req.user.facility_id;
     const targetUserId = parseInt(req.params.id);
     const { username, email, role } = req.body;
     
@@ -1395,8 +1416,8 @@ router.put('/staff-given-accounts/:id', async (req, res) => {
     try {
         // Verify scoping
         const check = await client.query(
-            'SELECT user_id FROM users WHERE user_id = $1 AND created_by = $2',
-            [targetUserId, adminId]
+            'SELECT user_id FROM users WHERE user_id = $1 AND (created_by = $2 OR (facility_id = $3 AND facility_id IS NOT NULL))',
+            [targetUserId, adminId, facilityId]
         );
         if (check.rows.length === 0) {
             client.release();
@@ -1437,13 +1458,14 @@ router.put('/staff-given-accounts/:id', async (req, res) => {
 // 6. DELETE /staff-given-accounts/:id - Archive staff account created by this admin
 router.delete('/staff-given-accounts/:id', async (req, res) => {
     const adminId = req.user.id;
+    const facilityId = req.user.facility_id;
     const targetUserId = parseInt(req.params.id);
     const client = await pool.connect();
     try {
         // Verify scoping
         const check = await client.query(
-            'SELECT user_id, username, facility_id FROM users WHERE user_id = $1 AND created_by = $2',
-            [targetUserId, adminId]
+            'SELECT user_id, username, facility_id FROM users WHERE user_id = $1 AND (created_by = $2 OR (facility_id = $3 AND facility_id IS NOT NULL))',
+            [targetUserId, adminId, facilityId]
         );
         if (check.rows.length === 0) {
             client.release();
@@ -1452,16 +1474,17 @@ router.delete('/staff-given-accounts/:id', async (req, res) => {
         
         const user = check.rows[0];
         const username = user.username;
-        const facilityId = user.facility_id;
+        const targetFacId = user.facility_id || facilityId;
 
         await client.query('BEGIN');
         await client.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [targetUserId]);
+        await client.query("UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE user_id = $1", [targetUserId]);
         
         // Record entry in the archives table
         await client.query(
             `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
              VALUES ('User', $1, $2, $3, NOW(), 'Archived', $4)`,
-            [targetUserId.toString(), username, adminId, facilityId]
+            [targetUserId.toString(), username, adminId, targetFacId]
         );
 
         // Audit log
@@ -1525,6 +1548,8 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                                 FROM patient_access pa
                                 JOIN users u ON pa.user_id = u.user_id
                                 WHERE pa.patient_id = p.patient_id
+                                  AND pa.is_archived IS DISTINCT FROM TRUE
+                                  AND u.is_archived IS DISTINCT FROM TRUE
                                   AND (u.role NOT IN ('caregiver', 'medical_staff') OR pa.invite_status = 'Active')
                             ),
                             '[]'::json
@@ -1571,6 +1596,8 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                                 FROM patient_access pa
                                 JOIN users u ON pa.user_id = u.user_id
                                 WHERE pa.patient_id = p.patient_id AND pa.user_id IS DISTINCT FROM $1
+                                  AND pa.is_archived IS DISTINCT FROM TRUE
+                                  AND u.is_archived IS DISTINCT FROM TRUE
                                   AND (u.role NOT IN ('caregiver', 'medical_staff') OR pa.invite_status = 'Active')
                             ),
                             '[]'::json
@@ -1959,6 +1986,13 @@ router.delete('/patients/:patientId', async (req, res) => {
         await pool.query(
             `UPDATE patients
              SET is_archived = TRUE
+             WHERE patient_id = $1`,
+            [patientId]
+        );
+
+        await pool.query(
+            `UPDATE patient_access
+             SET is_archived = TRUE, invite_status = 'Archived'
              WHERE patient_id = $1`,
             [patientId]
         );

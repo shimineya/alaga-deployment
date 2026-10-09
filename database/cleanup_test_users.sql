@@ -13,16 +13,17 @@ BEGIN;
 CREATE TEMP TABLE target_cleanup_users AS
 SELECT user_id, email, username 
 FROM public.users 
-WHERE LOWER(TRIM(email)) IN ('cabnels42@gmail.com', 'reallyjanedope@gmail.com');
+WHERE LOWER(TRIM(email)) IN ('cabnels42@gmail.com', 'reallyjanedope@gmail.com', 'cabnels@42gmail.com')
+   OR LOWER(TRIM(username)) IN ('cab', 'reallyjanedope');
 
 -- 2. Delete Email OTP verification records (by user_id and email)
 DELETE FROM public.user_email_otps
 WHERE user_id IN (SELECT user_id FROM target_cleanup_users)
-   OR LOWER(TRIM(email)) IN ('cabnels42@gmail.com', 'reallyjanedope@gmail.com');
+   OR LOWER(TRIM(email)) IN ('cabnels42@gmail.com', 'reallyjanedope@gmail.com', 'cabnels@42gmail.com');
 
 -- 3. Delete Facility Invitations (by email, creator, and recipient)
 DELETE FROM public.facility_invitations
-WHERE LOWER(TRIM(email)) IN ('cabnels42@gmail.com', 'reallyjanedope@gmail.com')
+WHERE LOWER(TRIM(email)) IN ('cabnels42@gmail.com', 'reallyjanedope@gmail.com', 'cabnels@42gmail.com')
    OR created_by IN (SELECT user_id FROM target_cleanup_users)
    OR used_by IN (SELECT user_id FROM target_cleanup_users);
 

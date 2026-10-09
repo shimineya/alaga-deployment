@@ -152,7 +152,7 @@ export default function FacilityAdminAssignmentCommandCenter() {
     };
 
     const handleDeleteAssignment = async (assign: ScopedAssignment) => {
-        if (!confirm(`Are you sure you want to archive/cancel the care assignment between caregiver ${assign.caregiver_first_name} ${assign.caregiver_last_name} and patient ${assign.patient_name}?`)) {
+        if (!confirm(`Are you sure you want to archive/cancel the care assignment between caregiver ${assign.caregiver_first_name || assign.caregiver_username} ${assign.caregiver_last_name || ''} and patient ${assign.patient_name}?`)) {
             return;
         }
         try {
@@ -163,6 +163,8 @@ export default function FacilityAdminAssignmentCommandCenter() {
             const data = await res.json();
             if (data.success) {
                 toast.success('Assignment removed successfully.');
+                setActiveAssignments(prev => prev.filter(a => a.access_id !== assign.access_id));
+                setPendingAssignments(prev => prev.filter(a => a.access_id !== assign.access_id));
                 fetchData();
             } else {
                 toast.error(data.message || 'Failed to delete assignment.');
@@ -221,6 +223,9 @@ export default function FacilityAdminAssignmentCommandCenter() {
             const data = await res.json();
             if (data.success) {
                 toast.success('User account deleted.');
+                setScopedUsers(prev => prev.filter(u => u.user_id !== user.user_id));
+                setActiveAssignments(prev => prev.filter(a => a.user_id !== user.user_id));
+                setPendingAssignments(prev => prev.filter(a => a.user_id !== user.user_id));
                 fetchData();
             } else {
                 toast.error(data.message || 'Failed to delete user account.');

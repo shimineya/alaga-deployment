@@ -423,6 +423,7 @@ router.delete('/users/:id', requirePermission('user_management'), async (req, re
         const user = userCheck.rows[0];
 
         await pool.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [id]);
+        await pool.query("UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE user_id = $1", [id]);
 
         await pool.query(
             `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
@@ -1040,6 +1041,9 @@ router.get('/assignments', async (req, res) => {
              JOIN patients p ON pa.patient_id = p.patient_id
              LEFT JOIN facilities f ON p.facility_id = f.facility_id
              LEFT JOIN users inv ON pa.invited_by = inv.user_id
+             WHERE pa.is_archived IS DISTINCT FROM TRUE
+               AND u.is_archived IS DISTINCT FROM TRUE
+               AND p.is_archived IS DISTINCT FROM TRUE
              ORDER BY pa.assigned_at DESC`
         );
         res.json({ success: true, data: result.rows });
@@ -1238,6 +1242,7 @@ router.delete('/staff-given-accounts/:id', async (req, res) => {
 
         await client.query('BEGIN');
         await client.query("UPDATE users SET is_archived = true, account_status = 'Archived' WHERE user_id = $1", [req.params.id]);
+        await client.query("UPDATE patient_access SET is_archived = true, invite_status = 'Archived' WHERE user_id = $1", [req.params.id]);
         
         await client.query(
             `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)

@@ -14,7 +14,7 @@ ALTER TABLE public.users
 ADD COLUMN IF NOT EXISTS consent_version VARCHAR(20) DEFAULT NULL;
 
 ALTER TABLE public.users 
-ADD COLUMN IF NOT EXISTS must_accept_terms BOOLEAN DEFAULT TRUE;
+ADD COLUMN IF NOT EXISTS must_accept_terms BOOLEAN DEFAULT FALSE;
 
 -- 2. Create user_consents audit table
 CREATE TABLE IF NOT EXISTS public.user_consents (
@@ -27,11 +27,18 @@ CREATE TABLE IF NOT EXISTS public.user_consents (
     agreed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Index for fast lookup by user
+-- Index for fast lookup by user and timestamp
 CREATE INDEX IF NOT EXISTS idx_user_consents_user_id ON public.user_consents(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_consents_agreed_at ON public.user_consents(agreed_at);
 
 -- 3. Comments for Clinical & Legal Auditability (Philippine DPA / HIPAA Compliance)
 COMMENT ON TABLE public.user_consents IS 'Permanent audit log of legal, privacy, and clinical telemetry consents accepted by users.';
 COMMENT ON COLUMN public.user_consents.forms_accepted IS 'Array of accepted form keys: terms_and_conditions, privacy_policy, telemetry_authorization, ai_decision_support_disclaimer, staff_nda_acceptable_use, emergency_escalation_protocol.';
-COMMENT ON COLUMN public.users.must_accept_terms IS 'Flag indicating whether a newly provisioned or active user is required to scroll and accept compliance agreements before entering the system.';
+COMMENT ON COLUMN public.users.must_accept_terms IS 'Flag indicating whether a newly provisioned staff user is required to scroll and accept compliance agreements upon first login.';
+
+-- 4. Clean up / Backfill: Ensure active self-registered users are marked as consented
+UPDATE public.users
+SET must_accept_terms = FALSE,
+    consent_agreed_at = COALESCE(consent_agreed_at, created_at, NOW()),
+    consent_version = COALESCE(consent_version, 'v1.0')
+WHERE created_by IS NULL AND is_verified = TRUE;

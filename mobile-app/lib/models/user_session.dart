@@ -45,7 +45,7 @@ class UserSession {
   bool get isParent => role == 'admin' || role == 'parent';
 
   /// Only these account types are supported by the mobile application.
-  /// Administrative and facility accounts must use the web application.
+  /// Medical staff and facility accounts must use the web application.
   bool get canUseMobileApp {
     final normalizedRole = role.trim().toLowerCase();
     return normalizedRole == 'parent' || normalizedRole == 'caregiver';

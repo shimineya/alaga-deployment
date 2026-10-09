@@ -38,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'This account cannot sign in to the mobile app. Only parent and caregiver accounts are supported. Please use the web app for administrative accounts.',
+          'This account cannot sign in to the mobile app. Only parent and caregiver accounts are supported. Please use the web app for medical staff and facility accounts.',
           style: GoogleFonts.albertSans(),
         ),
         backgroundColor: Colors.redAccent,

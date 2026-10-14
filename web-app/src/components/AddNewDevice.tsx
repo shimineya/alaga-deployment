@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
-import { Smartphone, CheckCircle, Loader2 } from 'lucide-react';
+import { Smartphone, CheckCircle, Loader2, Wifi } from 'lucide-react';
 import { toast } from 'sonner';
 
 // --- SHARED FORM COMPONENT ---
@@ -157,6 +157,16 @@ const DeviceRegistrationForm: React.FC<DeviceFormProps> = ({ onSuccess, onCancel
                         {errors.vitalDeviceNo && <span className="text-red-500 text-[10px]">{errors.vitalDeviceNo}</span>}
                     </div>
                 )}
+
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs space-y-1.5 text-slate-600">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                        <Wifi className="w-3.5 h-3.5 text-teal-600" />
+                        <span>Wi-Fi Setup & Hotspot Credentials</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                        To connect your device: Power it on (battery or USB), connect your phone or PC Wi-Fi to <b>ALAGA-[Device-ID]</b> using default password <code className="bg-slate-200/80 px-1 py-0.5 rounded font-mono font-bold text-slate-800">@Password123</code>, then open <span className="font-mono text-teal-700 font-semibold">http://192.168.4.1/setup</span> in browser to link Wi-Fi and customize your hotspot password.
+                    </p>
+                </div>
             </div>
 
             <div className={`grid grid-cols-2 gap-3 ${isModal ? 'pt-2' : 'pt-4'}`}>

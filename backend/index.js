@@ -1754,15 +1754,19 @@ app.post('/api/device/data', async (req, res) => {
         const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
         const clientIp = String(rawIp).split(',')[0].trim().replace(/^.*:/, '');
 
+        const rawSetupPass = req.body.setup_password || req.body.ap_password;
+        const setupPassVal = rawSetupPass && typeof rawSetupPass === 'string' && rawSetupPass.trim().length >= 8 ? rawSetupPass.trim() : null;
+
         await pool.query(
             `UPDATE device_whitelist 
              SET last_heartbeat = NOW(),
                  status = 'ACTIVE',
                  battery_level = COALESCE($2, battery_level),
                  signal_strength = COALESCE($3, signal_strength),
-                 ip_address = COALESCE(NULLIF($4, ''), ip_address)
+                 ip_address = COALESCE(NULLIF($4, ''), ip_address),
+                 setup_password = COALESCE($5, setup_password)
              WHERE serial_number = $1`,
-            [device_id, batteryVal, signalVal, clientIp]
+            [device_id, batteryVal, signalVal, clientIp, setupPassVal]
         ).catch(err => console.error("Heartbeat update error:", err.message));
 
         // Real-time SSE Broadcast: device turned online or refreshed telemetry

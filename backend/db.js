@@ -49,6 +49,12 @@ pool.connect((err, client, release) => {
       ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45)
     `).catch(err => console.error('Failed to run device_whitelist ip_address migration:', err));
 
+    // Auto-migration: Create setup_password column on device_whitelist table if it does not exist
+    pool.query(`
+      ALTER TABLE public.device_whitelist 
+      ADD COLUMN IF NOT EXISTS setup_password VARCHAR(64) DEFAULT '@Password123'
+    `).catch(err => console.error('Failed to run device_whitelist setup_password migration:', err));
+
     // Auto-migration: Expand resource_affected column on access_logs to TEXT
     pool.query(`
       ALTER TABLE public.access_logs 

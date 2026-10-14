@@ -26,7 +26,7 @@ router.get('/devices', async (req, res) => {
             // Full inventory for system admin / sysadmin ONLY with PHI De-identification
             result = await pool.query(
                 `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat, d.firmware_version,
-                        d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.pending_firmware_version, d.battery_level, d.signal_strength, d.setup_password,
                         d.assigned_patient_id, d.added_by, d.created_at,
                         CASE 
                             WHEN p.patient_id IS NOT NULL THEN 'Patient #' || p.patient_id || ' (De-identified)'
@@ -43,7 +43,7 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength, d.setup_password,
                         d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
@@ -69,13 +69,10 @@ router.get('/devices', async (req, res) => {
             );
         } else if (role === 'medical_staff') {
             // Scoped inventory for medical staff:
-            // Only see devices assigned to patients they are explicitly assigned to (patient_access),
-            // OR patients in their hospital facility, OR devices they added.
-            // NEVER leak private parent/guardian patients!
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength, d.setup_password,
                         d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
@@ -95,7 +92,7 @@ router.get('/devices', async (req, res) => {
             result = await pool.query(
                 `SELECT DISTINCT ON (d.serial_number) 
                         d.serial_number, d.device_name, d.status, d.last_heartbeat,
-                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength,
+                        d.firmware_version, d.pending_firmware_version, d.battery_level, d.signal_strength, d.setup_password,
                         d.assigned_patient_id, d.added_by, d.created_at,
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
@@ -125,7 +122,8 @@ router.get('/devices', async (req, res) => {
                 is_online: !!isOnline,
                 status: displayStatus,
                 battery_level: row.battery_level !== null && row.battery_level !== undefined ? Number(row.battery_level) : null,
-                signal_strength: isOnline ? (row.signal_strength || 'Good') : 'Offline'
+                signal_strength: isOnline ? (row.signal_strength || 'Good') : 'Offline',
+                setup_password: row.setup_password || '@Password123'
             };
         });
 
@@ -249,6 +247,45 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
     } catch (err) {
         console.error('Ping device error:', err.message);
         return res.status(500).json({ success: false, message: 'Server error pinging device.' });
+    }
+});
+
+// ==========================================
+// 0.08. UPDATE DEVICE SETUP HOTSPOT PASSWORD
+// Allows users/caregivers/admins to configure the SoftAP setup password for the device
+// ==========================================
+router.put('/devices/:serialNumber/setup-password', async (req, res) => {
+    const { serialNumber } = req.params;
+    const { setupPassword } = req.body;
+
+    if (!setupPassword || typeof setupPassword !== 'string' || setupPassword.trim().length < 8) {
+        return res.status(400).json({
+            success: false,
+            message: 'Hotspot setup password must be at least 8 characters long.'
+        });
+    }
+
+    try {
+        const updateRes = await pool.query(
+            `UPDATE device_whitelist
+             SET setup_password = $1
+             WHERE serial_number = $2 AND is_archived IS DISTINCT FROM TRUE
+             RETURNING serial_number, device_name, setup_password`,
+            [setupPassword.trim(), serialNumber]
+        );
+
+        if (updateRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Device not found in registry.' });
+        }
+
+        res.json({
+            success: true,
+            message: `Hotspot password for ${updateRes.rows[0].device_name || serialNumber} updated to '${setupPassword.trim()}'.`,
+            data: updateRes.rows[0]
+        });
+    } catch (err) {
+        console.error('Update Setup Password Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to update hotspot setup password.' });
     }
 });
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service for fetching device data
@@ -881,7 +882,9 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                 icon: const Icon(Icons.more_vert, color: Color(0xFF627D98), size: 22),
                 tooltip: "Device Actions",
                 onSelected: (action) {
-                  if (action == 'pair') {
+                  if (action == 'hotspot_setup') {
+                    _showHotspotSetupDialog(context, device);
+                  } else if (action == 'pair') {
                     _confirmPairDevice(context, device);
                   } else if (action == 'unpair_change') {
                     _confirmUnpairDevice(context, device, isChange: true);
@@ -892,6 +895,16 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   }
                 },
                 itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'hotspot_setup',
+                    child: Row(
+                      children: [
+                        Icon(Icons.wifi_outlined, color: Color(0xFF00796B), size: 18),
+                        SizedBox(width: 8),
+                        Text("Wi-Fi Setup & Hotspot", style: TextStyle(color: Color(0xFF00796B), fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
                   // Pair action: ONLY for devices already assigned to this patient!
                   if (isAssigned && status != 'ACTIVE')
                     const PopupMenuItem(
@@ -1215,5 +1228,237 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
         ),
       );
     }
+  }
+
+  void _showHotspotSetupDialog(BuildContext pageContext, Map<String, dynamic> device) {
+    final serialNumber = device['serial_number']?.toString() ?? 'VS-2026-0001';
+    final deviceName = device['device_name']?.toString() ?? 'Device';
+    String currentPassword = device['setup_password']?.toString() ?? '@Password123';
+    final hotspotSSID = 'ALAGA-$serialNumber';
+
+    final TextEditingController newPassCtrl = TextEditingController();
+    bool isEditing = false;
+    bool isUpdating = false;
+    bool showPassword = false;
+
+    showDialog(
+      context: pageContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2F1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.wifi, color: Color(0xFF00796B), size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Wi-Fi Setup & Hotspot",
+                            style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                        Text("$deviceName ($serialNumber)",
+                            style: GoogleFonts.robotoMono(fontSize: 11, color: const Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("HOTSPOT SSID",
+                              style: GoogleFonts.albertSans(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF64748B))),
+                          const SizedBox(height: 2),
+                          SelectableText(hotspotSSID,
+                              style: GoogleFonts.robotoMono(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                          const Divider(height: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text("HOTSPOT PASSWORD",
+                                  style: GoogleFonts.albertSans(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF64748B))),
+                              InkWell(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(text: currentPassword));
+                                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                                    const SnackBar(content: Text('Hotspot password copied!'), duration: Duration(seconds: 1)),
+                                  );
+                                },
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.copy, size: 12, color: Color(0xFF00796B)),
+                                    SizedBox(width: 2),
+                                    Text("Copy", style: TextStyle(fontSize: 11, color: Color(0xFF00796B), fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Text(showPassword ? currentPassword : "••••••••••••",
+                                  style: GoogleFonts.robotoMono(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A))),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () => setDialogState(() => showPassword = !showPassword),
+                                child: Icon(showPassword ? Icons.visibility_off : Icons.visibility, size: 16, color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Edit Password Option
+                    if (!isEditing) ...[
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF00796B),
+                          side: const BorderSide(color: Color(0xFF80CBC4)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          minimumSize: const Size(double.infinity, 36),
+                        ),
+                        onPressed: () => setDialogState(() => isEditing = true),
+                        icon: const Icon(Icons.lock_reset, size: 16),
+                        label: Text("Change Hotspot Password", style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                      ),
+                    ] else ...[
+                      Text("Change Hotspot Password (min 8 chars)",
+                          style: GoogleFonts.albertSans(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF334155))),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: newPassCtrl,
+                        obscureText: true,
+                        style: GoogleFonts.robotoMono(fontSize: 12),
+                        decoration: InputDecoration(
+                          hintText: "Enter new 8+ character password",
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => setDialogState(() {
+                              isEditing = false;
+                              newPassCtrl.clear();
+                            }),
+                            child: const Text("Cancel", style: TextStyle(fontSize: 12)),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00796B),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            ),
+                            onPressed: isUpdating ? null : () async {
+                              final newPass = newPassCtrl.text.trim();
+                              if (newPass.length < 8) {
+                                ScaffoldMessenger.of(pageContext).showSnackBar(
+                                  const SnackBar(content: Text('Password must be at least 8 characters.')),
+                                );
+                                return;
+                              }
+                              setDialogState(() => isUpdating = true);
+                              final res = await ApiService.put(
+                                '/api/caregiver/devices/$serialNumber/setup-password',
+                                body: {'setupPassword': newPass},
+                              );
+                              setDialogState(() => isUpdating = false);
+                              if (res['success'] == true) {
+                                setDialogState(() {
+                                  currentPassword = newPass;
+                                  device['setup_password'] = newPass;
+                                  isEditing = false;
+                                  newPassCtrl.clear();
+                                });
+                                ScaffoldMessenger.of(pageContext).showSnackBar(
+                                  SnackBar(content: Text(res['message'] ?? 'Hotspot password updated!')),
+                                );
+                                _fetchDevices(silent: true);
+                              } else {
+                                ScaffoldMessenger.of(pageContext).showSnackBar(
+                                  SnackBar(content: Text(res['message'] ?? 'Failed to update hotspot password.')),
+                                );
+                              }
+                            },
+                            child: isUpdating
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text("Save", style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    // Battery Connection Guide
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.battery_charging_full, size: 14, color: Color(0xFF047857)),
+                              const SizedBox(width: 4),
+                              Text("Connecting on Battery (No Cable):",
+                                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF065F46))),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "1. Power device on via its battery.\n"
+                            "2. Connect your phone Wi-Fi to $hotspotSSID.\n"
+                            "3. Enter password: $currentPassword\n"
+                            "4. Open browser to http://192.168.4.1/setup to connect it to your home Wi-Fi.",
+                            style: GoogleFonts.albertSans(fontSize: 10, color: const Color(0xFF065F46), height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text("Close", style: GoogleFonts.poppins(color: const Color(0xFF00796B), fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 }

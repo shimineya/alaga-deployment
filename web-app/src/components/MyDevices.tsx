@@ -23,7 +23,12 @@ import {
     Cpu,
     Link2,
     RotateCw,
-    XCircle
+    XCircle,
+    Lock,
+    Copy,
+    Check,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { toast } from 'sonner';
@@ -58,6 +63,7 @@ interface Device {
     assigned_patient_id?: number | null;
     assigned_patient_baseline?: any;
     assigned_patient_name?: string;
+    setup_password?: string;
 }
 
 export const MyDevices: React.FC = () => {
@@ -107,7 +113,8 @@ export const MyDevices: React.FC = () => {
                         assigned_room: d.assigned_patient_name ? `Patient: ${d.assigned_patient_name}` : 'Unassigned',
                         firmware_version: d.firmware_version || 'v1.0.0',
                         pending_firmware_version: d.pending_firmware_version || null,
-                        assigned_patient_baseline: d.assigned_patient_baseline || null
+                        assigned_patient_baseline: d.assigned_patient_baseline || null,
+                        setup_password: d.setup_password || '@Password123'
                     };
                 });
                 setDevices(mappedDevices);
@@ -167,6 +174,8 @@ export const MyDevices: React.FC = () => {
     const itemsPerPage = 8;
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [isHotspotModalOpen, setIsHotspotModalOpen] = useState(false);
+    const [selectedHotspotDevice, setSelectedHotspotDevice] = useState<Device | null>(null);
 
     // --- ACTIONS ---
     const handlePing = async (device: Device) => {
@@ -609,6 +618,13 @@ export const MyDevices: React.FC = () => {
                                                         <DropdownMenuItem onClick={() => handlePing(device)}>
                                                             Ping Device
                                                         </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => {
+                                                            setSelectedHotspotDevice(device);
+                                                            setIsHotspotModalOpen(true);
+                                                        }}>
+                                                            <Wifi className="w-3.5 h-3.5 mr-2 text-indigo-600" />
+                                                            Wi-Fi Hotspot & Setup
+                                                        </DropdownMenuItem>
                                                         <DropdownMenuItem onClick={() => handleUpdateDeviceFirmware(device)}>
                                                             <Cpu className="w-3.5 h-3.5 mr-2 text-blue-600" />
                                                             Push Firmware Update
@@ -709,6 +725,19 @@ export const MyDevices: React.FC = () => {
             <AssignDeviceModal
                 isOpen={isAssignModalOpen}
                 onClose={() => setIsAssignModalOpen(false)}
+                onSuccess={() => {
+                    fetchInventory();
+                }}
+            />
+
+            {/* HOTSPOT SETUP & PASSWORD MODAL */}
+            <HotspotSetupModal
+                isOpen={isHotspotModalOpen}
+                onClose={() => {
+                    setIsHotspotModalOpen(false);
+                    setSelectedHotspotDevice(null);
+                }}
+                device={selectedHotspotDevice}
                 onSuccess={() => {
                     fetchInventory();
                 }}
@@ -1075,6 +1104,246 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({ isOpen, on
                         </Button>
                     </div>
                 </form>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+// --- HOTSPOT SETUP MODAL COMPONENT ---
+interface HotspotSetupModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    device: Device | null;
+    onSuccess: () => void;
+}
+
+export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, onClose, device, onSuccess }) => {
+    const { token } = useAuth();
+    const [password, setPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [showNewPassword, setShowNewPassword] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+
+    useEffect(() => {
+        if (device) {
+            setPassword(device.setup_password || '@Password123');
+            setNewPassword('');
+            setIsEditing(false);
+            setCopied(false);
+            setShowPassword(false);
+            setShowNewPassword(false);
+        }
+    }, [device, isOpen]);
+
+    if (!device) return null;
+
+    const hotspotSSID = `ALAGA-${device.serial_number}`;
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(password);
+        setCopied(true);
+        toast.success("Hotspot password copied to clipboard!");
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleSavePassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newPassword || newPassword.trim().length < 8) {
+            toast.error("Password must be at least 8 characters long (WPA2 standard).");
+            return;
+        }
+
+        setIsUpdating(true);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/${device.serial_number}/setup-password`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ setupPassword: newPassword.trim() })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || "Hotspot setup password updated!");
+                setPassword(newPassword.trim());
+                setIsEditing(false);
+                setNewPassword('');
+                onSuccess();
+            } else {
+                toast.error(data.message || "Failed to update hotspot password");
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Network error updating hotspot password");
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="sm:max-w-lg bg-white p-0 gap-0 overflow-hidden">
+                <DialogHeader className="px-6 py-4 bg-slate-50/70 border-b border-slate-100 flex flex-row items-center gap-3">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                        <Wifi className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <DialogTitle className="text-base font-bold text-slate-800">
+                            Device Setup Wi-Fi & Hotspot
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500">
+                            {device.device_name} &bull; <span className="font-mono">{device.serial_number}</span>
+                        </DialogDescription>
+                    </div>
+                </DialogHeader>
+
+                <div className="p-6 space-y-5">
+                    {/* Hotspot Credentials Card */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Setup Hotspot SSID</span>
+                            <Badge variant="outline" className="font-mono text-[11px] bg-white border-slate-300 text-slate-700">
+                                WPA2-PSK
+                            </Badge>
+                        </div>
+                        <div className="p-2.5 bg-white border border-slate-200 rounded-lg font-mono text-sm font-bold text-indigo-600 select-all">
+                            {hotspotSSID}
+                        </div>
+
+                        <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Hotspot Password</span>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                                    >
+                                        {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        {showPassword ? "Hide" : "Show"}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCopy}
+                                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+                                    >
+                                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                        {copied ? "Copied" : "Copy"}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="p-2.5 bg-white border border-slate-200 rounded-lg font-mono text-sm text-slate-800 flex items-center justify-between">
+                                <span>{showPassword ? password : "••••••••••••"}</span>
+                                <Badge className="text-[10px] bg-slate-100 text-slate-600 hover:bg-slate-100 font-normal">
+                                    Device Password
+                                </Badge>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Change Hotspot Password Section */}
+                    <div className="border border-slate-200 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                <Lock className="w-4 h-4 text-indigo-600" />
+                                <span className="text-xs font-bold text-slate-800">Change Setup Hotspot Password</span>
+                            </div>
+                            {!isEditing ? (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                                    onClick={() => setIsEditing(true)}
+                                >
+                                    Edit Password
+                                </Button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsEditing(false); setNewPassword(''); }}
+                                    className="text-xs text-slate-400 hover:text-slate-600"
+                                >
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mb-3">
+                            You can customize the password required when connecting your phone or PC to this device from your Wi-Fi list during setup.
+                        </p>
+
+                        {isEditing && (
+                            <form onSubmit={handleSavePassword} className="space-y-3 pt-2">
+                                <div className="space-y-1">
+                                    <Label htmlFor="newHotspotPass" className="text-xs font-semibold text-slate-700">New Hotspot Password (min 8 chars)</Label>
+                                    <div className="relative">
+                                        <Input
+                                            id="newHotspotPass"
+                                            type={showNewPassword ? "text" : "password"}
+                                            placeholder="Enter new 8+ char password"
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            className="h-9 text-xs pr-10 font-mono"
+                                            minLength={8}
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowNewPassword(!showNewPassword)}
+                                            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                                        >
+                                            {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => { setIsEditing(false); setNewPassword(''); }}
+                                        className="h-8 text-xs"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        size="sm"
+                                        disabled={isUpdating || newPassword.trim().length < 8}
+                                        className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    >
+                                        {isUpdating ? "Saving..." : "Save Password"}
+                                    </Button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+
+                    {/* Step-by-Step Standalone Battery Guide */}
+                    <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-4 space-y-2.5">
+                        <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                            🔋 How to Connect Device on Battery (No Cable)
+                        </span>
+                        <ol className="text-[11px] text-emerald-900/90 list-decimal list-inside space-y-1.5 leading-relaxed">
+                            <li>Disconnect USB cable and switch the device <b>ON</b> using its battery power.</li>
+                            <li>Open Wi-Fi on your phone or PC and connect to <b>{hotspotSSID}</b>.</li>
+                            <li>Enter the hotspot password above (default: <code>@Password123</code>).</li>
+                            <li>Open your browser and navigate to <a href="http://192.168.4.1/setup" target="_blank" rel="noreferrer" className="font-bold underline text-emerald-700 hover:text-emerald-900">http://192.168.4.1/setup</a>.</li>
+                            <li>Select your home Wi-Fi and save. The device will auto-reconnect and transmit live telemetry to ALAGA!</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                    <Button onClick={onClose} variant="outline" className="h-9 text-xs">
+                        Close
+                    </Button>
+                </div>
             </DialogContent>
         </Dialog>
     );

@@ -53,10 +53,10 @@ const int WETNESS_WET_RAW      = 800;  // Saturated ADC when wet (<0.8V)
 // DEFAULT FACTORY & SECURITY SETTINGS (Saved in NVS; overridable via Captive Portal)
 // ==============================================================================
 const char* DEFAULT_AP_SSID      = "ALAGA-Moisture-Setup";
-const char* DEFAULT_AP_PASS      = "AlagaSafe2026!";     // WPA2-PSK: Minimum 8 characters
+const char* DEFAULT_AP_PASS      = "@Password123";       // WPA2-PSK: Minimum 8 characters
 const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
 const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash
-const char* DEFAULT_SERVER_URL   = "http://192.168.254.113:3000/api/device/data";
+const char* DEFAULT_SERVER_URL   = "https://alaga-backend.onrender.com/api/device/data";
 const char* DEFAULT_DEVICE_ID    = "SD-2026-0001";
 
 // ==============================================================================
@@ -271,13 +271,14 @@ bool flushOfflineWetnessBuffer() {
   Serial.println("🔄 [OFFLINE SUB-MODULE] Internet restored! Flushing retained moisture reading to backend...");
 
   HTTPClient http;
-  WiFiClientSecure client;
+  WiFiClient plainClient;
+  WiFiClientSecure secureClient;
 
   if (server_url.startsWith("https://")) {
-    client.setInsecure();
-    http.begin(client, server_url);
+    secureClient.setInsecure();
+    http.begin(secureClient, server_url);
   } else {
-    http.begin(server_url);
+    http.begin(plainClient, server_url);
   }
 
   http.addHeader("Content-Type", "application/json");
@@ -293,6 +294,7 @@ bool flushOfflineWetnessBuffer() {
     "\"device_id\":\"" + device_id + "\","
     "\"device_token\":\"" + device_token + "\","
     "\"device_type\":\"moisture\","
+    "\"setup_password\":\"" + ap_password + "\","
     "\"has_moisture_sensor\":true,"
     "\"is_offline_buffer\":true,"
     "\"offline_duration_ms\":" + String(millis() - offlineWetnessStartTime) + ","
@@ -373,13 +375,14 @@ void sendToBackend() {
     }
 
     HTTPClient http;
-    WiFiClientSecure client;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
 
     if (server_url.startsWith("https://")) {
-      client.setInsecure(); // Bypass CA check for Render cloud HTTPS
-      http.begin(client, server_url);
+      secureClient.setInsecure(); // Bypass CA check for Render cloud HTTPS
+      http.begin(secureClient, server_url);
     } else {
-      http.begin(server_url);
+      http.begin(plainClient, server_url);
     }
 
     // [OWASP A07] Hardware Security Headers
@@ -402,6 +405,7 @@ void sendToBackend() {
       "\"device_id\":\"" + device_id + "\","
       "\"device_token\":\"" + device_token + "\","
       "\"device_type\":\"moisture\","
+      "\"setup_password\":\"" + ap_password + "\","
       "\"has_moisture_sensor\":true,"
       "\"moisture\":" + String(wetnessPercent) + ","
       "\"battery\":" + String(batteryPercent) + ","
@@ -957,7 +961,7 @@ void handleSetup() {
   // PIN Unlock Box
   page += "<div id='admin_lock_box' style='margin-top:12px;'>";
   page += "<div style='display:flex; gap:8px;'>";
-  page += "<input type='password' id='admin_pin_input' placeholder='Enter Admin PIN (Default: alaga2026)' autocomplete='off' style='flex:1; padding:9px 12px; font-size:13px;'>";
+  page += "<input type='password' id='admin_pin_input' placeholder='Enter Admin PIN' autocomplete='off' style='flex:1; padding:9px 12px; font-size:13px;'>";
   page += "<button type='button' class='btn btn-primary' onclick='unlockAdmin()' style='width:auto; padding:9px 16px; margin:0; font-size:13px;'>Unlock</button>";
   page += "</div>";
   page += "<div id='pin_error' style='display:none; color:#EF4444; font-size:11px; font-weight:700; margin-top:6px;'>❌ Invalid Admin Authorization PIN.</div>";
@@ -1313,14 +1317,12 @@ void handleReset() {
 // ------------------------------------------------------------------------------
 void handleCaptivePortalRedirect() {
   if (isAPMode) {
-    String host = server.hostHeader();
-    // Only redirect if client asked for an external domain (e.g. msftconnecttest.com)
-    if (host.length() > 0 && host.indexOf("192.168.4.1") < 0) {
-      server.sendHeader("Location", "http://192.168.4.1/setup", true);
-      server.send(302, "text/plain", "");
-      return;
-    }
-    handleSetup();
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "-1");
+    server.sendHeader("Location", "http://192.168.4.1/setup", true);
+    server.send(302, "text/html", "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=http://192.168.4.1/setup'><title>ALAGA Device Setup</title></head><body><p>Redirecting to <a href='http://192.168.4.1/setup'>ALAGA Wi-Fi Setup</a>...</p></body></html>");
+    return;
   } else {
     handleDashboard();
   }
@@ -1328,15 +1330,17 @@ void handleCaptivePortalRedirect() {
 
 void handleNotFound() {
   if (isAPMode) {
-    String host = server.hostHeader();
-    // If external domain probe, redirect once to setup
-    if (host.length() > 0 && host.indexOf("192.168.4.1") < 0) {
-      server.sendHeader("Location", "http://192.168.4.1/setup", true);
-      server.send(302, "text/plain", "");
+    if (server.uri() == "/favicon.ico") {
+      server.send(204, "text/plain", "");
       return;
     }
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "-1");
+    server.sendHeader("Location", "http://192.168.4.1/setup", true);
+    server.send(302, "text/html", "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=http://192.168.4.1/setup'><title>ALAGA Device Setup</title></head><body><p>Redirecting to <a href='http://192.168.4.1/setup'>ALAGA Wi-Fi Setup</a>...</p></body></html>");
+    return;
   }
-  // If requesting missing file (e.g. /favicon.ico) on 192.168.4.1, send 404 instead of looping setup
   server.send(404, "text/plain", "Not Found");
 }
 
@@ -1348,8 +1352,11 @@ void startAccessPointMode() {
   WiFi.mode(wifi_ssid.length() > 0 ? WIFI_AP_STA : WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 
+  // Custom SSID indicating device serial, or default setup SSID
+  String apSSID = (device_id.length() > 0 && device_id != DEFAULT_DEVICE_ID) ? ("ALAGA-" + device_id) : String(DEFAULT_AP_SSID);
+
   // [SECURITY] Launch Access Point with WPA2-PSK encryption
-  WiFi.softAP(DEFAULT_AP_SSID, ap_password.c_str(), 1, 0, 4);
+  WiFi.softAP(apSSID.c_str(), ap_password.c_str(), 1, 0, 4);
 
   // Start DNS Server on port 53 to redirect all domain lookups to 192.168.4.1
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
@@ -1357,7 +1364,8 @@ void startAccessPointMode() {
 
   Serial.println("\n==================================================");
   Serial.println("[WIFI] Started Captive Portal Access Point");
-  Serial.print("[WIFI] SSID       : "); Serial.println(DEFAULT_AP_SSID);
+  Serial.print("[WIFI] SSID       : "); Serial.println(apSSID);
+  Serial.print("[WIFI] Password   : "); Serial.println(ap_password);
   Serial.print("[WIFI] IP Address : "); Serial.println(WiFi.softAPIP());
   Serial.println("[WIFI] Setup Link : http://192.168.4.1/setup");
   Serial.println("==================================================");
@@ -1372,24 +1380,15 @@ bool connectToWiFi() {
     return false;
   }
 
-  // Register Wi-Fi Event Listener for exact failure reason and auto-reconnect
+  // Register Wi-Fi Event Listener for disconnect events (DO NOT call WiFi.reconnect() from event callback!)
   static bool eventRegistered = false;
   if (!eventRegistered) {
     WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
       if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
         uint8_t reason = info.wifi_sta_disconnected.reason;
         Serial.print("\n[WIFI EVENT] Disconnect Reason Code: ");
-        Serial.print(reason);
-        if (reason == 2 || reason == 15 || reason == 202 || reason == 204) {
-          Serial.println(" -> (AUTH_FAIL: Incorrect Wi-Fi Password!)");
-        } else if (reason == 201) {
-          Serial.println(" -> (NO_AP_FOUND: 2.4GHz network out of range or not broadcasting)");
-        } else if (reason == 203) {
-          Serial.println(" -> (ASSOC_FAIL: Router refused connection or max clients reached)");
-        } else {
-          Serial.println(" -> Triggering fast auto-reconnect...");
-        }
-        WiFi.reconnect();
+        Serial.println(reason);
+        // Note: Reconnection is handled cleanly and non-blockingly in loop() to prevent task re-entrancy
       }
     });
     eventRegistered = true;
@@ -1398,7 +1397,8 @@ bool connectToWiFi() {
   WiFi.mode(isAPMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
-  WiFi.setTxPower(WIFI_POWER_13dBm); // 13dBm prevents high-current RF surge from tripping battery BMS / brownout
+  WiFi.setSleep(WIFI_PS_MIN_MODEM);   // 802.11 DTIM modem sleep saves ~70% power on battery
+  WiFi.setTxPower(WIFI_POWER_13dBm);  // 13dBm prevents high-current RF surge from tripping battery BMS / brownout
 
   Serial.println("==================================================");
   Serial.print("[WIFI] Target SSID      : "); Serial.println(wifi_ssid);
@@ -1434,7 +1434,14 @@ bool connectToWiFi() {
     Serial.print("[WIFI] Assigned Local IP: ");
     Serial.println(WiFi.localIP());
     Serial.println("==================================================");
-    isAPMode = false;
+    if (isAPMode) {
+      dnsServer.stop();
+      WiFi.softAPdisconnect(true);
+      isAPMode = false;
+      WiFi.mode(WIFI_STA);
+    }
+    WiFi.setSleep(WIFI_PS_MIN_MODEM);
+    WiFi.setTxPower(WIFI_POWER_13dBm);
     // Immediately emit real-time online handshake signal to the system
     sendImmediateOnlineHandshake();
     // Flush retained offline moisture data if internet was previously disconnected
@@ -1444,7 +1451,7 @@ bool connectToWiFi() {
     return true;
   }
 
-  Serial.println("\n⚠️ [WIFI] Connection to " + wifi_ssid + " failed. Starting Setup Hotspot (" + String(DEFAULT_AP_SSID) + ")...");
+  Serial.println("\n⚠️ [WIFI] Connection to " + wifi_ssid + " failed. Starting Setup Hotspot...");
   startAccessPointMode();
   return false;
 }
@@ -1472,8 +1479,8 @@ void setup() {
   wifi_ssid     = preferences.getString("ssid", "");
   wifi_password = preferences.getString("pass", "");
   server_url    = preferences.getString("url", DEFAULT_SERVER_URL);
-  if (server_url.indexOf("onrender.com") >= 0) {
-    Serial.println("[MIGRATION] Migrating from remote Render cloud to local backend: " + String(DEFAULT_SERVER_URL));
+  if (server_url.indexOf("192.168.254.113") >= 0 || server_url.length() == 0) {
+    Serial.println("[MIGRATION] Migrating to default Render cloud backend: " + String(DEFAULT_SERVER_URL));
     server_url = DEFAULT_SERVER_URL;
     preferences.putString("url", DEFAULT_SERVER_URL);
   }
@@ -1484,6 +1491,11 @@ void setup() {
   device_token  = preferences.getString("token", DEFAULT_DEVICE_TOKEN);
   admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);
   ap_password   = preferences.getString("appass", DEFAULT_AP_PASS);
+  if (ap_password == "AlagaSafe2026!" || ap_password.length() < 8) {
+    Serial.println("[MIGRATION] Updating setup Wi-Fi password to: @Password123");
+    ap_password = DEFAULT_AP_PASS;
+    preferences.putString("appass", DEFAULT_AP_PASS);
+  }
   sensor_type   = preferences.getInt("senstype", 2);
   // Auto-migrate legacy 0 to 2 (Active-HIGH where LOW = dry 0%, HIGH = wet 100%)
   if (sensor_type == 0) {
@@ -1544,13 +1556,19 @@ void setup() {
   server.on("/favicon.ico", []() { server.send(204, "text/plain", ""); });
   server.on("/wpad.dat", []() { server.send(404, "text/plain", ""); });
 
-  // Captive Portal Detection Endpoints (OS-level automatic popups)
+  // Captive Portal Detection Endpoints (OS-level automatic popups for Android, Apple, Windows, Samsung & Firefox)
   server.on("/generate_204", handleCaptivePortalRedirect);        // Android / Chrome
+  server.on("/gen_204", handleCaptivePortalRedirect);
   server.on("/hotspot-detect.html", handleCaptivePortalRedirect); // iOS / Apple
   server.on("/canonical.html", handleCaptivePortalRedirect);
+  server.on("/success.txt", handleCaptivePortalRedirect);
   server.on("/connecttest.txt", handleCaptivePortalRedirect);     // Windows NCSI (Triggers Action Needed)
   server.on("/ncsi.txt", handleCaptivePortalRedirect);
   server.on("/redirect", handleCaptivePortalRedirect);            // Windows Browser Redirect
+  server.on("/mobile/status.look", handleCaptivePortalRedirect);  // Samsung
+  server.on("/check_network_status.txt", handleCaptivePortalRedirect);
+  server.on("/library/test/success.html", handleCaptivePortalRedirect);
+  server.on("/detectportal.firefox.com", handleCaptivePortalRedirect);
 
   // Catch-all route for domain redirects in AP mode
   server.onNotFound(handleNotFound);
@@ -1563,9 +1581,11 @@ void setup() {
 // MAIN LOOP
 // ==============================================================================
 void loop() {
-  // 1. Handle Captive Portal DNS Queries in AP Mode
+  // 1. Handle Captive Portal DNS Queries in AP Mode (Burst handling so phones don't timeout)
   if (isAPMode) {
-    dnsServer.processNextRequest();
+    for (int i = 0; i < 4; i++) {
+      dnsServer.processNextRequest();
+    }
   }
 
   // 2. Handle Inbound Web Client Requests
@@ -1588,24 +1608,27 @@ void loop() {
 
   // 3b. Persistent Wi-Fi Keepalive: Non-blocking re-association without thrashing stack
   static unsigned long lastReconnectAttempt = 0;
-  static unsigned long disconnectedStart = 0;
+  static int reconnectAttempts = 0;
   if (wifi_ssid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    if (disconnectedStart == 0) disconnectedStart = millis();
-    if (millis() - lastReconnectAttempt > 12000) {
-      lastReconnectAttempt = millis();
-      if (millis() - disconnectedStart > 60000) {
-        Serial.println("🔄 [WIFI AUTO-RECOVERY] Prolonged disconnect (>60s). Refreshing connection stack to " + wifi_ssid + "...");
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      reconnectAttempts++;
+      Serial.printf("🔄 [WIFI AUTO-RECONNECT] Attempt %d to reconnect to %s...\n", reconnectAttempts, wifi_ssid.c_str());
+      
+      if (reconnectAttempts >= 3) {
+        Serial.println("🔄 [WIFI AUTO-RECOVERY] Prolonged disconnect. Re-initializing Wi-Fi stack...");
         WiFi.disconnect(false);
         delay(100);
+        WiFi.setTxPower(WIFI_POWER_13dBm);
         WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
-        disconnectedStart = millis();
+        reconnectAttempts = 0;
       } else {
-        Serial.println("🔄 [WIFI AUTO-RECONNECT] Re-associating with " + wifi_ssid + "...");
         WiFi.reconnect();
       }
     }
   } else if (WiFi.status() == WL_CONNECTED) {
-    disconnectedStart = 0;
+    reconnectAttempts = 0;
   }
 
   static bool wasWetnessWiFiConnected = false;
@@ -1620,6 +1643,8 @@ void loop() {
         isAPMode = false;
         WiFi.mode(WIFI_STA);
       }
+      WiFi.setSleep(WIFI_PS_MIN_MODEM);
+      WiFi.setTxPower(WIFI_POWER_13dBm);
       sendImmediateOnlineHandshake();
       if (hasPendingOfflineWetness) {
         flushOfflineWetnessBuffer();
@@ -1652,8 +1677,9 @@ void loop() {
     lastSentMoisture = wetnessPercent;
   }
 
-  // 6. Periodic Dispatch or Immediate Event Trigger
-  if (immediateTrigger || (millis() - lastSendTime >= sendInterval)) {
+  // 6. Adaptive Dispatch Cadence on Battery (2.5s when wet >= 35%, 10s when dry/standby)
+  unsigned long currentCadence = (wetnessPercent >= 35) ? 2500 : 10000;
+  if (immediateTrigger || (millis() - lastSendTime >= currentCadence)) {
     lastSendTime = millis();
 
     // Print to Serial Monitor

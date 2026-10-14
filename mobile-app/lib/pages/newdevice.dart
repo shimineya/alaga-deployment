@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // [INTEGRATION] Import API service for device registration
@@ -191,6 +192,8 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
     final rawTokens = result['provisioning_tokens'];
     final tokens =
         rawTokens is List ? rawTokens.whereType<Map>().toList() : <Map>[];
+    final regList = result['registered'] is List ? List<String>.from(result['registered']) : <String>[];
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -198,59 +201,124 @@ class _NewDeviceScreenState extends State<NewDeviceScreen> {
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF5FA9A9), width: 4),
+                  border: Border.all(color: const Color(0xFF5FA9A9), width: 3),
                 ),
                 child: const Icon(Icons.check_rounded,
-                    size: 60, color: Color(0xFF5FA9A9)),
+                    size: 40, color: Color(0xFF5FA9A9)),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
               Text(
-                "Devices registered!",
+                "Devices Registered!",
                 textAlign: TextAlign.center,
                 style: GoogleFonts.poppins(
-                    fontSize: 18,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: Colors.black),
               ),
+              const SizedBox(height: 12),
+              // Setup Hotspot Guide Card
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.wifi, size: 16, color: Color(0xFF5FA9A9)),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Device Wi-Fi Setup Hotspot",
+                          style: GoogleFonts.poppins(
+                              fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF334155)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      regList.isNotEmpty
+                          ? "SSID: ALAGA-${regList.first}"
+                          : "SSID: ALAGA-[Device-Serial]",
+                      style: GoogleFonts.robotoMono(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Default Password: @Password123",
+                          style: GoogleFonts.albertSans(fontSize: 11, color: const Color(0xFF475569)),
+                        ),
+                        InkWell(
+                          onTap: () {
+                            Clipboard.setData(const ClipboardData(text: '@Password123'));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Copied hotspot password!'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Icon(Icons.copy, size: 14, color: Color(0xFF5FA9A9)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Connect your phone/PC to this Wi-Fi, then go to http://192.168.4.1/setup to connect it to your home Wi-Fi and change this password if desired.",
+                      style: GoogleFonts.albertSans(fontSize: 10, color: const Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
               if (tokens.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                Text(
-                  'Enter each one-time provisioning token in the matching device setup portal. It will not be shown again.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.albertSans(
-                      fontSize: 12, color: Colors.black54),
-                ),
                 const SizedBox(height: 12),
-                ...tokens.map((entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: SelectableText(
-                        '${entry['serial_number']}: ${entry['token']}',
-                        style: GoogleFonts.robotoMono(fontSize: 11),
-                      ),
-                    )),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('I saved the tokens'),
+                Text(
+                  'One-time provisioning tokens:',
+                  style: GoogleFonts.albertSans(fontSize: 11, fontWeight: FontWeight.bold),
                 ),
+                const SizedBox(height: 6),
+                ...tokens.map((entry) => SelectableText(
+                      '${entry['serial_number']}: ${entry['token']}',
+                      style: GoogleFonts.robotoMono(fontSize: 10),
+                    )),
               ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5FA9A9),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context); // Return to previous screen
+                  },
+                  child: Text('Done & View Devices', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
-    if (tokens.isEmpty) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted && Navigator.canPop(context)) Navigator.pop(context);
-      });
-    }
   }
 
   @override

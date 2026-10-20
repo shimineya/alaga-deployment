@@ -128,6 +128,16 @@ const recordDueSchedules = async () => {
     }
 };
 
+// Automatic background scheduler: evaluates due schedules every 15 seconds
+// so that exact schedule alarms immediately push to Web and Mobile in real time.
+const scheduleInterval = setInterval(() => {
+    recordDueSchedules().catch(() => {});
+}, 15000);
+if (scheduleInterval.unref) {
+    scheduleInterval.unref();
+}
+
+
 // ==========================================
 // 1. GET /clinical - Fetch Patient Alerts
 // [HIPAA] Minimum Necessary Rule Enforced

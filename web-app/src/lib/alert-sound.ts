@@ -162,3 +162,78 @@ export function playAlertTone(
 export function playAlertToneSample(tone: 'gentle' | 'high'): void {
   playAlertTone('critical', tone);
 }
+
+// ============================================================================
+// CONTINUOUS PERSISTENT ALERT SOUND ENGINE (GLOBAL SYSTEM-WIDE)
+// ============================================================================
+let activeAlarmInterval: NodeJS.Timeout | null = null;
+let currentAlarmLevel: 'critical' | 'warning' | null = null;
+let isAlarmMuted: boolean = false;
+
+/**
+ * Updates the global alarm mute status. If muted, active looping sound stops immediately.
+ * If unmuted and an active alert is pending, looping resumes.
+ */
+export function setAlarmMuted(muted: boolean): void {
+  isAlarmMuted = muted;
+  if (muted && activeAlarmInterval) {
+    clearInterval(activeAlarmInterval);
+    activeAlarmInterval = null;
+  } else if (!muted && currentAlarmLevel) {
+    startContinuousAlarm(currentAlarmLevel);
+  }
+}
+
+/**
+ * Starts continuous looping alarm sound across the whole system.
+ * The alarm repeats until explicitly stopped or muted.
+ * - Critical: urgent rapid pulse every 3.5 seconds
+ * - Warning: cautionary chime every 7.5 seconds
+ */
+export function startContinuousAlarm(level: 'critical' | 'warning'): void {
+  currentAlarmLevel = level;
+  if (isAlarmMuted) return;
+
+  // If already running at the exact same level, let the existing interval continue
+  if (activeAlarmInterval && currentAlarmLevel === level) {
+    return;
+  }
+
+  if (activeAlarmInterval) {
+    clearInterval(activeAlarmInterval);
+    activeAlarmInterval = null;
+  }
+
+  // Play immediately
+  playAlertTone(level);
+
+  const repeatIntervalMs = level === 'critical' ? 3500 : 7500;
+  activeAlarmInterval = setInterval(() => {
+    if (!isAlarmMuted && currentAlarmLevel) {
+      playAlertTone(currentAlarmLevel);
+    }
+  }, repeatIntervalMs);
+}
+
+/**
+ * Stops the continuous looping alarm. Called when there are no unacknowledged/unflagged/unarchived alerts.
+ */
+export function stopContinuousAlarm(): void {
+  currentAlarmLevel = null;
+  if (activeAlarmInterval) {
+    clearInterval(activeAlarmInterval);
+    activeAlarmInterval = null;
+  }
+}
+
+/**
+ * Inspect the current global alarm state.
+ */
+export function getAlarmStatus(): { isAlarmActive: boolean; level: 'critical' | 'warning' | null; isMuted: boolean } {
+  return {
+    isAlarmActive: activeAlarmInterval !== null,
+    level: currentAlarmLevel,
+    isMuted: isAlarmMuted
+  };
+}
+

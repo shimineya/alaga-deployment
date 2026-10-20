@@ -1,16 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
+const { broadcastAlert } = require('../services/alertRealtimeService');
 
 router.get('/', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM schedules ORDER BY scheduled_at ASC');
-        res.json({ status: 'success', data: result.rows });
+        res.json({ status: 'success', success: true, data: result.rows });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ status: 'error', message: 'Server error' });
+        res.status(500).json({ status: 'error', success: false, message: 'Server error' });
     }
 });
+
 
 router.post('/', async (req, res) => {
     const { patient_name, event_type, custom_event_name, is_recurring, recurrence_interval, scheduled_at, status } = req.body;
@@ -36,10 +38,22 @@ router.post('/', async (req, res) => {
         ];
 
         const newSchedule = await pool.query(query, values);
-        res.json({ status: 'success', message: 'Schedule saved successfully', data: newSchedule.rows[0] });
+        const row = newSchedule.rows[0];
+
+        // Broadcast schedule creation so mobile devices can schedule local alarms
+        broadcastAlert('schedule_created', {
+            schedule_id: row.schedule_id,
+            patient_name: row.patient_name,
+            event_type: row.event_type,
+            custom_event_name: row.custom_event_name,
+            scheduled_at: row.scheduled_at,
+            status: row.status
+        });
+
+        res.json({ status: 'success', success: true, message: 'Schedule saved successfully', data: row });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ status: 'error', message: 'Server error' });
+        res.status(500).json({ status: 'error', success: false, message: 'Server error' });
     }
 });
 
@@ -48,14 +62,21 @@ router.put('/:id/acknowledge', async (req, res) => {
     try {
         const result = await pool.query("UPDATE schedules SET status = 'Completed' WHERE schedule_id = $1 RETURNING *", [id]);
         if (result.rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Schedule not found' });
+            return res.status(404).json({ status: 'error', success: false, message: 'Schedule not found' });
         }
-        res.json({ status: 'success', message: 'Schedule acknowledged and updated' });
+        
+        broadcastAlert('schedule_completed', {
+            schedule_id: id,
+            status: 'Completed'
+        });
+
+        res.json({ status: 'success', success: true, message: 'Schedule acknowledged and updated' });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ status: 'error', message: 'Server error' });
+        res.status(500).json({ status: 'error', success: false, message: 'Server error' });
     }
 });
+
 
 router.put('/:id', async (req, res) => {
     const { id } = req.params;

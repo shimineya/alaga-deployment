@@ -251,35 +251,9 @@ const AlertsHub: React.FC = () => {
         };
     }, []);
 
-    // Repeating sound effect synced with active unacknowledged & unflagged notifications
-    useEffect(() => {
-        if (soundIntervalRef.current) {
-            clearInterval(soundIntervalRef.current);
-            soundIntervalRef.current = null;
-        }
+    // Global continuous alert sound is handled system-wide by useAlertSync / alert-sound engine.
+    // AlertsHub updates when alerts are acknowledged/flagged/archived.
 
-        if (highestEmergency === 'none' || isMuted) {
-            return;
-        }
-
-        // Play sound immediately on trigger/change
-        playEmergencySound(highestEmergency);
-
-        // Repeat frequency varies by level of emergency:
-        // - Critical: repeats every 3.5 seconds (urgent, rapid clinical pulse)
-        // - Warning: repeats every 8.0 seconds (cautionary chime)
-        const repeatInterval = highestEmergency === 'critical' ? 3500 : 8000;
-        soundIntervalRef.current = setInterval(() => {
-            playEmergencySound(highestEmergency);
-        }, repeatInterval);
-
-        return () => {
-            if (soundIntervalRef.current) {
-                clearInterval(soundIntervalRef.current);
-                soundIntervalRef.current = null;
-            }
-        };
-    }, [highestEmergency, isMuted]);
 
     const fetchAlerts = async () => {
         if (!token) return;

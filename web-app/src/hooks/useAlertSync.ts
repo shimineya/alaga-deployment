@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { playAlertTone, unlockAudioContext } from '@/lib/alert-sound';
+import { 
+  playAlertTone, 
+  unlockAudioContext, 
+  startContinuousAlarm, 
+  stopContinuousAlarm, 
+  setAlarmMuted 
+} from '@/lib/alert-sound';
 import { toast } from 'sonner';
 
 export interface AlertSyncEvent {
@@ -28,15 +34,65 @@ export function useAlertSync() {
   const { user } = useAuth();
   const [isMuted, setIsMuted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
+  const [unacknowledgedCount, setUnacknowledgedCount] = useState<number>(0);
+  const [highestUrgency, setHighestUrgency] = useState<'critical' | 'warning' | 'none'>('none');
+
   const isMutedRef = useRef(false);
   isMutedRef.current = isMuted;
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const API_BASE = import.meta.env.VITE_API_URL || '';
 
-  // 1. Fetch initial mute state from server
+  // 1. Fetch active clinical alerts from server & evaluate unacknowledged/unflagged/unarchived status
+  const refreshActiveAlerts = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/alerts/clinical`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const list = Array.isArray(data.data) ? data.data : [];
+
+      // An alert requires ongoing alarm if:
+      // 1. status is NOT 'Acknowledged'
+      // 2. status is NOT 'Archived'
+      // 3. flag_count < 5 (has not been flagged as normal 5 times / AI learned)
+      // 4. is_suppressed is NOT true
+      const pending = list.filter((a: any) => 
+        a.status !== 'Acknowledged' && 
+        a.status !== 'Archived' && 
+        (Number(a.flag_count) || 0) < 5 && 
+        !a.is_suppressed
+      );
+
+      setActiveAlerts(pending);
+      setUnacknowledgedCount(pending.length);
+
+      const hasCritical = pending.some((a: any) => (a.severity || '').toLowerCase() === 'critical');
+      const hasWarning = pending.some((a: any) => (a.severity || '').toLowerCase() === 'warning');
+      const urgency: 'critical' | 'warning' | 'none' = hasCritical ? 'critical' : (hasWarning ? 'warning' : 'none');
+      setHighestUrgency(urgency);
+
+      // System-Wide Persistent Sound Engine:
+      // If there are unacknowledged alerts and sound is not muted, KEEP LOOPING until cleared!
+      // If pending.length === 0, STOP sound immediately!
+      if (urgency !== 'none' && !isMutedRef.current) {
+        startContinuousAlarm(urgency);
+      } else {
+        stopContinuousAlarm();
+      }
+    } catch (err) {
+      console.warn('[useAlertSync] Failed to refresh active alerts:', err);
+    }
+  }, [API_BASE]);
+
+  // 2. Fetch initial mute state from server
   const fetchMuteStatus = useCallback(async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -47,15 +103,17 @@ export function useAlertSync() {
       const data = await res.json();
       if (data.success && typeof data.isMuted === 'boolean') {
         setIsMuted(data.isMuted);
+        setAlarmMuted(data.isMuted);
       }
     } catch (_) {}
   }, [API_BASE]);
 
-  // 2. Toggle mute state and broadcast to all devices (Web & Mobile)
+  // 3. Toggle mute state and broadcast to all devices (Web & Mobile)
   const toggleMute = useCallback(async (durationMinutes: number = 15) => {
     const token = localStorage.getItem('token');
     const newMuted = !isMutedRef.current;
     setIsMuted(newMuted);
+    setAlarmMuted(newMuted);
 
     if (!token) return;
 
@@ -80,7 +138,7 @@ export function useAlertSync() {
     }
   }, [API_BASE]);
 
-  // 3. Test synchronized alert & sound across Web and Mobile
+  // 4. Test synchronized alert & sound across Web and Mobile
   const testRealtimeSync = useCallback(async (severity: 'Critical' | 'Warning' = 'Critical') => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -103,14 +161,15 @@ export function useAlertSync() {
       const data = await res.json();
       if (data.success) {
         toast.success(`Live ${severity} Alert dispatched to both Web and Mobile devices!`);
+        refreshActiveAlerts();
       }
     } catch (e) {
       console.error('Failed to broadcast test alert:', e);
       toast.error('Failed to trigger test alert broadcast');
     }
-  }, [API_BASE]);
+  }, [API_BASE, refreshActiveAlerts]);
 
-  // 4. Unlock AudioContext on first user interaction to satisfy browser autoplay policy
+  // 5. Unlock AudioContext on first user interaction to satisfy browser autoplay policy
   useEffect(() => {
     const handleUserInteraction = () => {
       unlockAudioContext();
@@ -127,7 +186,7 @@ export function useAlertSync() {
     };
   }, []);
 
-  // 5. Connect and maintain SSE connection
+  // 6. Connect and maintain SSE connection + Polling Fallback
   useEffect(() => {
     if (!user) {
       if (eventSourceRef.current) {
@@ -135,10 +194,22 @@ export function useAlertSync() {
         eventSourceRef.current = null;
       }
       setIsConnected(false);
+      stopContinuousAlarm();
       return;
     }
 
     fetchMuteStatus();
+    refreshActiveAlerts();
+
+    // Periodic check every 10 seconds to ensure alert state and sound stay 100% accurate
+    pollIntervalRef.current = setInterval(() => {
+      refreshActiveAlerts();
+    }, 10000);
+
+    const handleWindowAlertUpdate = () => {
+      refreshActiveAlerts();
+    };
+    window.addEventListener('alaga_alert_update', handleWindowAlertUpdate);
 
     const connectSSE = () => {
       const token = localStorage.getItem('token');
@@ -158,6 +229,7 @@ export function useAlertSync() {
           const d = JSON.parse(e.data);
           if (typeof d.isMuted === 'boolean') {
             setIsMuted(d.isMuted);
+            setAlarmMuted(d.isMuted);
           }
         } catch (_) {}
       });
@@ -173,22 +245,21 @@ export function useAlertSync() {
           if (eventData.userId == null || String(eventData.userId) === String(user.id)) {
             const nextMuted = Boolean(eventData.isMuted);
             setIsMuted(nextMuted);
+            setAlarmMuted(nextMuted);
           }
           return;
         }
 
-        // New Clinical or System Alert
+        // New Clinical or System Alert -> Refresh active list immediately to kick off persistent alarm
         if (eventType === 'new_alert' || eventType === 'new_clinical_alert') {
           const severity = (eventData.severity || 'warning').toLowerCase();
           const patientName = eventData.patient_name || eventData.patientName || 'Patient';
           const msg = eventData.message || 'Abnormal vital monitoring detected.';
 
-          // 1. Play Synchronized Sound if not muted
-          if (!isMutedRef.current && eventData.playSound !== false) {
-            playAlertTone(severity === 'critical' ? 'critical' : 'warning');
-          }
+          // Re-evaluate active alerts and start looping
+          refreshActiveAlerts();
 
-          // 2. Display Toast Notification
+          // Display Toast Notification
           if (severity === 'critical') {
             toast.error(`🚨 CRITICAL: ${patientName}`, {
               description: msg,
@@ -215,10 +286,21 @@ export function useAlertSync() {
           return;
         }
 
-        // Alert Acknowledged on any device
-        if (eventType === 'alert_acknowledged') {
-          const ackUser = eventData.acknowledgedBy ? `by staff #${eventData.acknowledgedBy}` : '';
-          toast.success(`Alert #${eventData.alertId || ''} Acknowledged ${ackUser}`.trim());
+        // Alert Acknowledged, Archived, or Flagged -> Refresh active list immediately!
+        // If this clears the last unacknowledged alert, continuous alarm stops immediately.
+        if (
+          eventType === 'alert_acknowledged' || 
+          eventType === 'alert_archived' || 
+          eventType === 'alert_archived_bulk' ||
+          eventType === 'alert_flagged_normal' ||
+          eventType === 'system_alert_resolved'
+        ) {
+          refreshActiveAlerts();
+
+          if (eventType === 'alert_acknowledged') {
+            const ackUser = eventData.acknowledgedBy ? `by staff #${eventData.acknowledgedBy}` : '';
+            toast.success(`Alert #${eventData.alertId || ''} Acknowledged ${ackUser}`.trim());
+          }
           return;
         }
 
@@ -251,6 +333,7 @@ export function useAlertSync() {
         'alert_acknowledged', 
         'alert_archived', 
         'alert_archived_bulk',
+        'alert_flagged_normal',
         'alert_sound_mute',
         'system_alert_resolved',
         'schedule_completed',
@@ -280,6 +363,8 @@ export function useAlertSync() {
     connectSSE();
 
     return () => {
+      window.removeEventListener('alaga_alert_update', handleWindowAlertUpdate);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -287,13 +372,17 @@ export function useAlertSync() {
       }
       setIsConnected(false);
     };
-  }, [user, API_BASE, fetchMuteStatus]);
+  }, [user, API_BASE, fetchMuteStatus, refreshActiveAlerts]);
 
   return {
     isMuted,
     isConnected,
     toggleMute,
     testRealtimeSync,
-    fetchMuteStatus
+    fetchMuteStatus,
+    unacknowledgedCount,
+    highestUrgency,
+    activeAlerts,
+    refreshActiveAlerts
   };
 }

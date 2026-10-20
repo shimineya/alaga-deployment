@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'api_service.dart';
+import 'schedule_reminder_service.dart';
 import '../models/user_session.dart';
+
 
 /// Clinical Alert & Push Notification Service for ALAGA Mobile App.
 ///
@@ -205,7 +207,9 @@ class AlertNotificationService {
       final anomalyType = (payload['anomaly_type'] ?? payload['anomalyType'] ?? '').toString().toLowerCase();
 
       String title;
-      if (severity.toLowerCase() == 'critical') {
+      if (anomalyType == 'schedule_due' || msg.toLowerCase().contains('scheduled task due')) {
+        title = '⏰ SCHEDULE ALARM: $patientName';
+      } else if (severity.toLowerCase() == 'critical') {
         title = '🚨 CRITICAL ALERT: $patientName';
       } else if (anomalyType.contains('moisture') || msg.toLowerCase().contains('moisture') || msg.toLowerCase().contains('wet')) {
         title = '💧 DIAPER ALERT: $patientName';
@@ -237,7 +241,16 @@ class AlertNotificationService {
       return;
     }
 
-    // 4. Alert Acknowledged on Web App or another phone
+    // 4. Schedule Created or Acknowledged on Web App or another phone
+    if (eventType == 'schedule_created' || eventType == 'schedule_completed') {
+      final owner = UserSession.current?.id;
+      if (owner != null) {
+        ScheduleReminderService.syncServerSchedules(owner);
+      }
+      return;
+    }
+
+    // 5. Alert Acknowledged on Web App or another phone
     if (eventType == 'alert_acknowledged') {
       final rawAlertId = payload['alertId'] ?? payload['alert_id'];
       if (rawAlertId != null) {
@@ -250,7 +263,7 @@ class AlertNotificationService {
       return;
     }
 
-    // 5. Alert Archived on Web App or another phone
+    // 6. Alert Archived on Web App or another phone
     if (eventType == 'alert_archived' || eventType == 'alert_archived_bulk') {
       final alertIds = payload['alertIds'] ?? payload['clinicalIds'] ?? payload['ids'];
       if (alertIds is List) {
@@ -264,11 +277,12 @@ class AlertNotificationService {
       return;
     }
 
-    // 6. Care team assignment update
+    // 7. Care team assignment update
     if (eventType == 'assignment_update') {
       await checkAlerts();
     }
   }
+
 
   /// Toggle mute state and synchronize across Web and Mobile
   static Future<bool> toggleMute({int durationMinutes = 15}) async {
@@ -296,6 +310,10 @@ class AlertNotificationService {
     try {
       await _checkClinicalAlerts();
       await _checkPendingInvitations();
+      final owner = UserSession.current?.id;
+      if (owner != null) {
+        await ScheduleReminderService.syncServerSchedules(owner);
+      }
     } catch (_) {
       // Network or silent error
     } finally {
@@ -330,13 +348,16 @@ class AlertNotificationService {
       final anomalyType = (alert['anomaly_type'] ?? '').toString().toLowerCase();
 
       String title;
-      if (severity.toLowerCase() == 'critical') {
+      if (anomalyType == 'schedule_due' || rawMsg.toLowerCase().contains('scheduled task due')) {
+        title = '⏰ SCHEDULE ALARM: $patientName';
+      } else if (severity.toLowerCase() == 'critical') {
         title = '🚨 CRITICAL ALERT: $patientName';
       } else if (anomalyType.contains('moisture') || rawMsg.toLowerCase().contains('moisture') || rawMsg.toLowerCase().contains('wet')) {
         title = '💧 DIAPER ALERT: $patientName';
       } else {
         title = '⚠️ CLINICAL ALERT: $patientName';
       }
+
 
       final numericId = int.tryParse(alertId) ?? (DateTime.now().millisecondsSinceEpoch % 100000);
 

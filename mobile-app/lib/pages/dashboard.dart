@@ -211,6 +211,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final owner = UserSession.current?.id;
     if (owner == null) return;
     try {
+      await ScheduleReminderService.syncServerSchedules(owner);
       final saved = await ScheduleReminderService.load(owner);
       if (!mounted) return;
       setState(() {
@@ -219,6 +220,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _eventsReady = true;
       });
     } catch (_) {
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
@@ -2079,7 +2081,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                                         selectedRecurrence,
                                       );
 
+                                      // Sync appointment to backend so Web App and real-time alerts receive it
+                                      try {
+                                        await ApiService.post('/schedules', body: {
+                                          'patient_name': enteredPatient,
+                                          'event_type': selectedScheduleType,
+                                          'custom_event_name': whatController.text.trim(),
+                                          'is_recurring': selectedRecurrence != 'Does not repeat',
+                                          'recurrence_interval': selectedRecurrence,
+                                          'scheduled_at': at.toUtc().toIso8601String(),
+                                          'status': 'Pending',
+                                        });
+                                      } catch (_) {}
+
                                       if (!mounted || !context.mounted) return;
+
                                       Navigator.pop(context, savedList);
                                       ScaffoldMessenger.of(this.context)
                                           .showSnackBar(SnackBar(

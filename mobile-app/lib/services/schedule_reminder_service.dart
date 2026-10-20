@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'api_service.dart';
 
 class ScheduleReminderService {
   static const _channel = MethodChannel('alaga/schedule_reminders');
@@ -239,4 +240,101 @@ class ScheduleReminderService {
     }
     await _persist(owner, events);
   }
+
+  /// Sync pending appointments and care routines from the backend server (/api/schedules)
+  /// and automatically register native phone alarms on Android.
+  static Future<int> syncServerSchedules(int owner) async {
+    try {
+      final res = await ApiService.get('/schedules');
+      if (res['data'] is! List) return 0;
+
+      final List<dynamic> serverList = res['data'];
+      final events = await load(owner);
+      int newlyScheduled = 0;
+      bool stateChanged = false;
+
+      // Request exact alarm permission if supported
+      if (supported) {
+        try {
+          await _channel.invokeMethod<bool>('requestPermission');
+          await setAccount(owner);
+        } catch (_) {}
+      }
+
+      for (final raw in serverList) {
+        if (raw is! Map) continue;
+        final item = Map<String, dynamic>.from(raw);
+        final status = (item['status'] ?? '').toString();
+        if (status.toLowerCase() == 'completed' || status.toLowerCase() == 'cancelled') continue;
+
+        final rawScheduledAt = item['scheduled_at']?.toString();
+        if (rawScheduledAt == null || rawScheduledAt.isEmpty) continue;
+
+        DateTime? scheduledAt;
+        try {
+          scheduledAt = DateTime.parse(rawScheduledAt).toLocal();
+        } catch (_) {
+          continue;
+        }
+
+        final scheduleId = item['schedule_id']?.toString() ?? '';
+        final patientName = item['patient_name']?.toString() ?? 'Patient';
+        final eventType = item['event_type']?.toString() ?? 'Care task';
+        final customEventName = item['custom_event_name']?.toString() ?? '';
+        final title = customEventName.isNotEmpty ? '$eventType - $customEventName' : eventType;
+        final dateKey = '${scheduledAt.year}-${scheduledAt.month.toString().padLeft(2, '0')}-${scheduledAt.day.toString().padLeft(2, '0')}';
+
+        // Check if already in local events map
+        final dayList = events[dateKey] ?? [];
+        final existingIndex = dayList.indexWhere((e) => e['serverId'] == scheduleId || (e['type'] == eventType && e['scheduledAt'] == scheduledAt?.toIso8601String()));
+
+        if (existingIndex == -1) {
+          // Schedule native phone alarm if the time is in the future
+          int notifId;
+          if (scheduledAt.isAfter(DateTime.now())) {
+            if (supported) {
+              try {
+                notifId = (await _channel.invokeMethod<int>('schedule', {
+                  'owner': owner,
+                  'at': scheduledAt.millisecondsSinceEpoch,
+                  'title': '$title ($patientName)',
+                })) ?? (DateTime.now().microsecondsSinceEpoch % 100000);
+              } catch (_) {
+                notifId = DateTime.now().microsecondsSinceEpoch % 100000;
+              }
+            } else {
+              notifId = DateTime.now().microsecondsSinceEpoch % 100000;
+            }
+            newlyScheduled++;
+          } else {
+            // Already past / due now
+            notifId = int.tryParse(scheduleId) ?? (DateTime.now().microsecondsSinceEpoch % 100000);
+          }
+
+          final localItem = {
+            'id': notifId.toString(),
+            'serverId': scheduleId,
+            'type': eventType,
+            'patient': patientName,
+            'what': customEventName,
+            'when': '${scheduledAt.hour.toString().padLeft(2, '0')}:${scheduledAt.minute.toString().padLeft(2, '0')}',
+            'scheduledAt': scheduledAt.toIso8601String(),
+            'recurrence': item['recurrence_interval']?.toString() ?? 'Does not repeat',
+          };
+
+          events.putIfAbsent(dateKey, () => []).add(localItem);
+          stateChanged = true;
+        }
+      }
+
+      if (stateChanged) {
+        await _persist(owner, events);
+      }
+      return newlyScheduled;
+    } catch (e) {
+      debugPrint('[ScheduleReminderService] Failed to sync server schedules: $e');
+      return 0;
+    }
+  }
 }
+

@@ -12,7 +12,7 @@ export default function MainLayout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { user } = useAuth();
-  const { isMuted, toggleMute, isConnected } = useAlertSync();
+  const { isMuted, toggleMute, isConnected, unacknowledgedCount, highestUrgency } = useAlertSync();
 
   const role = (user?.role || '').toLowerCase();
   const isFacilityRelevantRole = ['caregiver', 'medical_staff', 'facility_admin', 'parent'].includes(role);
@@ -103,6 +103,24 @@ export default function MainLayout() {
                 </div>
               ) : null
             )}
+            {/* Active Unacknowledged Alert Warning & Quick Access */}
+            {unacknowledgedCount > 0 && (
+              <a
+                href="/alerts"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all ${
+                  highestUrgency === 'critical'
+                    ? 'bg-rose-100 text-rose-800 border border-rose-300 animate-pulse hover:bg-rose-200 shadow-xs'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse hover:bg-amber-200 shadow-xs'
+                }`}
+                title={`${unacknowledgedCount} unacknowledged alert(s) sounding across system. Click to open Alerts Hub and acknowledge/flag/archive.`}
+              >
+                <span className={`w-2 h-2 rounded-full ${highestUrgency === 'critical' ? 'bg-rose-600 animate-ping' : 'bg-amber-500'}`} />
+                <span className="truncate max-w-[120px] sm:max-w-none">
+                  {unacknowledgedCount} Active Alert{unacknowledgedCount > 1 ? 's' : ''}
+                </span>
+              </a>
+            )}
+
             {/* Real-time Synchronized Sound Toggle (Web & Mobile) */}
             <button
               onClick={() => toggleMute()}
@@ -113,6 +131,7 @@ export default function MainLayout() {
                   : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
               }`}
             >
+
               {isMuted ? <VolumeX className="w-4 h-4 text-amber-600 shrink-0" /> : <Volume2 className="w-4 h-4 text-emerald-600 shrink-0" />}
               <span className="hidden lg:inline text-[11px] font-bold">
                 {isMuted ? 'Audio Muted' : 'Audio Synced'}

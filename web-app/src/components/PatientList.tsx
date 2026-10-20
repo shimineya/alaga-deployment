@@ -34,6 +34,7 @@ import {
     Pencil,
     Archive,
     Loader2,
+    AlertTriangle,
 } from "lucide-react";
 import { toast } from 'sonner';
 // [NEW] Import the Create modal
@@ -559,6 +560,11 @@ const PatientTable: React.FC<PatientTableProps> = ({
                         {patients.map((patient) => {
                             const vital = getLatestVital(patient.id);
                             const isOffline = !((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
+                            const hasVitalsTelem = !!(patient.latest_telemetry?.recorded_at || (vital && (vital.heartRate > 0 || vital.temperature > 0)));
+                            const isCalibrating = !isOffline && (!vital || !hasVitalsTelem);
+                            const isPulseMisaligned = !isOffline && !isCalibrating && vital?.heartRate === 0;
+                            const isSpo2Misaligned = !isOffline && !isCalibrating && vital?.spo2 === 0;
+                            const isTempMisaligned = !isOffline && !isCalibrating && (vital?.temperature <= 30.0 || (vital?.heartRate === 0 && vital?.spo2 === 0));
 
                             let statusColor = "bg-slate-100 text-slate-800";
                             let statusText = "Stable";
@@ -572,6 +578,12 @@ const PatientTable: React.FC<PatientTableProps> = ({
                             } else if (patient.status === 'Warning') {
                                 statusColor = "bg-amber-100 text-amber-700 border-amber-200";
                                 statusText = "Warning";
+                            } else if (isPulseMisaligned || isSpo2Misaligned) {
+                                statusColor = "bg-amber-100 text-amber-800 border-amber-300";
+                                statusText = "Misaligned";
+                            } else if (isCalibrating) {
+                                statusColor = "bg-cyan-100 text-cyan-800 border-cyan-300";
+                                statusText = "Calibrating";
                             } else {
                                 statusColor = "bg-emerald-100 text-emerald-700 border-emerald-200";
                                 statusText = "Stable";
@@ -653,28 +665,64 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {vital && !isOffline ? (
+                                        {isOffline ? (
+                                            <span className="text-slate-400">--</span>
+                                        ) : isCalibrating ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-700 bg-cyan-50/70 px-2 py-0.5 rounded border border-cyan-200" title="Acquiring vitals baseline...">
+                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" /> Acquiring
+                                            </span>
+                                        ) : isPulseMisaligned ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200" title="Optical sensor misaligned - reposition probe">
+                                                <AlertTriangle className="w-3 h-3 text-amber-600" /> Misaligned
+                                            </span>
+                                        ) : vital ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
                                                 <Heart className="w-3 h-3 text-rose-500" />
-                                                {vital.heartRate === 0 ? '0 (Detached)' : Math.round(vital.heartRate)}
+                                                {Math.round(vital.heartRate)}
                                             </div>
-                                        ) : <span className="text-slate-400">--</span>}
+                                        ) : (
+                                            <span className="text-slate-400">--</span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {vital && !isOffline ? (
+                                        {isOffline ? (
+                                            <span className="text-slate-400">--</span>
+                                        ) : isCalibrating ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-700 bg-cyan-50/70 px-2 py-0.5 rounded border border-cyan-200" title="Stabilizing temperature sensor...">
+                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" /> Acquiring
+                                            </span>
+                                        ) : isTempMisaligned ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200" title="Temperature probe misaligned or dislodged">
+                                                <AlertTriangle className="w-3 h-3 text-amber-600" /> Misaligned
+                                            </span>
+                                        ) : vital ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
                                                 <Thermometer className="w-3 h-3 text-amber-500" />
-                                                {(vital.temperature <= 30.0 || (vital.heartRate === 0 && vital.spo2 === 0)) ? `${vital.temperature > 0 ? vital.temperature.toFixed(1) : '0.0'}° (Detached)` : `${vital.temperature.toFixed(1)}°`}
+                                                {`${vital.temperature.toFixed(1)}°`}
                                             </div>
-                                        ) : <span className="text-slate-400">--</span>}
+                                        ) : (
+                                            <span className="text-slate-400">--</span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {vital && !isOffline ? (
+                                        {isOffline ? (
+                                            <span className="text-slate-400">--</span>
+                                        ) : isCalibrating ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-700 bg-cyan-50/70 px-2 py-0.5 rounded border border-cyan-200" title="Detecting pulse oximetry signal...">
+                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" /> Acquiring
+                                            </span>
+                                        ) : isSpo2Misaligned ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200" title="Optical sensor misaligned - reposition probe">
+                                                <AlertTriangle className="w-3 h-3 text-amber-600" /> Misaligned
+                                            </span>
+                                        ) : vital ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
                                                 <Activity className="w-3 h-3 text-blue-500" />
-                                                {vital.spo2 === 0 ? '0% (Detached)' : `${Math.round(vital.spo2)}%`}
+                                                {`${Math.round(vital.spo2)}%`}
                                             </div>
-                                        ) : <span className="text-slate-400">--</span>}
+                                        ) : (
+                                            <span className="text-slate-400">--</span>
+                                        )}
                                     </TableCell>
 
                                     {/*

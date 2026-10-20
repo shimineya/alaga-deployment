@@ -31,8 +31,11 @@ import {
   AlertCircle,
   TrendingUp,
   Clock,
-  ClipboardList
+  ClipboardList,
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
+
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 interface PatientProfileProps {
@@ -386,15 +389,33 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
-              const isDetached = effectiveVitalsOnline && (hr === 0 || hr === null);
-              const isCrit = effectiveVitalsOnline && hr !== null && !isDetached && (hr > 130 || hr < 50);
-              const isWarn = effectiveVitalsOnline && hr !== null && !isDetached && (hr > 100 || hr < 60) && !isCrit;
-              const statusText = !effectiveVitalsOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? 'Critical' : isWarn ? 'Elevated' : 'Normal';
-              const statusBadge = !effectiveVitalsOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !effectiveVitalsOnline ? '--' : isDetached ? '0' : (hr !== null ? `${hr}` : '--');
+              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (hr !== null && hr > 0));
+              const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
+              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (hr === 0 || hr === null);
+              const isCrit = effectiveVitalsOnline && hr !== null && !isMisaligned && !isCalibrating && (hr > 130 || hr < 50);
+              const isWarn = effectiveVitalsOnline && hr !== null && !isMisaligned && !isCalibrating && (hr > 100 || hr < 60) && !isCrit;
+
+              let statusText = 'Normal';
+              let statusBadge = 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              if (!effectiveVitalsOnline) {
+                statusText = 'Offline';
+                statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+              } else if (isCalibrating) {
+                statusText = 'Acquiring...';
+                statusBadge = 'bg-cyan-50 text-cyan-800 border-cyan-300 animate-pulse';
+              } else if (isMisaligned) {
+                statusText = 'Check Placement';
+                statusBadge = 'bg-amber-50 text-amber-900 border-amber-300';
+              } else if (isCrit) {
+                statusText = 'Critical';
+                statusBadge = 'bg-rose-50 text-rose-900 border-rose-300';
+              } else if (isWarn) {
+                statusText = 'Elevated';
+                statusBadge = 'bg-amber-50 text-amber-950 border-amber-300';
+              }
 
               return (
-                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                <Card className={`bg-white/95 backdrop-blur-sm border shadow-xs hover:-translate-y-0.5 hover:shadow-md transition-all rounded-2xl overflow-hidden ${isMisaligned ? 'border-amber-300 ring-1 ring-amber-300/50' : isCalibrating ? 'border-cyan-300 ring-1 ring-cyan-200/50' : 'border-teal-100/90 hover:border-teal-300'}`}>
                   <CardContent className="p-3.5 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -403,15 +424,37 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Heart Rate</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isCalibrating ? 'bg-cyan-500 animate-ping' : isMisaligned ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isCalibrating ? 'Acquiring Vitals...' : isMisaligned ? 'Sensor Misaligned / Check Probe' : 'Live Streaming'} />
                     </div>
 
-                    <div className="flex items-baseline gap-1.5 pt-0.5">
-                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                        {displayVal}
-                      </span>
-                      <span className="text-xs font-medium text-slate-500">bpm</span>
-                    </div>
+                    {isCalibrating ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Loader2 className="w-4 h-4 text-cyan-600 animate-spin shrink-0" />
+                          <span className="text-sm font-bold text-cyan-900 alaga-ecg-wave">
+                            Acquiring...
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-cyan-700 font-medium">Warming up sensor (3–5s)</p>
+                      </div>
+                    ) : isMisaligned ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
+                          <span className="text-sm sm:text-base font-black text-amber-900">
+                            Misaligned
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-amber-700 font-medium">Reposition probe on skin</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-baseline gap-1.5 pt-0.5">
+                        <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                          {!effectiveVitalsOnline ? '--' : (hr !== null ? `${hr}` : '--')}
+                        </span>
+                        <span className="text-xs font-medium text-slate-500">bpm</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-1">
                       <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
@@ -423,8 +466,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: effectiveVitalsOnline && hr && !isDetached ? `${Math.min(100, Math.max(15, (hr / 160) * 100))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCalibrating ? 'alaga-calibrating-shimmer w-full' : isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isMisaligned ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: isCalibrating ? '100%' : (effectiveVitalsOnline && hr && !isMisaligned ? `${Math.min(100, Math.max(15, (hr / 160) * 100))}%` : '0%') }}
                       />
                     </div>
                   </CardContent>
@@ -444,15 +487,33 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const temp = latestVital ? latestVital.temperature : null;
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
               const sp = latestVital ? Math.round(latestVital.spo2) : null;
-              const isDetached = effectiveVitalsOnline && (temp === 0 || temp === null || temp <= 30.0 || (hr === 0 && (sp === 0 || sp === null)));
-              const isCrit = effectiveVitalsOnline && temp !== null && !isDetached && (temp > 38.5 || temp < 35.0);
-              const isWarn = effectiveVitalsOnline && temp !== null && !isDetached && (temp > 37.5 || temp < 36.0) && !isCrit;
-              const statusText = !effectiveVitalsOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? (temp > 38.5 ? 'Fever / High' : 'Hypothermia') : isWarn ? 'Elevated' : 'Normal';
-              const statusBadge = !effectiveVitalsOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !effectiveVitalsOnline ? '--' : isDetached ? (temp && temp > 0 ? temp.toFixed(1) : '0.0') : (temp !== null ? temp.toFixed(1) : '--');
+              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (temp !== null && temp > 0));
+              const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
+              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (temp === 0 || temp === null || temp <= 30.0);
+              const isCrit = effectiveVitalsOnline && temp !== null && !isMisaligned && !isCalibrating && (temp > 38.5 || temp < 35.0);
+              const isWarn = effectiveVitalsOnline && temp !== null && !isMisaligned && !isCalibrating && (temp > 37.5 || temp < 36.0) && !isCrit;
+
+              let statusText = 'Normal';
+              let statusBadge = 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              if (!effectiveVitalsOnline) {
+                statusText = 'Offline';
+                statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+              } else if (isCalibrating) {
+                statusText = 'Calibrating...';
+                statusBadge = 'bg-cyan-50 text-cyan-800 border-cyan-300 animate-pulse';
+              } else if (isMisaligned) {
+                statusText = 'Check Placement';
+                statusBadge = 'bg-amber-50 text-amber-900 border-amber-300';
+              } else if (isCrit) {
+                statusText = temp > 38.5 ? 'Fever / High' : 'Hypothermia';
+                statusBadge = 'bg-rose-50 text-rose-900 border-rose-300';
+              } else if (isWarn) {
+                statusText = 'Elevated';
+                statusBadge = 'bg-amber-50 text-amber-950 border-amber-300';
+              }
 
               return (
-                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                <Card className={`bg-white/95 backdrop-blur-sm border shadow-xs hover:-translate-y-0.5 hover:shadow-md transition-all rounded-2xl overflow-hidden ${isMisaligned ? 'border-amber-300 ring-1 ring-amber-300/50' : isCalibrating ? 'border-cyan-300 ring-1 ring-cyan-200/50' : 'border-teal-100/90 hover:border-teal-300'}`}>
                   <CardContent className="p-3.5 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -461,15 +522,37 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Body Temp</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isCalibrating ? 'bg-cyan-500 animate-ping' : isMisaligned ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isCalibrating ? 'Stabilizing Temperature Sensor...' : isMisaligned ? 'Sensor Misaligned / Check Probe' : 'Live Streaming'} />
                     </div>
 
-                    <div className="flex items-baseline gap-1.5 pt-0.5">
-                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                        {displayVal}
-                      </span>
-                      <span className="text-xs font-medium text-slate-500">°C</span>
-                    </div>
+                    {isCalibrating ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Loader2 className="w-4 h-4 text-cyan-600 animate-spin shrink-0" />
+                          <span className="text-sm font-bold text-cyan-900 alaga-ecg-wave">
+                            Calibrating...
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-cyan-700 font-medium">Stabilizing probe contact</p>
+                      </div>
+                    ) : isMisaligned ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
+                          <span className="text-sm sm:text-base font-black text-amber-900">
+                            Check Probe
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-amber-700 font-medium">Ensure probe touches body</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-baseline gap-1.5 pt-0.5">
+                        <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                          {!effectiveVitalsOnline ? '--' : (temp !== null ? temp.toFixed(1) : '--')}
+                        </span>
+                        <span className="text-xs font-medium text-slate-500">°C</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-1">
                       <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
@@ -481,8 +564,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: effectiveVitalsOnline && temp && !isDetached ? `${Math.min(100, Math.max(15, ((temp - 34) / 7) * 100))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCalibrating ? 'alaga-calibrating-shimmer w-full' : isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isMisaligned ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: isCalibrating ? '100%' : (effectiveVitalsOnline && temp && !isMisaligned ? `${Math.min(100, Math.max(15, ((temp - 34) / 7) * 100))}%` : '0%') }}
                       />
                     </div>
                   </CardContent>
@@ -500,15 +583,33 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const spo2 = latestVital ? Math.round(latestVital.spo2) : null;
-              const isDetached = effectiveVitalsOnline && (spo2 === 0 || spo2 === null);
-              const isCrit = effectiveVitalsOnline && spo2 !== null && !isDetached && spo2 < 90;
-              const isWarn = effectiveVitalsOnline && spo2 !== null && !isDetached && spo2 < 95 && !isCrit;
-              const statusText = !effectiveVitalsOnline ? 'Offline' : isDetached ? 'Detached' : isCrit ? 'Hypoxia' : isWarn ? 'Low SpO₂' : 'Optimal';
-              const statusBadge = !effectiveVitalsOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isDetached ? 'bg-slate-100 text-slate-600 border-slate-300' : isCrit ? 'bg-rose-50 text-rose-900 border-rose-300' : isWarn ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !effectiveVitalsOnline ? '--' : isDetached ? '0' : (spo2 !== null ? `${spo2}` : '--');
+              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (spo2 !== null && spo2 > 0));
+              const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
+              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (spo2 === 0 || spo2 === null);
+              const isCrit = effectiveVitalsOnline && spo2 !== null && !isMisaligned && !isCalibrating && spo2 < 90;
+              const isWarn = effectiveVitalsOnline && spo2 !== null && !isMisaligned && !isCalibrating && spo2 < 95 && !isCrit;
+
+              let statusText = 'Optimal';
+              let statusBadge = 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              if (!effectiveVitalsOnline) {
+                statusText = 'Offline';
+                statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+              } else if (isCalibrating) {
+                statusText = 'Acquiring...';
+                statusBadge = 'bg-cyan-50 text-cyan-800 border-cyan-300 animate-pulse';
+              } else if (isMisaligned) {
+                statusText = 'Check Placement';
+                statusBadge = 'bg-amber-50 text-amber-900 border-amber-300';
+              } else if (isCrit) {
+                statusText = 'Hypoxia';
+                statusBadge = 'bg-rose-50 text-rose-900 border-rose-300';
+              } else if (isWarn) {
+                statusText = 'Low SpO₂';
+                statusBadge = 'bg-amber-50 text-amber-950 border-amber-300';
+              }
 
               return (
-                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                <Card className={`bg-white/95 backdrop-blur-sm border shadow-xs hover:-translate-y-0.5 hover:shadow-md transition-all rounded-2xl overflow-hidden ${isMisaligned ? 'border-amber-300 ring-1 ring-amber-300/50' : isCalibrating ? 'border-cyan-300 ring-1 ring-cyan-200/50' : 'border-teal-100/90 hover:border-teal-300'}`}>
                   <CardContent className="p-3.5 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -517,15 +618,37 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">SpO₂ Oxygen</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isDetached ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isDetached ? 'Sensor Detached' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveVitalsOnline ? 'bg-slate-300' : isCalibrating ? 'bg-cyan-500 animate-ping' : isMisaligned ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveVitalsOnline ? 'Offline' : isCalibrating ? 'Detecting Pulse and Oxygen...' : isMisaligned ? 'Sensor Misaligned / Check Probe' : 'Live Streaming'} />
                     </div>
 
-                    <div className="flex items-baseline gap-1.5 pt-0.5">
-                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                        {displayVal}
-                      </span>
-                      <span className="text-xs font-medium text-slate-500">%</span>
-                    </div>
+                    {isCalibrating ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Loader2 className="w-4 h-4 text-cyan-600 animate-spin shrink-0" />
+                          <span className="text-sm font-bold text-cyan-900 alaga-ecg-wave">
+                            Acquiring...
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-cyan-700 font-medium">Detecting pulse signal (3–5s)</p>
+                      </div>
+                    ) : isMisaligned ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
+                          <span className="text-sm sm:text-base font-black text-amber-900">
+                            Misaligned
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-amber-700 font-medium">Reposition pulse probe</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-baseline gap-1.5 pt-0.5">
+                        <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                          {!effectiveVitalsOnline ? '--' : (spo2 !== null ? `${spo2}` : '--')}
+                        </span>
+                        <span className="text-xs font-medium text-slate-500">%</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-1">
                       <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
@@ -537,8 +660,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isDetached ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: effectiveVitalsOnline && spo2 && !isDetached ? `${Math.min(100, Math.max(10, spo2))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCalibrating ? 'alaga-calibrating-shimmer w-full' : isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : effectiveVitalsOnline && !isMisaligned ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: isCalibrating ? '100%' : (effectiveVitalsOnline && spo2 && !isMisaligned ? `${Math.min(100, Math.max(10, spo2))}%` : '0%') }}
                       />
                     </div>
                   </CardContent>
@@ -556,14 +679,33 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const moisture = latestVital ? Math.round(latestVital.moistureLevel) : null;
-              const isWet = effectiveMoistureOnline && moisture !== null && moisture >= 70;
-              const isDamp = effectiveMoistureOnline && moisture !== null && moisture >= 30 && !isWet;
-              const statusText = !effectiveMoistureOnline ? 'Offline' : isWet ? 'Change Diaper' : isDamp ? 'Damp' : 'Dry & Clean';
-              const statusBadge = !effectiveMoistureOnline ? 'bg-slate-100 text-slate-500 border-slate-200' : isWet ? 'bg-rose-50 text-rose-900 border-rose-300' : isDamp ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-emerald-50 text-emerald-900 border-emerald-200';
-              const displayVal = !effectiveMoistureOnline ? '--' : (moisture !== null ? `${moisture}` : '0');
+              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || moisture !== null);
+              const isCalibrating = effectiveMoistureOnline && !hasAnyTelemetry;
+              const isMisaligned = effectiveMoistureOnline && hasAnyTelemetry && (moisture === null || (patient as any).is_diaper_unclipped === true);
+              const isWet = effectiveMoistureOnline && !isMisaligned && !isCalibrating && moisture !== null && moisture >= 70;
+              const isDamp = effectiveMoistureOnline && !isMisaligned && !isCalibrating && moisture !== null && moisture >= 30 && !isWet;
+
+              let statusText = 'Dry & Clean';
+              let statusBadge = 'bg-emerald-50 text-emerald-900 border-emerald-200';
+              if (!effectiveMoistureOnline) {
+                statusText = 'Offline';
+                statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+              } else if (isCalibrating) {
+                statusText = 'Calibrating...';
+                statusBadge = 'bg-cyan-50 text-cyan-800 border-cyan-300 animate-pulse';
+              } else if (isMisaligned) {
+                statusText = 'Check Clips';
+                statusBadge = 'bg-amber-50 text-amber-900 border-amber-300';
+              } else if (isWet) {
+                statusText = 'Change Diaper';
+                statusBadge = 'bg-rose-50 text-rose-900 border-rose-300';
+              } else if (isDamp) {
+                statusText = 'Damp';
+                statusBadge = 'bg-amber-50 text-amber-950 border-amber-300';
+              }
 
               return (
-                <Card className="bg-white/95 backdrop-blur-sm border border-teal-100/90 shadow-xs hover:-translate-y-0.5 hover:shadow-md hover:border-teal-300 transition-all rounded-2xl overflow-hidden">
+                <Card className={`bg-white/95 backdrop-blur-sm border shadow-xs hover:-translate-y-0.5 hover:shadow-md transition-all rounded-2xl overflow-hidden ${isMisaligned ? 'border-amber-300 ring-1 ring-amber-300/50' : isCalibrating ? 'border-cyan-300 ring-1 ring-cyan-200/50' : 'border-teal-100/90 hover:border-teal-300'}`}>
                   <CardContent className="p-3.5 sm:p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
@@ -572,15 +714,37 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Diaper Wetness</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!effectiveMoistureOnline ? 'bg-slate-300' : isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveMoistureOnline ? 'Offline' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveMoistureOnline ? 'bg-slate-300' : isCalibrating ? 'bg-cyan-500 animate-ping' : isMisaligned ? 'bg-amber-400 animate-pulse' : isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveMoistureOnline ? 'Offline' : isCalibrating ? 'Calibrating Smart Grid...' : isMisaligned ? 'Check Garment Clips' : 'Live Streaming'} />
                     </div>
 
-                    <div className="flex items-baseline gap-1.5 pt-0.5">
-                      <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                        {displayVal}
-                      </span>
-                      <span className="text-xs font-medium text-slate-500">%</span>
-                    </div>
+                    {isCalibrating ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Loader2 className="w-4 h-4 text-cyan-600 animate-spin shrink-0" />
+                          <span className="text-sm font-bold text-cyan-900 alaga-ecg-wave">
+                            Calibrating...
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-cyan-700 font-medium">Smart diaper sensor ready</p>
+                      </div>
+                    ) : isMisaligned ? (
+                      <div className="py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
+                          <span className="text-sm sm:text-base font-black text-amber-900">
+                            Check Clips
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-amber-700 font-medium">Fasten garment contacts</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-baseline gap-1.5 pt-0.5">
+                        <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                          {!effectiveMoistureOnline ? '--' : (moisture !== null ? `${moisture}` : '0')}
+                        </span>
+                        <span className="text-xs font-medium text-slate-500">%</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-1">
                       <Badge variant="outline" className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase tracking-wider ${statusBadge}`}>
@@ -592,14 +756,15 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     {/* Micro-range bar */}
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-500' : effectiveMoistureOnline ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
-                        style={{ width: effectiveMoistureOnline && moisture !== null ? `${Math.min(100, Math.max(5, moisture))}%` : '0%' }}
+                        className={`h-full rounded-full transition-all duration-500 ${isCalibrating ? 'alaga-calibrating-shimmer w-full' : isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-500' : effectiveMoistureOnline && !isMisaligned ? 'bg-gradient-to-r from-teal-500 to-emerald-500' : 'bg-slate-200'}`}
+                        style={{ width: isCalibrating ? '100%' : (effectiveMoistureOnline && moisture !== null && !isMisaligned ? `${Math.min(100, Math.max(5, moisture))}%` : '0%') }}
                       />
                     </div>
                   </CardContent>
                 </Card>
               );
             })()}
+
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

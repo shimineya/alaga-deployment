@@ -2766,3 +2766,39 @@ html, body {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Calibrating / Acquiring Vitals Animated Pulse & Wave Shimmer */
+@keyframes alaga-ecg-wave {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0.35;
+    transform: scale(0.96);
+  }
+}
+
+.alaga-ecg-wave {
+  animation: alaga-ecg-wave 1.6s infinite ease-in-out;
+}
+
+@keyframes alaga-calibrating-pulse {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.alaga-calibrating-shimmer {
+  background: linear-gradient(90deg, rgba(20, 184, 166, 0.08) 25%, rgba(20, 184, 166, 0.22) 50%, rgba(20, 184, 166, 0.08) 75%);
+  background-size: 200% 100%;
+  animation: alaga-calibrating-pulse 2s infinite linear;
+}
+

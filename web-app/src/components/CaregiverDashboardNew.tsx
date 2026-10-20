@@ -31,9 +31,10 @@ import { Input } from './ui/input';
 import {
     Users, Activity, Bell, Heart, Thermometer, Droplets, Wifi,
     AlertTriangle, Check, User, LogOut, Search, TrendingUp, AlertCircle, ChevronLeft, ChevronRight,
-    HelpCircle, Menu,
+    HelpCircle, Menu, Loader2,
     Link2Off, Calendar as CalendarIcon, X, Plus, Repeat, Trash2, Edit, BellRing
 } from 'lucide-react';
+
 import { toast } from 'sonner';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
@@ -1328,6 +1329,9 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 const isSpo2Detached = effectiveVitalsOnline && spo2Num === 0;
                                 const isTempDetached = effectiveVitalsOnline && (tempNum === 0 || (tempNum !== null && tempNum <= 30.0) || (pulseNum === 0 && spo2Num === 0));
 
+                                const isVitalsCalibrating = effectiveVitalsOnline && !isPulseDetached && !isSpo2Detached && (pulseVal === null || pulseVal === undefined);
+                                const isMoistureCalibrating = effectiveMoistureOnline && (wetnessVal === null || wetnessVal === undefined);
+
                                 const isPulseBreached = effectiveVitalsOnline && pulseNum !== null && !isNaN(pulseNum) && pulseNum > 0 && !isPulseDetached && 
                                     (pulseNum < safetyThresholds.heartRateMin || pulseNum > safetyThresholds.heartRateMax);
                                 const isTempBreached = effectiveVitalsOnline && tempNum !== null && !isNaN(tempNum) && tempNum > 30.0 && !isTempDetached && 
@@ -1382,9 +1386,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
                                                         !isAnySensorOnline ? 'text-slate-600 border-slate-200 bg-slate-100' :
                                                         isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
+                                                        (isPulseDetached || isSpo2Detached) ? 'text-amber-900 border-amber-300 bg-amber-50' :
+                                                        (isVitalsCalibrating || isMoistureCalibrating) ? 'text-cyan-900 border-cyan-300 bg-cyan-50' :
                                                             'text-emerald-900 border-emerald-200 bg-emerald-50'
                                                         }`}>
-                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isAnySensorOnline ? 'Offline' : isUnassigned ? 'Unassigned' : 'Stable'}
+                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isAnySensorOnline ? 'Offline' : isUnassigned ? 'Unassigned' : (isPulseDetached || isSpo2Detached) ? 'Misaligned' : (isVitalsCalibrating || isMoistureCalibrating) ? 'Calibrating' : 'Stable'}
                                                     </Badge>
                                                 </div>
                                             </div>
@@ -1392,46 +1398,117 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
                                         <CardContent className="p-3.5 pt-0 space-y-2.5">
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isPulseDetached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div 
+                                                    className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isPulseDetached ? 'bg-amber-50/80 border-amber-200' : isVitalsCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}
+                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Acquiring vitals baseline...' : isPulseDetached ? 'Sensor misaligned - Reposition probe on skin' : 'Live streaming'}
+                                                >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : isPulseDetached ? 'text-slate-400' : 'text-rose-500'}`} />
-                                                        <span className={`text-[9px] font-bold ${isPulseBreached ? 'text-rose-800' : isPulseDetached ? 'text-slate-500' : 'text-slate-600'}`}>PULSE</span>
+                                                        <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : isPulseDetached ? 'text-amber-500' : isVitalsCalibrating ? 'text-cyan-600 animate-pulse' : 'text-rose-500'}`} />
+                                                        <span className={`text-[9px] font-bold ${isPulseBreached ? 'text-rose-800' : isPulseDetached ? 'text-amber-800' : isVitalsCalibrating ? 'text-cyan-800' : 'text-slate-600'}`}>PULSE</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : isPulseDetached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!effectiveVitalsOnline ? '--' : isPulseDetached ? '0 (Detached)' : (pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--')}
-                                                    </span>
+                                                    <div className="flex items-center justify-center min-h-[1.25rem]">
+                                                        {!effectiveVitalsOnline ? (
+                                                            <span className="text-xs font-black text-slate-500">--</span>
+                                                        ) : isVitalsCalibrating ? (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-700">
+                                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" />
+                                                                Acquiring...
+                                                            </span>
+                                                        ) : isPulseDetached ? (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                                                                <AlertTriangle className="w-3 h-3 text-amber-600 animate-bounce" />
+                                                                Misaligned
+                                                            </span>
+                                                        ) : (
+                                                            <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : 'text-slate-900'}`}>
+                                                                {pulseVal !== null && pulseVal !== undefined ? Math.round(Number(pulseVal)) : '--'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                <div className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-950' : isTempDetached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div 
+                                                    className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-950' : isTempDetached ? 'bg-amber-50/80 border-amber-200' : isVitalsCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}
+                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Stabilizing temperature probe...' : isTempDetached ? 'Temperature probe misaligned or dislodged' : 'Live streaming'}
+                                                >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : isTempDetached ? 'text-slate-400' : 'text-amber-500'}`} />
-                                                        <span className={`text-[9px] font-bold ${isTempBreached ? 'text-amber-900' : isTempDetached ? 'text-slate-500' : 'text-slate-600'}`}>TEMP</span>
+                                                        <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : isTempDetached ? 'text-amber-500' : isVitalsCalibrating ? 'text-cyan-600 animate-pulse' : 'text-amber-500'}`} />
+                                                        <span className={`text-[9px] font-bold ${isTempBreached ? 'text-amber-900' : isTempDetached ? 'text-amber-800' : isVitalsCalibrating ? 'text-cyan-800' : 'text-slate-600'}`}>TEMP</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : isTempDetached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!effectiveVitalsOnline ? '--' : isTempDetached ? (tempVal && Number(tempVal) > 0 ? `${Number(tempVal).toFixed(1)}° (Detached)` : '0.0° (Detached)') : (tempVal !== null && tempVal !== undefined ? `${Number(tempVal).toFixed(1)}°` : '--')}
-                                                    </span>
+                                                    <div className="flex items-center justify-center min-h-[1.25rem]">
+                                                        {!effectiveVitalsOnline ? (
+                                                            <span className="text-xs font-black text-slate-500">--</span>
+                                                        ) : isVitalsCalibrating ? (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-700">
+                                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" />
+                                                                Acquiring...
+                                                            </span>
+                                                        ) : isTempDetached ? (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                                                                <AlertTriangle className="w-3 h-3 text-amber-600 animate-bounce" />
+                                                                Misaligned
+                                                            </span>
+                                                        ) : (
+                                                            <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : 'text-slate-900'}`}>
+                                                                {tempVal !== null && tempVal !== undefined ? `${Number(tempVal).toFixed(1)}°` : '--'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isSpo2Detached ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div 
+                                                    className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isSpo2Detached ? 'bg-amber-50/80 border-amber-200' : isVitalsCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}
+                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Detecting pulse signal...' : isSpo2Detached ? 'Pulse probe misaligned' : 'Live streaming'}
+                                                >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : isSpo2Detached ? 'text-slate-400' : 'text-blue-500'}`} />
-                                                        <span className={`text-[9px] font-bold ${isSpo2Breached ? 'text-rose-800' : isSpo2Detached ? 'text-slate-500' : 'text-slate-600'}`}>SPO2</span>
+                                                        <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : isSpo2Detached ? 'text-amber-500' : isVitalsCalibrating ? 'text-cyan-600 animate-pulse' : 'text-blue-500'}`} />
+                                                        <span className={`text-[9px] font-bold ${isSpo2Breached ? 'text-rose-800' : isSpo2Detached ? 'text-amber-800' : isVitalsCalibrating ? 'text-cyan-800' : 'text-slate-600'}`}>SPO2</span>
                                                     </div>
-                                                    <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : isSpo2Detached ? 'text-slate-600' : 'text-slate-900'}`}>
-                                                        {!effectiveVitalsOnline ? '--' : isSpo2Detached ? '0% (Detached)' : (spo2Val !== null && spo2Val !== undefined ? `${Math.round(Number(spo2Val))}%` : '--')}
-                                                    </span>
+                                                    <div className="flex items-center justify-center min-h-[1.25rem]">
+                                                        {!effectiveVitalsOnline ? (
+                                                            <span className="text-xs font-black text-slate-500">--</span>
+                                                        ) : isVitalsCalibrating ? (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-700">
+                                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" />
+                                                                Acquiring...
+                                                            </span>
+                                                        ) : isSpo2Detached ? (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
+                                                                <AlertTriangle className="w-3 h-3 text-amber-600 animate-bounce" />
+                                                                Misaligned
+                                                            </span>
+                                                        ) : (
+                                                            <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : 'text-slate-900'}`}>
+                                                                {spo2Val !== null && spo2Val !== undefined ? `${Math.round(Number(spo2Val))}%` : '--'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                <div className={`${isWetnessBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : wetnessNum !== null && wetnessNum >= 30 ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-slate-50 border-slate-200/80 text-slate-900'} p-2 rounded-xl text-center border transition-colors`}>
+                                                <div 
+                                                    className={`${isWetnessBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : wetnessNum !== null && wetnessNum >= 30 ? 'bg-amber-50 border-amber-200 text-amber-900' : isMoistureCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80 text-slate-900'} p-2 rounded-xl text-center border transition-colors`}
+                                                    title={!effectiveMoistureOnline ? 'Sensor offline' : isMoistureCalibrating ? 'Calibrating moisture sensor...' : 'Live streaming'}
+                                                >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
-                                                        <Droplets className={`w-3 h-3 ${isWetnessBreached ? 'text-rose-600' : wetnessNum !== null && wetnessNum >= 30 ? 'text-amber-600' : 'text-teal-600'}`} />
-                                                        <span className={`text-[9px] font-bold ${isWetnessBreached ? 'text-rose-800' : 'text-slate-600'}`}>WETNESS</span>
+                                                        <Droplets className={`w-3 h-3 ${isWetnessBreached ? 'text-rose-600' : wetnessNum !== null && wetnessNum >= 30 ? 'text-amber-600' : isMoistureCalibrating ? 'text-cyan-600 animate-pulse' : 'text-teal-600'}`} />
+                                                        <span className={`text-[9px] font-bold ${isWetnessBreached ? 'text-rose-800' : isMoistureCalibrating ? 'text-cyan-800' : 'text-slate-600'}`}>WETNESS</span>
                                                     </div>
-                                                    <span className={`text-xs font-black`}>
-                                                        {!effectiveMoistureOnline ? '--' : wetnessNum !== null ? `${Math.round(wetnessNum)}%` : '--'}
-                                                    </span>
+                                                    <div className="flex items-center justify-center min-h-[1.25rem]">
+                                                        {!effectiveMoistureOnline ? (
+                                                            <span className="text-xs font-black text-slate-500">--</span>
+                                                        ) : isMoistureCalibrating ? (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-700">
+                                                                <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" />
+                                                                Acquiring...
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs font-black">
+                                                                {wetnessNum !== null ? `${Math.round(wetnessNum)}%` : '--'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
 

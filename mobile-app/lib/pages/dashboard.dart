@@ -2495,8 +2495,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
 
+    final bool hasVitalsTelem = telemetry.isNotEmpty && (telemetry['recorded_at'] != null || (hrNum != null && hrNum > 0) || (tempNum != null && tempNum > 0));
+    final bool isVitalsCalibrating = isVitalsActive && !hasVitalsTelem;
+    final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null);
+    final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null);
+    final bool isTempMisaligned = isVitalsActive && hasVitalsTelem && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrMisaligned && isSpo2Misaligned));
+    final bool isMoistCalibrating = isMoistureActive && (rawMoist == null);
+    final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
+    final bool isAnyCalibrating = isVitalsCalibrating || isMoistCalibrating;
+
     final List<String> safetyBreaches = [];
-    if (isVitalsActive) {
+    if (isVitalsActive && !isVitalsCalibrating && !isHrMisaligned && !isSpo2Misaligned) {
       if (spo2Num != null && spo2Num > 0 && spo2Num < AppPreferences.spo2Min.value) {
         safetyBreaches.add("SpO₂ $spo2Num% (<${AppPreferences.spo2Min.value.toInt()}%)");
       }
@@ -2507,7 +2516,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           safetyBreaches.add("HR $hrNum bpm (>${AppPreferences.hrMax.value.toInt()})");
         }
       }
-      if (tempNum != null && tempNum > 30.0) {
+      if (tempNum != null && tempNum > 30.0 && !isTempMisaligned) {
         if (tempNum < AppPreferences.tempMin.value) {
           safetyBreaches.add("Temp ${tempNum.toStringAsFixed(1)}°C (<${AppPreferences.tempMin.value.toStringAsFixed(1)})");
         } else if (tempNum > AppPreferences.tempMax.value) {
@@ -2515,7 +2524,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
       }
     }
-    if (isMoistureActive && mNum >= 70) {
+    if (isMoistureActive && !isMoistCalibrating && mNum >= 70) {
       safetyBreaches.add("Diaper Wet ($mNum%)");
     }
     final bool hasBreaches = safetyBreaches.isNotEmpty;
@@ -2665,17 +2674,38 @@ class _DashboardScreenState extends State<DashboardScreen>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: isDeviceActive
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : Colors.red.withValues(alpha: 0.1),
+                        color: !isDeviceActive
+                            ? Colors.red.withValues(alpha: 0.1)
+                            : isAnyMisaligned
+                            ? const Color(0xFFFEF3C7)
+                            : isAnyCalibrating
+                            ? const Color(0xFFECFEFF)
+                            : Colors.green.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
+                        border: isAnyMisaligned
+                            ? Border.all(color: const Color(0xFFFDE68A))
+                            : isAnyCalibrating
+                            ? Border.all(color: const Color(0xFFA5F3FC))
+                            : null,
                       ),
                       child: Text(
-                        isDeviceActive ? "ACTIVE" : "INACTIVE",
+                        !isDeviceActive
+                            ? "INACTIVE"
+                            : isAnyMisaligned
+                            ? "MISALIGNED"
+                            : isAnyCalibrating
+                            ? "CALIBRATING"
+                            : "ACTIVE",
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: isDeviceActive ? Colors.green : Colors.red,
+                          color: !isDeviceActive
+                              ? Colors.red
+                              : isAnyMisaligned
+                              ? const Color(0xFFB45309)
+                              : isAnyCalibrating
+                              ? const Color(0xFF0891B2)
+                              : Colors.green,
                         ),
                       ),
                     ),
@@ -2686,27 +2716,30 @@ class _DashboardScreenState extends State<DashboardScreen>
                   children: [
                     Expanded(
                       child: () {
-                        final isDetached = isVitalsActive && (hrNum == 0 || hrNum == null);
-                        return _vitalStat(
-                          "BPM",
-                          !isVitalsActive ? "--" : (isDetached ? "0" : "$hrNum"),
-                          Icons.favorite,
-                          !isVitalsActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.red),
-                          subtitle: !isVitalsActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
-                        );
+                        if (!isVitalsActive) {
+                          return _vitalStat("BPM", "--", Icons.favorite, Colors.grey, subtitle: "OFFLINE");
+                        }
+                        if (isVitalsCalibrating) {
+                          return _vitalStat("BPM", "Acquiring...", Icons.favorite, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
+                        }
+                        if (isHrMisaligned) {
+                          return _vitalStat("BPM", "Check", Icons.favorite, const Color(0xFFD97706), subtitle: "MISALIGNED", isMisaligned: true);
+                        }
+                        return _vitalStat("BPM", "$hrNum", Icons.favorite, Colors.red);
                       }(),
                     ),
                     Expanded(
                       child: () {
-                        final isDetached = isVitalsActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (hrNum == 0 && spo2Num == 0));
-                        final displayVal = !isVitalsActive ? "--" : (isDetached ? "${tempNum != null && tempNum > 0 ? tempNum.toStringAsFixed(1) : '0.0'}°C" : "${tempNum!.toStringAsFixed(1)}°C");
-                        return _vitalStat(
-                          "TEMP",
-                          displayVal,
-                          Icons.thermostat,
-                          !isVitalsActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.orange),
-                          subtitle: !isVitalsActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
-                        );
+                        if (!isVitalsActive) {
+                          return _vitalStat("TEMP", "--", Icons.thermostat, Colors.grey, subtitle: "OFFLINE");
+                        }
+                        if (isVitalsCalibrating) {
+                          return _vitalStat("TEMP", "Acquiring...", Icons.thermostat, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
+                        }
+                        if (isTempMisaligned) {
+                          return _vitalStat("TEMP", "Check", Icons.thermostat, const Color(0xFFD97706), subtitle: "MISALIGNED", isMisaligned: true);
+                        }
+                        return _vitalStat("TEMP", "${tempNum!.toStringAsFixed(1)}°C", Icons.thermostat, Colors.orange);
                       }(),
                     ),
                   ],
@@ -2716,27 +2749,35 @@ class _DashboardScreenState extends State<DashboardScreen>
                   children: [
                     Expanded(
                       child: () {
-                        final isDetached = isVitalsActive && (spo2Num == 0 || spo2Num == null);
-                        return _vitalStat(
-                          "SpO2",
-                          !isVitalsActive ? "--" : (isDetached ? "0%" : "$spo2Num%"),
-                          Icons.water_drop,
-                          !isVitalsActive ? Colors.grey : (isDetached ? const Color(0xFF64748B) : Colors.blue),
-                          subtitle: !isVitalsActive ? "OFFLINE" : (isDetached ? "DETACHED" : null),
-                        );
+                        if (!isVitalsActive) {
+                          return _vitalStat("SpO2", "--", Icons.water_drop, Colors.grey, subtitle: "OFFLINE");
+                        }
+                        if (isVitalsCalibrating) {
+                          return _vitalStat("SpO2", "Acquiring...", Icons.water_drop, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
+                        }
+                        if (isSpo2Misaligned) {
+                          return _vitalStat("SpO2", "Check", Icons.water_drop, const Color(0xFFD97706), subtitle: "MISALIGNED", isMisaligned: true);
+                        }
+                        return _vitalStat("SpO2", "$spo2Num%", Icons.water_drop, Colors.blue);
                       }(),
                     ),
                     Expanded(
                       child: () {
+                        if (!isMoistureActive) {
+                          return _vitalStat("DIAPER WETNESS", "--", Icons.opacity, Colors.grey, subtitle: "OFFLINE");
+                        }
+                        if (isMoistCalibrating) {
+                          return _vitalStat("DIAPER WETNESS", "Acquiring...", Icons.opacity, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
+                        }
                         final isWet = mNum >= 70 || mNum == 100;
                         final isDamp = mNum >= 30 && !isWet;
-                        final label = !isMoistureActive ? "--" : (isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)"));
+                        final label = isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)");
                         return _vitalStat(
                           "DIAPER WETNESS",
                           label,
                           Icons.opacity,
-                          !isMoistureActive ? Colors.grey : (isWet ? Colors.red : (isDamp ? Colors.amber.shade800 : Colors.teal)),
-                          subtitle: !isMoistureActive ? "OFFLINE" : (isWet ? "CHANGE DIAPER" : (isDamp ? "DAMP" : "DRY & CLEAN")),
+                          isWet ? Colors.red : (isDamp ? Colors.amber.shade800 : Colors.teal),
+                          subtitle: isWet ? "CHANGE DIAPER" : (isDamp ? "DAMP" : "DRY & CLEAN"),
                         );
                       }(),
                     ),
@@ -2804,20 +2845,51 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _vitalStat(String label, String value, IconData icon, Color color, {String? subtitle}) {
+  Widget _vitalStat(String label, String value, IconData icon, Color color, {String? subtitle, bool isCalibrating = false, bool isMisaligned = false}) {
+    Color subColor = color;
+    if (subtitle == 'OFFLINE') subColor = const Color(0xFF64748B);
+    if (subtitle == 'ACQUIRING') subColor = const Color(0xFF0891B2);
+    if (subtitle == 'MISALIGNED') subColor = const Color(0xFFD97706);
+
     return Column(
       children: [
-        Icon(icon, size: 20, color: color),
-        Text(value,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            textAlign: TextAlign.center),
+        if (isCalibrating)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 2),
+            child: SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0891B2)),
+              ),
+            ),
+          )
+        else if (isMisaligned)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 2),
+            child: Icon(Icons.warning_amber_rounded, size: 20, color: Color(0xFFD97706)),
+          )
+        else
+          Icon(icon, size: 20, color: color),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: isCalibrating ? 11 : 13,
+            color: isCalibrating ? const Color(0xFF0E7490) : (isMisaligned ? const Color(0xFFB45309) : Colors.black87),
+          ),
+          textAlign: TextAlign.center,
+        ),
         if (subtitle != null && subtitle.isNotEmpty)
-          Text(subtitle,
-              style: TextStyle(
-                fontSize: 8.5,
-                fontWeight: FontWeight.bold,
-                color: subtitle == 'DETACHED' ? const Color(0xFF64748B) : color,
-              )),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 8.5,
+              fontWeight: FontWeight.bold,
+              color: subColor,
+            ),
+          ),
         Text(label, style: const TextStyle(fontSize: 9, color: Colors.grey)),
       ],
     );

@@ -89,22 +89,27 @@ class _PatientListScreenState extends State<PatientListScreen> {
             final spo2 = (telemetry['spo2'] ?? p['spo2']) as num?;
             final moist = (telemetry['moisture'] ?? telemetry['moisture_value'] ?? p['moisture'] ?? p['moisture_value']) as num?;
 
-            final bool isHrDetached = isVitalsActive && (hr == 0 || hr == null);
-            final bool isSpo2Detached = isVitalsActive && (spo2 == 0 || spo2 == null);
-            final bool isTempDetached = isVitalsActive && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrDetached && isSpo2Detached));
-            final bool isMoistDetached = isMoistureActive && (moist == null || moist <= 0);
+            final bool hasVitalsTelem = telemetry.isNotEmpty && (telemetry['recorded_at'] != null || (hr != null && hr > 0) || (temp != null && temp > 0));
+            final bool isVitalsCalibrating = isVitalsActive && !hasVitalsTelem;
+            final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hr == 0 || hr == null);
+            final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2 == 0 || spo2 == null);
+            final bool isTempMisaligned = isVitalsActive && hasVitalsTelem && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrMisaligned && isSpo2Misaligned));
+            final bool isMoistCalibrating = isMoistureActive && (moist == null);
+            final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
 
-            final String hrDisplay = !isVitalsActive ? '---' : isHrDetached ? '0 (Detached)' : '$hr';
-            final String tempDisplay = !isVitalsActive ? '---' : isTempDetached ? '${temp != null && temp > 0 ? temp.toStringAsFixed(1) : "0.0"}°C (Detached)' : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
-            final String spo2Display = !isVitalsActive ? '---' : isSpo2Detached ? '0% (Detached)' : (spo2 != null ? "$spo2%" : '---');
-            final String wetDisplay = !isMoistureActive ? '---' : isMoistDetached ? '0% (Detached)' : (moist != null && moist >= 70 ? 'Wet ($moist%)' : 'Dry ($moist%)');
+            final String hrDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? 'Misaligned' : '$hr';
+            final String tempDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isTempMisaligned ? 'Misaligned' : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
+            final String spo2Display = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isSpo2Misaligned ? 'Misaligned' : (spo2 != null ? "$spo2%" : '---');
+            final String wetDisplay = !isMoistureActive ? '---' : isMoistCalibrating ? 'Acquiring...' : (moist != null && moist >= 70 ? 'Wet ($moist%)' : 'Dry ($moist%)');
+
+            final String patientStatus = !isDeviceActive ? 'Offline' : isAnyMisaligned ? 'Misaligned' : isVitalsCalibrating ? 'Calibrating' : 'Stable';
 
             return <String, dynamic>{
               ...p,
               'patient_id': p['patient_id'] ?? p['id'],
               'name': p['name'] ?? 'Unknown',
               'room': p['room'] ?? p['baseline_data']?['room'] ?? 'Room Home',
-              'status': isDeviceActive ? 'Stable' : 'Offline',
+              'status': patientStatus,
               'is_online': isDeviceActive,
               'isOnline': isDeviceActive,
               'is_vitals_online': isVitalsActive,
@@ -600,35 +605,93 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
   }
 
   Widget _buildVital(IconData icon, String label, String value, Color color, TextStyle desc, TextStyle main) {
+    final bool isAcquiring = value.toLowerCase().contains("acquiring");
+    final bool isMisaligned = value.toLowerCase().contains("misaligned");
+
     return Column(
       children: [
         Row(children: [
-          Icon(icon, size: 12, color: color),
+          Icon(isMisaligned ? Icons.warning_amber_rounded : icon, size: 12, color: isMisaligned ? const Color(0xFFD97706) : (isAcquiring ? const Color(0xFF0891B2) : color)),
           const SizedBox(width: 4),
           Text(label, style: desc.copyWith(fontSize: 10, fontWeight: FontWeight.bold))
         ]),
         const SizedBox(height: 4),
-        Text(value, style: main.copyWith(fontSize: 13)),
+        if (isAcquiring)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 9,
+                height: 9,
+                child: CircularProgressIndicator(strokeWidth: 1.5, valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0891B2))),
+              ),
+              const SizedBox(width: 3),
+              Text("Init", style: main.copyWith(fontSize: 11, color: const Color(0xFF0891B2), fontWeight: FontWeight.bold)),
+            ],
+          )
+        else if (isMisaligned)
+          Text("Check", style: main.copyWith(fontSize: 11, color: const Color(0xFFB45309), fontWeight: FontWeight.bold))
+        else
+          Text(value, style: main.copyWith(fontSize: 13)),
       ],
     );
   }
 
   Widget _buildStatusBadge(bool isWet, bool isOffline, String status, TextStyle desc) {
+    final bool isMisaligned = status == 'Misaligned';
+    final bool isCalibrating = status == 'Calibrating';
+
+    Color bg = const Color(0xFFE8F5E9);
+    Color fg = Colors.green.shade700;
+    String text = status;
+
+    if (isWet) {
+      bg = Colors.orange.shade100;
+      fg = Colors.orange.shade900;
+      text = "WET";
+    } else if (isOffline) {
+      bg = Colors.grey.shade100;
+      fg = Colors.grey;
+      text = "Offline";
+    } else if (isMisaligned) {
+      bg = const Color(0xFFFEF3C7);
+      fg = const Color(0xFFB45309);
+      text = "Misaligned";
+    } else if (isCalibrating) {
+      bg = const Color(0xFFECFEFF);
+      fg = const Color(0xFF0891B2);
+      text = "Calibrating";
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: isWet ? Colors.orange.shade100 : (isOffline ? Colors.grey.shade100 : const Color(0xFFE8F5E9)),
+        color: bg,
         borderRadius: BorderRadius.circular(6),
+        border: isMisaligned
+            ? Border.all(color: const Color(0xFFFDE68A))
+            : isCalibrating
+            ? Border.all(color: const Color(0xFFA5F3FC))
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isWet) ...[const Icon(Icons.opacity, size: 12, color: Colors.orange), const SizedBox(width: 4)],
-          Text(isWet ? "WET" : status,
+          if (isMisaligned) ...[const Icon(Icons.warning_amber_rounded, size: 12, color: Color(0xFFB45309)), const SizedBox(width: 4)],
+          if (isCalibrating) ...[
+            const SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0891B2))),
+            ),
+            const SizedBox(width: 4)
+          ],
+          Text(text,
               style: desc.copyWith(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: isWet ? Colors.orange.shade900 : (isOffline ? Colors.grey : Colors.green.shade700))),
+                  color: fg)),
         ],
       ),
     );

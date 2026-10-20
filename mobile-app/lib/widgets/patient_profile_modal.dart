@@ -286,39 +286,52 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
       }
     }
 
-    // Vitals readings
+    // Vitals readings & telemetry states
     final rawHr = telemetry['heart_rate'] ?? patient['heart_rate'] ?? patient['heartRate'];
     final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
-    final bool isHrDetached = isVitalsActive && (hrNum == 0 || hrNum == null);
-    final hr = !isVitalsActive ? '--' : isHrDetached ? '0' : '$hrNum';
-    final hrBadge = !isVitalsActive ? 'OFFLINE' : isHrDetached ? 'DETACHED' : (hrNum != null && (hrNum > 120 || hrNum < 50) ? 'CRITICAL' : 'NORMAL');
-    final hrBadgeColor = !isVitalsActive || isHrDetached ? const Color(0xFF64748B) : (hrBadge == 'CRITICAL' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
-    final hrBadgeBg = !isVitalsActive || isHrDetached ? const Color(0xFFF1F5F9) : (hrBadge == 'CRITICAL' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
     final rawTemp = telemetry['temperature'] ?? patient['temperature'];
     final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
+
     final rawSpo2 = telemetry['spo2'] ?? patient['spo2'];
     final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
-    final bool isTempDetached = isVitalsActive && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrDetached && (spo2Num == 0 || spo2Num == null)));
-    final temp = !isVitalsActive ? '--' : isTempDetached ? (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '0.0°C') : (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '--');
-    final tempBadge = !isVitalsActive ? 'OFFLINE' : isTempDetached ? 'DETACHED' : (tempNum != null && tempNum > 38.0 ? 'FEVER' : 'NORMAL');
-    final tempBadgeColor = !isVitalsActive || isTempDetached ? const Color(0xFF64748B) : (tempBadge == 'FEVER' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
-    final tempBadgeBg = !isVitalsActive || isTempDetached ? const Color(0xFFF1F5F9) : (tempBadge == 'FEVER' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
-    final bool isSpo2Detached = isVitalsActive && (spo2Num == 0 || spo2Num == null);
-    final spo2 = !isVitalsActive ? '--' : isSpo2Detached ? '0%' : (spo2Num != null && spo2Num > 0 ? '$spo2Num%' : '--');
-    final spo2Badge = !isVitalsActive ? 'OFFLINE' : isSpo2Detached ? 'DETACHED' : (spo2Num != null && spo2Num < 90 ? 'HYPOXIA' : 'OPTIMAL');
-    final spo2BadgeColor = !isVitalsActive || isSpo2Detached ? const Color(0xFF64748B) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
-    final spo2BadgeBg = !isVitalsActive || isSpo2Detached ? const Color(0xFFF1F5F9) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+    final bool hasVitalsTelem = telemetry.isNotEmpty && (telemetry['recorded_at'] != null || (hrNum != null && hrNum > 0) || (tempNum != null && tempNum > 0));
+    final bool isVitalsCalibrating = isVitalsActive && !hasVitalsTelem;
+
+    final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null);
+    final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null);
+    final bool isTempMisaligned = isVitalsActive && hasVitalsTelem && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrMisaligned && isSpo2Misaligned));
 
     final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
+    final bool isMoistCalibrating = isMoistureActive && (rawMoist == null);
     final isWet = mNum >= 70 || mNum == 100 || patient['wetness'] == 'Wet';
     final isDamp = mNum >= 30 && !isWet;
-    final wetnessVal = !isMoistureActive ? '--' : '$mNum%';
-    final wetnessBadge = !isMoistureActive ? 'OFFLINE' : isWet ? 'WET / CHANGE' : isDamp ? 'DAMP' : 'DRY & CLEAN';
-    final wetnessBadgeColor = !isMoistureActive ? const Color(0xFF64748B) : (isWet ? const Color(0xFFDC2626) : isDamp ? const Color(0xFFD97706) : const Color(0xFF16A34A));
-    final wetnessBadgeBg = !isMoistureActive ? const Color(0xFFF1F5F9) : (isWet ? const Color(0xFFFEE2E2) : isDamp ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7));
+
+    // Heart Rate config
+    final hr = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? 'Misaligned' : '$hrNum';
+    final hrBadge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isHrMisaligned ? 'CHECK PROBE' : (hrNum != null && (hrNum > 120 || hrNum < 50) ? 'CRITICAL' : 'NORMAL');
+    final hrBadgeColor = !isVitalsActive ? const Color(0xFF64748B) : isVitalsCalibrating ? const Color(0xFF0891B2) : isHrMisaligned ? const Color(0xFFB45309) : (hrBadge == 'CRITICAL' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
+    final hrBadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isHrMisaligned ? const Color(0xFFFEF3C7) : (hrBadge == 'CRITICAL' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+
+    // Temperature config
+    final temp = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isTempMisaligned ? 'Misaligned' : (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '--');
+    final tempBadge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isTempMisaligned ? 'CHECK PROBE' : (tempNum != null && tempNum > 38.0 ? 'FEVER' : 'NORMAL');
+    final tempBadgeColor = !isVitalsActive ? const Color(0xFF64748B) : isVitalsCalibrating ? const Color(0xFF0891B2) : isTempMisaligned ? const Color(0xFFB45309) : (tempBadge == 'FEVER' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
+    final tempBadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isTempMisaligned ? const Color(0xFFFEF3C7) : (tempBadge == 'FEVER' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+
+    // SpO2 config
+    final spo2 = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isSpo2Misaligned ? 'Misaligned' : (spo2Num != null && spo2Num > 0 ? '$spo2Num%' : '--');
+    final spo2Badge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isSpo2Misaligned ? 'CHECK PROBE' : (spo2Num != null && spo2Num < 90 ? 'HYPOXIA' : 'OPTIMAL');
+    final spo2BadgeColor = !isVitalsActive ? const Color(0xFF64748B) : isVitalsCalibrating ? const Color(0xFF0891B2) : isSpo2Misaligned ? const Color(0xFFB45309) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
+    final spo2BadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isSpo2Misaligned ? const Color(0xFFFEF3C7) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
+
+    // Moisture config
+    final wetnessVal = !isMoistureActive ? '--' : isMoistCalibrating ? 'Acquiring...' : '$mNum%';
+    final wetnessBadge = !isMoistureActive ? 'OFFLINE' : isMoistCalibrating ? 'ACQUIRING' : isWet ? 'WET / CHANGE' : isDamp ? 'DAMP' : 'DRY & CLEAN';
+    final wetnessBadgeColor = !isMoistureActive ? const Color(0xFF64748B) : isMoistCalibrating ? const Color(0xFF0891B2) : (isWet ? const Color(0xFFDC2626) : isDamp ? const Color(0xFFD97706) : const Color(0xFF16A34A));
+    final wetnessBadgeBg = !isMoistureActive ? const Color(0xFFF1F5F9) : isMoistCalibrating ? const Color(0xFFECFEFF) : (isWet ? const Color(0xFFFEE2E2) : isDamp ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7));
 
     return Container(
       constraints: BoxConstraints(
@@ -591,14 +604,17 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                         child: _buildMetricTile(
                           label: 'HEART RATE',
                           value: hr,
-                          unit: isDeviceActive && !isHrDetached ? 'bpm' : '',
+                          unit: isDeviceActive && !isHrMisaligned && !isVitalsCalibrating ? 'bpm' : '',
                           badgeText: hrBadge,
                           badgeColor: hrBadgeColor,
                           badgeBg: hrBadgeBg,
                           icon: Icons.favorite,
-                          color: const Color(0xFFEF4444),
-                          bg: const Color(0xFFFEF2F2),
-                          border: const Color(0xFFFECACA),
+                          color: isVitalsCalibrating ? const Color(0xFF0891B2) : isHrMisaligned ? const Color(0xFFD97706) : const Color(0xFFEF4444),
+                          bg: isVitalsCalibrating ? const Color(0xFFF0FDFA) : isHrMisaligned ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2),
+                          border: isVitalsCalibrating ? const Color(0xFFA5F3FC) : isHrMisaligned ? const Color(0xFFFDE68A) : const Color(0xFFFECACA),
+                          isCalibrating: isVitalsCalibrating,
+                          isMisaligned: isHrMisaligned,
+                          helperText: isVitalsCalibrating ? 'Warming up sensor (3–5s)' : isHrMisaligned ? 'Reposition probe on skin' : null,
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -611,9 +627,12 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           badgeColor: tempBadgeColor,
                           badgeBg: tempBadgeBg,
                           icon: Icons.thermostat,
-                          color: const Color(0xFFF59E0B),
-                          bg: const Color(0xFFFFFBEB),
-                          border: const Color(0xFFFDE68A),
+                          color: isVitalsCalibrating ? const Color(0xFF0891B2) : isTempMisaligned ? const Color(0xFFD97706) : const Color(0xFFF59E0B),
+                          bg: isVitalsCalibrating ? const Color(0xFFF0FDFA) : isTempMisaligned ? const Color(0xFFFFFBEB) : const Color(0xFFFFFBEB),
+                          border: isVitalsCalibrating ? const Color(0xFFA5F3FC) : isTempMisaligned ? const Color(0xFFFDE68A) : const Color(0xFFFDE68A),
+                          isCalibrating: isVitalsCalibrating,
+                          isMisaligned: isTempMisaligned,
+                          helperText: isVitalsCalibrating ? 'Stabilizing probe (3–5s)' : isTempMisaligned ? 'Probe dislodged / check contact' : null,
                         ),
                       ),
                     ],
@@ -630,9 +649,12 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           badgeColor: spo2BadgeColor,
                           badgeBg: spo2BadgeBg,
                           icon: Icons.water_drop,
-                          color: const Color(0xFF3B82F6),
-                          bg: const Color(0xFFEFF6FF),
-                          border: const Color(0xFFBFDBFE),
+                          color: isVitalsCalibrating ? const Color(0xFF0891B2) : isSpo2Misaligned ? const Color(0xFFD97706) : const Color(0xFF3B82F6),
+                          bg: isVitalsCalibrating ? const Color(0xFFF0FDFA) : isSpo2Misaligned ? const Color(0xFFFFFBEB) : const Color(0xFFEFF6FF),
+                          border: isVitalsCalibrating ? const Color(0xFFA5F3FC) : isSpo2Misaligned ? const Color(0xFFFDE68A) : const Color(0xFFBFDBFE),
+                          isCalibrating: isVitalsCalibrating,
+                          isMisaligned: isSpo2Misaligned,
+                          helperText: isVitalsCalibrating ? 'Acquiring pulse signal...' : isSpo2Misaligned ? 'Reposition probe on skin' : null,
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -645,9 +667,11 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           badgeColor: wetnessBadgeColor,
                           badgeBg: wetnessBadgeBg,
                           icon: Icons.opacity,
-                          color: isWet ? const Color(0xFFEA580C) : isDamp ? const Color(0xFFD97706) : const Color(0xFF0D9488),
-                          bg: isWet ? const Color(0xFFFFF7ED) : isDamp ? const Color(0xFFFFFBEB) : const Color(0xFFF0FDFA),
-                          border: isWet ? const Color(0xFFFED7AA) : isDamp ? const Color(0xFFFDE68A) : const Color(0xFF99F6E4),
+                          color: isMoistCalibrating ? const Color(0xFF0891B2) : isWet ? const Color(0xFFEA580C) : isDamp ? const Color(0xFFD97706) : const Color(0xFF0D9488),
+                          bg: isMoistCalibrating ? const Color(0xFFF0FDFA) : isWet ? const Color(0xFFFFF7ED) : isDamp ? const Color(0xFFFFFBEB) : const Color(0xFFF0FDFA),
+                          border: isMoistCalibrating ? const Color(0xFFA5F3FC) : isWet ? const Color(0xFFFED7AA) : isDamp ? const Color(0xFFFDE68A) : const Color(0xFF99F6E4),
+                          isCalibrating: isMoistCalibrating,
+                          helperText: isMoistCalibrating ? 'Calibrating moisture sensor...' : null,
                         ),
                       ),
                     ],
@@ -994,13 +1018,16 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     required Color color,
     required Color bg,
     required Color border,
+    bool isCalibrating = false,
+    bool isMisaligned = false,
+    String? helperText,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border),
+        border: Border.all(color: border, width: isMisaligned || isCalibrating ? 1.5 : 1.0),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1021,31 +1048,80 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
             ],
           ),
           const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                value,
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF1E293B),
+          if (isCalibrating)
+            Row(
+              children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0891B2)),
+                  ),
                 ),
-              ),
-              if (unit.isNotEmpty) ...[
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 Text(
-                  unit,
-                  style: GoogleFonts.albertSans(
-                    fontSize: 11,
-                    color: const Color(0xFF64748B),
-                    fontWeight: FontWeight.w600,
+                  'Acquiring...',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0E7490),
                   ),
                 ),
               ],
-            ],
-          ),
+            )
+          else if (isMisaligned)
+            Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
+                const SizedBox(width: 4),
+                Text(
+                  'Misaligned',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFFB45309),
+                  ),
+                ),
+              ],
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  value,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
+                if (unit.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    unit,
+                    style: GoogleFonts.albertSans(
+                      fontSize: 11,
+                      color: const Color(0xFF64748B),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          if (helperText != null && helperText.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              helperText,
+              style: GoogleFonts.albertSans(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+                color: isCalibrating ? const Color(0xFF0891B2) : const Color(0xFFB45309),
+              ),
+            ),
+          ],
           if (badgeText != null && badgeText.isNotEmpty) ...[
             const SizedBox(height: 6),
             Container(

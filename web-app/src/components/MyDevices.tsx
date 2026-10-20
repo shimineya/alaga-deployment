@@ -1244,6 +1244,22 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                                 </Badge>
                             </div>
                         </div>
+
+                        {/* Live Cloud Sync Indicator */}
+                        <div className="pt-2 flex items-center justify-between text-[11px] border-t border-slate-200/80 mt-2">
+                            <span className="text-slate-500 font-medium">Device Status:</span>
+                            {device.is_online ? (
+                                <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/70">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Online &bull; Auto-Sync Active
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center gap-1.5 font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/70">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                    Offline (Syncs on next boot)
+                                </span>
+                            )}
+                        </div>
                     </div>
 
                     {/* Change Hotspot Password Section */}
@@ -1273,8 +1289,8 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                                 </button>
                             )}
                         </div>
-                        <p className="text-[11px] text-slate-500 mb-3">
-                            You can customize the password required when connecting your phone or PC to this device from your Wi-Fi list during setup.
+                        <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                            Changes saved here are stored in the cloud. When the device is <b>online</b>, it syncs over-the-air automatically. If the device was <b>offline</b>, it updates its flash as soon as it reconnects.
                         </p>
 
                         {isEditing && (

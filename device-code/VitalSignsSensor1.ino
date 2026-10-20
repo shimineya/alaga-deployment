@@ -460,6 +460,24 @@ void sendToBackend() {
     if (httpCode == 200) {
       isDevicePaired = true;
       isCurrentlyOffline = false;
+      // Over-the-air config sync: update setup password if changed from web/mobile app
+      String resp = http.getString();
+      int passIdx = resp.indexOf("\"setup_password\":\"");
+      if (passIdx >= 0) {
+        int startP = passIdx + 18;
+        int endP = resp.indexOf("\"", startP);
+        if (endP > startP) {
+          String cloudPass = resp.substring(startP, endP);
+          cloudPass.trim();
+          if (cloudPass.length() >= 8 && cloudPass != ap_password) {
+            ap_password = cloudPass;
+            preferences.begin("alaga-cfg", false);
+            preferences.putString("appass", ap_password);
+            preferences.end();
+            Serial.println("🔄 [CONFIG SYNC] Updated setup hotspot password from cloud: " + ap_password);
+          }
+        }
+      }
     } else if (httpCode <= 0) {
       // Internet / server unreachable: buffer latest reading
       bufferCurrentReading();

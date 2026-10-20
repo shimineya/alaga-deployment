@@ -1530,7 +1530,7 @@ app.post('/api/device/data', async (req, res) => {
     try {
         // 1. Verify the device identity in your database (must be whitelisted and not archived)
         const deviceCheck = await pool.query(
-            'SELECT assigned_patient_id, device_token_hash FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE', 
+            'SELECT assigned_patient_id, device_token_hash, setup_password FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE', 
             [device_id]
         );
 
@@ -1816,7 +1816,8 @@ app.post('/api/device/data', async (req, res) => {
             reading_id: readingId,
             recorded_at: recordedAt,
             patient_id: patientId,
-            is_offline_buffer: !!req.body.is_offline_buffer
+            is_offline_buffer: !!req.body.is_offline_buffer,
+            setup_password: devRow.setup_password || '@Password123'
         });
     } catch (err) {
         console.error(err);

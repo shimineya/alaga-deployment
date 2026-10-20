@@ -1187,22 +1187,22 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-lg bg-white p-0 gap-0 overflow-hidden">
-                <DialogHeader className="px-6 py-4 bg-slate-50/70 border-b border-slate-100 flex flex-row items-center gap-3">
-                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+            <DialogContent className="sm:max-w-lg w-[95vw] bg-white p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col rounded-2xl shadow-2xl">
+                <DialogHeader className="px-6 py-4 pr-12 bg-slate-50/90 border-b border-slate-100 flex flex-row items-center gap-3 shrink-0">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
                         <Wifi className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                         <DialogTitle className="text-base font-bold text-slate-800">
                             Device Setup Wi-Fi & Hotspot
                         </DialogTitle>
-                        <DialogDescription className="text-xs text-slate-500">
+                        <DialogDescription className="text-xs text-slate-500 truncate">
                             {device.device_name} &bull; <span className="font-mono">{device.serial_number}</span>
                         </DialogDescription>
                     </div>
                 </DialogHeader>
 
-                <div className="p-6 space-y-5">
+                <div className="p-6 space-y-4 overflow-y-auto min-h-0 flex-1">
                     {/* Hotspot Credentials Card */}
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                         <div className="flex items-center justify-between">
@@ -1222,7 +1222,7 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                                     <button
                                         type="button"
                                         onClick={() => setShowPassword(!showPassword)}
-                                        className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                                        className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
                                     >
                                         {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                         {showPassword ? "Hide" : "Show"}
@@ -1230,7 +1230,7 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                                     <button
                                         type="button"
                                         onClick={handleCopy}
-                                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+                                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
                                     >
                                         {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                                         {copied ? "Copied" : "Copy"}
@@ -1267,7 +1267,7 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                                 <button
                                     type="button"
                                     onClick={() => { setIsEditing(false); setNewPassword(''); }}
-                                    className="text-xs text-slate-400 hover:text-slate-600"
+                                    className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
                                 >
                                     Cancel
                                 </button>
@@ -1295,7 +1295,7 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                                         <button
                                             type="button"
                                             onClick={() => setShowNewPassword(!showNewPassword)}
-                                            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                                            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
                                         >
                                             {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
@@ -1339,7 +1339,7 @@ export const HotspotSetupModal: React.FC<HotspotSetupModalProps> = ({ isOpen, on
                     </div>
                 </div>
 
-                <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
                     <Button onClick={onClose} variant="outline" className="h-9 text-xs">
                         Close
                     </Button>

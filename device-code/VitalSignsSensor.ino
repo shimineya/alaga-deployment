@@ -1568,13 +1568,12 @@ void loop() {
           dcRed = (float)currentRed;
           lastACIR = 0;
           isSlopeRising = false;
-          lastPulseTime = millis();
+          lastPulseTime = 0;
           lastBeatDetectedTime = millis();
           ppgIRMin = 0; ppgIRMax = 0;
           ppgRedMin = 0; ppgRedMax = 0;
-          // Immediately establish active physiological vitals so readings appear without waiting
-          beatAvg = 74.0;
-          currentSpO2 = 98.0;
+          beatAvg = 0.0;
+          currentSpO2 = 0.0;
           readTemperature();
         }
 
@@ -1595,16 +1594,12 @@ void loop() {
         if (acRed > ppgRedMax) ppgRedMax = acRed;
 
         unsigned long now = millis();
-        bool beatDetected = false;
+        bool beatDetected = checkForBeat(currentIR);
 
-        // Adaptive high-sensitivity optical peak detector for human PPG waveform
-        if (checkForBeat(currentIR)) {
-          beatDetected = true;
-        }
-
-        if (!beatDetected) {
-          float peakThreshold = 6.0;
-          if (!isSlopeRising && acIR > peakThreshold && acIR > lastACIR && (now - lastPulseTime > 300)) {
+        // Secondary peak detection for subtle pulses with strict refractory timing
+        if (!beatDetected && (now - lastPulseTime > 380)) {
+          float peakThreshold = 30.0;
+          if (!isSlopeRising && acIR > peakThreshold && acIR > lastACIR) {
             isSlopeRising = true;
           } else if (isSlopeRising && acIR < lastACIR && acIR > peakThreshold) {
             isSlopeRising = false;
@@ -1614,36 +1609,47 @@ void loop() {
         lastACIR = acIR;
 
         if (beatDetected) {
-          unsigned long beatDelta = now - lastPulseTime;
-          lastPulseTime = now; // Always advance baseline so it never gets stuck
-
-          if (beatDelta >= 350 && beatDelta <= 1500) { // Valid human heart rate: 40 BPM to 171 BPM
+          if (lastPulseTime == 0) {
+            // First beat: capture initial reference timestamp
+            lastPulseTime = now;
             lastBeatDetectedTime = now;
-            float instantBPM = 60000.0 / (float)beatDelta;
+          } else {
+            unsigned long beatDelta = now - lastPulseTime;
 
-            if (beatAvg <= 0.0) {
-              beatAvg = instantBPM;
-            } else {
-              beatAvg = (beatAvg * 0.70) + (instantBPM * 0.30);
-            }
+            if (beatDelta >= 380 && beatDelta <= 1500) { // Valid human heart rate: 40 BPM to 158 BPM
+              lastPulseTime = now;
+              lastBeatDetectedTime = now;
+              float instantBPM = 60000.0 / (float)beatDelta;
 
-            // Real SpO2 Calculation from physical wrist PPG modulation
-            float ptpIR = ppgIRMax - ppgIRMin;
-            float ptpRed = ppgRedMax - ppgRedMin;
-            if (dcIR > 0 && dcRed > 0 && ptpIR >= 2.0 && ptpRed >= 2.0) {
-              float R = (ptpRed / dcRed) / (ptpIR / dcIR);
-              float calcSpO2 = 104.0 - (17.0 * R);
-              calcSpO2 = constrain(calcSpO2, 94.0, 99.0);
-              if (currentSpO2 <= 0.0) {
-                currentSpO2 = calcSpO2;
+              if (beatAvg <= 0.0) {
+                beatAvg = instantBPM;
               } else {
-                currentSpO2 = (currentSpO2 * 0.80) + (calcSpO2 * 0.20);
+                beatAvg = (beatAvg * 0.70) + (instantBPM * 0.30);
               }
-            }
 
-            // Reset peak-to-peak tracking for next beat
-            ppgIRMin = 0; ppgIRMax = 0;
-            ppgRedMin = 0; ppgRedMax = 0;
+              // Real SpO2 Calculation from physical PPG modulation
+              float ptpIR = ppgIRMax - ppgIRMin;
+              float ptpRed = ppgRedMax - ppgRedMin;
+              if (dcIR > 0 && dcRed > 0 && ptpIR >= 1.0 && ptpRed >= 1.0) {
+                float R = (ptpRed / dcRed) / (ptpIR / dcIR);
+                // Standard calibration curve for MAX30102
+                float calcSpO2 = 110.0 - (25.0 * R);
+                calcSpO2 = constrain(calcSpO2, 92.0, 99.5);
+                if (currentSpO2 <= 0.0) {
+                  currentSpO2 = calcSpO2;
+                } else {
+                  currentSpO2 = (currentSpO2 * 0.80) + (calcSpO2 * 0.20);
+                }
+              }
+
+              // Reset peak-to-peak tracking for next beat
+              ppgIRMin = acIR; ppgIRMax = acIR;
+              ppgRedMin = acRed; ppgRedMax = acRed;
+            } else if (beatDelta > 1500) {
+              // Timeout / missed beat: reset baseline without skewing BPM
+              lastPulseTime = now;
+            }
+            // If beatDelta < 380 (noise / bounce), DO NOT reset lastPulseTime!
           }
         }
 

@@ -853,20 +853,6 @@ void handleSetup() {
   page += "<p class='subtitle'>Select your local network to connect your ALAGA device</p>";
   page += "</div>";
 
-  // Target Server Status Card
-  String statusBadge = (lastBackendCode == 200) 
-    ? "<span style='font-size:11px; font-weight:700; color:#059669; background:#ECFDF5; padding:2px 8px; border-radius:9999px;'>● 200 OK</span>"
-    : (lastBackendCode == 403) 
-      ? "<span style='font-size:11px; font-weight:700; color:#DC2626; background:#FEE2E2; padding:2px 8px; border-radius:9999px;'>⚠️ 403 Forbidden</span>"
-      : "<span style='font-size:11px; font-weight:700; color:#475569; background:#F1F5F9; padding:2px 8px; border-radius:9999px;'>● Status: " + String(lastBackendCode) + "</span>";
-
-  page += "<div style='background:#F8FAFC; border:1px solid var(--border); border-radius:12px; padding:12px 16px; margin-bottom:16px;'>";
-  page += "<div style='display:flex; justify-content:space-between; align-items:center;'>";
-  page += "<span style='font-size:12px; font-weight:700; color:#475569;'>🎯 Target Backend Server</span>";
-  page += statusBadge;
-  page += "</div>";
-  page += "<div id='active_endpoint_display' style='margin-top:6px; font-family:monospace; font-size:12px; font-weight:700; color:#0D9488; word-break:break-all; background:#FFFFFF; border:1px solid #E2E8F0; padding:6px 10px; border-radius:6px;'>" + server_url + "</div>";
-  page += "</div>";
 
   // Battery preview in portal
   String batColor = batteryPercent > 50 ? "#10B981" : (batteryPercent > 20 ? "#F59E0B" : "#EF4444");
@@ -962,6 +948,21 @@ void handleSetup() {
   page += "<div id='admin_unlocked_panel' style='display:none; margin-top:16px; border-top:1px solid #E2E8F0; padding-top:14px;'>";
   page += "<div style='background:#ECFDF5; border:1px solid #A7F3D0; border-radius:8px; padding:8px 12px; margin-bottom:12px; font-size:12px; font-weight:700; color:#065F46;'>";
   page += "🔓 Admin Access Granted &bull; Device Settings Unlocked";
+  page += "</div>";
+
+  // Target Server Status Card (Admin Only)
+  String statusBadge = (lastBackendCode == 200) 
+    ? "<span style='font-size:11px; font-weight:700; color:#059669; background:#ECFDF5; padding:2px 8px; border-radius:9999px;'>● 200 OK</span>"
+    : (lastBackendCode == 403) 
+      ? "<span style='font-size:11px; font-weight:700; color:#DC2626; background:#FEE2E2; padding:2px 8px; border-radius:9999px;'>⚠️ 403 Forbidden</span>"
+      : "<span style='font-size:11px; font-weight:700; color:#475569; background:#F1F5F9; padding:2px 8px; border-radius:9999px;'>● Status: " + String(lastBackendCode) + "</span>";
+
+  page += "<div style='background:#F8FAFC; border:1px solid var(--border); border-radius:12px; padding:12px 16px; margin-bottom:16px;'>";
+  page += "<div style='display:flex; justify-content:space-between; align-items:center;'>";
+  page += "<span style='font-size:12px; font-weight:700; color:#475569;'>🎯 Active Backend Endpoint</span>";
+  page += statusBadge;
+  page += "</div>";
+  page += "<div id='active_endpoint_display' style='margin-top:6px; font-family:monospace; font-size:12px; font-weight:700; color:#0D9488; word-break:break-all; background:#FFFFFF; border:1px solid #E2E8F0; padding:6px 10px; border-radius:6px;'>" + server_url + "</div>";
   page += "</div>";
 
   page += "<div class='form-group'>";
@@ -1208,7 +1209,6 @@ void handleSave() {
     page += "<p class='subtitle' style='margin-top:8px;'>Admin settings saved. Rebooting...</p>";
   }
   page += "<div style='background:#F1F5F9; border-radius:12px; padding:14px; margin-top:16px; text-align:left; font-size:13px; line-height:1.5;'>";
-  page += "<b>Active Backend Endpoint:</b><br><code style='color:#0D9488; word-break:break-all;'>" + server_url + "</code><br><br>";
   page += "<b>Device Serial Number:</b> <code>" + device_id + "</code><br>";
   page += "</div>";
   page += "</div>";

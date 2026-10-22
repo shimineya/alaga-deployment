@@ -131,6 +131,16 @@ router.post('/reading', readingValidation, async (req, res) => {
         return res.status(401).json({ success: false, message: 'Device not authorized.' });
     }
 
+    // Update device heartbeat and status even if not assigned to a patient yet
+    await pool.query(
+        `UPDATE device_whitelist 
+         SET last_heartbeat = NOW(), 
+             status = 'ACTIVE',
+             ip_address = COALESCE(NULLIF($2, ''), ip_address)
+         WHERE serial_number = $1`,
+        [deviceSerial, clientIp]
+    ).catch(() => {});
+
     const patientId = device.assigned_patient_id;
     if (!patientId) {
         return res.status(422).json({ success: false, message: 'Device is not assigned to a patient.' });

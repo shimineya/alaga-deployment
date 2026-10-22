@@ -75,12 +75,12 @@ const float TEMP_CALIBRATION    = 4.8;
 // ==============================================================================
 // DEFAULT FACTORY & SECURITY SETTINGS
 // ==============================================================================
-const char* DEFAULT_AP_SSID      = "ALAGA-MultiSensor-Setup";
+const char* DEFAULT_AP_SSID      = "ALAGA-VitalSigns-0002";
 const char* DEFAULT_AP_PASS      = "@Password123";       // WPA2-PSK: Minimum 8 characters
 const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
 const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash
 const char* DEFAULT_SERVER_URL   = "https://alaga-backend.onrender.com/api/device/data";
-const char* DEFAULT_DEVICE_ID    = "VS-2026-0001";
+const char* DEFAULT_DEVICE_ID    = "VS-2026-0002";
 
 // ==============================================================================
 // RUNTIME VARIABLES & STORAGE
@@ -975,7 +975,7 @@ void handleSetup() {
 
   page += "<div class='form-group'>";
   page += "<label for='admin_device_id'>Device Serial Number (ID)</label>";
-  page += "<input type='text' id='admin_device_id' oninput='document.getElementById(\"device_id\").value=this.value;' placeholder='e.g. VS-2026-0001'>";
+  page += "<input type='text' id='admin_device_id' oninput='document.getElementById(\"device_id\").value=this.value;' placeholder='e.g. VS-2026-0002'>";
   page += "</div>";
 
   page += "<div class='form-group'>";
@@ -1428,8 +1428,9 @@ void setup() {
     preferences.putString("url", DEFAULT_SERVER_URL);
   }
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
-  if (!device_id.startsWith("VS-")) {
+  if (!device_id.startsWith("VS-") || device_id == "VS-2026-0001") {
     device_id = DEFAULT_DEVICE_ID;
+    preferences.putString("devid", DEFAULT_DEVICE_ID);
   }
   device_token  = preferences.getString("token", DEFAULT_DEVICE_TOKEN);
   admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);

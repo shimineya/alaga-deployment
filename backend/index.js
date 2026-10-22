@@ -1521,6 +1521,8 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
     } finally {
         client.release();
     }
+});
+
 // Diaper change tare & reset tracking: stores temporary reset windows for diaper replacement
 const pendingDiaperResets = new Map(); // patientId -> expiry timestamp (ms)
 

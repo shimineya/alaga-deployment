@@ -1522,9 +1522,9 @@ void loop() {
         i2cGlitchCount = 0;
       }
     } else {
-      // Check if sensor is placed on patient's wrist
-      // Wrist contact: IR reflection between 3000 and 255000, Red > 800
-      bool validWristContact = (currentIR > 3000 && currentIR < 255000 && currentRed > 800);
+      // Check if sensor is placed on patient's skin/finger/wrist
+      // Human contact reflection produces > 25,000 counts; ambient room light is typically 3,000 - 18,000
+      bool validWristContact = (currentIR > 25000 && currentIR < 255000 && currentRed > 8000);
 
       // Optical filter & peak detector states
       static float dcIR = 0;

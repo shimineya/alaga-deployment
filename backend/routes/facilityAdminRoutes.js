@@ -945,8 +945,8 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         );
 
         if (deviceCheck.rows.length === 0) {
-            if (register_new || isSysAdmin) {
-                // Auto-register new device into inventory and pair to patient
+            if (isSysAdmin) {
+                // Auto-register new device into inventory and pair to patient (SysAdmin only)
                 const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor';
                 await pool.query(
                     `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
@@ -956,7 +956,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             } else {
                 return res.status(400).json({ 
                     success: false, 
-                    message: `Device ${cleanSN} is not registered in system inventory. Please check the serial number or choose "Register a new device to patient".` 
+                    message: `Device ${cleanSN} is not registered within the system. Only authorized devices pre-registered by a System Administrator can be assigned to a patient.` 
                 });
             }
         } else {

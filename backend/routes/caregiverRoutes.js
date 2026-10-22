@@ -376,7 +376,7 @@ router.post('/devices', async (req, res) => {
                     client.release();
                     return res.status(400).json({
                         success: false,
-                        message: `Device ${dev.serial} is not registered in the system by a System Administrator. Please contact a System Administrator to whitelist this device before registering.`
+                        message: `Device ${dev.serial} is not registered within the system. Please contact a System Administrator to whitelist this device before registering.`
                     });
                 }
 
@@ -1176,8 +1176,8 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         );
 
         if (deviceCheck.rows.length === 0) {
-            if (register_new || isSysAdmin) {
-                // Auto register new device
+            if (isSysAdmin) {
+                // Auto register new device into master whitelist (SysAdmin only)
                 const devType = cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor';
                 await pool.query(
                     `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
@@ -1187,7 +1187,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             } else {
                 return res.status(400).json({
                     success: false,
-                    message: `Device ${cleanSN} is not registered in system inventory. Please check the serial number or choose "Register a new device to patient".`
+                    message: `Device ${cleanSN} is not registered within the system. Only authorized devices pre-registered by a System Administrator can be assigned to a patient.`
                 });
             }
         } else {
@@ -3621,7 +3621,7 @@ router.post('/devices/assign', async (req, res) => {
                     [smartDiaperSn]
                 );
                 if (checkDiaper.rows.length === 0) {
-                    if (registerNew || isSysAdmin) {
+                    if (isSysAdmin) {
                         await client.query(
                             `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
                              VALUES ($1, 'Smart Diaper Moisture Sensor', 'ACTIVE', $2, $3, NOW(), FALSE)`,
@@ -3629,7 +3629,7 @@ router.post('/devices/assign', async (req, res) => {
                         );
                     } else {
                         client.release();
-                        return res.status(400).json({ success: false, message: `Diaper device ${smartDiaperSn} not registered in inventory. Please choose "Register a new device to patient".` });
+                        return res.status(400).json({ success: false, message: `Device ${smartDiaperSn} is not registered within the system. Only authorized devices pre-registered by a System Administrator can be assigned to a patient.` });
                     }
                 } else {
                     const diaperDev = checkDiaper.rows[0];
@@ -3649,7 +3649,7 @@ router.post('/devices/assign', async (req, res) => {
                     [vitalSignsSn]
                 );
                 if (checkVital.rows.length === 0) {
-                    if (registerNew || isSysAdmin) {
+                    if (isSysAdmin) {
                         await client.query(
                             `INSERT INTO device_whitelist (serial_number, device_name, status, added_by, assigned_patient_id, created_at, is_archived)
                              VALUES ($1, 'Vital Signs Sensor', 'ACTIVE', $2, $3, NOW(), FALSE)`,
@@ -3657,7 +3657,7 @@ router.post('/devices/assign', async (req, res) => {
                         );
                     } else {
                         client.release();
-                        return res.status(400).json({ success: false, message: `Vital Signs device ${vitalSignsSn} not registered in inventory. Please choose "Register a new device to patient".` });
+                        return res.status(400).json({ success: false, message: `Device ${vitalSignsSn} is not registered within the system. Only authorized devices pre-registered by a System Administrator can be assigned to a patient.` });
                     }
                 } else {
                     const vitalDev = checkVital.rows[0];

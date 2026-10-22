@@ -1392,8 +1392,8 @@ void setup() {
     // Configure MAX30102 for Red + IR dual-wavelength pulse oximetry on the WRIST
     // Mode 2 = Red + IR, 400Hz sample rate, 411us pulse width
     particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-    particleSensor.setPulseAmplitudeRed(0x35); // ~10.6mA - enhanced penetration for wrist tissue
-    particleSensor.setPulseAmplitudeIR(0x38);  // ~11.2mA - captures microvascular pulsatile bed on wrist
+    particleSensor.setPulseAmplitudeRed(0x7F); // ~25.4mA - High-visibility bright red optical illumination
+    particleSensor.setPulseAmplitudeIR(0x7F);  // ~25.4mA - Full optical penetration
     particleSensor.setPulseAmplitudeGreen(0);
   }
 
@@ -1498,8 +1498,8 @@ void loop() {
       Serial.println("✅ [I2C CONNECTED] MAX30102 Pulse Oximeter detected and initialized!");
       sensorFound = true;
       particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-      particleSensor.setPulseAmplitudeRed(0x24);
-      particleSensor.setPulseAmplitudeIR(0x24);
+      particleSensor.setPulseAmplitudeRed(0x7F);
+      particleSensor.setPulseAmplitudeIR(0x7F);
       particleSensor.setPulseAmplitudeGreen(0);
     } else {
       Serial.println("⚠️ [I2C FAILED] Check wires: SDA->Pin 21, SCL->Pin 22, VIN->3.3V or 5V, GND->GND.");

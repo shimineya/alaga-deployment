@@ -1567,12 +1567,7 @@ void setup() {
     ap_password = DEFAULT_AP_PASS;
     preferences.putString("appass", DEFAULT_AP_PASS);
   }
-  sensor_type   = preferences.getInt("senstype", 0);
-  // Migrate legacy 2 (which caused LM393 inverted dry readings) back to standard 0
-  if (sensor_type == 2) {
-    sensor_type = 0;
-    preferences.putInt("senstype", 0);
-  }
+  sensor_type   = preferences.getInt("senstype", 2);
   water_pin     = preferences.getInt("senspin", 4);
 
   // Clear obsolete/unreachable Wi-Fi SSID from flash (case-insensitive)
@@ -1759,12 +1754,13 @@ void loop() {
     lastSendTime = millis();
 
     // Print to Serial Monitor
-    Serial.printf("[MONITOR] Wetness: %d%% (%s) | Raw ADC: %d | Digital Pin %d: %s | Battery: %d%% (%.2fV)\n",
+    int touchVal = (water_pin == 4) ? touchRead(4) : -1;
+    Serial.printf("[MONITOR] Wetness: %d%% (%s) | Pin %d: %s | Touch(D4): %d | Battery: %d%% (%.2fV)\n",
                   wetnessPercent,
                   wetnessLevel.c_str(),
-                  rawMoistureADC,
                   water_pin,
-                  (rawDigitalVal == HIGH ? "HIGH (1)" : "LOW (0)"),
+                  (rawDigitalVal == HIGH ? (sensor_type == 2 ? "HIGH (1 - WET)" : "HIGH (1 - DRY)") : (sensor_type == 2 ? "LOW (0 - DRY)" : "LOW (0 - WET)")),
+                  touchVal,
                   batteryPercent,
                   batteryVoltage);
 

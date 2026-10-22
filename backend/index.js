@@ -1778,28 +1778,6 @@ app.post('/api/device/data', async (req, res) => {
             console.error('[DEVICE_DATA] AI evaluation error:', aiErr.message);
         }
 
-        // 3. Update device heartbeat, battery level, signal strength, and IP address
-        const rawBattery = req.body.battery !== undefined ? req.body.battery : req.body.battery_level;
-        const batteryVal = rawBattery !== undefined && rawBattery !== null ? parseInt(rawBattery, 10) : null;
-        const rawRssi = req.body.rssi !== undefined && req.body.rssi !== null ? parseFloat(req.body.rssi) : null;
-        const signalVal = req.body.signal ? String(req.body.signal).slice(0, 20) : (rawRssi !== null ? (rawRssi > -65 ? 'Excellent' : rawRssi > -80 ? 'Good' : 'Weak') : 'Good');
-        const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
-        const clientIp = String(rawIp).split(',')[0].trim().replace(/^.*:/, '');
-
-        const rawSetupPass = req.body.setup_password || req.body.ap_password;
-        const setupPassVal = rawSetupPass && typeof rawSetupPass === 'string' && rawSetupPass.trim().length >= 8 ? rawSetupPass.trim() : null;
-
-        await pool.query(
-            `UPDATE device_whitelist 
-             SET last_heartbeat = NOW(),
-                 status = 'ACTIVE',
-                 battery_level = COALESCE($2, battery_level),
-                 signal_strength = COALESCE($3, signal_strength),
-                 ip_address = COALESCE(NULLIF($4, ''), ip_address),
-                 setup_password = COALESCE($5, setup_password)
-             WHERE serial_number = $1`,
-            [device_id, batteryVal, signalVal, clientIp, setupPassVal]
-        ).catch(err => console.error("Heartbeat update error:", err.message));
 
         // Real-time SSE Broadcast: device turned online or refreshed telemetry
         broadcastAlert('device_status_update', {

@@ -1521,7 +1521,8 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
     } finally {
         client.release();
     }
-});
+// Diaper change tare & reset tracking: stores temporary reset windows for diaper replacement
+const pendingDiaperResets = new Map(); // patientId -> expiry timestamp (ms)
 
 // Endpoint to receive data from ESP32s
 app.post('/api/device/data', async (req, res) => {
@@ -1626,9 +1627,43 @@ app.post('/api/device/data', async (req, res) => {
 
         let isVsActive = false;
         let isSdActive = false;
+        let isDiaperReset = false;
 
         if (isSD) {
             isSdActive = true;
+
+            const resetKey = String(patientId);
+            const devKey = String(device_id);
+            const resetUntil = pendingDiaperResets.get(resetKey) || pendingDiaperResets.get(devKey);
+            if (resetUntil && Date.now() < resetUntil) {
+                moist = 0;
+                isDiaperReset = true;
+            } else if (resetUntil) {
+                pendingDiaperResets.delete(resetKey);
+                pendingDiaperResets.delete(devKey);
+            }
+
+            if (req.body.event === 'diaper_changed' || req.body.action === 'diaper_reset') {
+                moist = 0;
+                isDiaperReset = true;
+                // Auto-resolve active moisture alerts for this patient
+                await pool.query(
+                    `UPDATE alert_notifications 
+                     SET status = 'Resolved' 
+                     WHERE status != 'Resolved' AND event_id IN (
+                         SELECT event_id FROM anomaly_events 
+                         WHERE patient_id = $1 AND anomaly_type LIKE '%moisture%'
+                     )`,
+                    [patientId]
+                ).catch(() => {});
+                // Log diaper change event from device button
+                await pool.query(
+                    `INSERT INTO access_logs (action, target_patient_id, severity, status, details)
+                     VALUES ('DIAPER_CHANGED', $1, 'INFO', 'SUCCESS', $2)`,
+                    [patientId, JSON.stringify({ serial: device_id, source: 'hardware_boot_button' })]
+                ).catch(() => {});
+            }
+
             // Check if the patient has an active Vital Signs sensor currently reporting
             const vsCheck = await pool.query(
                 `SELECT 1 FROM device_whitelist 
@@ -1874,11 +1909,98 @@ app.post('/api/device/data', async (req, res) => {
             recorded_at: recordedAt,
             patient_id: patientId,
             is_offline_buffer: !!req.body.is_offline_buffer,
+            diaper_reset: isDiaperReset,
             setup_password: devRow.setup_password || '@Password123'
         });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Internal Server Error", message: "Server error processing device data." });
+    }
+});
+
+// ==========================================
+// CLINICAL ACTION: DIAPER CHANGED & TARE RESET
+// ==========================================
+app.post(['/api/caregiver/patients/:id/diaper-change', '/api/sensor/diaper-change'], verifyToken, async (req, res) => {
+    const patientId = req.params.id || req.body.patient_id;
+    const userId = req.user?.id || req.user?.userId;
+
+    if (!patientId) {
+        return res.status(400).json({ success: false, message: "Patient ID is required." });
+    }
+
+    try {
+        // Enforce a 60-second diaper tare/reset window so any lingering dampness from replaced diaper is suppressed
+        pendingDiaperResets.set(String(patientId), Date.now() + 60000);
+
+        // Fetch current active vitals so they are preserved
+        const lastVitals = await pool.query(
+            `SELECT heart_rate, temperature, spo2 
+             FROM sensor_readings 
+             WHERE patient_id = $1 
+             ORDER BY recorded_at DESC LIMIT 1`,
+            [patientId]
+        );
+        const hr = lastVitals.rows[0]?.heart_rate || 0;
+        const temp = lastVitals.rows[0]?.temperature || 0;
+        const sp = lastVitals.rows[0]?.spo2 || 0;
+
+        // Insert new reading with 0% moisture (DRY)
+        const insertRes = await pool.query(
+            `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at)
+             VALUES ($1, $2, $3, $4, 0, NOW()) RETURNING reading_id, recorded_at`,
+            [patientId, hr, temp, sp]
+        );
+        const recordedAt = insertRes.rows[0]?.recorded_at;
+
+        // Resolve any active moisture alerts
+        await pool.query(
+            `UPDATE alert_notifications 
+             SET status = 'Resolved' 
+             WHERE status != 'Resolved' AND event_id IN (
+                 SELECT event_id FROM anomaly_events 
+                 WHERE patient_id = $1 AND anomaly_type LIKE '%moisture%'
+             )`,
+            [patientId]
+        ).catch(() => {});
+
+        // Log clinical access log
+        await pool.query(
+            `INSERT INTO access_logs (user_id, target_patient_id, action, severity, status, details)
+             VALUES ($1, $2, 'DIAPER_CHANGED', 'INFO', 'SUCCESS', $3)`,
+            [userId || null, patientId, JSON.stringify({ action: 'caregiver_diaper_reset', recorded_at: recordedAt })]
+        ).catch(() => {});
+
+        // Broadcast real-time telemetry update so all dashboards instantly update to DRY (0%)
+        broadcastAlert('patient_telemetry_update', {
+            patient_id: patientId,
+            device_type: 'moisture',
+            device_status: 'ACTIVE',
+            is_moisture_active: true,
+            heart_rate: hr,
+            temperature: temp,
+            spo2: sp,
+            moisture: 0,
+            event: 'diaper_changed',
+            recorded_at: recordedAt,
+            latest_telemetry: {
+                heart_rate: hr,
+                temperature: temp,
+                spo2: sp,
+                moisture: 0,
+                recorded_at: recordedAt
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Diaper change confirmed! Wetness reset to 0% (DRY).",
+            moisture: 0,
+            recorded_at: recordedAt
+        });
+    } catch (err) {
+        console.error('Diaper change error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to record diaper change.' });
     }
 });
 

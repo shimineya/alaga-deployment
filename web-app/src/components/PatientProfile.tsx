@@ -33,7 +33,8 @@ import {
   Clock,
   ClipboardList,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -64,6 +65,54 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
   const [editConditions, setEditConditions] = useState('');
   const [editEmergencyContact, setEditEmergencyContact] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isResettingDiaper, setIsResettingDiaper] = useState(false);
+
+  const handleMarkDiaperChanged = async () => {
+    try {
+      setIsResettingDiaper(true);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`https://alaga-backend.onrender.com/api/caregiver/patients/${patient.id}/diaper-change`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success("Diaper changed! Wetness reset to 0% (DRY).");
+        setPatient((prev: any) => ({
+          ...prev,
+          moisture: 0,
+          moisture_value: 0,
+          latest_telemetry: {
+            ...(prev.latest_telemetry || {}),
+            moisture: 0
+          }
+        }));
+        setVitalSigns(prev => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          return [
+            ...prev,
+            {
+              ...last,
+              id: `v-live-${Date.now()}`,
+              timestamp: new Date(),
+              moistureLevel: 0
+            }
+          ];
+        });
+        if (onRefresh) onRefresh();
+      } else {
+        toast.error(data.message || "Failed to reset diaper wetness.");
+      }
+    } catch {
+      toast.error("Network error resetting diaper wetness.");
+    } finally {
+      setIsResettingDiaper(false);
+    }
+  };
 
   const handleStartEdit = () => {
     setEditIllness(patient.illness || '');
@@ -751,6 +800,29 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         style={{ width: isCalibrating ? '100%' : (effectiveMoistureOnline && moisture !== null && !isMisaligned ? `${Math.min(100, Math.max(5, moisture))}%` : '0%') }}
                       />
                     </div>
+
+                    {/* Diaper Changed Action Button */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isResettingDiaper}
+                      onClick={handleMarkDiaperChanged}
+                      className="w-full mt-2 h-7 text-[10px] sm:text-[11px] font-bold bg-teal-50/80 hover:bg-teal-100/90 text-teal-800 border-teal-200/90 flex items-center justify-center gap-1.5 rounded-lg shadow-2xs transition-all hover:scale-[1.01]"
+                      title="Confirm that the diaper was changed. Resets wetness to 0% DRY and recalibrates sensor baseline."
+                    >
+                      {isResettingDiaper ? (
+                        <>
+                          <Loader2 className="w-3 h-3 text-teal-600 animate-spin" />
+                          <span>Resetting to Dry...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                          <span>Mark Diaper Changed (Reset)</span>
+                        </>
+                      )}
+                    </Button>
                   </CardContent>
                 </Card>
               );

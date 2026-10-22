@@ -32,7 +32,7 @@ import {
     Users, Activity, Bell, Heart, Thermometer, Droplets, Wifi,
     AlertTriangle, Check, User, LogOut, Search, TrendingUp, AlertCircle, ChevronLeft, ChevronRight,
     HelpCircle, Menu, Loader2,
-    Link2Off, Calendar as CalendarIcon, X, Plus, Repeat, Trash2, Edit, BellRing
+    Link2Off, Calendar as CalendarIcon, X, Plus, Repeat, Trash2, Edit, BellRing, CheckCircle2
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -1513,6 +1513,54 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* Quick Diaper Changed Action */}
+                                            {effectiveMoistureOnline && wetnessNum !== null && (wetnessNum >= 30 || isWetnessBreached) && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="w-full h-7 text-[10px] font-bold bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-300/90 rounded-lg shadow-2xs flex items-center justify-center gap-1.5 transition-all mb-1"
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        try {
+                                                            const token = localStorage.getItem('token');
+                                                            const res = await fetch(`https://alaga-backend.onrender.com/api/caregiver/patients/${patient.id}/diaper-change`, {
+                                                                method: 'POST',
+                                                                headers: {
+                                                                    'Content-Type': 'application/json',
+                                                                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                                                                }
+                                                            });
+                                                            const data = await res.json();
+                                                            if (res.ok && data.success) {
+                                                                toast.success(`Diaper changed for ${patient.name}! Reset to 0% DRY.`);
+                                                                setPatients(prev => prev.map(p => {
+                                                                    if (String(p.id) === String(patient.id)) {
+                                                                        return {
+                                                                            ...p,
+                                                                            moisture: 0,
+                                                                            moisture_value: 0,
+                                                                            latest_telemetry: {
+                                                                                ...((p as any).latest_telemetry || {}),
+                                                                                moisture: 0
+                                                                            }
+                                                                        };
+                                                                    }
+                                                                    return p;
+                                                                }));
+                                                            } else {
+                                                                toast.error(data.message || "Failed to reset diaper wetness.");
+                                                            }
+                                                        } catch {
+                                                            toast.error("Failed to reset diaper wetness.");
+                                                        }
+                                                    }}
+                                                    title="Confirm diaper changed. Resets wetness to 0% DRY."
+                                                >
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                                                    <span>Mark Diaper Changed (Reset)</span>
+                                                </Button>
+                                            )}
 
                                             {/* Patient Card Alert Button leading to alerts module */}
                                             {hasUnackAlerts ? (

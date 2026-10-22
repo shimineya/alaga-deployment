@@ -88,6 +88,21 @@ int batteryPercent     = 100;
 int lastBackendCode    = 0;
 bool isDevicePaired    = true;
 
+// Diaper Change Tare & Recovery
+bool isDiaperJustChanged          = false;
+unsigned long diaperChangeTime    = 0;
+bool pendingDiaperChangeNotice    = false;
+
+void tareDryBaseline() {
+  isDiaperJustChanged       = true;
+  diaperChangeTime          = millis();
+  wetnessPercent            = 0;
+  wetnessLevel              = "DRY";
+  waterState                = LOW;
+  pendingDiaperChangeNotice = true;
+  Serial.println("✨ [TARE] Diaper changed & baseline recalibrated to 0% (DRY).");
+}
+
 // Web Server & DNS Server for Captive Portal
 WebServer server(80);
 DNSServer dnsServer;
@@ -150,6 +165,20 @@ void readBattery() {
 //  71% - 100%: HEAVY WETNESS / SOAKED (Diaper saturated - immediate action required)
 // ==============================================================================
 int calculateWetnessPercentage() {
+  rawDigitalVal  = digitalRead(water_pin);
+
+  // Diaper Change Tare Grace Period: suppresses false 100% triggers while installing fresh dry diaper
+  if (isDiaperJustChanged) {
+    if (millis() - diaperChangeTime < 20000) {
+      if (rawDigitalVal == HIGH) {
+        isDiaperJustChanged = false; // Cleanly returned to dry
+      }
+      return 0;
+    } else {
+      isDiaperJustChanged = false;
+    }
+  }
+
   // 1. Multi-sampled ADC readings to filter high-frequency noise
   long rawSum = 0;
   for (int i = 0; i < WETNESS_ADC_SAMPLES; i++) {
@@ -157,7 +186,6 @@ int calculateWetnessPercentage() {
     delay(2);
   }
   rawMoistureADC = (int)(rawSum / WETNESS_ADC_SAMPLES);
-  rawDigitalVal  = digitalRead(water_pin);
 
   int percent = 0;
 
@@ -407,12 +435,18 @@ void sendToBackend() {
     else signalStr = "Poor";
 
     // Payload formatted for Alaga /api/device/data & /api/sensor/reading
+    String diaperEventJson = "";
+    if (pendingDiaperChangeNotice) {
+      diaperEventJson = "\"event\":\"diaper_changed\",\"action\":\"diaper_reset\",";
+    }
+
     String payload = "{"
       "\"device_id\":\"" + device_id + "\","
       "\"device_token\":\"" + device_token + "\","
       "\"device_type\":\"moisture\","
       "\"setup_password\":\"" + ap_password + "\","
       "\"has_moisture_sensor\":true,"
+      + diaperEventJson +
       "\"moisture\":" + String(wetnessPercent) + ","
       "\"battery\":" + String(batteryPercent) + ","
       "\"signal\":\"" + signalStr + "\","
@@ -426,8 +460,20 @@ void sendToBackend() {
     if (httpCode == 200) {
       isDevicePaired = true;
       isCurrentlyOfflineWetness = false;
-      // Over-the-air config sync: update setup password if changed from web/mobile app
+      if (pendingDiaperChangeNotice) {
+        pendingDiaperChangeNotice = false;
+      }
       String resp = http.getString();
+      // Check if caregiver marked diaper changed via Web App / Mobile App
+      if (resp.indexOf("\"diaper_reset\":true") >= 0) {
+        Serial.println("✨ [CLOUD SYNC] Caregiver confirmed diaper changed! Resetting wetness baseline to 0% DRY...");
+        isDiaperJustChanged = true;
+        diaperChangeTime = millis();
+        wetnessPercent = 0;
+        wetnessLevel = "DRY";
+      }
+
+      // Over-the-air config sync: update setup password if changed from web/mobile app
       int passIdx = resp.indexOf("\"setup_password\":\"");
       if (passIdx >= 0) {
         int startP = passIdx + 18;
@@ -1616,18 +1662,23 @@ void loop() {
   // 2. Handle Inbound Web Client Requests
   server.handleClient();
 
-  // 3. Factory Reset: Only if BOOT button is held for 10 full seconds while running (after 15s uptime)
-  // This completely prevents accidental wipes during board flashing/bootloader resets!
-  if (millis() > 15000 && digitalRead(CONFIG_BTN_PIN) == LOW) {
+  // 3. BOOT Button (GPIO 0) Multi-Function Handler:
+  // Short Press (< 3s): DIAPER CHANGED / TARE RESET (re-zeroes reading to 0% DRY immediately)
+  // Long Hold (> 10s): Forget Wi-Fi and start AP Setup Mode
+  if (millis() > 5000 && digitalRead(CONFIG_BTN_PIN) == LOW) {
     unsigned long pressStart = millis();
-    while (digitalRead(CONFIG_BTN_PIN) == LOW) {
-      delay(50);
-      if (millis() - pressStart > 10000) { // Held for 10 seconds
-        Serial.println("\n[BOOT] BOOT button held for 10 seconds! Forgetting Wi-Fi and starting AP Setup Mode...");
-        forgetWiFi();
-        startAccessPointMode();
-        break;
-      }
+    while (digitalRead(CONFIG_BTN_PIN) == LOW && (millis() - pressStart < 11000)) {
+      delay(30);
+    }
+    unsigned long duration = millis() - pressStart;
+    if (duration >= 10000) {
+      Serial.println("\n[BOOT] BOOT button held for 10 seconds! Forgetting Wi-Fi and starting AP Setup Mode...");
+      forgetWiFi();
+      startAccessPointMode();
+    } else if (duration >= 50 && duration < 3000) {
+      Serial.println("\n✨ [BOOT] Single tap detected: Diaper Changed / Tare Reset to 0% DRY!");
+      tareDryBaseline();
+      sendToBackend(); // Immediate dispatch 0% DRY reading to backend
     }
   }
 

@@ -1567,6 +1567,12 @@ void setup() {
     preferences.putString("appass", DEFAULT_AP_PASS);
   }
   sensor_type   = preferences.getInt("senstype", 2);
+  // Migrate flash NVS from 0 (inverted LM393) to 2 (Active-HIGH conductive diaper tape)
+  if (sensor_type == 0) {
+    sensor_type = 2;
+    preferences.putInt("senstype", 2);
+    Serial.println("🔄 [MIGRATION] Updated sensor_type from 0 to 2 (Active-HIGH diaper tape: LOW = DRY 0%, HIGH = WET 100%)");
+  }
   water_pin     = preferences.getInt("senspin", 4);
 
   // Clear obsolete/unreachable Wi-Fi SSID from flash (case-insensitive)

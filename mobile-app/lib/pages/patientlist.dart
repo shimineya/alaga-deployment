@@ -65,23 +65,18 @@ class _PatientListScreenState extends State<PatientListScreen> {
                 p['device_status']?.toString().toLowerCase() == 'active' ||
                 pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
 
-            final bool isVitalsActive = p['is_vitals_online'] == true ||
+            final bool isVitalsActive = (p['is_vitals_online'] == true ||
                 pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
                     ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-                     (d['device_name']?.toString().toLowerCase().contains('vital') ?? false) ||
-                     (d['serial_number']?.toString().startsWith('SD-') != true &&
-                      d['device_name']?.toString().toLowerCase().contains('diaper') != true &&
-                      d['device_name']?.toString().toLowerCase().contains('moisture') != true))) ||
-                (pairedList.isEmpty && isDeviceActive);
+                     (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)))) &&
+                p['is_vitals_online'] != false;
 
-            final bool isMoistureActive = p['is_moisture_online'] == true ||
+            final bool isMoistureActive = (p['is_moisture_online'] == true ||
                 pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
                     ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
                      (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-                     (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false) ||
-                     (d['serial_number']?.toString().startsWith('VS-') != true &&
-                      d['device_name']?.toString().toLowerCase().contains('vital') != true))) ||
-                (pairedList.isEmpty && isDeviceActive);
+                     (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)))) &&
+                p['is_moisture_online'] != false;
 
             // Extract raw numbers (or null) to allow for graph calculations
             final hr = (telemetry['heart_rate'] ?? p['heart_rate'] ?? p['heartRate']) as num?;

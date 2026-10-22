@@ -144,19 +144,23 @@ class _DashboardScreenState extends State<DashboardScreen>
                 'is_online': isAct,
                 'isOnline': isAct,
                 'device_status': isAct ? 'active' : 'inactive',
-                'is_vitals_online': isVS ? isAct : p['is_vitals_online'],
-                'is_moisture_online': isSD ? isAct : p['is_moisture_online'],
+                'is_vitals_online': isVS ? isAct : (p['is_vitals_online'] ?? false),
+                'is_moisture_online': isSD ? isAct : (p['is_moisture_online'] ?? false),
                 'paired_devices': paired,
               };
             }
           }
         });
-        final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
-        final rawTelem = data['latest_telemetry'] is Map ? Map<String, dynamic>.from(data['latest_telemetry']) : null;
+      }
+
+      final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
+      final rawTelem = data['latest_telemetry'] is Map ? Map<String, dynamic>.from(data['latest_telemetry']) : null;
         if (targetId != null && (eventType == 'patient_telemetry_update' || rawTelem != null)) {
           final sn = data['serial_number']?.toString() ?? '';
           final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
+          final isVitalsActiveParam = data['is_vitals_active'];
+          final isMoistureActiveParam = data['is_moisture_active'];
 
           setState(() {
             for (var i = 0; i < _patients.length; i++) {
@@ -166,16 +170,36 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ? Map<String, dynamic>.from(p['latest_telemetry'])
                     : <String, dynamic>{};
 
+                final bool newVOnline = isVitalsActiveParam != null
+                    ? (isVitalsActiveParam == true)
+                    : (isVS ? true : (p['is_vitals_online'] == true));
+                final bool newMOnline = isMoistureActiveParam != null
+                    ? (isMoistureActiveParam == true)
+                    : (isSD ? true : (p['is_moisture_online'] == true));
+
                 final hr = data['heart_rate'] ?? rawTelem?['heart_rate'];
                 final temp = data['temperature'] ?? rawTelem?['temperature'];
                 final sp = data['spo2'] ?? rawTelem?['spo2'];
                 final moist = data['moisture'] ?? data['moisture_value'] ?? rawTelem?['moisture'] ?? rawTelem?['moisture_value'];
                 final finger = data['finger_detected'] ?? rawTelem?['finger_detected'];
 
-                if (hr != null && ((hr is num && hr > 0) || !isSD)) existingTelem['heart_rate'] = hr;
-                if (temp != null && ((temp is num && temp > 0) || !isSD)) existingTelem['temperature'] = temp;
-                if (sp != null && ((sp is num && sp > 0) || !isSD)) existingTelem['spo2'] = sp;
-                if (moist != null) existingTelem['moisture'] = moist;
+                if (!newVOnline) {
+                  existingTelem.remove('heart_rate');
+                  existingTelem.remove('temperature');
+                  existingTelem.remove('spo2');
+                } else {
+                  if (hr != null && ((hr is num && hr > 0) || !isSD)) existingTelem['heart_rate'] = hr;
+                  if (temp != null && ((temp is num && temp > 0) || !isSD)) existingTelem['temperature'] = temp;
+                  if (sp != null && ((sp is num && sp > 0) || !isSD)) existingTelem['spo2'] = sp;
+                }
+
+                if (!newMOnline) {
+                  existingTelem.remove('moisture');
+                  existingTelem.remove('moisture_value');
+                } else if (moist != null) {
+                  existingTelem['moisture'] = moist;
+                }
+
                 if (finger != null) existingTelem['finger_detected'] = finger;
 
                 _patients[i] = {
@@ -183,8 +207,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                   'is_online': true,
                   'isOnline': true,
                   'device_status': 'active',
-                  'is_vitals_online': isVS ? true : p['is_vitals_online'],
-                  'is_moisture_online': isSD ? true : p['is_moisture_online'],
+                  'is_vitals_online': newVOnline,
+                  'is_moisture_online': newMOnline,
                   'latest_telemetry': existingTelem,
                 };
                 break;
@@ -192,10 +216,9 @@ class _DashboardScreenState extends State<DashboardScreen>
             }
           });
         }
-      }
-      _fetchDashboardData();
-    });
-  }
+        _fetchDashboardData();
+      });
+    }
 
   void _configureDataRefresh() {
     _dataRefreshTimer?.cancel();
@@ -2448,6 +2471,41 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Future<void> _handleDiaperChange(String? patientId, String patientName) async {
+    if (patientId == null || patientId.isEmpty) return;
+    try {
+      final res = await ApiService.post('/caregiver/patients/$patientId/diaper-change');
+      if (mounted) {
+        if (res['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Diaper change recorded for $patientName. Wetness reset to 0% DRY."),
+              backgroundColor: const Color(0xFF0D9488),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          _fetchDashboardData();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message'] ?? 'Failed to record diaper change.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildPatientCard(Map<String, dynamic> patient) {
     final telemetry = patient['latest_telemetry'] ?? {};
     final pairedList = patient['paired_devices'] is List ? (patient['paired_devices'] as List) : [];
@@ -2456,23 +2514,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         patient['device_status']?.toString().toLowerCase() == 'active' ||
         pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
 
-    final bool isVitalsActive = patient['is_vitals_online'] == true ||
+    final bool isVitalsActive = (patient['is_vitals_online'] == true ||
         pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
             ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false) ||
-             (d['serial_number']?.toString().startsWith('SD-') != true &&
-              d['device_name']?.toString().toLowerCase().contains('diaper') != true &&
-              d['device_name']?.toString().toLowerCase().contains('moisture') != true))) ||
-        (pairedList.isEmpty && isDeviceActive);
+             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)))) &&
+        patient['is_vitals_online'] != false;
 
-    final bool isMoistureActive = patient['is_moisture_online'] == true ||
+    final bool isMoistureActive = (patient['is_moisture_online'] == true ||
         pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
             ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
              (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false) ||
-             (d['serial_number']?.toString().startsWith('VS-') != true &&
-              d['device_name']?.toString().toLowerCase().contains('vital') != true))) ||
-        (pairedList.isEmpty && isDeviceActive);
+             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)))) &&
+        patient['is_moisture_online'] != false;
 
     final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
     final patientName = (patient['name'] ?? '').toString().toLowerCase().trim();
@@ -2840,6 +2893,30 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                   ],
                 ),
+                if (isMoistureActive && mNum >= 30) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _handleDiaperChange(patientId, patient['name'] ?? 'Patient'),
+                      icon: const Icon(Icons.cleaning_services, size: 15, color: Colors.white),
+                      label: Text(
+                        "Mark Diaper Changed (Reset)",
+                        style: GoogleFonts.poppins(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0D9488),
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -33,11 +33,58 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
   Timer? _refreshTimer;
 
   bool _isLoadingHistory = false;
+  bool _isResettingDiaper = false;
   String _selectedTimeframe = 'Day';
   List<double> hrHistory = [];
   List<double> tempHistory = [];
   List<double> spo2History = [];
   List<double> moistureHistory = [];
+
+  Future<void> _handleDiaperChange() async {
+    final targetPatientId = (_patient['patient_id'] ?? _patient['id'])?.toString();
+    if (targetPatientId == null) return;
+
+    setState(() => _isResettingDiaper = true);
+    try {
+      final res = await ApiService.post('/caregiver/patients/$targetPatientId/diaper-change');
+      if (mounted) {
+        if (res['success'] == true) {
+          setState(() {
+            _telemetry['moisture'] = 0;
+            _telemetry['moisture_value'] = 0;
+            _patient['moisture'] = 0;
+            _patient['moisture_value'] = 0;
+            _patient['wetness'] = 'Dry';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Diaper change recorded. Wetness reset to 0% DRY."),
+              backgroundColor: Color(0xFF0D9488),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message'] ?? 'Failed to record diaper change.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isResettingDiaper = false);
+    }
+  }
 
   @override
   void initState() {
@@ -65,10 +112,16 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
         final updatePatientId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (updatePatientId == null || updatePatientId == targetPatientId) {
           final isAct = data['status'] == 'ACTIVE';
+          final sn = (data['serial_number'] ?? data['serialNumber'] ?? '').toString();
+          final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
+          final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
           setState(() {
             _patient['is_online'] = isAct;
             _patient['isOnline'] = isAct;
             _patient['device_status'] = isAct ? 'active' : 'inactive';
+            if (isVS) _patient['is_vitals_online'] = isAct;
+            if (isSD) _patient['is_moisture_online'] = isAct;
+          });
         }
       }
       final rawTelem = data['latest_telemetry'] is Map ? Map<String, dynamic>.from(data['latest_telemetry']) : null;
@@ -78,33 +131,54 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
           final sn = data['serial_number']?.toString() ?? '';
           final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
+          final isVitalsActiveParam = data['is_vitals_active'];
+          final isMoistureActiveParam = data['is_moisture_active'];
 
           setState(() {
             _patient['is_online'] = true;
             _patient['isOnline'] = true;
             _patient['device_status'] = 'active';
-            _patient['is_vitals_online'] = isVS ? true : _patient['is_vitals_online'];
-            _patient['is_moisture_online'] = isSD ? true : _patient['is_moisture_online'];
+
+            final bool newVOnline = isVitalsActiveParam != null
+                ? (isVitalsActiveParam == true)
+                : (isVS ? true : (_patient['is_vitals_online'] == true));
+            final bool newMOnline = isMoistureActiveParam != null
+                ? (isMoistureActiveParam == true)
+                : (isSD ? true : (_patient['is_moisture_online'] == true));
+
+            _patient['is_vitals_online'] = newVOnline;
+            _patient['is_moisture_online'] = newMOnline;
 
             final hr = data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'];
             final temp = data['temperature'] ?? data['latest_telemetry']?['temperature'];
             final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
             final moist = data['moisture'] ?? data['moisture_value'] ?? data['latest_telemetry']?['moisture'] ?? data['latest_telemetry']?['moisture_value'];
 
-            if (hr != null && ((hr is num && hr > 0) || !isSD)) {
-              _telemetry['heart_rate'] = hr;
-              hrHistory = [...hrHistory, (hr as num).toDouble()];
+            if (!newVOnline) {
+              _telemetry.remove('heart_rate');
+              _telemetry.remove('temperature');
+              _telemetry.remove('spo2');
+            } else {
+              if (hr != null && ((hr is num && hr > 0) || !isSD)) {
+                _telemetry['heart_rate'] = hr;
+                hrHistory = [...hrHistory, (hr as num).toDouble()];
+              }
+              if (temp != null && ((temp is num && temp > 0) || !isSD)) {
+                _telemetry['temperature'] = temp;
+                tempHistory = [...tempHistory, (temp as num).toDouble()];
+              }
+              if (sp != null && ((sp is num && sp > 0) || !isSD)) {
+                _telemetry['spo2'] = sp;
+                spo2History = [...spo2History, (sp as num).toDouble()];
+              }
             }
-            if (temp != null && ((temp is num && temp > 0) || !isSD)) {
-              _telemetry['temperature'] = temp;
-              tempHistory = [...tempHistory, (temp as num).toDouble()];
-            }
-            if (sp != null && ((sp is num && sp > 0) || !isSD)) {
-              _telemetry['spo2'] = sp;
-              spo2History = [...spo2History, (sp as num).toDouble()];
-            }
-            if (moist != null) {
+
+            if (!newMOnline) {
+              _telemetry.remove('moisture');
+              _telemetry.remove('moisture_value');
+            } else if (moist != null) {
               _telemetry['moisture'] = moist;
+              _telemetry['moisture_value'] = moist;
               moistureHistory = [...moistureHistory, (moist as num).toDouble()];
             }
 
@@ -205,23 +279,18 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
         patient['device_status']?.toString().toLowerCase() == 'active' ||
         pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
 
-    final bool isVitalsActive = patient['is_vitals_online'] == true ||
+    final bool isVitalsActive = (patient['is_vitals_online'] == true ||
         pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
             ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false) ||
-             (d['serial_number']?.toString().startsWith('SD-') != true &&
-              d['device_name']?.toString().toLowerCase().contains('diaper') != true &&
-              d['device_name']?.toString().toLowerCase().contains('moisture') != true))) ||
-        (pairedList.isEmpty && isDeviceActive);
+             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)))) &&
+        patient['is_vitals_online'] != false;
 
-    final bool isMoistureActive = patient['is_moisture_online'] == true ||
+    final bool isMoistureActive = (patient['is_moisture_online'] == true ||
         pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
             ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
              (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false) ||
-             (d['serial_number']?.toString().startsWith('VS-') != true &&
-              d['device_name']?.toString().toLowerCase().contains('vital') != true))) ||
-        (pairedList.isEmpty && isDeviceActive);
+             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)))) &&
+        patient['is_moisture_online'] != false;
 
     // 2. Parse Birthday & Age
     final dynamic rawBday = patient['birthdate'] ??
@@ -677,6 +746,82 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                       ),
                     ],
                   ),
+
+                  if (isMoistureActive || mNum > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF0FDFA), Color(0xFFCCFBF1)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFF99F6E4)),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0D9488).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.cleaning_services, size: 20, color: Color(0xFF0D9488)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Diaper Changed / Sensor Reset',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF0F766E),
+                                  ),
+                                ),
+                                Text(
+                                  'Tares sensor and resets wetness reading back to 0% DRY.',
+                                  style: GoogleFonts.albertSans(
+                                    fontSize: 11,
+                                    color: const Color(0xFF134E4A),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _isResettingDiaper ? null : _handleDiaperChange,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0D9488),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 0,
+                            ),
+                            child: _isResettingDiaper
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : Text(
+                                    'Reset Dry',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 22),
 

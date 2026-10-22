@@ -882,7 +882,9 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                 icon: const Icon(Icons.more_vert, color: Color(0xFF627D98), size: 22),
                 tooltip: "Device Actions",
                 onSelected: (action) {
-                  if (action == 'hotspot_setup') {
+                  if (action == 'ping') {
+                    _pingDevice(context, device);
+                  } else if (action == 'hotspot_setup') {
                     _showHotspotSetupDialog(context, device);
                   } else if (action == 'pair') {
                     _confirmPairDevice(context, device);
@@ -895,6 +897,16 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                   }
                 },
                 itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'ping',
+                    child: Row(
+                      children: [
+                        Icon(Icons.network_ping, color: Color(0xFF0284C7), size: 18),
+                        SizedBox(width: 8),
+                        Text("Ping Device", style: TextStyle(color: Color(0xFF0284C7), fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
                   const PopupMenuItem(
                     value: 'hotspot_setup',
                     child: Row(
@@ -979,6 +991,53 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _pingDevice(BuildContext pageContext, Map<String, dynamic> device) async {
+    final serialNumber = device['serial_number'] as String? ?? '';
+    final deviceName = device['device_name'] ?? serialNumber;
+    if (serialNumber.isEmpty) return;
+
+    ScaffoldMessenger.of(pageContext).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Text("Pinging $deviceName ($serialNumber)..."),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    final result = await ApiService.post('/api/caregiver/devices/$serialNumber/ping', body: {});
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(pageContext).hideCurrentSnackBar();
+    if (result['success'] == true && result['is_online'] == true) {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? "Device $serialNumber is Online (${result['latencyMs'] ?? 20}ms)"),
+          backgroundColor: const Color(0xFF00796B),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? "Device $serialNumber is Offline."),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    _fetchDevices(silent: true);
   }
 
   Future<void> _confirmUnpairDevice(

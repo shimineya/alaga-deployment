@@ -213,10 +213,22 @@ int calculateWetnessPercentage() {
     }
   } else if (sensor_type == 2) {
     // -------------------------------------------------------------------------
-    // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / Water Sensor
-    // Dry = LOW (0V / 0%) | Wet = HIGH (3.3V / 100%)
+    // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / Capacitive Tape
+    // Dry = LOW (0V / 0%) & Touch High (~1200) | Wet = HIGH (3.3V) or Touch Low (~0)
     // -------------------------------------------------------------------------
-    if (rawDigitalVal == HIGH) {
+    int touchVal = -1;
+    if (water_pin == 4 || water_pin == 0 || water_pin == 2 || water_pin == 12 || water_pin == 13 || water_pin == 14 || water_pin == 15 || water_pin == 27 || water_pin == 32 || water_pin == 33) {
+      touchVal = touchRead(water_pin);
+    }
+
+    if (touchVal >= 0 && touchVal < 400) {
+      // Capacitive Touch collapsed to 0 due to moisture / liquid bridging
+      percent = 100;
+    } else if (touchVal >= 400 && touchVal < 800) {
+      // Intermediate moisture / dampness
+      percent = map(touchVal, 800, 400, 20, 85);
+      percent = constrain(percent, 0, 100);
+    } else if (rawDigitalVal == HIGH) {
       percent = 100;
     } else {
       percent = 0;
@@ -226,7 +238,7 @@ int calculateWetnessPercentage() {
       int clamped = constrain(rawMoistureADC, 200, 3200);
       int analogPercent = map(clamped, 200, 3200, 0, 100);
       analogPercent = constrain(analogPercent, 0, 100);
-      if (rawDigitalVal == HIGH) {
+      if (rawDigitalVal == HIGH || (touchVal >= 0 && touchVal < 400)) {
         percent = max(percent, max(analogPercent, 85));
       } else {
         percent = analogPercent;

@@ -52,7 +52,7 @@ const int WETNESS_WET_RAW      = 800;  // Saturated ADC when wet (<0.8V)
 // ==============================================================================
 // DEFAULT FACTORY & SECURITY SETTINGS (Saved in NVS; overridable via Captive Portal)
 // ==============================================================================
-const char* DEFAULT_AP_SSID      = "ALAGA-Moisture-Setup";
+const char* DEFAULT_AP_SSID      = "ALAGA-Moisture-Setup-SD-2026-0001";
 const char* DEFAULT_AP_PASS      = "@Password123";       // WPA2-PSK: Minimum 8 characters
 const char* DEFAULT_ADMIN_PIN    = "alaga2026";          // Portal setup PIN to prevent tampering
 const char* DEFAULT_DEVICE_TOKEN = "alaga-test-token";   // Matches system device_token_hash

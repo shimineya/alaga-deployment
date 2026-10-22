@@ -25,32 +25,59 @@ object ScheduleReminders {
 
     fun initialize(c: Context) {
         if (Build.VERSION.SDK_INT >= 26) {
-            manager(c).createNotificationChannel(NotificationChannel(CHANNEL, "Schedule reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+            val mgr = manager(c)
+
+            // If channels already exist without sound, delete and recreate to enforce sound
+            val critCh = mgr.getNotificationChannel(CRITICAL_CHANNEL)
+            if (critCh != null && critCh.sound == null) {
+                mgr.deleteNotificationChannel(CRITICAL_CHANNEL)
+            }
+            val clinCh = mgr.getNotificationChannel(CLINICAL_CHANNEL)
+            if (clinCh != null && clinCh.sound == null) {
+                mgr.deleteNotificationChannel(CLINICAL_CHANNEL)
+            }
+
+            mgr.createNotificationChannel(NotificationChannel(CHANNEL, "Schedule reminders", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Reminders for appointments saved in your ALAGA dashboard"
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             })
-            manager(c).createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "ALAGA phone alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+            mgr.createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "ALAGA phone alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Audible ALAGA alerts using the tone and volume selected in the app"
                 setSound(null, null)
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             })
-            manager(c).createNotificationChannel(NotificationChannel(CRITICAL_CHANNEL, "Critical Health Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+            mgr.createNotificationChannel(NotificationChannel(CRITICAL_CHANNEL, "Critical Health Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Urgent alerts for critical patient vitals, tachycardia, hypoxemia, or emergency anomalies"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
+                val alarmAudio = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build()
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), alarmAudio)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             })
-            manager(c).createNotificationChannel(NotificationChannel(CLINICAL_CHANNEL, "Clinical & Diaper Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+            mgr.createNotificationChannel(NotificationChannel(CLINICAL_CHANNEL, "Clinical & Diaper Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Notifications for diaper wetness, scheduled care, and vitals warnings"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 300, 150, 300)
+                val notifAudio = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), notifAudio)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             })
-            manager(c).createNotificationChannel(NotificationChannel(CARETEAM_CHANNEL, "Care Team & Assignments", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            mgr.createNotificationChannel(NotificationChannel(CARETEAM_CHANNEL, "Care Team & Assignments", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Invitations, patient assignments, and team notifications"
                 enableVibration(true)
+                val notifAudio = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), notifAudio)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             })
         }
@@ -106,34 +133,63 @@ object ScheduleReminders {
             .apply()
     }
 
+    private var alertPlayer: MediaPlayer? = null
+
+    fun stopAlertSound() {
+        try {
+            alertPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
+        } catch (_: Exception) {}
+        alertPlayer = null
+    }
+
     fun playAlertSound(c: Context) {
         val p = prefs(c)
         val volume = p.getFloat("alert_volume", 1f).coerceIn(0f, 1f)
         if (volume <= 0f) return
+        stopAlertSound()
         val savedUri = p.getString("alert_tone_uri", "").orEmpty()
         val uri = if (savedUri.isBlank())
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         else android.net.Uri.parse(savedUri)
-        val player = MediaPlayer().apply {
-            setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build())
-            setDataSource(c, uri)
-            setVolume(volume, volume)
-            setOnCompletionListener { it.release() }
-            setOnErrorListener { pl, _, _ -> pl.release(); true }
-            prepare()
-            start()
-        }
-        Handler(Looper.getMainLooper()).postDelayed({
-            try {
-                if (player.isPlaying) player.stop()
-                player.release()
-            } catch (_: IllegalStateException) {
-                // Completion may have already released a short sound.
+        try {
+            val player = MediaPlayer().apply {
+                setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+                setDataSource(c, uri)
+                setVolume(volume, volume)
+                setOnCompletionListener {
+                    it.release()
+                    if (alertPlayer === it) alertPlayer = null
+                }
+                setOnErrorListener { pl, _, _ ->
+                    pl.release()
+                    if (alertPlayer === pl) alertPlayer = null
+                    true
+                }
+                prepare()
+                start()
             }
-        }, 5_000)
+            alertPlayer = player
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    if (alertPlayer === player) {
+                        if (player.isPlaying) player.stop()
+                        player.release()
+                        alertPlayer = null
+                    }
+                } catch (_: Exception) {}
+            }, 6_000)
+        } catch (e: Exception) {
+            try {
+                val ringtone = RingtoneManager.getRingtone(c, uri)
+                ringtone?.play()
+            } catch (_: Exception) {}
+        }
     }
 
     fun postAlert(
@@ -174,8 +230,22 @@ object ScheduleReminders {
             Notification.Builder(c)
         }
 
+        if (!playSound) {
+            builder.setOnlyAlertOnce(true)
+            builder.setDefaults(0)
+            if (Build.VERSION.SDK_INT < 26) {
+                builder.setSound(null)
+            }
+        } else if (Build.VERSION.SDK_INT < 26) {
+            val soundUri = RingtoneManager.getDefaultUri(
+                if (severity.equals("critical", ignoreCase = true)) RingtoneManager.TYPE_ALARM else RingtoneManager.TYPE_NOTIFICATION
+            )
+            builder.setSound(soundUri)
+            builder.setDefaults(Notification.DEFAULT_ALL)
+        }
+
         val notification = builder
-            .setSmallIcon(R.drawable.ic_schedule_notification)
+            .setSmallIcon(R.drawable.ic_alert_notification)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(Notification.BigTextStyle().bigText(message))

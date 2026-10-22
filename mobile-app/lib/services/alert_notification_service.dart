@@ -35,6 +35,11 @@ class AlertNotificationService {
   static Timer? _sseReconnectTimer;
   static bool _isMuted = false;
 
+  // Unacknowledged alerts tracking & continuous reminder loop
+  static int _unacknowledgedCount = 0;
+  static String _highestUrgency = 'none'; // 'critical' | 'warning' | 'none'
+  static Timer? _continuousAlarmTimer;
+
   // Stream controller to notify in-app screens (NotificationScreen, Dashboard, etc.)
   static final StreamController<Map<String, dynamic>> _alertStreamController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -48,6 +53,12 @@ class AlertNotificationService {
 
   /// Whether real-time SSE stream is actively connected
   static bool get isSseConnected => _isSseConnected;
+
+  /// Number of active unacknowledged, unflagged, unarchived alerts
+  static int get unacknowledgedCount => _unacknowledgedCount;
+
+  /// Highest active alert urgency level ('critical', 'warning', or 'none')
+  static String get highestUrgency => _highestUrgency;
 
   /// Initialize the notification service and load delivered alert history
   static Future<void> initialize() async {
@@ -85,6 +96,7 @@ class AlertNotificationService {
 
   /// Stop real-time monitoring and polling
   static void stopMonitoring() {
+    stopContinuousAlarm();
     _pollingTimer?.cancel();
     _pollingTimer = null;
     _sseReconnectTimer?.cancel();
@@ -191,6 +203,11 @@ class AlertNotificationService {
       final targetUserId = payload['userId'];
       if (targetUserId == null || currentUserId == null || targetUserId.toString() == currentUserId.toString()) {
         _isMuted = payload['isMuted'] == true;
+        if (_isMuted) {
+          stopContinuousAlarm();
+        } else {
+          _updateContinuousAlarm();
+        }
       }
       return;
     }
@@ -230,14 +247,12 @@ class AlertNotificationService {
         playSound: shouldPlaySound,
       );
 
-      if (shouldPlaySound) {
-        await playAlertSound();
-      }
-
       if (key != null) {
         _deliveredIds.add(key);
         await _persistDeliveredIds();
       }
+
+      await _checkClinicalAlerts();
       return;
     }
 
@@ -260,6 +275,7 @@ class AlertNotificationService {
           await cancelNotification(alertId);
         }
       }
+      await _checkClinicalAlerts();
       return;
     }
 
@@ -274,6 +290,7 @@ class AlertNotificationService {
           }
         }
       }
+      await _checkClinicalAlerts();
       return;
     }
 
@@ -288,6 +305,11 @@ class AlertNotificationService {
   static Future<bool> toggleMute({int durationMinutes = 15}) async {
     final newMuted = !_isMuted;
     _isMuted = newMuted;
+    if (_isMuted) {
+      stopContinuousAlarm();
+    } else {
+      _updateContinuousAlarm();
+    }
 
     try {
       final res = await ApiService.post(
@@ -329,6 +351,21 @@ class AlertNotificationService {
     final List<dynamic> alerts = res['data'] is List ? res['data'] : [];
     bool stateChanged = false;
 
+    // Filter pending unacknowledged, unflagged (<5), unsuppressed, unarchived alerts
+    final pending = alerts.where((raw) {
+      if (raw is! Map) return false;
+      final a = Map<String, dynamic>.from(raw);
+      final status = (a['status'] ?? '').toString().toLowerCase();
+      final flagCount = int.tryParse(a['flag_count']?.toString() ?? '0') ?? 0;
+      final isSuppressed = a['is_suppressed'] == true || a['is_suppressed'] == 1;
+      return status != 'acknowledged' && status != 'archived' && status != 'resolved' && flagCount < 5 && !isSuppressed;
+    }).toList();
+
+    _unacknowledgedCount = pending.length;
+    final hasCritical = pending.any((raw) => ((raw as Map)['severity'] ?? '').toString().toLowerCase() == 'critical');
+    final hasWarning = pending.any((raw) => ((raw as Map)['severity'] ?? '').toString().toLowerCase() == 'warning');
+    _highestUrgency = hasCritical ? 'critical' : (hasWarning ? 'warning' : 'none');
+
     for (final raw in alerts) {
       if (raw is! Map) continue;
       final alert = Map<String, dynamic>.from(raw);
@@ -358,9 +395,7 @@ class AlertNotificationService {
         title = '⚠️ CLINICAL ALERT: $patientName';
       }
 
-
       final numericId = int.tryParse(alertId) ?? (DateTime.now().millisecondsSinceEpoch % 100000);
-
       final playSound = !_isMuted;
 
       await showSystemNotification(
@@ -372,10 +407,6 @@ class AlertNotificationService {
         playSound: playSound,
       );
 
-      if (playSound) {
-        await playAlertSound();
-      }
-
       _deliveredIds.add(key);
       stateChanged = true;
     }
@@ -383,6 +414,9 @@ class AlertNotificationService {
     if (stateChanged) {
       await _persistDeliveredIds();
     }
+
+    // Trigger or update continuous periodic reminder alarm
+    _updateContinuousAlarm();
   }
 
   /// Check /api/assignments/pending for un-notified team invitations
@@ -475,6 +509,50 @@ class AlertNotificationService {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Stop any active alert sound immediately
+  static Future<bool> stopAlertSound() async {
+    try {
+      await _notifChannel.invokeMethod('stopAlertSound');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Manages repeating audible chime loop for unacknowledged clinical alerts.
+  /// - Critical alerts: repeat chime every 15 seconds.
+  /// - Warning/Diaper alerts: repeat chime every 30 seconds.
+  /// - When unacknowledgedCount == 0 or _isMuted == true: stop alarm immediately.
+  static void _updateContinuousAlarm() {
+    if (_unacknowledgedCount == 0 || _isMuted || _highestUrgency == 'none') {
+      stopContinuousAlarm();
+      return;
+    }
+
+    if (_continuousAlarmTimer != null && _continuousAlarmTimer!.isActive) {
+      return;
+    }
+
+    // Play initial chime
+    playAlertSound();
+
+    final intervalSeconds = _highestUrgency == 'critical' ? 15 : 30;
+    _continuousAlarmTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) {
+      if (_unacknowledgedCount > 0 && !_isMuted && _highestUrgency != 'none') {
+        playAlertSound();
+      } else {
+        stopContinuousAlarm();
+      }
+    });
+  }
+
+  /// Stops continuous alarm timer and silences any playing tone
+  static void stopContinuousAlarm() {
+    _continuousAlarmTimer?.cancel();
+    _continuousAlarmTimer = null;
+    stopAlertSound();
   }
 
   /// Check if Android notifications are granted and channels are open

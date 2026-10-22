@@ -72,6 +72,10 @@ class MainActivity : FlutterFragmentActivity() {
                         ScheduleReminders.playAlertSound(this)
                         result.success(true)
                     }
+                    "stopAlertSound" -> {
+                        ScheduleReminders.stopAlertSound()
+                        result.success(true)
+                    }
                     "areNotificationsEnabled" -> {
                         result.success(ScheduleReminders.allowed(this))
                     }
@@ -95,6 +99,10 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "playAlertSound" -> {
                         ScheduleReminders.playAlertSound(this)
+                        result.success(true)
+                    }
+                    "stopAlertSound" -> {
+                        ScheduleReminders.stopAlertSound()
                         result.success(true)
                     }
                     "cancelNotification" -> {

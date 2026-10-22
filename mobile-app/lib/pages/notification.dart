@@ -281,6 +281,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     if (result['success'] == true) {
       _fetchAlerts(); // Refresh list
+      AlertNotificationService.cancelNotification(alertId);
+      AlertNotificationService.checkAlerts();
     }
   }
 
@@ -307,6 +309,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
           ),
         );
         _fetchAlerts();
+        AlertNotificationService.checkAlerts();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

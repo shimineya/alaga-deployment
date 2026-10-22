@@ -85,15 +85,22 @@ export const usePatients = (token: string | null) => {
             const detail = e?.detail;
             if (!detail) return;
 
-            if (detail.type === 'device_status_update') {
+            if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
                 const targetPatientId = String(detail.patient_id || detail.patientId || '');
-                const isOnline = detail.status === 'ACTIVE';
+                const isOnline = detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE';
                 const sn = String(detail.serial_number || '');
-                const isVS = sn.startsWith('VS-');
-                const isSD = sn.startsWith('SD-');
+                const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
+                const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
+
+                const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
+                const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
+                const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
+                const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
+                const isFinger = detail.finger_detected !== undefined ? !!detail.finger_detected : (detail.latest_telemetry?.finger_detected !== undefined ? !!detail.latest_telemetry?.finger_detected : undefined);
 
                 setPatients(prev => prev.map(p => {
                     if (!targetPatientId || String(p.id) === targetPatientId) {
+                        const existingTelem = (p as any).latest_telemetry || {};
                         const paired = ((p as any).paired_devices || []).map((dev: any) => {
                             if (dev.serial_number === sn) {
                                 return {
@@ -106,6 +113,12 @@ export const usePatients = (token: string | null) => {
                             }
                             return dev;
                         });
+
+                        const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : existingTelem.heart_rate;
+                        const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : existingTelem.temperature;
+                        const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : existingTelem.spo2;
+                        const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture;
+
                         return {
                             ...p,
                             deviceConnected: isOnline,
@@ -113,62 +126,31 @@ export const usePatients = (token: string | null) => {
                             isOnline: isOnline,
                             is_vitals_online: isVS ? isOnline : (p as any).is_vitals_online,
                             is_moisture_online: isSD ? isOnline : (p as any).is_moisture_online,
+                            heart_rate: finalHr,
+                            temperature: finalTemp,
+                            spo2: finalSp,
+                            moisture: finalMoist,
+                            moisture_value: finalMoist,
+                            baselineVitals: {
+                                heartRate: finalHr || 0,
+                                temperature: finalTemp || 0,
+                                spo2: finalSp || 0,
+                                moistureLevel: finalMoist || 0
+                            },
+                            latest_telemetry: {
+                                ...existingTelem,
+                                heart_rate: finalHr,
+                                temperature: finalTemp,
+                                spo2: finalSp,
+                                moisture: finalMoist,
+                                finger_detected: isFinger !== undefined ? isFinger : existingTelem.finger_detected,
+                                recorded_at: detail.recorded_at || detail.timestamp || new Date().toISOString()
+                            },
                             paired_devices: paired
                         } as any;
                     }
                     return p;
                 }));
-            } else if (detail.type === 'patient_telemetry_update') {
-                const targetPatientId = String(detail.patient_id || detail.patientId || '');
-                if (targetPatientId) {
-                    const sn = String(detail.serial_number || '');
-                    const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
-                    const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
-
-                    const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
-                    const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
-                    const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
-                    const rawMoist = detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture;
-
-                    setPatients(prev => prev.map(p => {
-                        if (String(p.id) === targetPatientId) {
-                            const existingTelem = (p as any).latest_telemetry || {};
-                            const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : existingTelem.heart_rate;
-                            const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : existingTelem.temperature;
-                            const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : existingTelem.spo2;
-                            const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture;
-
-                            return {
-                                ...p,
-                                deviceConnected: true,
-                                is_online: true,
-                                isOnline: true,
-                                is_vitals_online: isVS ? true : (p as any).is_vitals_online,
-                                is_moisture_online: isSD ? true : (p as any).is_moisture_online,
-                                heart_rate: finalHr,
-                                temperature: finalTemp,
-                                spo2: finalSp,
-                                moisture: finalMoist,
-                                moisture_value: finalMoist,
-                                baselineVitals: {
-                                    heartRate: finalHr || 0,
-                                    temperature: finalTemp || 0,
-                                    spo2: finalSp || 0,
-                                    moistureLevel: finalMoist || 0
-                                },
-                                latest_telemetry: {
-                                    ...existingTelem,
-                                    heart_rate: finalHr,
-                                    temperature: finalTemp,
-                                    spo2: finalSp,
-                                    moisture: finalMoist,
-                                    recorded_at: detail.recorded_at || new Date().toISOString()
-                                }
-                            } as any;
-                        }
-                        return p;
-                    }));
-                }
             }
         };
 

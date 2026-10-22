@@ -182,25 +182,10 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
     const handleRealtimeTelemetry = (e: any) => {
       const detail = e?.detail;
       if (!detail) return;
-      if (detail.type === 'device_status_update') {
+      if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
         const updatePatientId = String(detail.patient_id || detail.patientId || '');
         if (!updatePatientId || updatePatientId === patId) {
-          const isAct = detail.status === 'ACTIVE';
-          const sn = String(detail.serial_number || '');
-          const isVS = sn.startsWith('VS-');
-          const isSD = sn.startsWith('SD-');
-          setPatient((prev: any) => ({
-            ...prev,
-            is_online: isAct,
-            isOnline: isAct,
-            deviceConnected: isAct,
-            is_vitals_online: isVS ? isAct : prev.is_vitals_online,
-            is_moisture_online: isSD ? isAct : prev.is_moisture_online,
-          }));
-        }
-      } else if (detail.type === 'patient_telemetry_update') {
-        const updatePatientId = String(detail.patient_id || detail.patientId);
-        if (updatePatientId === patId) {
+          const isAct = detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE';
           const sn = String(detail.serial_number || '');
           const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
           const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
@@ -208,37 +193,40 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
           const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
           const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
           const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
-          const rawMoist = detail.moisture !== undefined ? detail.moisture : detail.latest_telemetry?.moisture;
-          const ts = new Date(detail.recorded_at || Date.now());
+          const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
+          const ts = new Date(detail.recorded_at || detail.timestamp || Date.now());
 
           if (isMounted) {
             setPatient((prev: any) => ({
               ...prev,
-              is_online: true,
-              isOnline: true,
-              deviceConnected: true,
-              is_vitals_online: isVS ? true : prev.is_vitals_online,
-              is_moisture_online: isSD ? true : prev.is_moisture_online,
+              is_online: isAct,
+              isOnline: isAct,
+              deviceConnected: isAct,
+              is_vitals_online: isVS ? isAct : prev.is_vitals_online,
+              is_moisture_online: isSD ? isAct : prev.is_moisture_online,
             }));
-            setVitalSigns(prev => {
-              const prevVital = prev[prev.length - 1];
-              const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : (prevVital?.heartRate ?? 0);
-              const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : (prevVital?.temperature ?? 0);
-              const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : (prevVital?.spo2 ?? 0);
-              const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0);
 
-              return [
-                ...prev,
-                {
-                  id: `v-live-${ts.getTime()}`,
-                  timestamp: ts,
-                  heartRate: finalHr,
-                  temperature: finalTemp,
-                  spo2: finalSp,
-                  moistureLevel: finalMoist,
-                }
-              ];
-            });
+            if (rawHr !== undefined || rawTemp !== undefined || rawSp !== undefined || rawMoist !== undefined) {
+              setVitalSigns(prev => {
+                const prevVital = prev[prev.length - 1];
+                const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : (prevVital?.heartRate ?? 0);
+                const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : (prevVital?.temperature ?? 0);
+                const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : (prevVital?.spo2 ?? 0);
+                const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0);
+
+                return [
+                  ...prev,
+                  {
+                    id: `v-live-${ts.getTime()}`,
+                    timestamp: ts,
+                    heartRate: finalHr,
+                    temperature: finalTemp,
+                    spo2: finalSp,
+                    moistureLevel: finalMoist,
+                  }
+                ];
+              });
+            }
           }
         }
       }

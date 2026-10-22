@@ -187,8 +187,8 @@ function evaluateClinicalRules({
     // RULE SET 1: CRITICAL CLINICAL THRESHOLDS & BOUNDARIES
     // ────────────────────────────────────────────────────────────────────────
 
-    // 1. SpO2 Hypoxia Check
-    if (sp !== null) {
+    // 1. SpO2 Hypoxia Check (Valid physiological SpO2 > 0%; 0% indicates detached probe or standby)
+    if (sp !== null && sp > 0) {
         if (sp < universal.spo2_critical) {
             if (!isBaselineSuppressed('spo2', sp, baselines, 'rule_spo2')) {
                 alerts.push({
@@ -219,15 +219,17 @@ function evaluateClinicalRules({
     }
 
     // 2. Heart Rate Checks (Flatline, Tachycardia, Bradycardia)
-    if (hr !== null) {
+    // If hr === 0 and sp === 0 (or sp is null), the sensor is simply detached or in standby (handled by hardware status, not clinical code-blue)
+    const isProbeDetached = (hr === 0 || hr === null) && (sp === 0 || sp === null);
+    if (hr !== null && !isProbeDetached) {
         if (hr === universal.hr_asystole) {
             alerts.push({
                 vital: 'heart_rate',
                 anomaly_type: 'rule_heart_rate_flatline',
                 severity: 'critical',
                 value: 0,
-                message: 'EMERGENCY: Pulse reading at 0 bpm — Asystole or detached sensor!',
-                detail: buildRuleDetail('heart_rate_low', 'No cardiac pulse detected'),
+                message: 'EMERGENCY: Pulse reading at 0 bpm — Asystole cardiac arrest!',
+                detail: buildRuleDetail('heart_rate_low', 'No cardiac pulse detected with active probe contact'),
                 is_rule_based: true,
                 rule_code: 'R_HR_ASYSTOLE'
             });

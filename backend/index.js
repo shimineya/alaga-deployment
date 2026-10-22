@@ -1779,6 +1779,8 @@ app.post('/api/device/data', async (req, res) => {
         }
 
 
+        const isFingerDetected = req.body.finger_detected === true || req.body.finger_detected === 'true';
+
         // Real-time SSE Broadcast: device turned online or refreshed telemetry
         broadcastAlert('device_status_update', {
             serial_number: device_id,
@@ -1786,6 +1788,7 @@ app.post('/api/device/data', async (req, res) => {
             patient_id: patientId,
             battery_level: batteryVal,
             signal_strength: signalVal,
+            finger_detected: isFingerDetected,
             is_offline_buffer: !!req.body.is_offline_buffer,
             event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
             latest_telemetry: {
@@ -1793,6 +1796,7 @@ app.post('/api/device/data', async (req, res) => {
                 temperature: temp,
                 spo2: sp,
                 moisture: moist,
+                finger_detected: isFingerDetected,
                 recorded_at: recordedAt
             },
             timestamp: new Date().toISOString()
@@ -1807,6 +1811,7 @@ app.post('/api/device/data', async (req, res) => {
             temperature: temp,
             spo2: sp,
             moisture: moist,
+            finger_detected: isFingerDetected,
             battery_level: batteryVal,
             signal_strength: signalVal,
             recorded_at: recordedAt,
@@ -1816,6 +1821,7 @@ app.post('/api/device/data', async (req, res) => {
                 temperature: temp,
                 spo2: sp,
                 moisture: moist,
+                finger_detected: isFingerDetected,
                 recorded_at: recordedAt
             }
         });

@@ -457,6 +457,8 @@ router.post('/reading', readingValidation, async (req, res) => {
 
     const telemetryTimestamp = new Date().toISOString();
 
+    const isFingerDetected = req.body.finger_detected === true || req.body.finger_detected === 'true';
+
     // Real-time SSE Broadcast: device turned online or refreshed telemetry
     broadcastAlert('device_status_update', {
         serial_number: deviceSerial,
@@ -464,6 +466,7 @@ router.post('/reading', readingValidation, async (req, res) => {
         patient_id: patientId,
         battery_level: battery,
         signal_strength: signal,
+        finger_detected: isFingerDetected,
         is_offline_buffer: !!req.body.is_offline_buffer,
         event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
         latest_telemetry: {
@@ -471,6 +474,7 @@ router.post('/reading', readingValidation, async (req, res) => {
             temperature: temperature,
             spo2: spo2,
             moisture: moisture,
+            finger_detected: isFingerDetected,
             recorded_at: telemetryTimestamp
         },
         timestamp: telemetryTimestamp
@@ -485,6 +489,7 @@ router.post('/reading', readingValidation, async (req, res) => {
         temperature: temperature,
         spo2: spo2,
         moisture: moisture,
+        finger_detected: isFingerDetected,
         battery_level: battery,
         signal_strength: signal,
         recorded_at: telemetryTimestamp,
@@ -494,6 +499,7 @@ router.post('/reading', readingValidation, async (req, res) => {
             temperature: temperature,
             spo2: spo2,
             moisture: moisture,
+            finger_detected: isFingerDetected,
             recorded_at: telemetryTimestamp
         }
     });

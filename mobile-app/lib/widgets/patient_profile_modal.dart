@@ -69,9 +69,10 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
             _patient['is_online'] = isAct;
             _patient['isOnline'] = isAct;
             _patient['device_status'] = isAct ? 'active' : 'inactive';
-          });
         }
-      } else if (eventType == 'patient_telemetry_update') {
+      }
+      final rawTelem = data['latest_telemetry'] is Map ? Map<String, dynamic>.from(data['latest_telemetry']) : null;
+      if (eventType == 'patient_telemetry_update' || rawTelem != null) {
         final updatePatientId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (updatePatientId == targetPatientId) {
           final sn = data['serial_number']?.toString() ?? '';

@@ -151,9 +151,9 @@ class _DashboardScreenState extends State<DashboardScreen>
             }
           }
         });
-      } else if (eventType == 'patient_telemetry_update') {
         final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
-        if (targetId != null) {
+        final rawTelem = data['latest_telemetry'] is Map ? Map<String, dynamic>.from(data['latest_telemetry']) : null;
+        if (targetId != null && (eventType == 'patient_telemetry_update' || rawTelem != null)) {
           final sn = data['serial_number']?.toString() ?? '';
           final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
@@ -166,15 +166,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ? Map<String, dynamic>.from(p['latest_telemetry'])
                     : <String, dynamic>{};
 
-                final hr = data['heart_rate'] ?? data['latest_telemetry']?['heart_rate'];
-                final temp = data['temperature'] ?? data['latest_telemetry']?['temperature'];
-                final sp = data['spo2'] ?? data['latest_telemetry']?['spo2'];
-                final moist = data['moisture'] ?? data['moisture_value'] ?? data['latest_telemetry']?['moisture'] ?? data['latest_telemetry']?['moisture_value'];
+                final hr = data['heart_rate'] ?? rawTelem?['heart_rate'];
+                final temp = data['temperature'] ?? rawTelem?['temperature'];
+                final sp = data['spo2'] ?? rawTelem?['spo2'];
+                final moist = data['moisture'] ?? data['moisture_value'] ?? rawTelem?['moisture'] ?? rawTelem?['moisture_value'];
+                final finger = data['finger_detected'] ?? rawTelem?['finger_detected'];
 
                 if (hr != null && ((hr is num && hr > 0) || !isSD)) existingTelem['heart_rate'] = hr;
                 if (temp != null && ((temp is num && temp > 0) || !isSD)) existingTelem['temperature'] = temp;
                 if (sp != null && ((sp is num && sp > 0) || !isSD)) existingTelem['spo2'] = sp;
                 if (moist != null) existingTelem['moisture'] = moist;
+                if (finger != null) existingTelem['finger_detected'] = finger;
 
                 _patients[i] = {
                   ...p,
@@ -2495,11 +2497,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
 
+    final bool isFingerOn = telemetry['finger_detected'] == true || patient['finger_detected'] == true;
     final bool hasVitalsTelem = telemetry.isNotEmpty && (telemetry['recorded_at'] != null || (hrNum != null && hrNum > 0) || (tempNum != null && tempNum > 0));
-    final bool isVitalsCalibrating = isVitalsActive && !hasVitalsTelem;
-    final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null);
-    final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null);
-    final bool isTempMisaligned = isVitalsActive && hasVitalsTelem && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrMisaligned && isSpo2Misaligned));
+    final bool isVitalsCalibrating = isVitalsActive && (!hasVitalsTelem || (isFingerOn && (hrNum == 0 || hrNum == null)));
+    final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null) && !isFingerOn;
+    final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null) && !isFingerOn;
+    final bool isTempMisaligned = isVitalsActive && (tempNum == 0 || tempNum == null);
     final bool isMoistCalibrating = isMoistureActive && (rawMoist == null);
     final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
     final bool isAnyCalibrating = isVitalsCalibrating || isMoistCalibrating;

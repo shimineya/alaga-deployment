@@ -201,10 +201,15 @@ void readTemperature() {
         estBodyTemp = dieTemp + 1.2; // Calibrated offset for wrist wear
       }
       temperatureC = constrain(estBodyTemp, 30.0, 42.0);
+    } else if (dieTemp >= 15.0 && dieTemp <= 50.0) {
+      temperatureC = dieTemp;
     }
-  } else {
-    // Detached / disconnected from wrist: report 0.0 (Detached / No Reading) in real time like BPM and SpO2!
-    temperatureC = 0.0;
+  } else if (sensorFound) {
+    // Read live temperature from MAX30102 on-die sensor in real time
+    float dieTemp = particleSensor.readTemperature();
+    if (dieTemp >= 15.0 && dieTemp <= 50.0) {
+      temperatureC = dieTemp;
+    }
   }
 }
 
@@ -1645,7 +1650,6 @@ void loop() {
           fingerDetected       = false;
           beatAvg              = 0.0;
           currentSpO2          = 0.0;
-          temperatureC         = 0.0; // Real-time detached status
           dcIR                 = 0;
           dcRed                = 0;
           lastACIR             = 0;

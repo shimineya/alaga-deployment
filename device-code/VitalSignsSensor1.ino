@@ -1645,7 +1645,6 @@ void loop() {
           fingerDetected       = false;
           beatAvg              = 0.0;
           currentSpO2          = 0.0;
-          temperatureC         = 0.0; // Real-time detached status
           dcIR                 = 0;
           dcRed                = 0;
           lastACIR             = 0;

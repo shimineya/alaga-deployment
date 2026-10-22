@@ -201,10 +201,15 @@ void readTemperature() {
         estBodyTemp = dieTemp + 1.2; // Calibrated offset for wrist wear
       }
       temperatureC = constrain(estBodyTemp, 30.0, 42.0);
+    } else if (dieTemp >= 15.0 && dieTemp <= 50.0) {
+      temperatureC = dieTemp;
     }
-  } else {
-    // Detached / disconnected from wrist: report 0.0 (Detached / No Reading) in real time like BPM and SpO2!
-    temperatureC = 0.0;
+  } else if (sensorFound) {
+    // Read live temperature from MAX30102 on-die sensor in real time
+    float dieTemp = particleSensor.readTemperature();
+    if (dieTemp >= 15.0 && dieTemp <= 50.0) {
+      temperatureC = dieTemp;
+    }
   }
 }
 
@@ -498,6 +503,9 @@ void sendToBackend() {
     Serial.println(payload);
 
     http.end();
+    if (sensorFound) {
+      particleSensor.clearFIFO(); // Clear FIFO backlog accumulated during network request
+    }
   } else {
     // Wi-Fi or connection lost: retain latest available clinical reading
     bufferCurrentReading();
@@ -1358,6 +1366,34 @@ bool connectToWiFi() {
   }
 }
 
+// ------------------------------------------------------------------------------
+// MAX30102 PULSE OXIMETER INITIALIZATION & RECOVERY
+// ------------------------------------------------------------------------------
+bool initMAX30102() {
+  pinMode(21, INPUT_PULLUP);
+  pinMode(22, INPUT_PULLUP);
+  Wire.begin(21, 22, 100000); // Standard 100kHz I2C clock
+  Wire.setTimeOut(100);
+  delay(20);
+
+  if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
+    Serial.println("⚠️ [I2C WARNING] MAX30102 not detected. Verifying wiring (SDA=Pin 21, SCL=Pin 22, VIN=3.3V/5V, GND=GND)...");
+    sensorFound = false;
+    return false;
+  }
+
+  Serial.println("✅ [I2C] MAX30102 Pulse Oximeter initialized successfully.");
+  sensorFound = true;
+  // setup(powerLevel, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange)
+  // 0x7F (~25.4mA), 4 samples average, Mode 2 (Red+IR), 100Hz sample rate, 411us pulse width, 4096 ADC range
+  particleSensor.setup(0x7F, 4, 2, 100, 411, 4096);
+  particleSensor.setPulseAmplitudeRed(0x7F);  // Maximum bright red optical illumination
+  particleSensor.setPulseAmplitudeIR(0x7F);   // Full optical penetration
+  particleSensor.setPulseAmplitudeGreen(0);   // Green LED off (saves current)
+  particleSensor.clearFIFO();
+  return true;
+}
+
 // ==============================================================================
 // SETUP ROUTINE
 // ==============================================================================
@@ -1378,25 +1414,8 @@ void setup() {
   pinMode(BATTERY_PIN,    INPUT);
   pinMode(THERMISTOR_PIN, INPUT);
 
-  // 2. Initialize MAX30102 via I2C (SDA=21, SCL=22)
-  pinMode(21, INPUT_PULLUP);
-  pinMode(22, INPUT_PULLUP);
-  Wire.begin(21, 22, 100000); // 100kHz standard reliable mode
-  Wire.setTimeOut(100);       // Prevent I2C bus lockup on boot / battery sags
-
-  if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
-    Serial.println("⚠️ [I2C WARNING] MAX30102 not detected. Verifying wiring (SDA=Pin 21, SCL=Pin 22, VIN=3.3V/5V, GND=GND)...");
-    sensorFound = false;
-  } else {
-    Serial.println("✅ [I2C] MAX30102 Pulse Oximeter initialized successfully.");
-    sensorFound = true;
-    // Configure MAX30102 for Red + IR dual-wavelength pulse oximetry on the WRIST
-    // Mode 2 = Red + IR, 400Hz sample rate, 411us pulse width
-    particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-    particleSensor.setPulseAmplitudeRed(0x7F); // ~25.4mA - High-visibility bright red optical illumination
-    particleSensor.setPulseAmplitudeIR(0x7F);  // ~25.4mA - Full optical penetration
-    particleSensor.setPulseAmplitudeGreen(0);
-  }
+  // 2. Initialize MAX30102 Pulse Oximeter
+  initMAX30102();
 
   // 3. Load Persistent Configuration & Security Tokens from NVS
   preferences.begin("alaga-cfg", false);
@@ -1490,21 +1509,12 @@ void loop() {
   server.handleClient();
 
   // I2C Auto-Recovery if MAX30102 not yet detected
+  // Auto-recovery if MAX30102 not yet detected
   static unsigned long lastI2CRetry = 0;
-  if (!sensorFound && (millis() - lastI2CRetry > 2500)) {
+  if (!sensorFound && (millis() - lastI2CRetry > 3000)) {
     lastI2CRetry = millis();
     Serial.println("🔄 [I2C AUTO-RETRY] Probing MAX30102 on SDA=Pin 21, SCL=Pin 22...");
-    Wire.begin(21, 22, 100000);
-    if (particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
-      Serial.println("✅ [I2C CONNECTED] MAX30102 Pulse Oximeter detected and initialized!");
-      sensorFound = true;
-      particleSensor.setup(0x1F, 4, 2, 400, 411, 4096);
-      particleSensor.setPulseAmplitudeRed(0x7F);
-      particleSensor.setPulseAmplitudeIR(0x7F);
-      particleSensor.setPulseAmplitudeGreen(0);
-    } else {
-      Serial.println("⚠️ [I2C FAILED] Check wires: SDA->Pin 21, SCL->Pin 22, VIN->3.3V or 5V, GND->GND.");
-    }
+    initMAX30102();
   }
 
   // 3. Continuous MAX30102 PPG Sampling for BPM & SpO2
@@ -1512,19 +1522,28 @@ void loop() {
     long currentIR  = particleSensor.getIR();
     long currentRed = particleSensor.getRed();
 
-    // Check for transient I2C bus collision or read drop (0 readings)
-    // Ambient light always produces > 50-500 counts; 0 indicates an I2C transaction glitch during RF activity
+    // Check for I2C bus collision or communication drop (0 readings)
     if (currentIR == 0 && currentRed == 0) {
       static int i2cGlitchCount = 0;
       i2cGlitchCount++;
-      if (i2cGlitchCount > 15) {
-        Wire.begin(21, 22, 100000); // Soft-recover I2C bus
+      if (i2cGlitchCount > 30) {
+        Serial.println("⚠️ [I2C] Lost communication with MAX30102. Re-initializing sensor...");
+        sensorFound = false;
+        initMAX30102();
         i2cGlitchCount = 0;
       }
     } else {
+      // Diagnostic log printed to Serial Monitor every 2.0s
+      static unsigned long lastDiag = 0;
+      if (millis() - lastDiag > 2000) {
+        lastDiag = millis();
+        Serial.printf("🔍 [OPTICAL] IR: %ld | Red: %ld | Finger: %s | BPM: %.1f | SpO2: %.1f%% | Temp: %.1f°C\n",
+          currentIR, currentRed, fingerDetected ? "YES" : "NO", beatAvg, currentSpO2, temperatureC);
+      }
+
       // Check if sensor is placed on patient's skin/finger/wrist
-      // Human contact reflection produces > 25,000 counts; ambient room light is typically 3,000 - 18,000
-      bool validWristContact = (currentIR > 25000 && currentIR < 255000 && currentRed > 8000);
+      // Touching optical glass produces > 20,000 counts; ambient open air is typically < 10,000
+      bool validWristContact = (currentIR > 20000 && currentIR < 255000);
 
       // Optical filter & peak detector states
       static float dcIR = 0;

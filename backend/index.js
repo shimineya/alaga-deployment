@@ -1624,34 +1624,73 @@ app.post('/api/device/data', async (req, res) => {
         const isVS = String(device_id).startsWith('VS-');
         const isSD = String(device_id).startsWith('SD-');
 
-        // Carry forward previous complementary sensor readings for disjoint separate devices
-        const lastSnapshot = await pool.query(
-            `SELECT heart_rate, temperature, spo2, moisture_value 
-             FROM sensor_readings 
-             WHERE patient_id = $1 
-             ORDER BY recorded_at DESC LIMIT 1`,
-            [patientId]
-        );
+        let isVsActive = false;
+        let isSdActive = false;
 
-        if (lastSnapshot.rows.length > 0) {
-            const prev = lastSnapshot.rows[0];
-            if (isSD) {
-                // Smart Diaper Moisture Sensor: preserves vitals from Vital Signs Sensor
-                hr = parseFloat(prev.heart_rate) || 0;
-                temp = parseFloat(prev.temperature) || 0;
-                sp = parseFloat(prev.spo2) || 0;
-            } else if (isVS) {
-                // Vital Signs Sensor: preserves diaper moisture from Smart Diaper Moisture Sensor
-                moist = parseInt(prev.moisture_value, 10) || 0;
+        if (isSD) {
+            isSdActive = true;
+            // Check if the patient has an active Vital Signs sensor currently reporting
+            const vsCheck = await pool.query(
+                `SELECT 1 FROM device_whitelist 
+                 WHERE assigned_patient_id = $1 
+                   AND (serial_number LIKE 'VS-%' OR device_name ILIKE '%Vital%')
+                   AND status = 'ACTIVE' 
+                   AND last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                   AND is_archived IS DISTINCT FROM TRUE 
+                 LIMIT 1`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+            isVsActive = !!(vsCheck.rows && vsCheck.rows.length > 0);
+
+            if (isVsActive) {
+                // Vital Signs sensor is actively online: preserve recent active vitals
+                const lastVitals = await pool.query(
+                    `SELECT heart_rate, temperature, spo2 
+                     FROM sensor_readings 
+                     WHERE patient_id = $1 AND (heart_rate > 0 OR spo2 > 0 OR temperature > 0)
+                     ORDER BY recorded_at DESC LIMIT 1`,
+                    [patientId]
+                ).catch(() => ({ rows: [] }));
+                if (lastVitals.rows && lastVitals.rows.length > 0) {
+                    const prevV = lastVitals.rows[0];
+                    hr = parseFloat(prevV.heart_rate) || 0;
+                    temp = parseFloat(prevV.temperature) || 0;
+                    sp = parseFloat(prevV.spo2) || 0;
+                }
             } else {
-                if (hr <= 0 && temp <= 0 && sp <= 0) {
-                    hr = parseFloat(prev.heart_rate) || 0;
-                    temp = parseFloat(prev.temperature) || 0;
-                    sp = parseFloat(prev.spo2) || 0;
+                // Vital Signs sensor is NOT active - do not fabricate or carry forward stale vitals!
+                hr = 0;
+                temp = 0;
+                sp = 0;
+            }
+        } else if (isVS) {
+            isVsActive = true;
+            // Check if the patient has an active Smart Diaper sensor currently reporting
+            const sdCheck = await pool.query(
+                `SELECT 1 FROM device_whitelist 
+                 WHERE assigned_patient_id = $1 
+                   AND (serial_number LIKE 'SD-%' OR device_name ILIKE '%Diaper%' OR device_name ILIKE '%Moisture%')
+                   AND status = 'ACTIVE' 
+                   AND last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                   AND is_archived IS DISTINCT FROM TRUE 
+                 LIMIT 1`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+            isSdActive = !!(sdCheck.rows && sdCheck.rows.length > 0);
+
+            if (isSdActive) {
+                const lastMoist = await pool.query(
+                    `SELECT moisture_value 
+                     FROM sensor_readings 
+                     WHERE patient_id = $1 AND moisture_value > 0
+                     ORDER BY recorded_at DESC LIMIT 1`,
+                    [patientId]
+                ).catch(() => ({ rows: [] }));
+                if (lastMoist.rows && lastMoist.rows.length > 0) {
+                    moist = parseInt(lastMoist.rows[0].moisture_value, 10) || 0;
                 }
-                if (moist <= 0 && prev.moisture_value !== undefined && prev.moisture_value !== null) {
-                    moist = parseInt(prev.moisture_value, 10) || 0;
-                }
+            } else {
+                moist = 0;
             }
         }
 
@@ -1807,6 +1846,8 @@ app.post('/api/device/data', async (req, res) => {
             serial_number: device_id,
             device_type: isSD ? 'moisture' : (isVS ? 'vitals' : 'unified'),
             device_status: 'ACTIVE',
+            is_vitals_active: isVsActive,
+            is_moisture_active: isSdActive,
             heart_rate: hr,
             temperature: temp,
             spo2: sp,

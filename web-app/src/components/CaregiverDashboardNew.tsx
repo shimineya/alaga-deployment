@@ -410,24 +410,33 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 return dev;
                             });
 
-                            const isVOnline = isVS ? isOnline : ((p as any).is_vitals_online || pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital'))));
-                            const isMOnline = isSD ? isOnline : ((p as any).is_moisture_online || pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture'))));
+                            const isVOnline = isVS 
+                                ? isOnline 
+                                : (detail.is_vitals_active !== undefined 
+                                    ? !!detail.is_vitals_active 
+                                    : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital'))));
+
+                            const isMOnline = isSD 
+                                ? isOnline 
+                                : (detail.is_moisture_active !== undefined 
+                                    ? !!detail.is_moisture_active 
+                                    : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture'))));
 
                             const nextTelem = {
                                 ...existingTelem,
-                                heart_rate: rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : existingTelem.heart_rate,
-                                temperature: rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : existingTelem.temperature,
-                                spo2: rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : existingTelem.spo2,
-                                moisture: rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture,
-                                finger_detected: isFinger !== undefined ? isFinger : existingTelem.finger_detected,
+                                heart_rate: isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : existingTelem.heart_rate) : 0,
+                                temperature: isVOnline ? (rawTemp !== undefined && rawTemp !== null ? Number(rawTemp) : existingTelem.temperature) : 0,
+                                spo2: isVOnline ? (rawSp !== undefined && rawSp !== null ? Number(rawSp) : existingTelem.spo2) : 0,
+                                moisture: isMOnline ? (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture) : 0,
+                                finger_detected: isVOnline && isFinger !== undefined ? isFinger : false,
                                 recorded_at: detail.recorded_at || detail.timestamp || new Date().toISOString()
                             };
 
                             return {
                                 ...p,
-                                deviceConnected: isOnline,
-                                is_online: isOnline,
-                                isOnline: isOnline,
+                                deviceConnected: isVOnline || isMOnline,
+                                is_online: isVOnline || isMOnline,
+                                isOnline: isVOnline || isMOnline,
                                 is_vitals_online: isVOnline,
                                 is_moisture_online: isMOnline,
                                 paired_devices: pairedDevs,
@@ -1297,14 +1306,14 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 // Decoupled sensor online statuses
                                 const isVitalsOnline = (patient as any).is_vitals_online !== undefined 
                                     ? !!(patient as any).is_vitals_online 
-                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital') || (!String(d.serial_number || '').startsWith('SD-') && !String(d.device_name || '').toLowerCase().includes('diaper') && !String(d.device_name || '').toLowerCase().includes('moisture'))));
+                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
                                 
                                 const isMoistureOnline = (patient as any).is_moisture_online !== undefined 
                                     ? !!(patient as any).is_moisture_online 
-                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture') || (!String(d.serial_number || '').startsWith('VS-') && !String(d.device_name || '').toLowerCase().includes('vital'))));
+                                    : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
 
-                                const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDeviceOnline);
-                                const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDeviceOnline);
+                                const effectiveVitalsOnline = isVitalsOnline;
+                                const effectiveMoistureOnline = isMoistureOnline;
                                 const isAnySensorOnline = effectiveVitalsOnline || effectiveMoistureOnline;
 
                                 const pulseVal = effectiveVitalsOnline && latestVital ? (latestVital.heartRate ?? latestVital.heart_rate) : null;

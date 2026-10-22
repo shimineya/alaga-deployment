@@ -196,23 +196,26 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
           const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
           const ts = new Date(detail.recorded_at || detail.timestamp || Date.now());
 
+          const isVOnline = isVS ? isAct : (detail.is_vitals_active !== undefined ? !!detail.is_vitals_active : (patient as any)?.is_vitals_online);
+          const isMOnline = isSD ? isAct : (detail.is_moisture_active !== undefined ? !!detail.is_moisture_active : (patient as any)?.is_moisture_online);
+
           if (isMounted) {
             setPatient((prev: any) => ({
               ...prev,
-              is_online: isAct,
-              isOnline: isAct,
-              deviceConnected: isAct,
-              is_vitals_online: isVS ? isAct : prev.is_vitals_online,
-              is_moisture_online: isSD ? isAct : prev.is_moisture_online,
+              is_online: isVOnline || isMOnline,
+              isOnline: isVOnline || isMOnline,
+              deviceConnected: isVOnline || isMOnline,
+              is_vitals_online: isVOnline,
+              is_moisture_online: isMOnline,
             }));
 
             if (rawHr !== undefined || rawTemp !== undefined || rawSp !== undefined || rawMoist !== undefined) {
               setVitalSigns(prev => {
                 const prevVital = prev[prev.length - 1];
-                const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : (prevVital?.heartRate ?? 0);
-                const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : (prevVital?.temperature ?? 0);
-                const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : (prevVital?.spo2 ?? 0);
-                const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0);
+                const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : (prevVital?.heartRate ?? 0)) : 0;
+                const finalTemp = isVOnline ? (rawTemp !== undefined && rawTemp !== null ? Number(rawTemp) : (prevVital?.temperature ?? 0)) : 0;
+                const finalSp = isVOnline ? (rawSp !== undefined && rawSp !== null ? Number(rawSp) : (prevVital?.spo2 ?? 0)) : 0;
+                const finalMoist = isMOnline ? (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0)) : 0;
 
                 return [
                   ...prev,

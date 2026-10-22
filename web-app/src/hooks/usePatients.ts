@@ -114,18 +114,30 @@ export const usePatients = (token: string | null) => {
                             return dev;
                         });
 
-                        const finalHr = rawHr !== undefined && rawHr !== null && (Number(rawHr) > 0 || !isSD) ? Number(rawHr) : existingTelem.heart_rate;
-                        const finalTemp = rawTemp !== undefined && rawTemp !== null && (Number(rawTemp) > 0 || !isSD) ? Number(rawTemp) : existingTelem.temperature;
-                        const finalSp = rawSp !== undefined && rawSp !== null && (Number(rawSp) > 0 || !isSD) ? Number(rawSp) : existingTelem.spo2;
-                        const finalMoist = rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture;
+                        const isVOnline = isVS 
+                            ? isOnline 
+                            : (detail.is_vitals_active !== undefined 
+                                ? !!detail.is_vitals_active 
+                                : paired.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital'))));
+
+                        const isMOnline = isSD 
+                            ? isOnline 
+                            : (detail.is_moisture_active !== undefined 
+                                ? !!detail.is_moisture_active 
+                                : paired.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture'))));
+
+                        const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : existingTelem.heart_rate) : 0;
+                        const finalTemp = isVOnline ? (rawTemp !== undefined && rawTemp !== null ? Number(rawTemp) : existingTelem.temperature) : 0;
+                        const finalSp = isVOnline ? (rawSp !== undefined && rawSp !== null ? Number(rawSp) : existingTelem.spo2) : 0;
+                        const finalMoist = isMOnline ? (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture) : 0;
 
                         return {
                             ...p,
-                            deviceConnected: isOnline,
-                            is_online: isOnline,
-                            isOnline: isOnline,
-                            is_vitals_online: isVS ? isOnline : (p as any).is_vitals_online,
-                            is_moisture_online: isSD ? isOnline : (p as any).is_moisture_online,
+                            deviceConnected: isVOnline || isMOnline,
+                            is_online: isVOnline || isMOnline,
+                            isOnline: isVOnline || isMOnline,
+                            is_vitals_online: isVOnline,
+                            is_moisture_online: isMOnline,
                             heart_rate: finalHr,
                             temperature: finalTemp,
                             spo2: finalSp,

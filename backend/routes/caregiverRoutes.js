@@ -1680,8 +1680,8 @@ router.get('/patients/:id', async (req, res) => {
                                SELECT 1 FROM device_whitelist dw 
                                WHERE dw.assigned_patient_id = p.patient_id 
                                AND dw.status = 'ACTIVE' 
-                               AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
-                               AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%' OR (dw.serial_number NOT LIKE 'SD-%' AND dw.device_name NOT ILIKE '%Diaper%' AND dw.device_name NOT ILIKE '%Moisture%'))
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                               AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
                                AND dw.is_archived IS DISTINCT FROM TRUE
                            ) THEN true 
                            ELSE false 
@@ -1693,8 +1693,8 @@ router.get('/patients/:id', async (req, res) => {
                                SELECT 1 FROM device_whitelist dw 
                                WHERE dw.assigned_patient_id = p.patient_id 
                                AND dw.status = 'ACTIVE' 
-                               AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
-                               AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%' OR (dw.serial_number NOT LIKE 'VS-%' AND dw.device_name NOT ILIKE '%Vital%'))
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                               AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
                                AND dw.is_archived IS DISTINCT FROM TRUE
                            ) THEN true 
                            ELSE false 
@@ -1896,8 +1896,8 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
-                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%' OR (dw.serial_number NOT LIKE 'SD-%' AND dw.device_name NOT ILIKE '%Diaper%' AND dw.device_name NOT ILIKE '%Moisture%'))
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
                             ELSE false 
@@ -1909,8 +1909,8 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
-                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%' OR (dw.serial_number NOT LIKE 'VS-%' AND dw.device_name NOT ILIKE '%Vital%'))
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
                             ELSE false 
@@ -2093,8 +2093,8 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
-                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%' OR (dw.serial_number NOT LIKE 'SD-%' AND dw.device_name NOT ILIKE '%Diaper%' AND dw.device_name NOT ILIKE '%Moisture%'))
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
                             ELSE false 
@@ -2106,8 +2106,8 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
-                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%' OR (dw.serial_number NOT LIKE 'VS-%' AND dw.device_name NOT ILIKE '%Vital%'))
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
                             ELSE false 

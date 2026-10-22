@@ -36,8 +36,8 @@ void __attribute__((constructor(101))) disable_brownout() {
 // - GPIO 34 is ADC1_CH6 (Input-only, Wi-Fi safe). Recommended for Analog A0 moisture!
 // - Both GPIO 4 and GPIO 34 can be selected via the Setup Web Portal or below.
 int water_pin             = 4;   // Active moisture sensor pin (Default: 4. Move to 34 for analog gradient)
-int sensor_type           = 2;   // 2 = Active-HIGH Conductive Diaper Probe / Water Sensor (Dry = LOW 0%, Wet = HIGH 100%) [Default]
-                                 // 0 = Standard LM393 / FC-28 / Rain Sensor (Active LOW D0 / Inverted Analog A0)
+int sensor_type           = 0;   // 0 = Standard LM393 / FC-28 / Rain Sensor (Active LOW D0 / Inverted Analog A0) [Default]
+                                 // 2 = Active-HIGH Conductive Diaper Probe / Water Sensor (Dry = LOW 0%, Wet = HIGH 100%)
                                  // 1 = Non-Inverted Analog (Voltage rises when wet, e.g. 3-wire water sensor)
 const int BATTERY_PIN     = 35;  // Battery voltage ADC (GPIO 35 is ADC1, WiFi-safe)
 const int CONFIG_BTN_PIN  = 0;   // ESP32 onboard BOOT button (Hold 3s to enter AP/Reset)
@@ -161,51 +161,57 @@ int calculateWetnessPercentage() {
 
   int percent = 0;
 
-  if (sensor_type == 2) {
+  if (sensor_type == 0) {
     // -------------------------------------------------------------------------
-    // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / 3-Wire Sensor (Default)
+    // SENSOR TYPE 0: Standard LM393 / FC-28 / Rain Sensor (Default Active-LOW D0)
+    // Dry = HIGH (1 / 3.3V) | Wet = LOW (0 / GND)
+    // -------------------------------------------------------------------------
+    if (rawDigitalVal == LOW) {
+      percent = 100;
+    } else {
+      percent = 0;
+    }
+
+    // If connected to an active ADC1 analog pin (GPIO 32, 33, 34)
+    if (rawMoistureADC > 100) {
+      int clamped = constrain(rawMoistureADC, WETNESS_WET_RAW, WETNESS_DRY_RAW);
+      int analogPercent = map(clamped, WETNESS_DRY_RAW, WETNESS_WET_RAW, 0, 100);
+      analogPercent = constrain(analogPercent, 0, 100);
+      if (rawDigitalVal == LOW) {
+        percent = max(percent, max(analogPercent, 85));
+      } else {
+        percent = analogPercent;
+      }
+    }
+  } else if (sensor_type == 2) {
+    // -------------------------------------------------------------------------
+    // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / Water Sensor
     // Dry = LOW (0V / 0%) | Wet = HIGH (3.3V / 100%)
     // -------------------------------------------------------------------------
+    if (rawDigitalVal == HIGH) {
+      percent = 100;
+    } else {
+      percent = 0;
+    }
+
     if (rawMoistureADC > 100) {
       int clamped = constrain(rawMoistureADC, 200, 3200);
-      percent = map(clamped, 200, 3200, 0, 100);
-      percent = constrain(percent, 0, 100);
-    }
-    if (rawDigitalVal == HIGH) {
-      if (percent < 50) percent = 100;
-    } else if (rawDigitalVal == LOW && rawMoistureADC <= 100) {
-      percent = 0;
+      int analogPercent = map(clamped, 200, 3200, 0, 100);
+      analogPercent = constrain(analogPercent, 0, 100);
+      if (rawDigitalVal == HIGH) {
+        percent = max(percent, max(analogPercent, 85));
+      } else {
+        percent = analogPercent;
+      }
     }
   } else if (sensor_type == 1) {
     // -------------------------------------------------------------------------
-    // SENSOR TYPE 1: Non-Inverted Analog Sensor (3-wire Water Sensor)
-    // Voltage rises when water is present: Dry ~ 0-200 | Wet ~ 1500-3200
+    // SENSOR TYPE 1: Non-Inverted Analog Sensor (Voltage rises when wet)
     // -------------------------------------------------------------------------
     int clamped = constrain(rawMoistureADC, 200, 3200);
     percent = map(clamped, 200, 3200, 0, 100);
     percent = constrain(percent, 0, 100);
-
-    if (rawDigitalVal == HIGH && percent < 50) {
-      percent = 100;
-    } else if (rawDigitalVal == LOW && rawMoistureADC <= 100) {
-      percent = 0;
-    }
-  } else if (sensor_type == 0) {
-    // -------------------------------------------------------------------------
-    // SENSOR TYPE 0: Standard LM393 / FC-28 / Rain Sensor / Capacitive
-    // -------------------------------------------------------------------------
-    if (rawMoistureADC > 100) {
-      int clamped = constrain(rawMoistureADC, WETNESS_WET_RAW, WETNESS_DRY_RAW);
-      percent = map(clamped, WETNESS_DRY_RAW, WETNESS_WET_RAW, 0, 100);
-      percent = constrain(percent, 0, 100);
-    }
-    if (rawDigitalVal == LOW && rawMoistureADC > 100) {
-      if (percent < 75) {
-        percent = 100;
-      }
-    } else if (rawDigitalVal == HIGH) {
-      percent = 0;
-    }
+    if (rawDigitalVal == HIGH && percent < 50) percent = 100;
   }
 
   percent = constrain(percent, 0, 100);
@@ -1514,13 +1520,14 @@ void setup() {
     ap_password = DEFAULT_AP_PASS;
     preferences.putString("appass", DEFAULT_AP_PASS);
   }
-  sensor_type   = preferences.getInt("senstype", 2);
-  // Auto-migrate legacy 0 to 2 (Active-HIGH where LOW = dry 0%, HIGH = wet 100%)
-  if (sensor_type == 0) {
-    sensor_type = 2;
-    preferences.putInt("senstype", 2);
+  sensor_type   = preferences.getInt("senstype", 0);
+  // Migrate legacy 2 (which caused LM393 inverted dry readings) back to standard 0
+  if (sensor_type == 2) {
+    sensor_type = 0;
+    preferences.putInt("senstype", 0);
   }
   water_pin     = preferences.getInt("senspin", 4);
+  pinMode(water_pin, INPUT_PULLUP);
 
   // Clear obsolete/unreachable Wi-Fi SSID from flash (case-insensitive)
   String checkSSID = wifi_ssid;

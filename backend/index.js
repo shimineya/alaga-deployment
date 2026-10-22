@@ -1659,7 +1659,7 @@ app.post('/api/device/data', async (req, res) => {
         const insertRes = await pool.query(
             `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
              VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING reading_id, recorded_at`,
-            [patientId, hr, temp, sp, moist]
+            [patientId, Math.round(hr), temp, Math.round(sp), moist]
         );
         const readingId = insertRes.rows[0]?.reading_id;
         const recordedAt = insertRes.rows[0]?.recorded_at;

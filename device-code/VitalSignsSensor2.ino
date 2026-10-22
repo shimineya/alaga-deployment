@@ -392,8 +392,8 @@ void sendImmediateOnlineHandshake() {
   payload += "\"device_type\":\"all_in_one\",";
   payload += "\"event\":\"device_online\",";
   payload += "\"status\":\"ACTIVE\",";
-  payload += "\"heart_rate\":" + String(beatAvg > 0 ? beatAvg : 0.0, 1) + ",";
-  payload += "\"spo2\":" + String(currentSpO2 > 0 ? currentSpO2 : 0.0, 1) + ",";
+  payload += "\"heart_rate\":" + String(beatAvg > 0 ? (int)round(beatAvg) : 0) + ",";
+  payload += "\"spo2\":" + String(currentSpO2 > 0 ? (int)round(currentSpO2) : 0) + ",";
   payload += "\"temperature\":" + String(temperatureC, 1) + ",";
   payload += "\"moisture\":" + String(moisturePercent) + ",";
   payload += "\"battery\":" + String(batteryPercent) + ",";
@@ -450,8 +450,8 @@ void sendToBackend() {
     payload += "\"setup_password\":\"" + ap_password + "\",";
     payload += "\"has_moisture_sensor\":false,";
     payload += "\"finger_detected\":" + String(fingerDetected ? "true" : "false") + ",";
-    payload += "\"heart_rate\":" + String(beatAvg, 1) + ",";
-    payload += "\"spo2\":" + String(currentSpO2, 1) + ",";
+    payload += "\"heart_rate\":" + String((int)round(beatAvg)) + ",";
+    payload += "\"spo2\":" + String((int)round(currentSpO2)) + ",";
     payload += "\"temperature\":" + String(temperatureC, 1) + ",";
     payload += "\"battery\":" + String(batteryPercent) + ",";
     payload += "\"signal\":\"" + signalStr + "\",";
@@ -1385,10 +1385,10 @@ bool initMAX30102() {
   Serial.println("✅ [I2C] MAX30102 Pulse Oximeter initialized successfully.");
   sensorFound = true;
   // setup(powerLevel, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange)
-  // 0x7F (~25.4mA), 4 samples average, Mode 2 (Red+IR), 100Hz sample rate, 411us pulse width, 4096 ADC range
-  particleSensor.setup(0x7F, 4, 2, 100, 411, 4096);
-  particleSensor.setPulseAmplitudeRed(0x7F);  // Maximum bright red optical illumination
-  particleSensor.setPulseAmplitudeIR(0x7F);   // Full optical penetration
+  // Balanced 0x2A (~8.4mA) power prevents ambient room light saturation (253952) while cleanly penetrating skin
+  particleSensor.setup(0x2A, 4, 2, 100, 411, 4096);
+  particleSensor.setPulseAmplitudeRed(0x2A);
+  particleSensor.setPulseAmplitudeIR(0x2A);
   particleSensor.setPulseAmplitudeGreen(0);   // Green LED off (saves current)
   particleSensor.clearFIFO();
   return true;
@@ -1541,9 +1541,10 @@ void loop() {
           currentIR, currentRed, fingerDetected ? "YES" : "NO", beatAvg, currentSpO2, temperatureC);
       }
 
-      // Check if sensor is placed on patient's skin/finger/wrist
-      // Touching optical glass produces > 12,000 counts; ambient open air is typically < 5,000
-      bool validWristContact = (currentIR > 12000 && currentIR < 255000);
+      // Real human finger/wrist tissue detection:
+      // Real skin contact produces balanced optical transmission on BOTH IR and Red channels (15,000 to 200,000 counts)
+      // Open air produces < 15,000 counts; direct ambient light/saturation produces >= 210,000 counts
+      bool validWristContact = (currentIR >= 15000 && currentIR <= 210000 && currentRed >= 12000 && currentRed <= 210000);
 
       // Optical filter & peak detector states
       static float dcIR = 0;
@@ -1674,9 +1675,9 @@ void loop() {
         }
 
       } else {
-        // Wrist contact lost: require 8 consecutive absent samples (~120ms) before declaring detachment
+        // Wrist contact lost: require only 3 consecutive absent samples (~45ms) before declaring detachment
         contactAbsentCount++;
-        if (contactAbsentCount >= 8) {
+        if (contactAbsentCount >= 3) {
           if (wasWristContact) {
             Serial.println("🖐️ [OPTICAL] Sensor detached from wrist/finger. Reporting detached status immediately.");
             wasWristContact = false;

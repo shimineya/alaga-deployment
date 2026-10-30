@@ -1009,15 +1009,17 @@ router.post('/maintenance', requirePermission('system_maintenance'), async (req,
 // MODULE G: SYSTEM-WIDE ASSIGNMENT COMMAND CENTER
 // =================================================================
 
-// GET SIMPLE LIST OF ACTIVE PATIENTS FOR SELECTION dropdown
+// GET SIMPLE LIST OF ACTIVE PATIENTS FOR SELECTION dropdown (Anonymous for SysAdmin)
 router.get('/patients-list', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT p.patient_id, p.name, f.facility_name
+            `SELECT p.patient_id, 
+                    ('Patient #' || p.patient_id || ' (Anonymous)') AS name, 
+                    f.facility_name
              FROM patients p
              LEFT JOIN facilities f ON p.facility_id = f.facility_id
              WHERE p.is_archived IS DISTINCT FROM TRUE
-             ORDER BY p.name ASC`
+             ORDER BY p.patient_id ASC`
         );
         res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -1026,14 +1028,14 @@ router.get('/patients-list', async (req, res) => {
     }
 });
 
-// 1. GET ALL SYSTEM-WIDE ASSIGNMENTS (Active and Pending)
+// 1. GET ALL SYSTEM-WIDE ASSIGNMENTS (Active and Pending - Anonymous for SysAdmin)
 router.get('/assignments', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT pa.access_id, pa.user_id, pa.patient_id, pa.relationship, pa.access_level, pa.invite_status,
                     to_char(pa.assigned_at, 'YYYY-MM-DD HH24:MI') as assigned_at,
                     u.username AS caregiver_username, u.first_name AS caregiver_first_name, u.last_name AS caregiver_last_name, u.email AS caregiver_email,
-                    p.name AS patient_name,
+                    ('Patient #' || pa.patient_id || ' (Anonymous)') AS patient_name,
                     f.facility_name,
                     inv.first_name AS invited_by_first_name, inv.last_name AS invited_by_last_name
              FROM patient_access pa
@@ -1146,7 +1148,7 @@ router.put('/assignments/:id', async (req, res) => {
 router.delete('/assignments/:id', async (req, res) => {
     try {
         const check = await pool.query(
-            `SELECT pa.user_id, u.username, p.name AS patient_name, pa.facility_id
+            `SELECT pa.user_id, pa.patient_id, u.username, pa.facility_id
              FROM patient_access pa
              JOIN users u ON pa.user_id = u.user_id
              JOIN patients p ON pa.patient_id = p.patient_id
@@ -1159,7 +1161,7 @@ router.delete('/assignments/:id', async (req, res) => {
             await pool.query(
                 `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
                  VALUES ('Assignment', $1, $2, $3, NOW(), 'Archived', $4)`,
-                [req.params.id.toString(), `Assignment: Caregiver ${row.username} to Patient ${row.patient_name}`, req.user.id, row.facility_id]
+                [req.params.id.toString(), `Assignment: Caregiver ${row.username} to Patient #${row.patient_id} (Anonymous)`, req.user.id, row.facility_id]
             );
         } else {
             return res.status(404).json({ success: false, message: 'Assignment record not found.' });

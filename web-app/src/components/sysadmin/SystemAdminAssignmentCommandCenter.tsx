@@ -269,11 +269,13 @@ export default function SystemAdminAssignmentCommandCenter() {
         }
     };
 
-    // Filtered lists
+    // Filtered lists (Patient identity is kept anonymous for System Admin)
     const filteredAssignments = assignments.filter(a => {
         const query = searchQuery.toLowerCase();
+        const anonPatient = `patient #${a.patient_id}`;
         return a.caregiver_username.toLowerCase().includes(query) ||
-               a.patient_name.toLowerCase().includes(query) ||
+               anonPatient.includes(query) ||
+               'anonymous'.includes(query) ||
                (a.facility_name || '').toLowerCase().includes(query) ||
                a.relationship.toLowerCase().includes(query);
     });
@@ -366,7 +368,12 @@ export default function SystemAdminAssignmentCommandCenter() {
                                                 <span className="font-bold text-slate-800">{a.caregiver_first_name} {a.caregiver_last_name}</span>
                                                 <span className="text-[10px] text-slate-400 block font-mono">({a.caregiver_username})</span>
                                             </td>
-                                            <td className="p-3 font-medium text-slate-700">{a.patient_name}</td>
+                                            <td className="p-3">
+                                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-teal-50 border border-teal-100 text-teal-800 font-mono text-[11px] font-semibold">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                                                    Patient #{a.patient_id} <span className="text-[10px] text-teal-600/80 font-sans font-normal">(Anonymous)</span>
+                                                </div>
+                                            </td>
                                             <td className="p-3 text-slate-600">{a.relationship}</td>
                                             <td className="p-3">
                                                 <Badge className={a.access_level === 'Edit' ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-none text-[9px]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-none text-[9px]'}>
@@ -623,7 +630,7 @@ export default function SystemAdminAssignmentCommandCenter() {
                                     <option value="">Select a patient...</option>
                                     {patientsList.map((p) => (
                                         <option key={p.patient_id} value={p.patient_id}>
-                                            {p.name} {p.facility_name ? `(${p.facility_name})` : ''}
+                                            Patient #{p.patient_id} (Anonymous) {p.facility_name ? `(${p.facility_name})` : ''}
                                         </option>
                                     ))}
                                 </select>

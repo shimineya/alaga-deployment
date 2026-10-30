@@ -59,6 +59,20 @@ export default function ArchiveHub() {
             if (rec.entity_type === 'Clinical Alert' && rec.target_name) {
                 return rec.target_name.replace(/^[^-]+ - (Clinical Alert|Clinical:)/i, `Patient #${rec.target_id} - $1`);
             }
+            if (rec.entity_type === 'System Alert' && rec.target_name) {
+                return rec.target_name.replace(/^[^-]+ - (Hardware:)/i, `Patient #${rec.target_id} - $1`);
+            }
+            if (rec.entity_type === 'Schedule' && rec.target_name) {
+                const parts = rec.target_name.split(' - ');
+                const eventDesc = parts.length > 1 ? parts.slice(1).join(' - ') : rec.target_name;
+                return `Patient #${rec.target_id} (Anonymous) - ${eventDesc}`;
+            }
+            if (rec.entity_type === 'Assignment' && rec.target_name) {
+                return rec.target_name.replace(/to Patient\s+.*$/i, 'to Patient (Anonymous)');
+            }
+            if (rec.target_name && /to Patient\s+[A-Za-z]/i.test(rec.target_name)) {
+                return rec.target_name.replace(/to Patient\s+.*$/i, 'to Patient (Anonymous)');
+            }
         }
         return rec.target_name;
     };
@@ -163,7 +177,7 @@ export default function ArchiveHub() {
         const query = searchQuery.toLowerCase();
         const matchesSearch = 
             displayName.includes(query) ||
-            rec.target_name.toLowerCase().includes(query) ||
+            (!isSysAdmin && rec.target_name.toLowerCase().includes(query)) ||
             rec.target_id.toLowerCase().includes(query) ||
             rec.archive_id.toString().includes(searchQuery);
         

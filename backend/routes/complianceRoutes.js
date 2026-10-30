@@ -158,8 +158,56 @@ router.get('/forms', async (req, res) => {
         const userRole = (req.query.role || req.user?.role || 'parent').toLowerCase();
         const isStaff = ['caregiver', 'medical_staff', 'facility_admin', 'admin', 'sysadmin', 'system_admin'].includes(userRole);
 
-        // Filter forms applicable to this role
-        const filteredForms = COMPLIANCE_FORMS.filter(f => {
+        // Fetch published active documents from legal_documents table if present
+        let dbDocs = [];
+        try {
+            const dbRes = await pool.query(
+                `SELECT DISTINCT ON (doc_type) * FROM legal_documents 
+                 WHERE is_active = TRUE 
+                 ORDER BY doc_type, published_at DESC`
+            );
+            dbDocs = dbRes.rows;
+        } catch (dbErr) {
+            console.warn('[COMPLIANCE] Could not query legal_documents table:', dbErr.message);
+        }
+
+        // Map COMPLIANCE_FORMS overlaid with active published DB documents
+        const formsMap = new Map();
+        for (const defaultForm of COMPLIANCE_FORMS) {
+            formsMap.set(defaultForm.id.toLowerCase(), { ...defaultForm });
+        }
+
+        for (const row of dbDocs) {
+            const key = (row.doc_type || '').toLowerCase();
+            let matchedKey = key;
+            if (key === 'ai_disclaimer') matchedKey = 'ai_decision_support_disclaimer';
+            if (key === 'staff_nda') matchedKey = 'staff_nda_acceptable_use';
+            if (key === 'emergency_escalation') matchedKey = 'emergency_escalation_protocol';
+
+            if (formsMap.has(matchedKey)) {
+                const existing = formsMap.get(matchedKey);
+                formsMap.set(matchedKey, {
+                    ...existing,
+                    title: row.title || existing.title,
+                    content: row.content || existing.content,
+                    version: row.version || existing.version
+                });
+            } else {
+                // If custom published legal/clinical document
+                formsMap.set(key, {
+                    id: key,
+                    title: row.title,
+                    category: 'Legal & Clinical Agreements',
+                    role_scope: 'all',
+                    summary: row.title,
+                    content: row.content,
+                    version: row.version
+                });
+            }
+        }
+
+        const allForms = Array.from(formsMap.values());
+        const filteredForms = allForms.filter(f => {
             if (f.role_scope === 'all') return true;
             if (f.role_scope === 'staff') return isStaff;
             return false;

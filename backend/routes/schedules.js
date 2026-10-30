@@ -134,15 +134,28 @@ router.delete('/:id', async (req, res) => {
         // Soft delete schedule
         await pool.query('UPDATE schedules SET is_archived = true WHERE schedule_id = $1', [id]);
 
-        // Find facility_id of the patient
-        const patientCheck = await pool.query('SELECT facility_id FROM patients WHERE LOWER(name) = LOWER($1) LIMIT 1', [schedule.patient_name]);
+        // Find patient info and facility_id
+        const patientCheck = await pool.query('SELECT patient_id, facility_id FROM patients WHERE LOWER(name) = LOWER($1) LIMIT 1', [schedule.patient_name]);
         const schedFacilityId = patientCheck.rows[0]?.facility_id || null;
+        const patientId = patientCheck.rows[0]?.patient_id || id;
+
+        // Check if actor is system admin
+        let isSysAdmin = req.user?.is_sysadmin || ['sysadmin', 'system_admin', 'admin'].includes(req.user?.role);
+        if (!isSysAdmin && actorId) {
+            const userCheck = await pool.query('SELECT role, is_sysadmin FROM users WHERE user_id = $1', [actorId]);
+            if (userCheck.rows.length > 0) {
+                const u = userCheck.rows[0];
+                isSysAdmin = u.is_sysadmin || ['sysadmin', 'system_admin', 'admin'].includes(u.role);
+            }
+        }
+
+        const patientLabel = isSysAdmin ? `Patient #${patientId} (Anonymous)` : schedule.patient_name;
 
         // Insert into archives
         await pool.query(
             `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
              VALUES ('Schedule', $1, $2, $3, NOW(), 'Archived', $4)`,
-            [id.toString(), `${schedule.patient_name} - ${schedule.event_type}`, actorId, schedFacilityId]
+            [id.toString(), `${patientLabel} - ${schedule.event_type}`, actorId, schedFacilityId]
         );
 
         res.json({ status: 'success', message: 'Schedule archived successfully' });

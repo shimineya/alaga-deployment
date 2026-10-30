@@ -20,11 +20,68 @@ import {
     Send,
     Cpu,
     Upload,
-    CheckCircle2
+    CheckCircle2,
+    ShieldCheck,
+    Scale,
+    FileCheck2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "../../lib/auth-context";
 import { API_URL } from "../../lib/config";
+
+export interface LegalDocItem {
+    doc_type: string;
+    title: string;
+    category: string;
+    version: string;
+    content: string;
+    published_at?: string;
+}
+
+const DEFAULT_LEGAL_DOCS: Record<string, LegalDocItem> = {
+    TERMS_AND_CONDITIONS: {
+        doc_type: "TERMS_AND_CONDITIONS",
+        title: "Platform Terms and Conditions",
+        category: "Legal & Terms of Service",
+        version: "v1.2",
+        content: `1. ACCEPTANCE OF TERMS\nBy accessing or using the ALAGA Healthcare Monitoring System (Web and Mobile Applications, firmware-enabled IoT clips, and cloud services), you acknowledge and agree to be bound by these Platform Terms and Conditions. If you do not agree with any provision herein, you must refrain from accessing or utilizing the platform.\n\n2. AUXILIARY HARDWARE DISCLAIMER\nALAGA HARDWARE DEVICES ARE AUXILIARY MONITORING AIDS AND ARE NOT CERTIFIED AS LIFE-SUPPORT SYSTEMS. The system is designed to augment, not substitute, hands-on clinical observation, parental attentiveness, and professional medical supervision.\n\n3. ACCOUNT CREDENTIALS & SECURITY OBLIGATIONS\nUsers are solely responsible for preserving the confidentiality of their credentials and session tokens.\n\n4. CONNECTIVITY LIMITATIONS\nContinuous vital sign and sensor monitoring relies on Wi-Fi, battery capacity, cellular internet connectivity, and cloud backend availability. ALAGA implements automatic store-and-forward buffers during network drops.`
+    },
+    PRIVACY_POLICY: {
+        doc_type: "PRIVACY_POLICY",
+        title: "Platform Privacy Policy & Health Data Protection (RA 10173)",
+        category: "Data Governance & Privacy",
+        version: "v1.2",
+        content: `ALAGA HEALTH CARE MONITORING SYSTEM - DATA PRIVACY & LEGAL BASELINES\n\n1. DATA PROCESSING PRINCIPLES (RA 10173 § 11)\nPatient vital signs monitoring data (SpO2, heart rate, temperature) and caregiver access trails are processed strictly for clinical monitoring and emergency response. All monitoring data is encrypted in transit and at rest.\n\n2. GDPR COMPLIANT DATA RETENTION\nUnder GDPR Article 17, soft-deleted patient records are retained in an archival state for exactly 1 year to prevent accidental loss, after which they are permanently purged.\n\n3. DPA PROPORTIONALITY LIMITS\nEmergency "break-glass" access overrides must be justified. User audits store only access events to mitigate secondary risk vectors.`
+    },
+    TELEMETRY_AUTHORIZATION: {
+        doc_type: "TELEMETRY_AUTHORIZATION",
+        title: "Informed Health Data Consent & Continuous Monitoring Authorization",
+        category: "Continuous Health Monitoring Consent",
+        version: "v1.1",
+        content: `1. PURPOSE OF CONTINUOUS MONITORING\nContinuous vital signs monitoring enables immediate identification of acute physiological changes, fever onset, hypoxia episodes, and wet diaper saturation.\n\n2. NATURE OF WEARABLE SENSORS\nYou authorize placement and operation of MAX30102 Optical PPG clips and conductive diaper moisture probes.\n\n3. POTENTIAL RISKS & SKIN INTEGRITY\nSensor components utilize medical-grade hypoallergenic casings. Caregivers agree to routinely inspect skin during diaper changes.`
+    },
+    AI_DISCLAIMER: {
+        doc_type: "AI_DISCLAIMER",
+        title: "AI Assistive Decision-Support & Diagnostic Safeguards Disclaimer",
+        category: "AI & Algorithm Disclaimer",
+        version: "v1.0",
+        content: `1. NON-DIAGNOSTIC NATURE OF ALGORITHMIC OUTPUTS\nALL AI INSIGHTS, PREDICTIVE TRENDS, RISK INDICATORS, AND AUTOMATED RECOMMENDATIONS ARE CLASSIFIED AS NON-DIAGNOSTIC CLINICAL DECISION-SUPPORT AIDS.\n\n2. PRESERVATION OF CLINICAL AUTONOMY\nLicensed healthcare providers, caregivers, and legal guardians retain complete clinical authority and responsibility for patient care.`
+    },
+    STAFF_NDA: {
+        doc_type: "STAFF_NDA",
+        title: "Healthcare Staff Non-Disclosure & Acceptable Use Agreement",
+        category: "Institutional Confidentiality & Staff NDA",
+        version: "v1.0",
+        content: `1. CONFIDENTIALITY COVENANT\nAs an authorized caregiver, medical staff member, or institutional administrator of the ALAGA Healthcare Monitoring System, you are entrusted with confidential Personal Health Information (PHI). You expressly agree to maintain absolute confidentiality regarding all patient vitals, diagnosis notes, care logs, and medical histories accessed through this platform.\n\n2. PROHIBITED ACTIONS\nYou strictly agree NOT to capture screen recordings, mobile screenshots, or photographs of patient monitoring screens without authorization, or export spreadsheets containing patient identifiers to unauthorized personal devices.`
+    },
+    EMERGENCY_ESCALATION: {
+        doc_type: "EMERGENCY_ESCALATION",
+        title: "Emergency Care & Escalation Protocol Acknowledgment",
+        category: "Emergency Protocols",
+        version: "v1.0",
+        content: `1. CRITICAL VITAL ACTION THRESHOLDS\nWhen an alarm status switches to "CRITICAL" (e.g. SpO2 < 90%, Heart Rate > 140 bpm or < 45 bpm, Body Temperature > 38.5°C), immediately perform physical assessment of the patient and verify sensor seating before escalating according to facility clinical protocol.\n\n2. NETWORK DISRUPTIONS IN EMERGENCIES\nIn life-threatening emergencies, never delay contacting emergency medical responders while troubleshooting connectivity.`
+    }
+};
 
 export default function SystemSettings() {
     const { isSysAdmin } = useAuth();
@@ -36,20 +93,9 @@ export default function SystemSettings() {
     const [thresholds, setThresholds] = useState({ temp_min: 36.0, temp_max: 37.5, svm_sensitivity: 0.85 });
     const [maintenanceMode, setMaintenanceMode] = useState(false);
 
-    // 2. Legal CMS
-    const [privacyPolicy, setPrivacyPolicy] = useState({
-        content: `ALAGA HEALTH CARE MONITORING SYSTEM - DATA PRIVACY & LEGAL BASELINES
-
-1. DATA PROCESSING PRINCIPLES (RA 10173 § 11)
-Patient vital signs monitoring data (SpO2, heart rate, temperature) and caregiver access trails are processed strictly for clinical monitoring and emergency response. All monitoring data is encrypted in transit and at rest.
-
-2. GDPR COMPLIANT DATA RETENTION
-Under GDPR Article 17, soft-deleted patient records are retained in an archival state for exactly 1 year to prevent accidental loss, after which they are permanently purged.
-
-3. DPA PROPORTIONALITY LIMITS
-Emergency "break-glass" access overrides must be justified. User audits store only access events to mitigate secondary risk vectors.`,
-        version: "v1.2"
-    });
+    // 2. Legal CMS (Multi-Document Registry)
+    const [selectedDocKey, setSelectedDocKey] = useState<string>("TERMS_AND_CONDITIONS");
+    const [legalDocs, setLegalDocs] = useState<Record<string, LegalDocItem>>(DEFAULT_LEGAL_DOCS);
 
     // 3. Broadcasts
     const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -229,9 +275,24 @@ Emergency "break-glass" access overrides must be justified. User audits store on
                 // 3. Fetch Legal
                 const legalRes = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/legal-docs`, { headers });
                 const legalData = await legalRes.json();
-                if (legalData.success && legalData.data.length > 0) {
-                    const policy = legalData.data.find((d: any) => d.doc_type === 'PRIVACY_POLICY');
-                    if (policy) setPrivacyPolicy({ content: policy.content, version: policy.version });
+                if (legalData.success && Array.isArray(legalData.data) && legalData.data.length > 0) {
+                    setLegalDocs(prev => {
+                        const next = { ...prev };
+                        legalData.data.forEach((row: any) => {
+                            const key = (row.doc_type || '').toUpperCase();
+                            if (key) {
+                                next[key] = {
+                                    doc_type: key,
+                                    title: row.title || next[key]?.title || key,
+                                    category: next[key]?.category || "Clinical & Legal Policy",
+                                    version: row.version || next[key]?.version || "v1.0",
+                                    content: row.content || next[key]?.content || "",
+                                    published_at: row.published_at
+                                };
+                            }
+                        });
+                        return next;
+                    });
                 }
 
                 // 4. Fetch Announcements
@@ -300,8 +361,11 @@ Emergency "break-glass" access overrides must be justified. User audits store on
         }
     };
 
-    // 3. Save Privacy Policy
-    const savePrivacyPolicy = async () => {
+    // 3. Save Legal Document / Clinical Consent
+    const saveLegalDoc = async (key?: string) => {
+        const docKey = key || selectedDocKey;
+        const doc = legalDocs[docKey];
+        if (!doc) return;
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
@@ -309,20 +373,43 @@ Emergency "break-glass" access overrides must be justified. User audits store on
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({
-                    doc_type: 'PRIVACY_POLICY',
-                    title: 'Data Privacy Policy',
-                    content: privacyPolicy.content,
-                    version: privacyPolicy.version
+                    doc_type: doc.doc_type || docKey,
+                    title: doc.title,
+                    content: doc.content,
+                    version: doc.version
                 })
             });
             const data = await res.json();
             if (data.success) {
-                toast.success("Data Privacy Policy Published");
+                toast.success(`${doc.title} (${doc.version}) published successfully!`);
+                // Re-fetch legal docs
+                const headers = { 'Authorization': `Bearer ${token}` };
+                const refreshRes = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/admin/legal-docs`, { headers });
+                const refreshData = await refreshRes.json();
+                if (refreshData.success && Array.isArray(refreshData.data)) {
+                    setLegalDocs(prev => {
+                        const next = { ...prev };
+                        refreshData.data.forEach((row: any) => {
+                            const k = (row.doc_type || '').toUpperCase();
+                            if (k) {
+                                next[k] = {
+                                    doc_type: k,
+                                    title: row.title || next[k]?.title || k,
+                                    category: next[k]?.category || "Clinical & Legal Policy",
+                                    version: row.version || next[k]?.version || "v1.0",
+                                    content: row.content || next[k]?.content || "",
+                                    published_at: row.published_at
+                                };
+                            }
+                        });
+                        return next;
+                    });
+                }
             } else {
-                toast.error(data.message || "Failed to publish policy");
+                toast.error(data.message || "Failed to publish document");
             }
         } catch {
-            toast.error("Failed to publish policy");
+            toast.error("Failed to publish document");
         } finally {
             setLoading(false);
         }
@@ -554,27 +641,167 @@ const deleteAnnouncement = async (id: number) => {
                     </Card>
                 </TabsContent>
 
-                {/* --- TAB 2: LEGAL CMS --- */}
-                <TabsContent value="legal">
-                    <Card>
-                        <CardHeader><CardTitle>Data Privacy Policy (CMS)</CardTitle></CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>Policy Version Label</Label>
-                                <Input
-                                    value={privacyPolicy.version}
-                                    onChange={(e) => setPrivacyPolicy({ ...privacyPolicy, version: e.target.value })}
-                                    placeholder="e.g. v1.2"
-                                    className="w-32"
-                                />
+                {/* --- TAB 2: LEGAL CMS (All Legal Agreements & Clinical Consents) --- */}
+                <TabsContent value="legal" className="space-y-6">
+                    <Card className="border-teal-100 shadow-xs">
+                        <CardHeader className="bg-gradient-to-r from-teal-50/70 via-slate-50 to-white border-b border-teal-100/60 pb-5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div>
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-teal-100/80 text-teal-800 text-[10px] font-bold uppercase tracking-wider mb-1.5">
+                                        <ShieldCheck className="w-3 h-3 text-teal-700" />
+                                        Compliance &amp; Legal CMS
+                                    </div>
+                                    <CardTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                        Legal Agreements &amp; Clinical Consents Registry
+                                    </CardTitle>
+                                    <CardDescription className="text-xs text-slate-500 mt-1">
+                                        Publish, revise, and govern all binding terms, clinical monitoring telemetry consents, AI disclaimers, and statutory privacy policies across the ALAGA platform.
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-[11px] font-semibold text-teal-800 bg-teal-50 border-teal-200">
+                                        {Object.keys(legalDocs).length} Standard Agreements Available
+                                    </Badge>
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label>Content</Label>
-                                <Textarea value={privacyPolicy.content} onChange={(e) => setPrivacyPolicy({ ...privacyPolicy, content: e.target.value })} className="h-64" />
+                        </CardHeader>
+                        <CardContent className="p-6 space-y-6">
+                            {/* Document Type Selector Grid */}
+                            <div>
+                                <Label className="text-xs font-bold text-slate-700 mb-2.5 block">Select Agreement / Clinical Consent to Edit &amp; Publish</Label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {Object.entries(legalDocs).map(([key, doc]) => {
+                                        const isSelected = selectedDocKey === key;
+                                        return (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                onClick={() => setSelectedDocKey(key)}
+                                                className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2.5 ${
+                                                    isSelected 
+                                                        ? 'bg-teal-50/80 border-teal-500 shadow-xs ring-1 ring-teal-500' 
+                                                        : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300'
+                                                }`}
+                                            >
+                                                <div className="flex items-start justify-between gap-2 w-full">
+                                                    <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                                                        <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-teal-600' : 'text-slate-400'}`} />
+                                                        <span className="line-clamp-1">{doc.title}</span>
+                                                    </div>
+                                                    <Badge className={`text-[9px] px-1.5 py-0 h-4 border-none shrink-0 ${isSelected ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {doc.version || 'v1.0'}
+                                                    </Badge>
+                                                </div>
+                                                <div className="flex items-center justify-between text-[10px] text-slate-500 w-full pt-1 border-t border-slate-100">
+                                                    <span className="truncate max-w-[150px] font-medium text-slate-400">{doc.category}</span>
+                                                    {doc.published_at ? (
+                                                        <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                                                            <CheckCircle2 className="w-2.5 h-2.5" /> Published
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400 italic">Draft Baseline</span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                            <Button onClick={savePrivacyPolicy} disabled={loading} className="bg-teal-600 hover:bg-teal-700">
-                                <Save className="w-4 h-4 mr-2" /> Publish Privacy Policy
-                            </Button>
+
+                            {/* Active Document Editor Form */}
+                            {legalDocs[selectedDocKey] && (
+                                <div className="border border-slate-200 rounded-xl p-5 bg-slate-50/40 space-y-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="text-sm font-bold text-slate-800">
+                                                    {legalDocs[selectedDocKey].title}
+                                                </h3>
+                                                <Badge className="bg-teal-100 text-teal-800 border-teal-200 text-[10px]">
+                                                    {legalDocs[selectedDocKey].doc_type}
+                                                </Badge>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-0.5">
+                                                Category: <strong className="text-slate-700">{legalDocs[selectedDocKey].category}</strong>
+                                                {legalDocs[selectedDocKey].published_at && (
+                                                    <span className="ml-2 text-slate-400">
+                                                        • Last Published: {new Date(legalDocs[selectedDocKey].published_at!).toLocaleString()}
+                                                    </span>
+                                                )}
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <Label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Version:</Label>
+                                                <Input
+                                                    value={legalDocs[selectedDocKey].version}
+                                                    onChange={(e) => setLegalDocs({
+                                                        ...legalDocs,
+                                                        [selectedDocKey]: { ...legalDocs[selectedDocKey], version: e.target.value }
+                                                    })}
+                                                    placeholder="e.g. v1.2"
+                                                    className="w-24 h-8 text-xs bg-white border-slate-200 rounded-lg"
+                                                />
+                                            </div>
+                                            <Button
+                                                onClick={() => saveLegalDoc(selectedDocKey)}
+                                                disabled={loading}
+                                                className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-8 px-4 rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                            >
+                                                <Save className="w-3.5 h-3.5 mr-1" />
+                                                Publish Agreement
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-bold text-slate-700">Official Document Title</Label>
+                                            <Input
+                                                value={legalDocs[selectedDocKey].title}
+                                                onChange={(e) => setLegalDocs({
+                                                    ...legalDocs,
+                                                    [selectedDocKey]: { ...legalDocs[selectedDocKey], title: e.target.value }
+                                                })}
+                                                placeholder="Document Title"
+                                                className="h-8 text-xs bg-white border-slate-200 rounded-lg"
+                                            />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-bold text-slate-700">Document Type Identifier (System Key)</Label>
+                                            <Input
+                                                value={legalDocs[selectedDocKey].doc_type}
+                                                disabled
+                                                className="h-8 text-xs bg-slate-100 text-slate-500 font-mono border-slate-200 rounded-lg cursor-not-allowed"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-xs font-bold text-slate-700">Agreement &amp; Clinical Content Body</Label>
+                                            <span className="text-[10px] text-slate-400">Standard plaintext / markdown format enforced across Web &amp; Mobile</span>
+                                        </div>
+                                        <Textarea
+                                            value={legalDocs[selectedDocKey].content}
+                                            onChange={(e) => setLegalDocs({
+                                                ...legalDocs,
+                                                [selectedDocKey]: { ...legalDocs[selectedDocKey], content: e.target.value }
+                                            })}
+                                            className="h-72 text-xs font-mono bg-white border-slate-200 rounded-lg leading-relaxed focus:ring-teal-500"
+                                            placeholder="Enter legal terms, clauses, clinical telemetry disclosures, and protocol details..."
+                                        />
+                                    </div>
+
+                                    <div className="p-3 bg-teal-50/60 border border-teal-100 rounded-xl flex items-start gap-2.5 text-[11px] text-teal-900">
+                                        <ShieldCheck className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+                                        <div>
+                                            <strong>Immediate Propagation &amp; Version Enforcement:</strong> Publishing this document archives older versions, increments the active legal baseline, updates the legal registry across all facilities, and dynamically reflects in the Mandatory Clinical Consent &amp; Legal Forms modal for new and existing accounts.
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>

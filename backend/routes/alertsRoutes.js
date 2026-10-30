@@ -1358,8 +1358,19 @@ router.put('/archive-unified-bulk', async (req, res) => {
             const actorId = req.user ? req.user.id : null;
             let validActorId = null;
             if (actorId) {
-                const uCheck = await pool.query('SELECT user_id FROM users WHERE user_id = $1', [actorId]);
-                if (uCheck.rows.length > 0) validActorId = actorId;
+                const uCheck = await pool.query('SELECT user_id, role, is_sysadmin FROM users WHERE user_id = $1', [actorId]);
+                if (uCheck.rows.length > 0) {
+                    validActorId = actorId;
+                }
+            }
+
+            let isSysAdmin = false;
+            if (validActorId) {
+                const uCheck = await pool.query('SELECT role, is_sysadmin FROM users WHERE user_id = $1', [validActorId]);
+                if (uCheck.rows.length > 0) {
+                    const u = uCheck.rows[0];
+                    isSysAdmin = u.is_sysadmin || ['sysadmin', 'system_admin', 'admin'].includes(u.role);
+                }
             }
 
             const facRes = await pool.query('SELECT facility_id FROM facilities');
@@ -1375,7 +1386,8 @@ router.put('/archive-unified-bulk', async (req, res) => {
                     [clinicalIds]
                 );
                 for (const row of detailsRes.rows) {
-                    const targetName = `${row.patient_name || 'System'} - ${row.alert_category || 'Clinical Alert'}: ${row.message || ''}`.trim().substring(0, 255) || 'Clinical Alert';
+                    const patientLabel = isSysAdmin ? 'Patient (Anonymous)' : (row.patient_name || 'System');
+                    const targetName = `${patientLabel} - ${row.alert_category || 'Clinical Alert'}: ${row.message || ''}`.trim().substring(0, 255) || 'Clinical Alert';
                     const targetFac = row.facility_id && validFacilityIds.has(row.facility_id) ? row.facility_id : null;
                     await pool.query(
                         `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
@@ -1394,7 +1406,8 @@ router.put('/archive-unified-bulk', async (req, res) => {
                     [systemIds]
                 );
                 for (const row of detailsRes.rows) {
-                    const targetName = `${row.patient_name || 'System'} - Hardware: ${row.description || ''}`.trim().substring(0, 255) || 'System Alert';
+                    const patientLabel = isSysAdmin ? 'Patient (Anonymous)' : (row.patient_name || 'System');
+                    const targetName = `${patientLabel} - Hardware: ${row.description || ''}`.trim().substring(0, 255) || 'System Alert';
                     const targetFac = row.facility_id && validFacilityIds.has(row.facility_id) ? row.facility_id : null;
                     await pool.query(
                         `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
@@ -1415,7 +1428,8 @@ router.put('/archive-unified-bulk', async (req, res) => {
                     const patientCheck = await pool.query('SELECT facility_id FROM patients WHERE LOWER(name) = LOWER($1) LIMIT 1', [row.patient_name]);
                     const rawFac = patientCheck.rows[0]?.facility_id || null;
                     const targetFac = rawFac && validFacilityIds.has(rawFac) ? rawFac : null;
-                    const targetName = `${row.patient_name || 'Patient'} - ${row.event_type || 'Care Task'}`.trim().substring(0, 255) || 'Schedule';
+                    const patientLabel = isSysAdmin ? 'Patient (Anonymous)' : (row.patient_name || 'Patient');
+                    const targetName = `${patientLabel} - ${row.event_type || 'Care Task'}`.trim().substring(0, 255) || 'Schedule';
                     await pool.query(
                         `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id)
                          VALUES ('Schedule', $1, $2, $3, NOW(), 'Archived', $4)`,

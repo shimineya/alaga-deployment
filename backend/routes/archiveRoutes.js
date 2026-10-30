@@ -31,7 +31,7 @@ router.get('/', async (req, res) => {
                 ORDER BY a.archived_at DESC
             `;
             const result = await pool.query(query);
-            // [HIPAA / Data Privacy] De-identify patient names for System Admin: replace with Patient #<ID>
+            // [HIPAA / Data Privacy] De-identify patient names for System Admin: ensure all patient identities are anonymous
             const sanitizedRows = result.rows.map(row => {
                 if (row.entity_type === 'Patient') {
                     return {
@@ -43,6 +43,32 @@ router.get('/', async (req, res) => {
                     return {
                         ...row,
                         target_name: row.target_name.replace(/^[^-]+ - (Clinical Alert|Clinical:)/i, `Patient #${row.target_id} - $1`)
+                    };
+                }
+                if (row.entity_type === 'Schedule' && row.target_name) {
+                    const parts = row.target_name.split(' - ');
+                    const eventDesc = parts.length > 1 ? parts.slice(1).join(' - ') : row.target_name;
+                    return {
+                        ...row,
+                        target_name: `Patient #${row.target_id} (Anonymous) - ${eventDesc}`
+                    };
+                }
+                if (row.entity_type === 'Assignment' && row.target_name) {
+                    return {
+                        ...row,
+                        target_name: row.target_name.replace(/to Patient\s+.*$/i, 'to Patient (Anonymous)')
+                    };
+                }
+                if (row.entity_type === 'System Alert' && row.target_name) {
+                    return {
+                        ...row,
+                        target_name: row.target_name.replace(/^[^-]+ - (Hardware:)/i, `Patient #${row.target_id} - $1`)
+                    };
+                }
+                if (row.target_name && /to Patient\s+[A-Za-z]/i.test(row.target_name)) {
+                    return {
+                        ...row,
+                        target_name: row.target_name.replace(/to Patient\s+.*$/i, 'to Patient (Anonymous)')
                     };
                 }
                 return row;

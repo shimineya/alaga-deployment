@@ -223,7 +223,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
       context: context,
       barrierDismissible: true,
       barrierLabel: "RegisterDevice",
-      barrierColor: Colors.black.withOpacity(0.4),
+      barrierColor: Colors.black.withValues(alpha: 0.4),
       transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (context, anim1, anim2) {
         return BackdropFilter(
@@ -494,7 +494,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                     Text("Select Vital Signs Sensor", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: _selectedVitalDevice,
+                      initialValue: _selectedVitalDevice,
                       hint: const Text("None"),
                       decoration: InputDecoration(
                         filled: true,
@@ -516,7 +516,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                     Text("Select Smart Diaper Moisture Sensor", style: GoogleFonts.albertSans(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: _selectedDiaperDevice,
+                      initialValue: _selectedDiaperDevice,
                       hint: const Text("None"),
                       decoration: InputDecoration(
                         filled: true,
@@ -564,7 +564,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.5)),
+            border: Border.all(color: const Color(0xFF5FA9A9).withValues(alpha: 0.5)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -621,7 +621,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
             border: Border.all(color: const Color(0xFF0D9488), width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF0D9488).withOpacity(0.06),
+                color: const Color(0xFF0D9488).withValues(alpha: 0.06),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               )
@@ -809,7 +809,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0D9488).withOpacity(0.12),
+                          color: const Color(0xFF0D9488).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.menu_book_outlined, color: Color(0xFF0D9488), size: 22),
@@ -1135,9 +1135,9 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF5FA9A9).withOpacity(0.08),
+              color: const Color(0xFF5FA9A9).withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF5FA9A9).withOpacity(0.4)),
+              border: Border.all(color: const Color(0xFF5FA9A9).withValues(alpha: 0.4)),
             ),
             child: Row(
               children: [
@@ -1180,7 +1180,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
               border: Border.all(color: Colors.grey.shade200),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 8,
                     offset: const Offset(0, 3))
               ],
@@ -1200,7 +1200,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                     ListTile(
                       leading: CircleAvatar(
                         radius: 18,
-                        backgroundColor: const Color(0xFF5FA9A9).withOpacity(0.1),
+                        backgroundColor: const Color(0xFF5FA9A9).withValues(alpha: 0.1),
                         child: Text(
                           name.isNotEmpty ? name[0].toUpperCase() : 'U',
                           style: const TextStyle(
@@ -1219,7 +1219,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF5FA9A9).withOpacity(0.1),
+                          color: const Color(0xFF5FA9A9).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -1342,7 +1342,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
             enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(radius),
                 borderSide: BorderSide(
-                    color: const Color(0xFF5FA9A9).withOpacity(0.3))),
+                    color: const Color(0xFF5FA9A9).withValues(alpha: 0.3))),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(radius),
                 borderSide:
@@ -1679,7 +1679,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-                color: const Color(0xFF5FA9A9).withOpacity(0.5)),
+                color: const Color(0xFF5FA9A9).withValues(alpha: 0.5)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

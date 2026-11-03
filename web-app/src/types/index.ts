@@ -37,6 +37,9 @@ export interface Patient {
     bed?: string;
   };
   active_devices?: string[];
+  deleted?: boolean;
+  archived?: boolean;
+  is_archived?: boolean;
   latest_telemetry?: {
     heart_rate?: number;
     temperature?: number;

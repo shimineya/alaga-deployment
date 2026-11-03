@@ -212,7 +212,7 @@ export const ClinicalReportsShell: React.FC<ClinicalReportsShellProps> = ({
     // The caregiver only ever sees their own assigned patients because the backend
     // already enforces that via patient_access table queries.
     const activePatients = useMemo(
-        () => patients.filter((p) => !p.deleted && !p.archived),
+        () => patients.filter((p) => !p.deleted && !p.archived && !p.is_archived),
         [patients]
     );
 

@@ -258,7 +258,7 @@ class ApiService {
 
       return _parseResponse(response);
     } catch (e) {
-      print('ApiService GET Error [$endpoint]: $e');
+      debugPrint('ApiService GET Error [$endpoint]: $e');
       final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,
@@ -289,7 +289,7 @@ class ApiService {
 
       return _parseResponse(response);
     } catch (e) {
-      print('ApiService POST Error [$endpoint]: $e');
+      debugPrint('ApiService POST Error [$endpoint]: $e');
       final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,
@@ -320,7 +320,7 @@ class ApiService {
 
       return _parseResponse(response);
     } catch (e) {
-      print('ApiService PUT Error [$endpoint]: $e');
+      debugPrint('ApiService PUT Error [$endpoint]: $e');
       final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,

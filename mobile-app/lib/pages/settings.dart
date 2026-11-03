@@ -57,7 +57,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _appVersion = "Loading...";
   String _dbStatus = "Checking...";
   String _activeDevices = "...";
-  String _lastBackup = "Not available";
+  final String _lastBackup = "Not available";
   String _firmwareStatus = "Not checked";
 
   @override
@@ -303,6 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } else {
       await SessionManager.disableBiometrics();
+      if (!mounted) return;
       setState(() => _isBiometricEnabled = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -953,7 +954,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: value,
+            key: ValueKey('${label}_$value'),
+            initialValue: value,
             isExpanded: true,
             style: GoogleFonts.albertSans(fontSize: 14, color: Colors.black87),
             decoration: InputDecoration(
@@ -1096,7 +1098,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ? Text(subtitle, style: const TextStyle(fontSize: 12))
           : null,
       value: value,
-      activeColor: const Color(0xFF4DB6AC),
+      activeThumbColor: const Color(0xFF4DB6AC),
       onChanged: onChanged,
     );
   }

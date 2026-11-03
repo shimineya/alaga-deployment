@@ -20,9 +20,9 @@ Future<void> main() async {
   // [DEBUG] Ensure .env is loaded before anything else
   try {
     await dotenv.load(fileName: '.env');
-    print("DEBUG: Dotenv loaded. URL: ${dotenv.env['API_BASE_URL']}");
+    debugPrint("DEBUG: Dotenv loaded. URL: ${dotenv.env['API_BASE_URL']}");
   } catch (e) {
-    print("DEBUG: FAILED to load .env: $e");
+    debugPrint("DEBUG: FAILED to load .env: $e");
   }
 
   // Initialize Android push notifications & AI clinical alert service
@@ -75,7 +75,7 @@ class _SessionGateState extends State<SessionGate> {
 
       if (session != null) {
         // [DEBUG] Trace the API call
-        print("DEBUG: Checking session with: ${ApiService.baseUrl}");
+        debugPrint("DEBUG: Checking session with: ${ApiService.baseUrl}");
         final result = await ApiService.get('/auth/my-permissions');
 
         if (result['success'] == true) {
@@ -88,7 +88,7 @@ class _SessionGateState extends State<SessionGate> {
         _destination = const StartPage();
       }
     } catch (e) {
-      print("DEBUG: SessionGate error: $e");
+      debugPrint("DEBUG: SessionGate error: $e");
       await SessionManager.clearSession();
       _destination = const StartPage();
     }

@@ -1,3 +1,4 @@
+// cspell:words alaga ALAGA Hotspot hotspot HOTSPOT Unpair unpair Dela
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -442,7 +443,7 @@ export const MyDevices: React.FC = () => {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={fetchInventory}
+                        onClick={() => fetchInventory(true)}
                         className="h-9 w-9 p-0"
                         title="Refresh List"
                     >

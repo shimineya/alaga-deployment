@@ -238,7 +238,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                       if (selectedType == "Smart Diaper Moisture Sensor") 'diaperDeviceNo': input,
                     });
 
-                    if (!mounted) return;
+                    if (!mounted || !dialogContext.mounted || !pageContext.mounted) return;
 
                     if (result['success'] == true) {
                       Navigator.pop(dialogContext);
@@ -445,7 +445,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                             body: {'serialNumber': serialNumber},
                           );
 
-                          if (!mounted) return;
+                          if (!mounted || !dialogContext.mounted || !pageContext.mounted) return;
 
                           if (result['success'] == true) {
                             Navigator.pop(dialogContext);
@@ -1017,7 +1017,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     );
 
     final result = await ApiService.post('/api/caregiver/devices/$serialNumber/ping', body: {});
-    if (!mounted) return;
+    if (!mounted || !pageContext.mounted) return;
 
     ScaffoldMessenger.of(pageContext).hideCurrentSnackBar();
     if (result['success'] == true && result['is_online'] == true) {
@@ -1089,7 +1089,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       'action': isChange ? 'change' : 'permanent',
     });
 
-    if (!mounted) return;
+    if (!mounted || !pageContext.mounted) return;
 
     if (result['success'] == true) {
       ScaffoldMessenger.of(pageContext).showSnackBar(
@@ -1170,7 +1170,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       'patientId': patientId,
     });
 
-    if (!mounted) return;
+    if (!mounted || !pageContext.mounted) return;
 
     if (result['success'] == true) {
       ScaffoldMessenger.of(pageContext).showSnackBar(
@@ -1266,7 +1266,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     // [OWASP A05] Serial number is sent as a path segment — no string concatenation into queries.
     final result = await ApiService.delete('/api/caregiver/devices/$serialNumber');
 
-    if (!mounted) return;
+    if (!mounted || !pageContext.mounted) return;
 
     if (result['success'] == true) {
       _fetchDevices();
@@ -1449,6 +1449,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                                 '/api/caregiver/devices/$serialNumber/setup-password',
                                 body: {'setupPassword': newPass},
                               );
+                              if (!mounted || !pageContext.mounted) return;
                               setDialogState(() => isUpdating = false);
                               if (res['success'] == true) {
                                 setDialogState(() {

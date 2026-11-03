@@ -1287,7 +1287,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       if (choice == null ||
                                           choice == 'cancel' ||
                                           !mounted ||
-                                          !context.mounted) return;
+                                          !context.mounted) {
+                                        return;
+                                      }
 
                                       try {
                                         if (choice == 'all') {
@@ -1608,6 +1610,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     ];
     bool saving = false;
 
+    if (!context.mounted) return null;
     return showModalBottomSheet<List<Map<String, String>>>(
       context: context,
       isScrollControlled: true,
@@ -1990,8 +1993,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                           targetDay.day,
                                           time.hour,
                                           time.minute);
-                                      if (!at.isAfter(DateTime.now()))
+                                      if (!at.isAfter(DateTime.now())) {
                                         throw const FormatException();
+                                      }
                                     } catch (_) {
                                       ScaffoldMessenger.of(context)
                                           .showSnackBar(const SnackBar(

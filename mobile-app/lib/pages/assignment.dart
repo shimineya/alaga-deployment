@@ -136,7 +136,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                   width: 64,
                   height: 64,
                   decoration: BoxDecoration(
-                    color: _teal.withOpacity(0.1),
+                    color: _teal.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -174,9 +174,9 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                   padding: const EdgeInsets.symmetric(
                       vertical: 12, horizontal: 16),
                   decoration: BoxDecoration(
-                    color: _teal.withOpacity(0.07),
+                    color: _teal.withValues(alpha: 0.07),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _teal.withOpacity(0.2)),
+                    border: Border.all(color: _teal.withValues(alpha: 0.2)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -711,7 +711,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
               style: GoogleFonts.poppins(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: _teal.withOpacity(0.8)),
+                  color: _teal.withValues(alpha: 0.8)),
             ),
             Text(
               'Assignment Tracker',
@@ -736,10 +736,10 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                       horizontal: 14, vertical: 12),
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
-                    color: _pendingOrange.withOpacity(0.1),
+                    color: _pendingOrange.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                        color: _pendingOrange.withOpacity(0.4), width: 1.5),
+                        color: _pendingOrange.withValues(alpha: 0.4), width: 1.5),
                   ),
                   child: Row(
                     children: [
@@ -896,7 +896,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
         border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withValues(alpha: 0.02),
               blurRadius: 10,
               offset: const Offset(0, 4))
         ],
@@ -911,7 +911,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: _teal.withOpacity(0.1),
+                    backgroundColor: _teal.withValues(alpha: 0.1),
                     child: Text(name[0],
                         style: const TextStyle(
                             color: _teal,
@@ -927,7 +927,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
+                  color: statusColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(statusLabel,
@@ -967,7 +967,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: _teal.withOpacity(0.05),
+                    color: _teal.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(8),
                     border: const Border(
                         left: BorderSide(color: _teal, width: 3)),
@@ -976,7 +976,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
                     children: [
                       CircleAvatar(
                         radius: 14,
-                        backgroundColor: _teal.withOpacity(0.15),
+                        backgroundColor: _teal.withValues(alpha: 0.15),
                         child: Text(
                           mName.isNotEmpty
                               ? mName[0].toUpperCase()

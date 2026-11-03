@@ -476,12 +476,12 @@ class PatientCardWidget extends StatefulWidget {
   final VoidCallback? onRemoved;
 
   const PatientCardWidget({
-    Key? key,
+    super.key,
     required this.patient,
     required this.mainStyle,
     required this.descStyle,
     this.onRemoved,
-  }) : super(key: key);
+  });
 
   @override
   State<PatientCardWidget> createState() => _PatientCardWidgetState();
@@ -805,7 +805,7 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
     // [OWASP A05] Patient ID is sent as a typed path parameter — never concatenated as a raw string.
     final result = await ApiService.delete('/caregiver/patients/$patientId');
 
-    if (!mounted) return;
+    if (!mounted || !tileContext.mounted) return;
 
     if (result['success'] == true) {
       ScaffoldMessenger.of(tileContext).showSnackBar(

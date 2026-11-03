@@ -445,7 +445,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF00796B).withOpacity(0.25),
+                            color: const Color(0xFF00796B).withValues(alpha: 0.25),
                             blurRadius: 8,
                             offset: const Offset(0, 3),
                           ),
@@ -544,7 +544,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                       border: Border.all(color: const Color(0xFF80CBC4)),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF00796B).withOpacity(0.08),
+                          color: const Color(0xFF00796B).withValues(alpha: 0.08),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -766,7 +766,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0D9488).withOpacity(0.12),
+                              color: const Color(0xFF0D9488).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.cleaning_services, size: 20, color: Color(0xFF0D9488)),

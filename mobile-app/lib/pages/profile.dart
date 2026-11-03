@@ -993,9 +993,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 return Container(
                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                   decoration: BoxDecoration(
-                    color: isCurrent ? _teal.withOpacity(0.06) : Colors.transparent,
+                    color: isCurrent ? _teal.withValues(alpha: 0.06) : Colors.transparent,
                     borderRadius: BorderRadius.circular(10),
-                    border: isCurrent ? Border.all(color: _teal.withOpacity(0.25)) : null,
+                    border: isCurrent ? Border.all(color: _teal.withValues(alpha: 0.25)) : null,
                   ),
                   child: Row(
                     children: [
@@ -1038,7 +1038,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                   decoration: BoxDecoration(
-                                    color: isCurrent ? _teal.withOpacity(0.15) : const Color(0xFFE2E8F0),
+                                    color: isCurrent ? _teal.withValues(alpha: 0.15) : const Color(0xFFE2E8F0),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
@@ -1133,7 +1133,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: _teal),
               ),
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: _teal.withOpacity(0.5)),
+                side: BorderSide(color: _teal.withValues(alpha: 0.5)),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 padding: const EdgeInsets.symmetric(vertical: 8),
               ),

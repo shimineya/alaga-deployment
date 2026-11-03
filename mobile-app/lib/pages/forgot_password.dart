@@ -387,7 +387,7 @@ class _BlurredBackground extends StatelessWidget {
         children: [
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-            child: Container(color: Colors.black.withOpacity(0.7)),
+            child: Container(color: Colors.black.withValues(alpha: 0.7)),
           ),
           Center(
             child: SingleChildScrollView(

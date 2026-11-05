@@ -295,6 +295,8 @@ class ApiService {
         AlertNotificationService.notifyLocalMutation('POST', endpoint);
       }
       return parsed;
+    } catch (e) {
+      debugPrint('ApiService POST Error [$endpoint]: $e');
       final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,

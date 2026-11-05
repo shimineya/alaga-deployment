@@ -40,6 +40,8 @@ export const CareLogs: React.FC<CareLogsProps> = ({ patientId }) => {
 
     useEffect(() => {
         fetchLogs();
+        window.addEventListener('alaga_manual_refresh', fetchLogs);
+        return () => window.removeEventListener('alaga_manual_refresh', fetchLogs);
     }, [fetchLogs]);
 
     const handleAddNote = async () => {

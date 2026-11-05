@@ -83,6 +83,9 @@ export default function FirmwareOTAUpdates() {
 
     useEffect(() => {
         fetchUpdates();
+        const handleSync = () => fetchUpdates();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchUpdates]);
 
     // Handle suggestions based on name/features

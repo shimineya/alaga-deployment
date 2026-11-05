@@ -104,6 +104,12 @@ export default function FacilityComplianceControls() {
     useEffect(() => {
         fetchThresholds();
         fetchLogs();
+        const handleSync = () => {
+            fetchThresholds();
+            fetchLogs();
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchThresholds, fetchLogs]);
 
     const handleSaveThresholds = async () => {

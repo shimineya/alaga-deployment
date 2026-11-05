@@ -89,11 +89,20 @@ export const CareCalendarWidget: React.FC = () => {
         fetchSchedules();
         fetchPatients();
 
+        const handleRealtime = () => {
+            fetchSchedules();
+            fetchPatients();
+        };
+        window.addEventListener('alaga_manual_refresh', handleRealtime);
+
         const fetchInterval = setInterval(() => {
             fetchSchedules();
         }, 5000); // Poll schedules every 5 seconds for real-time updates
 
-        return () => clearInterval(fetchInterval);
+        return () => {
+            clearInterval(fetchInterval);
+            window.removeEventListener('alaga_manual_refresh', handleRealtime);
+        };
     }, [fetchSchedules, fetchPatients]);
 
     useEffect(() => {

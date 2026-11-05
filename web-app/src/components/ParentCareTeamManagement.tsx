@@ -102,6 +102,8 @@ export default function ParentCareTeamManagement() {
 
     useEffect(() => {
         fetchAllData();
+        window.addEventListener('alaga_manual_refresh', fetchAllData);
+        return () => window.removeEventListener('alaga_manual_refresh', fetchAllData);
     }, [fetchAllData]);
 
     // Accept / Decline Invitation

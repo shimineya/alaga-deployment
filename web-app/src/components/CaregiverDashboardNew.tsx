@@ -522,6 +522,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
         const handleManualRefresh = () => {
             fetchAlerts();
             fetchPatients();
+            fetchPendingInvites();
+            fetchSchedules();
         };
 
         window.addEventListener('alaga_alert_update', handleSync);

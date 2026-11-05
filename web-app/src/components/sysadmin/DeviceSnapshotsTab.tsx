@@ -86,6 +86,9 @@ export default function DeviceSnapshotsTab() {
 
     useEffect(() => {
         fetchSnapshots();
+        const handleSync = () => fetchSnapshots();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchSnapshots]);
 
     const handleToggleArchive = async (snapshot: DeviceSnapshot) => {

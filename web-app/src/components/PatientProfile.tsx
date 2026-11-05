@@ -228,9 +228,43 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
     fetchVitals();
     const interval = setInterval(fetchVitals, 3000); // Live poll every 3 seconds
 
+    const fetchPatientDetails = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token || !patId) return;
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/patients/${patId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (isMounted && data.success && data.data) {
+          const pData = data.data;
+          setPatient((prev: any) => ({
+            ...prev,
+            ...pData,
+            id: String(pData.patient_id || prev.id),
+            name: pData.name || prev.name,
+            paired_devices: pData.paired_devices || [],
+            devices: pData.paired_devices || [],
+            vital_device_sn: pData.vital_device_sn || null,
+            diaper_device_sn: pData.diaper_device_sn || null,
+            is_online: Boolean(pData.is_online),
+            isOnline: Boolean(pData.is_online),
+            deviceConnected: Boolean(pData.is_online),
+            is_vitals_online: Boolean(pData.is_vitals_online),
+            is_moisture_online: Boolean(pData.is_moisture_online),
+          }));
+        }
+      } catch (_) {}
+    };
+
     const handleRealtimeTelemetry = (e: any) => {
       const detail = e?.detail;
       if (!detail) return;
+      if (detail.type === 'system_data_update' || detail.type === 'assignment_update') {
+        fetchPatientDetails();
+        fetchVitals();
+        return;
+      }
       if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
         const updatePatientId = String(detail.patient_id || detail.patientId || '');
         const sn = String(detail.serial_number || detail.serialNumber || '');
@@ -329,12 +363,19 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
       }
     };
 
+    const handleManualRefresh = () => {
+      fetchPatientDetails();
+      fetchVitals();
+    };
+
     window.addEventListener('alaga_alert_update', handleRealtimeTelemetry);
+    window.addEventListener('alaga_manual_refresh', handleManualRefresh);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
       window.removeEventListener('alaga_alert_update', handleRealtimeTelemetry);
+      window.removeEventListener('alaga_manual_refresh', handleManualRefresh);
     };
   }, [patient.id, (patient as any).patient_id, timeRange]);
 

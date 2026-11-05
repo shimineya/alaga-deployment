@@ -110,6 +110,11 @@ export default function ClinicalReportsHub() {
         if (isAllowed) {
             fetchPatients();
         }
+        const handleSync = () => {
+            if (isAllowed) fetchPatients();
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchPatients, isAllowed]);
 
     if (!isAllowed) {

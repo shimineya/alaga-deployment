@@ -44,6 +44,16 @@ export function useAlertSync() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const manualRefreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerGlobalRefresh = useCallback((detail?: any) => {
+    if (manualRefreshDebounceRef.current) {
+      clearTimeout(manualRefreshDebounceRef.current);
+    }
+    manualRefreshDebounceRef.current = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('alaga_manual_refresh', { detail }));
+    }, 120);
+  }, []);
 
   const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -246,6 +256,26 @@ export function useAlertSync() {
 
         const eventType = eventData.type;
 
+        // Trigger global real-time data refresh across all mounted modules/tabs for any user/system mutation
+        if (
+          eventType === 'system_data_update' ||
+          eventType === 'assignment_update' ||
+          eventType === 'schedule_completed' ||
+          eventType === 'new_alert' ||
+          eventType === 'new_clinical_alert' ||
+          eventType === 'alert_acknowledged' ||
+          eventType === 'alert_archived' ||
+          eventType === 'alert_archived_bulk' ||
+          eventType === 'alert_flagged_normal' ||
+          eventType === 'system_alert_resolved' ||
+          (eventType === 'device_status_update' && !!eventData.action)
+        ) {
+          triggerGlobalRefresh(eventData);
+          if (eventData.domain === 'alerts' || eventType === 'system_data_update') {
+            refreshActiveAlerts();
+          }
+        }
+
         // Sound Mute Synchronization
         if (eventType === 'alert_sound_mute') {
           if (eventData.userId == null || String(eventData.userId) === String(user.id)) {
@@ -357,7 +387,7 @@ export function useAlertSync() {
         }
       };
 
-      // Listen to generic alert_update
+      // Listen to generic alert_update (backend broadcastAlert emits 'alert_update' for every event type)
       es.addEventListener('alert_update', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
@@ -365,31 +395,6 @@ export function useAlertSync() {
         } catch (err) {
           console.error('[useAlertSync] Error parsing alert_update data:', err);
         }
-      });
-
-      // Listen to specific event types
-      const specificEvents = [
-        'new_alert', 
-        'new_clinical_alert', 
-        'alert_acknowledged', 
-        'alert_archived', 
-        'alert_archived_bulk',
-        'alert_flagged_normal',
-        'alert_sound_mute',
-        'system_alert_resolved',
-        'schedule_completed',
-        'new_announcement',
-        'device_status_update',
-        'patient_telemetry_update'
-      ];
-
-      specificEvents.forEach(evt => {
-        es.addEventListener(evt, (e: MessageEvent) => {
-          try {
-            const data = JSON.parse(e.data);
-            handleAlertEvent(data);
-          } catch (_) {}
-        });
       });
 
       es.onerror = () => {

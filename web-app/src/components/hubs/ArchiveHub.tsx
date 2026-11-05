@@ -115,6 +115,9 @@ export default function ArchiveHub() {
 
     useEffect(() => {
         fetchRecords();
+        const handleSync = () => fetchRecords();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchRecords]);
 
     const handleUnarchive = async (record: ArchiveRecord) => {

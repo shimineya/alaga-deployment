@@ -67,7 +67,16 @@ export default function PatientCaregiverAssignment() {
         } catch { toast.error('Failed to load staff.'); }
     };
 
-    useEffect(() => { fetchPatients(); fetchCaregivers(); }, []);
+    useEffect(() => {
+        fetchPatients();
+        fetchCaregivers();
+        const handleSync = () => {
+            fetchPatients();
+            fetchCaregivers();
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+    }, []);
 
     // Assign a caregiver (additive -- multiple allowed)
     const handleAssign = async (patientId: number) => {

@@ -33,7 +33,12 @@ export default function GlobalSecurity() {
         }
     };
 
-    useEffect(() => { fetchData(); }, []);
+    useEffect(() => {
+        fetchData();
+        const handleSync = () => fetchData();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+    }, []);
 
     const handleBanIp = async () => {
         if (!newIp) return toast.error('Enter an IP address.');

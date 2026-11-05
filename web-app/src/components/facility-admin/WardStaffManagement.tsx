@@ -115,6 +115,12 @@ export default function WardStaffManagement() {
     useEffect(() => { 
         fetchStaff(); 
         fetchInvitations();
+        const handleSync = () => {
+            fetchStaff();
+            fetchInvitations();
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, []);
 
     useEffect(() => {

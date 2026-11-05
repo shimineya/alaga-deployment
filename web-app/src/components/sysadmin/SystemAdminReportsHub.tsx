@@ -151,6 +151,9 @@ export default function SystemAdminReportsHub() {
 
     useEffect(() => {
         fetchReports();
+        const handleSync = () => fetchReports();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchReports]);
 
     // Handle Archive / Restore

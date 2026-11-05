@@ -48,7 +48,11 @@ export const CaregiverActivityLog: React.FC<{ userId: number }> = ({ userId }) =
         };
 
         fetchActivity();
-        return () => { isMounted = false; };
+        window.addEventListener('alaga_manual_refresh', fetchActivity);
+        return () => {
+            isMounted = false;
+            window.removeEventListener('alaga_manual_refresh', fetchActivity);
+        };
     }, [userId]);
 
     const getIcon = (action: string) => {

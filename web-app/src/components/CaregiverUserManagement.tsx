@@ -77,6 +77,8 @@ export const CaregiverUserManagement: React.FC<CaregiverUserManagementProps> = (
 
     useEffect(() => {
         fetchData();
+        window.addEventListener('alaga_manual_refresh', fetchData);
+        return () => window.removeEventListener('alaga_manual_refresh', fetchData);
     }, [fetchData]);
 
     // Filter Logic

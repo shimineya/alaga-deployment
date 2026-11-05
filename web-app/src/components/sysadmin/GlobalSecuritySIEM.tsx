@@ -104,6 +104,11 @@ export default function GlobalSecuritySIEM() {
         if (token) {
             fetchSecurityData();
         }
+        const handleSync = () => {
+            if (token) fetchSecurityData(true);
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [token]);
 
     // Handle Click Outside for Suggestions Dropdown

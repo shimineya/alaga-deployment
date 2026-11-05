@@ -85,6 +85,11 @@ export const usePatients = (token: string | null) => {
             const detail = e?.detail;
             if (!detail) return;
 
+            if (detail.type === 'system_data_update' || detail.type === 'assignment_update') {
+                fetchPatients(true);
+                return;
+            }
+
             if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
                 const targetPatientId = String(detail.patient_id || detail.patientId || '');
                 const action = detail.action;

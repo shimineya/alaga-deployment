@@ -37,6 +37,12 @@ export const AlertHistory: React.FC<AlertHistoryProps> = ({ patientId }) => {
 
     useEffect(() => {
         fetchAlerts();
+        window.addEventListener('alaga_manual_refresh', fetchAlerts);
+        window.addEventListener('alaga_alert_update', fetchAlerts);
+        return () => {
+            window.removeEventListener('alaga_manual_refresh', fetchAlerts);
+            window.removeEventListener('alaga_alert_update', fetchAlerts);
+        };
     }, [fetchAlerts]);
 
     const handleSelectAll = (checked: boolean) => {

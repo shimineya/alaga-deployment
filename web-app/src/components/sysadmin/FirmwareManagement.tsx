@@ -24,7 +24,12 @@ export default function FirmwareManagement() {
         if (data.success) setVersions(data.data);
     };
 
-    useEffect(() => { fetchVersions(); }, []);
+    useEffect(() => {
+        fetchVersions();
+        const handleSync = () => fetchVersions();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+    }, []);
 
     const handleUpload = async () => {
         if (!selectedFile || !versionLabel || !checksum) {

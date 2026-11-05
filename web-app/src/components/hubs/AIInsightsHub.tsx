@@ -170,6 +170,9 @@ export default function AIInsightsHub() {
 
   useEffect(() => {
     fetchAccessiblePatients();
+    const handleSync = () => fetchAccessiblePatients();
+    window.addEventListener('alaga_manual_refresh', handleSync);
+    return () => window.removeEventListener('alaga_manual_refresh', handleSync);
   }, [fetchAccessiblePatients]);
 
   // 2. Fetch AI Insights for selected patient & timeframe

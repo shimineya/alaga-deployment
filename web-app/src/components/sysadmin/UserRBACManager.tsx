@@ -71,7 +71,12 @@ export default function UserRBACManager() {
         setLoading(false);
     };
 
-    useEffect(() => { fetchUsers(); }, []);
+    useEffect(() => {
+        fetchUsers();
+        const handleSync = () => fetchUsers();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+    }, []);
 
     // Fetch overrides for the selected user
     const fetchOverrides = useCallback(async (userId: number) => {

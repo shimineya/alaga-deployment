@@ -29,7 +29,12 @@ export default function ReadOnlyDiagnostics() {
         finally { setLogLoading(false); }
     };
 
-    useEffect(() => { fetchAccessLog(); }, []);
+    useEffect(() => {
+        fetchAccessLog();
+        const handleSync = () => fetchAccessLog();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+    }, []);
 
     const handlePing = async () => {
         if (!pingSerial) return toast.error('Enter a serial number.');

@@ -133,6 +133,10 @@ export const MyDevices: React.FC = () => {
         const handleRealtimeSync = (e: any) => {
             const detail = e?.detail;
             if (!detail) return;
+            if (detail.type === 'system_data_update' || detail.type === 'assignment_update') {
+                fetchInventory(false);
+                return;
+            }
             if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
                 const sn = detail.serial_number || detail.serialNumber;
                 const action = detail.action;
@@ -184,11 +188,14 @@ export const MyDevices: React.FC = () => {
             }
         };
 
+        const handleManualRefresh = () => fetchInventory(false);
         window.addEventListener('alaga_alert_update', handleRealtimeSync);
+        window.addEventListener('alaga_manual_refresh', handleManualRefresh);
         const poll = setInterval(() => fetchInventory(false), 3000);
 
         return () => {
             window.removeEventListener('alaga_alert_update', handleRealtimeSync);
+            window.removeEventListener('alaga_manual_refresh', handleManualRefresh);
             clearInterval(poll);
         };
     }, [token]);

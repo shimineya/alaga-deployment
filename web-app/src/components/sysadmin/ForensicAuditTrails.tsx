@@ -62,6 +62,9 @@ export default function ForensicAuditTrails() {
 
     useEffect(() => {
         fetchLogs();
+        const handleSync = () => fetchLogs();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 

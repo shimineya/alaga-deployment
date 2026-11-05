@@ -253,6 +253,13 @@ export default function PatientOnboarding() {
     useEffect(() => {
         fetchPatients();
         fetchUnassignedPatients();
+        const handleSync = () => {
+            fetchAvailableDevices();
+            fetchPatients();
+            fetchUnassignedPatients();
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchPatients, fetchUnassignedPatients]);
 
     const handleLookupExistingPatient = async () => {

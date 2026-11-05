@@ -122,6 +122,9 @@ export default function SystemAdminAssignmentCommandCenter() {
 
     useEffect(() => {
         fetchData();
+        const handleSync = () => fetchData();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, [fetchData]);
 
     const handleOpenEditAssignment = (assign: SystemAssignment) => {

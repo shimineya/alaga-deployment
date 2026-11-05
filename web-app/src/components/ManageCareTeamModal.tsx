@@ -69,6 +69,11 @@ const fetchTeam = async () => {
         if (isOpen) {
             fetchTeam();
         }
+        const handleRefresh = () => {
+            if (isOpen) fetchTeam();
+        };
+        window.addEventListener('alaga_manual_refresh', handleRefresh);
+        return () => window.removeEventListener('alaga_manual_refresh', handleRefresh);
     }, [isOpen, patientId]);
 
 const handleRemove = async (userId: number) => {

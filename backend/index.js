@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 const scheduleRoutes = require('./routes/schedules');
-const { broadcastAlert } = require('./services/alertRealtimeService');
+const { broadcastAlert, refreshAllClientsAccess } = require('./services/alertRealtimeService');
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
@@ -89,11 +89,56 @@ app.use(blockAutomationAgents);
 // [NOTE] JSON parse error handler moved to AFTER all route registrations
 // (Express error-handling middleware requires 4 params and must be placed after routes).
 
-// Request Logging for Debugging
+// Request Logging & Universal Real-Time Mutation Broadcast Middleware
 app.use((req, res, next) => {
     const log = `[${new Date().toISOString()}] ${req.method} ${req.url}`;
     console.log(log);
     fs.appendFileSync('server.log', log + '\n');
+
+    const method = (req.method || '').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        const cleanPath = (req.originalUrl || req.url || '').split('?')[0].toLowerCase();
+        const isExcluded =
+            cleanPath === '/api/sensor/reading' ||
+            cleanPath === '/api/login' ||
+            cleanPath === '/api/register' ||
+            cleanPath === '/api/verify-otp' ||
+            cleanPath === '/api/resend-otp' ||
+            cleanPath === '/api/forgot-password' ||
+            cleanPath === '/api/reset-password' ||
+            cleanPath === '/api/alerts/sync-mute' ||
+            cleanPath.startsWith('/api/auth/');
+
+        if (!isExcluded && cleanPath.startsWith('/api/')) {
+            res.on('finish', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    try {
+                        refreshAllClientsAccess();
+                        let domain = 'general';
+                        if (cleanPath.includes('/device') || cleanPath.includes('/pair') || cleanPath.includes('/unpair') || cleanPath.includes('/firmware')) domain = 'devices';
+                        else if (cleanPath.includes('/assign') || cleanPath.includes('/invite') || cleanPath.includes('/care-team') || cleanPath.includes('/revoke')) domain = 'assignments';
+                        else if (cleanPath.includes('/patient') || cleanPath.includes('/baseline') || cleanPath.includes('/care-log') || cleanPath.includes('/diaper')) domain = 'patients';
+                        else if (cleanPath.includes('/schedule')) domain = 'schedules';
+                        else if (cleanPath.includes('/alert') || cleanPath.includes('/flag-normal')) domain = 'alerts';
+                        else if (cleanPath.includes('/user') || cleanPath.includes('/staff') || cleanPath.includes('/rbac') || cleanPath.includes('/profile')) domain = 'users';
+                        else if (cleanPath.includes('/archive') || cleanPath.includes('/restore')) domain = 'archives';
+                        else if (cleanPath.includes('/report')) domain = 'reports';
+                        else if (cleanPath.includes('/facility') || cleanPath.includes('/topology')) domain = 'facilities';
+
+                        broadcastAlert('system_data_update', {
+                            domain,
+                            method,
+                            path: cleanPath,
+                            actor_id: req.user?.id || null,
+                            actor_role: req.user?.role || null,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (_) {}
+                }
+            });
+        }
+    }
+
     next();
 });
 

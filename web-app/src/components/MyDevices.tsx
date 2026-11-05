@@ -134,17 +134,41 @@ export const MyDevices: React.FC = () => {
             const detail = e?.detail;
             if (!detail) return;
             if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
-                const sn = detail.serial_number;
-                const newStatus = (detail.status || 'ACTIVE').toUpperCase();
+                const sn = detail.serial_number || detail.serialNumber;
+                const action = detail.action;
                 const newBattery = detail.battery_level !== undefined && detail.battery_level !== null ? Number(detail.battery_level) : undefined;
                 const newSignal = detail.signal_strength;
 
                 if (sn) {
                     setDevices(prev => prev.map(dev => {
                         if (dev.serial_number === sn) {
+                            if (action === 'unpair_permanent' || detail.assigned_patient_id === null) {
+                                return {
+                                    ...dev,
+                                    assigned_patient_id: null,
+                                    assigned_patient_name: undefined,
+                                    assigned_room: 'Unassigned',
+                                    assigned_patient_baseline: null,
+                                    status: (dev.is_online ? 'ACTIVE' : 'INACTIVE') as any,
+                                };
+                            }
+                            if (action === 'unpair_change' || detail.status === 'STANDBY') {
+                                return {
+                                    ...dev,
+                                    status: 'STANDBY' as any,
+                                    is_online: false,
+                                    signal_strength: 'No Signal',
+                                };
+                            }
+                            const newStatus = (detail.status || 'ACTIVE').toUpperCase();
                             const isOnline = newStatus === 'ACTIVE';
+                            const nextPatientId = detail.assigned_patient_id !== undefined ? detail.assigned_patient_id : (detail.patient_id !== undefined ? detail.patient_id : dev.assigned_patient_id);
+                            const nextPatientName = detail.assigned_patient_name || detail.patientName || dev.assigned_patient_name;
                             return {
                                 ...dev,
+                                assigned_patient_id: nextPatientId,
+                                assigned_patient_name: nextPatientName,
+                                assigned_room: nextPatientName ? `Patient: ${nextPatientName}` : dev.assigned_room,
                                 status: newStatus as any,
                                 is_online: isOnline,
                                 battery_level: newBattery !== undefined ? newBattery : dev.battery_level,
@@ -280,7 +304,14 @@ export const MyDevices: React.FC = () => {
             const data = await res.json();
             if (data.success) {
                 toast.success(data.message || "Device set to Standby for replacement. It remains saved to the patient record.");
-                fetchInventory();
+                setDevices(prev => prev.map(d => d.serial_number === device.serial_number ? {
+                    ...d,
+                    status: 'STANDBY' as any,
+                    is_online: false,
+                    signal_strength: 'No Signal'
+                } : d));
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+                fetchInventory(false);
             } else {
                 toast.error(data.message || "Failed to unpair device for replacement");
             }
@@ -292,7 +323,7 @@ export const MyDevices: React.FC = () => {
 
     const handleUnpairPermanently = async (device: Device) => {
         const patientName = device.assigned_patient_name || 'the patient';
-        if (!confirm(`Are you sure you want to permanently unpair ${device.device_name} (SN: ${device.serial_number})?\n\nThis will completely remove this device from ${patientName}'s device list.`)) return;
+        if (!confirm(`Are you sure you want to permanently unpair ${device.device_name} (SN: ${device.serial_number})?\n\nThis will unassign the device from ${patientName} while keeping it registered in your device list as Unassigned.`)) return;
 
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/unpair`, {
@@ -308,8 +339,17 @@ export const MyDevices: React.FC = () => {
             });
             const data = await res.json();
             if (data.success) {
-                toast.success(data.message || "Device permanently removed from patient's device list.");
-                fetchInventory();
+                toast.success(data.message || "Device permanently unpaired and set to Unassigned in your registered devices.");
+                setDevices(prev => prev.map(d => d.serial_number === device.serial_number ? {
+                    ...d,
+                    assigned_patient_id: null,
+                    assigned_patient_name: undefined,
+                    assigned_room: 'Unassigned',
+                    assigned_patient_baseline: null,
+                    status: (d.is_online ? 'ACTIVE' : 'INACTIVE') as any
+                } : d));
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+                fetchInventory(false);
             } else {
                 toast.error(data.message || "Failed to permanently unpair device");
             }
@@ -344,7 +384,13 @@ export const MyDevices: React.FC = () => {
             const data = await res.json();
             if (data.success) {
                 toast.success(data.message || `Device paired successfully to ${patientName}! Readings will be captured seamlessly.`);
-                fetchInventory();
+                setDevices(prev => prev.map(d => d.serial_number === device.serial_number ? {
+                    ...d,
+                    status: 'ACTIVE' as any,
+                    is_online: true
+                } : d));
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+                fetchInventory(false);
             } else {
                 toast.error(data.message || "Failed to pair device");
             }
@@ -915,6 +961,7 @@ export const AssignDeviceModal: React.FC<AssignDeviceModalProps> = ({ isOpen, on
             const data = await res.json();
             if (res.ok && data.success) {
                 toast.success(data.message || "Devices assigned successfully!");
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 onSuccess();
                 onClose();
             } else {

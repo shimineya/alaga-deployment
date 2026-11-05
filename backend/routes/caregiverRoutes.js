@@ -83,6 +83,13 @@ router.get('/devices', async (req, res) => {
                       d.added_by = $1
                       OR pa.user_id = $1
                       OR ($2::int IS NOT NULL AND p.facility_id = $2)
+                      OR ($2::int IS NOT NULL AND d.added_by IN (SELECT user_id FROM users WHERE facility_id = $2))
+                      OR d.added_by IN (
+                          SELECT pa_team.user_id FROM patient_access pa_team
+                          WHERE pa_team.patient_id IN (
+                              SELECT patient_id FROM patient_access WHERE user_id = $1 AND is_archived IS DISTINCT FROM TRUE
+                          ) AND pa_team.is_archived IS DISTINCT FROM TRUE
+                      )
                   )
                  ORDER BY d.serial_number, d.created_at DESC`,
                 [userId, req.user.facility_id]
@@ -97,11 +104,17 @@ router.get('/devices', async (req, res) => {
                         p.name as assigned_patient_name, p.baseline_data as assigned_patient_baseline
                  FROM device_whitelist d
                  LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
-                 LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id
+                 LEFT JOIN patient_access pa ON pa.patient_id = d.assigned_patient_id AND pa.is_archived IS DISTINCT FROM TRUE
                  WHERE d.is_archived IS DISTINCT FROM TRUE
                    AND (
                       d.added_by = $1
                       OR pa.user_id = $1
+                      OR d.added_by IN (
+                          SELECT pa_team.user_id FROM patient_access pa_team
+                          WHERE pa_team.patient_id IN (
+                              SELECT patient_id FROM patient_access WHERE user_id = $1 AND is_archived IS DISTINCT FROM TRUE
+                          ) AND pa_team.is_archived IS DISTINCT FROM TRUE
+                      )
                   )
                  ORDER BY d.serial_number, d.created_at DESC`,
                 [userId]
@@ -1201,8 +1214,8 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
 
             // Pair / Claim device
             await pool.query(
-                "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = COALESCE(added_by, $2) WHERE serial_number = $3",
-                [patientId, req.user.id, cleanSN]
+                "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = CASE WHEN $4::boolean THEN COALESCE(added_by, $2) ELSE $2 END WHERE serial_number = $3",
+                [patientId, req.user.id, cleanSN, !!isSysAdmin]
             );
         }
 
@@ -1229,6 +1242,19 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             patient_name: patientName,
             assigned_by: req.user.email || `User #${req.user.id}`
         }).catch(e => console.error('Device pairing report hook error:', e));
+
+        refreshAllClientsAccess();
+        broadcastAlert('device_status_update', {
+            serial_number: cleanSN,
+            serialNumber: cleanSN,
+            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor',
+            patient_id: parseInt(patientId, 10),
+            assigned_patient_id: parseInt(patientId, 10),
+            assigned_patient_name: patientName,
+            patientName,
+            status: 'ACTIVE',
+            action: 'pair'
+        });
 
         res.json({ success: true, message: `Device ${cleanSN} paired successfully to patient.` });
     } catch (err) {
@@ -2495,26 +2521,45 @@ router.get('/unassigned-patients', async (req, res) => {
 router.post('/patients/:id/assign-device', async (req, res) => {
     const client = await pool.connect();
     try {
-        const patientId = req.params.id;
+        const patientId = parseInt(req.params.id, 10);
         const { serialNumber } = req.body;
+        const role = (req.user.role || '').toLowerCase();
+        const isSysAdmin = req.user.is_sysadmin || req.user.is_sys_admin_override || ['system_admin', 'sysadmin', 'admin'].includes(role);
 
         if (!serialNumber) return res.status(400).json({ success: false, message: 'Serial number required' });
 
         await client.query('BEGIN');
 
-        // 1. Assign in device_whitelist
+        // 1. Assign in device_whitelist & claim added_by so device stays in user's registered inventory
         await client.query(
-            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-            [patientId, serialNumber]
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = CASE WHEN $3::boolean THEN COALESCE(added_by, $4) ELSE $4 END WHERE serial_number = $2",
+            [patientId, serialNumber, !!isSysAdmin, req.user.id]
         );
 
         // 2. If it's a Vital Monitor, update the main patient record for quick reference
         const deviceCheck = await client.query("SELECT device_name FROM device_whitelist WHERE serial_number = $1", [serialNumber]);
-        if (deviceCheck.rows[0]?.device_name.includes('Vital')) {
+        const patCheck = await client.query("SELECT name FROM patients WHERE patient_id = $1", [patientId]);
+        const patientName = patCheck.rows[0]?.name || null;
+
+        if (deviceCheck.rows[0]?.device_name?.includes('Vital') || String(serialNumber).startsWith('VS-')) {
+            await client.query("UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id != $2", [serialNumber, patientId]);
             await client.query("UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2", [serialNumber, patientId]);
         }
 
         await client.query('COMMIT');
+
+        refreshAllClientsAccess();
+        broadcastAlert('device_status_update', {
+            serial_number: serialNumber,
+            serialNumber,
+            device_name: deviceCheck.rows[0]?.device_name,
+            patient_id: patientId,
+            assigned_patient_id: patientId,
+            assigned_patient_name: patientName,
+            patientName,
+            status: 'ACTIVE',
+            action: 'assign'
+        });
 
         // Auto-generate system report for device pairing
         systemReportService.recordDevicePairingReport({
@@ -2541,8 +2586,10 @@ router.post('/patients/:id/assign-device', async (req, res) => {
 router.put('/patients/:id/unlink-device', async (req, res) => {
     const client = await pool.connect();
     try {
-        const patientId = req.params.id;
+        const patientId = parseInt(req.params.id, 10);
         const { type } = req.body; // 'vital' or 'diaper'
+        const role = (req.user.role || '').toLowerCase();
+        const isSysAdmin = req.user.is_sysadmin || req.user.is_sys_admin_override || ['system_admin', 'sysadmin', 'admin'].includes(role);
 
         await client.query('BEGIN');
 
@@ -2550,20 +2597,36 @@ router.put('/patients/:id/unlink-device', async (req, res) => {
         if (type === 'vital') deviceTypePattern = '%Vital%';
         else if (type === 'diaper') deviceTypePattern = '%Diaper%';
 
-        // 1. Find the device and Unlink
-        await client.query(
+        // 1. Find the device and Unlink (keeping it registered in user's inventory as AVAILABLE / Unassigned)
+        const unlinkedRes = await client.query(
             `UPDATE device_whitelist 
-             SET assigned_patient_id = NULL 
-             WHERE assigned_patient_id = $1 AND device_name ILIKE $2`,
-            [patientId, deviceTypePattern]
+             SET assigned_patient_id = NULL,
+                 status = 'AVAILABLE',
+                 added_by = CASE WHEN $3::boolean THEN COALESCE(added_by, $4) ELSE $4 END
+             WHERE assigned_patient_id = $1 AND device_name ILIKE $2
+             RETURNING serial_number, device_name`,
+            [patientId, deviceTypePattern, !!isSysAdmin, req.user.id]
         );
 
-        // 2. If vital, clear from patients table
-        if (type === 'vital') {
+        // 2. Clear from patients table if matched
+        if (type === 'vital' || unlinkedRes.rows.some(r => String(r.serial_number).startsWith('VS-'))) {
             await client.query("UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1", [patientId]);
         }
 
         await client.query('COMMIT');
+        refreshAllClientsAccess();
+        for (const row of unlinkedRes.rows) {
+            broadcastAlert('device_status_update', {
+                serial_number: row.serial_number,
+                serialNumber: row.serial_number,
+                device_name: row.device_name,
+                patient_id: patientId,
+                assigned_patient_id: null,
+                assigned_patient_name: null,
+                status: 'AVAILABLE',
+                action: 'unpair_permanent'
+            });
+        }
         res.json({ success: true, message: 'Device unlinked successfully' });
 
     } catch (err) {
@@ -2651,10 +2714,10 @@ router.post('/devices/unpair', async (req, res) => {
         if (action === 'change') {
             // UNPAIR TO CHANGE (Device faulty / low battery):
             // Keep assigned_patient_id so device remains saved in patient's associated devices.
-            // Set status to 'STANDBY'.
+            // Set status to 'STANDBY' and preserve ownership in user's registered inventory.
             await client.query(
-                "UPDATE device_whitelist SET status = 'STANDBY' WHERE serial_number = $1",
-                [serialNumber]
+                "UPDATE device_whitelist SET status = 'STANDBY', added_by = CASE WHEN $2::boolean THEN COALESCE(added_by, $3) ELSE $3 END WHERE serial_number = $1",
+                [serialNumber, !!isSysAdmin, userId]
             );
 
             // If this device was the primary active device on patients table, clear it so a replacement can be paired
@@ -2668,9 +2731,13 @@ router.post('/devices/unpair', async (req, res) => {
             await client.query('COMMIT');
             refreshAllClientsAccess();
             broadcastAlert('device_status_update', { 
+                serial_number: serialNumber,
                 serialNumber, 
+                device_name: dev.device_name,
                 patient_id: dev.assigned_patient_id, 
+                assigned_patient_id: dev.assigned_patient_id,
                 status: 'STANDBY', 
+                is_online: false,
                 action: 'unpair_change',
                 reason: reason || 'Device faulty or low battery - standby for replacement'
             });
@@ -2682,10 +2749,10 @@ router.post('/devices/unpair', async (req, res) => {
             });
         } else {
             // UNPAIR PERMANENTLY:
-            // Completely removes device from the list of the patient's devices.
+            // Completely unassigns the device from the patient while keeping it registered in the user's device inventory!
             await client.query(
-                "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'AVAILABLE' WHERE serial_number = $1",
-                [serialNumber]
+                "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'AVAILABLE', added_by = CASE WHEN $2::boolean THEN COALESCE(added_by, $3) ELSE $3 END WHERE serial_number = $1",
+                [serialNumber, !!isSysAdmin, userId]
             );
 
             await client.query(
@@ -2696,8 +2763,12 @@ router.post('/devices/unpair', async (req, res) => {
             await client.query('COMMIT');
             refreshAllClientsAccess();
             broadcastAlert('device_status_update', { 
+                serial_number: serialNumber,
                 serialNumber, 
+                device_name: dev.device_name,
                 patient_id: dev.assigned_patient_id, 
+                assigned_patient_id: null,
+                assigned_patient_name: null,
                 status: 'AVAILABLE', 
                 action: 'unpair_permanent' 
             });
@@ -2705,7 +2776,7 @@ router.post('/devices/unpair', async (req, res) => {
             return res.json({ 
                 success: true, 
                 action: 'permanent',
-                message: 'Device unpaired permanently and removed from the patient\'s device list.' 
+                message: 'Device unpaired permanently and set to Unassigned in your registered devices.' 
             });
         }
 
@@ -2797,8 +2868,8 @@ router.post('/devices/pair', async (req, res) => {
 
         // Assign device to target patient and set status ACTIVE
         await client.query(
-            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-            [parsedPatientId, serialNumber]
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = CASE WHEN $3::boolean THEN COALESCE(added_by, $4) ELSE $4 END WHERE serial_number = $2",
+            [parsedPatientId, serialNumber, !!isSysAdmin, userId]
         );
 
         // Set as patient's active device_serial_number
@@ -2810,8 +2881,12 @@ router.post('/devices/pair', async (req, res) => {
         await client.query('COMMIT');
         refreshAllClientsAccess();
         broadcastAlert('device_status_update', { 
+            serial_number: serialNumber,
             serialNumber, 
+            device_name: dev.device_name,
             patient_id: parsedPatientId, 
+            assigned_patient_id: parsedPatientId,
+            assigned_patient_name: patientRow.name,
             patientName: patientRow.name,
             status: 'ACTIVE', 
             action: 'pair' 
@@ -3037,13 +3112,13 @@ router.get('/devices/available', async (req, res) => {
         if (isSysAdmin) {
             queryStr = `SELECT serial_number, device_name, status 
              FROM device_whitelist 
-             WHERE status = 'AVAILABLE' AND assigned_patient_id IS NULL AND is_archived IS DISTINCT FROM TRUE
+             WHERE assigned_patient_id IS NULL AND is_archived IS DISTINCT FROM TRUE
              ORDER BY created_at DESC`;
         } else if (facilityId) {
             queryStr = `SELECT dw.serial_number, dw.device_name, dw.status 
              FROM device_whitelist dw
              LEFT JOIN users u ON dw.added_by = u.user_id
-             WHERE dw.status = 'AVAILABLE' AND dw.assigned_patient_id IS NULL AND dw.is_archived IS DISTINCT FROM TRUE
+             WHERE dw.assigned_patient_id IS NULL AND dw.is_archived IS DISTINCT FROM TRUE
                AND (dw.added_by = $1 OR u.facility_id = $2 OR u.role IN ('admin', 'system_admin', 'sysadmin') OR dw.added_by IS NULL)
              ORDER BY dw.created_at DESC`;
             queryParams = [userId, facilityId];
@@ -3051,7 +3126,7 @@ router.get('/devices/available', async (req, res) => {
             queryStr = `SELECT dw.serial_number, dw.device_name, dw.status 
              FROM device_whitelist dw
              LEFT JOIN users u ON dw.added_by = u.user_id
-             WHERE dw.status = 'AVAILABLE' AND dw.assigned_patient_id IS NULL AND dw.is_archived IS DISTINCT FROM TRUE
+             WHERE dw.assigned_patient_id IS NULL AND dw.is_archived IS DISTINCT FROM TRUE
                AND (dw.added_by = $1 OR u.role IN ('admin', 'system_admin', 'sysadmin') OR dw.added_by IS NULL)
              ORDER BY dw.created_at DESC`;
             queryParams = [userId];
@@ -3673,8 +3748,8 @@ router.post('/devices/assign', async (req, res) => {
 
         if (smartDiaperSn) {
             await client.query(
-                `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2`,
-                [patientId, smartDiaperSn]
+                `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = CASE WHEN $3::boolean THEN COALESCE(added_by, $4) ELSE $4 END WHERE serial_number = $2`,
+                [patientId, smartDiaperSn, !!isSysAdmin, actorId]
             );
             await client.query(
                 `INSERT INTO access_logs (user_id, target_patient_id, action, resource_affected)
@@ -3685,8 +3760,8 @@ router.post('/devices/assign', async (req, res) => {
 
         if (vitalSignsSn) {
             await client.query(
-                `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2`,
-                [patientId, vitalSignsSn]
+                `UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = CASE WHEN $3::boolean THEN COALESCE(added_by, $4) ELSE $4 END WHERE serial_number = $2`,
+                [patientId, vitalSignsSn, !!isSysAdmin, actorId]
             );
             // Clear any stale assignment on other patients to satisfy UNIQUE constraint
             await client.query(
@@ -3705,6 +3780,33 @@ router.post('/devices/assign', async (req, res) => {
         }
 
         await client.query('COMMIT');
+        refreshAllClientsAccess();
+        if (smartDiaperSn) {
+            broadcastAlert('device_status_update', {
+                serial_number: smartDiaperSn,
+                serialNumber: smartDiaperSn,
+                device_name: 'Smart Diaper Moisture Sensor',
+                patient_id: patientId,
+                assigned_patient_id: patientId,
+                assigned_patient_name: patientName.trim(),
+                patientName: patientName.trim(),
+                status: 'ACTIVE',
+                action: 'assign'
+            });
+        }
+        if (vitalSignsSn) {
+            broadcastAlert('device_status_update', {
+                serial_number: vitalSignsSn,
+                serialNumber: vitalSignsSn,
+                device_name: 'Vital Signs Sensor',
+                patient_id: patientId,
+                assigned_patient_id: patientId,
+                assigned_patient_name: patientName.trim(),
+                patientName: patientName.trim(),
+                status: 'ACTIVE',
+                action: 'assign'
+            });
+        }
         res.json({ success: true, message: 'Devices assigned successfully!' });
 
     } catch (err) {

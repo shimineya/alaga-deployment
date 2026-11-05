@@ -46,6 +46,19 @@ export default function AssignDeviceToPatient() {
 
     useEffect(() => {
         fetchAvailableDevices();
+
+        const handleSync = (e: any) => {
+            const detail = e?.detail;
+            if (!detail || detail.type === 'device_status_update') {
+                fetchAvailableDevices();
+            }
+        };
+        window.addEventListener('alaga_alert_update', handleSync);
+        window.addEventListener('alaga_manual_refresh', fetchAvailableDevices);
+        return () => {
+            window.removeEventListener('alaga_alert_update', handleSync);
+            window.removeEventListener('alaga_manual_refresh', fetchAvailableDevices);
+        };
     }, []);
 
     const diaperAvailableList = availableDevices.filter(d => d.serial_number.toUpperCase().startsWith('SD-'));
@@ -105,6 +118,7 @@ export default function AssignDeviceToPatient() {
                 setPatientName('');
                 setSmartDiaperSn('');
                 setVitalSignsSn('');
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 fetchAvailableDevices();
             } else {
                 toast.error(data.message || 'Failed to assign devices.');

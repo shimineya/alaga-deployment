@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const systemReportService = require('../services/systemReportService');
 const { sendFacilityInvitationEmail } = require('../services/emailService');
+const { broadcastAlert, refreshAllClientsAccess } = require('../services/alertRealtimeService');
 
 // Apply security middleware to ALL routes in this file
 // [OWASP A01] Every route requires a valid JWT + facility_admin role
@@ -920,12 +921,12 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
         let patientCheck;
         if (isSysAdmin) {
             patientCheck = await pool.query(
-                'SELECT patient_id FROM patients WHERE patient_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+                'SELECT patient_id, name FROM patients WHERE patient_id = $1 AND is_archived IS DISTINCT FROM TRUE',
                 [patientId]
             );
         } else {
             patientCheck = await pool.query(
-                'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2 AND is_archived IS DISTINCT FROM TRUE',
+                'SELECT patient_id, name FROM patients WHERE patient_id = $1 AND facility_id = $2 AND is_archived IS DISTINCT FROM TRUE',
                 [patientId, facilityId]
             );
         }
@@ -970,8 +971,8 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
 
             // Claim and assign device to patient
             await pool.query(
-                "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = COALESCE(added_by, $2) WHERE serial_number = $3",
-                [patientId, req.user.id, cleanSN]
+                "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = CASE WHEN $4::boolean THEN COALESCE(added_by, $2) ELSE $2 END WHERE serial_number = $3",
+                [patientId, req.user.id, cleanSN, !!isSysAdmin]
             );
         }
 
@@ -992,6 +993,19 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
              VALUES ($1, 'DEVICE_PAIR', $2)`,
             [req.user.id, `Paired device ${cleanSN} to Patient ${patientId}`]
         );
+
+        refreshAllClientsAccess();
+        broadcastAlert('device_status_update', {
+            serial_number: cleanSN,
+            serialNumber: cleanSN,
+            device_name: cleanSN.startsWith('SD-') ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor',
+            patient_id: parseInt(patientId, 10),
+            assigned_patient_id: parseInt(patientId, 10),
+            assigned_patient_name: patientCheck.rows[0]?.name || null,
+            patientName: patientCheck.rows[0]?.name || null,
+            status: 'ACTIVE',
+            action: 'pair'
+        });
 
         // Auto-generate system report for device pairing
         systemReportService.recordDevicePairingReport({

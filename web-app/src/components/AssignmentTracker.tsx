@@ -256,6 +256,19 @@ export const AssignmentTracker: React.FC<AssignmentTrackerProps> = ({ onRefresh 
 
     useEffect(() => {
         fetchData();
+
+        const handleRealtimeSync = (e: any) => {
+            const detail = e?.detail;
+            if (!detail || detail.type === 'device_status_update' || detail.type === 'assignment_update') {
+                fetchData();
+            }
+        };
+        window.addEventListener('alaga_alert_update', handleRealtimeSync);
+        window.addEventListener('alaga_manual_refresh', fetchData);
+        return () => {
+            window.removeEventListener('alaga_alert_update', handleRealtimeSync);
+            window.removeEventListener('alaga_manual_refresh', fetchData);
+        };
     }, [fetchData]);
 
     // --- ACTIONS ---

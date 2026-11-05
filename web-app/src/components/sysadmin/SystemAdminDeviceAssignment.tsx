@@ -91,6 +91,19 @@ export default function SystemAdminDeviceAssignment() {
 
     useEffect(() => {
         fetchData();
+
+        const handleRealtime = (e: any) => {
+            const detail = e?.detail;
+            if (!detail || detail.type === 'device_status_update') {
+                fetchData();
+            }
+        };
+        window.addEventListener('alaga_alert_update', handleRealtime);
+        window.addEventListener('alaga_manual_refresh', fetchData);
+        return () => {
+            window.removeEventListener('alaga_alert_update', handleRealtime);
+            window.removeEventListener('alaga_manual_refresh', fetchData);
+        };
     }, [fetchData]);
 
     const handleOpenLinkModal = (sn: string) => {

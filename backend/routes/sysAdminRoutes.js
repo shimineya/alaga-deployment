@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { verifyToken, requireRole, requirePermission } = require('../middleware/authMiddleware');
+const { broadcastAlert, refreshAllClientsAccess } = require('../services/alertRealtimeService');
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
@@ -1331,17 +1332,35 @@ router.post('/devices/link', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Patient ID and Serial Number are required.' });
     }
     try {
-        await pool.query(
+        const devRes = await pool.query(
             `UPDATE device_whitelist
              SET assigned_patient_id = $1, status = 'ACTIVE'
-             WHERE serial_number = $2`,
+             WHERE serial_number = $2
+             RETURNING device_name`,
             [patient_id, serial_number]
         );
+        if (String(serial_number).startsWith('VS-') || devRes.rows[0]?.device_name?.includes('Vital')) {
+            await pool.query(`UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1 AND patient_id != $2`, [serial_number, patient_id]);
+            await pool.query(`UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2`, [serial_number, patient_id]);
+        }
+        const patRes = await pool.query(`SELECT name FROM patients WHERE patient_id = $1`, [patient_id]);
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'DEVICE_ASSIGNMENT_LINK', $2, 'WARNING')`,
             [req.user.id, `Linked device ${serial_number} to Patient ID ${patient_id}`]
         );
+
+        refreshAllClientsAccess();
+        broadcastAlert('device_status_update', {
+            serial_number,
+            serialNumber: serial_number,
+            device_name: devRes.rows[0]?.device_name,
+            patient_id: Number(patient_id),
+            assigned_patient_id: Number(patient_id),
+            assigned_patient_name: patRes.rows[0]?.name || null,
+            status: 'ACTIVE',
+            action: 'pair'
+        });
 
         // Auto-generate system report for device pairing
         systemReportService.recordDevicePairingReport({
@@ -1364,6 +1383,11 @@ router.post('/devices/unlink', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Serial number is required.' });
     }
     try {
+        const prevDev = await pool.query(
+            `SELECT assigned_patient_id, device_name FROM device_whitelist WHERE serial_number = $1`,
+            [serial_number]
+        );
+        const prevPatientId = prevDev.rows[0]?.assigned_patient_id || null;
         await pool.query(
             `UPDATE device_whitelist
              SET assigned_patient_id = NULL, status = 'AVAILABLE'
@@ -1371,10 +1395,25 @@ router.post('/devices/unlink', async (req, res) => {
             [serial_number]
         );
         await pool.query(
+            `UPDATE patients SET device_serial_number = NULL WHERE device_serial_number = $1`,
+            [serial_number]
+        );
+        await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'DEVICE_ASSIGNMENT_UNLINK', $2, 'CRITICAL')`,
             [req.user.id, `Unlinked device ${serial_number}`]
         );
+        refreshAllClientsAccess();
+        broadcastAlert('device_status_update', {
+            serial_number,
+            serialNumber: serial_number,
+            device_name: prevDev.rows[0]?.device_name,
+            patient_id: prevPatientId,
+            assigned_patient_id: null,
+            assigned_patient_name: null,
+            status: 'AVAILABLE',
+            action: 'unpair_permanent'
+        });
         res.json({ success: true, message: 'Device unassigned successfully.' });
     } catch (err) {
         console.error('Unlink Device Error:', err.message);

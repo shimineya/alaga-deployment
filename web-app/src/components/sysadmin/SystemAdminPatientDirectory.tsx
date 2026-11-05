@@ -213,6 +213,62 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
     useEffect(() => {
         fetchAssigned();
         fetchUnassigned();
+
+        const handleRealtimeUpdate = (e: any) => {
+            const detail = e?.detail;
+            if (!detail) return;
+            if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update' || detail.type === 'assignment_update') {
+                const sn = String(detail.serial_number || detail.serialNumber || '');
+                const action = detail.action;
+                const isPermanentUnpair = action === 'unpair_permanent' || detail.assigned_patient_id === null;
+                const isStandby = action === 'unpair_change' || detail.status === 'STANDBY';
+                const targetPatId = Number(detail.patient_id || detail.patientId || 0);
+
+                if (sn) {
+                    const updatePatientList = (list: ScopedPatient[]) => list.map(p => {
+                        const pPaired = p.paired_devices || [];
+                        const pDevices = (p as any).devices || [];
+                        const hasSn = pPaired.some(d => d.serial_number === sn) || pDevices.some((d: any) => d.serial_number === sn) || p.device_serial_number === sn || (p as any).vital_device_sn === sn || (p as any).diaper_device_sn === sn;
+
+                        if (p.patient_id === targetPatId || hasSn) {
+                            let nextPaired = [...pPaired];
+                            let nextDevs = [...pDevices];
+                            if (isPermanentUnpair) {
+                                nextPaired = nextPaired.filter(d => d.serial_number !== sn);
+                                nextDevs = nextDevs.filter((d: any) => d.serial_number !== sn);
+                            } else if (isStandby) {
+                                nextPaired = nextPaired.map(d => d.serial_number === sn ? { ...d, status: 'STANDBY' } : d);
+                            }
+                            return {
+                                ...p,
+                                device_serial_number: isPermanentUnpair && p.device_serial_number === sn ? null : p.device_serial_number,
+                                vital_device_sn: isPermanentUnpair && (p as any).vital_device_sn === sn ? null : (p as any).vital_device_sn,
+                                diaper_device_sn: isPermanentUnpair && (p as any).diaper_device_sn === sn ? null : (p as any).diaper_device_sn,
+                                paired_devices: nextPaired,
+                                devices: nextDevs
+                            } as ScopedPatient;
+                        }
+                        return p;
+                    });
+                    setAssignedPatients(prev => updatePatientList(prev));
+                    setUnassignedPatients(prev => updatePatientList(prev));
+                }
+                fetchAssigned();
+                fetchUnassigned();
+            }
+        };
+
+        const handleManualRefresh = () => {
+            fetchAssigned();
+            fetchUnassigned();
+        };
+
+        window.addEventListener('alaga_alert_update', handleRealtimeUpdate);
+        window.addEventListener('alaga_manual_refresh', handleManualRefresh);
+        return () => {
+            window.removeEventListener('alaga_alert_update', handleRealtimeUpdate);
+            window.removeEventListener('alaga_manual_refresh', handleManualRefresh);
+        };
     }, [fetchAssigned, fetchUnassigned]);
 
     // Handle Autosuggest Lists

@@ -131,20 +131,49 @@ router.post('/reading', readingValidation, async (req, res) => {
         return res.status(401).json({ success: false, message: 'Device not authorized.' });
     }
 
-    // Update device heartbeat and status even if not assigned to a patient yet
+    const earlyBattery = req.body.battery !== undefined && req.body.battery !== null ? parseInt(req.body.battery, 10) : null;
+    const earlySignal  = req.body.signal !== undefined && req.body.signal !== null ? String(req.body.signal) : null;
+
+    const patientId = device.assigned_patient_id;
+    if (!patientId) {
+        // Device is registered but currently unassigned — update heartbeat/battery/signal while keeping status = 'AVAILABLE'
+        await pool.query(
+            `UPDATE device_whitelist 
+             SET last_heartbeat = NOW(), 
+                 status = 'AVAILABLE',
+                 ip_address = COALESCE(NULLIF($2, ''), ip_address),
+                 battery_level = COALESCE($3, battery_level),
+                 signal_strength = COALESCE($4, signal_strength)
+             WHERE serial_number = $1`,
+            [deviceSerial, clientIp, earlyBattery, earlySignal]
+        ).catch(() => {});
+        return res.status(422).json({ success: false, message: 'Device is not assigned to a patient.' });
+    }
+
+    if (device.status === 'STANDBY') {
+        // Device was unpaired to change (STANDBY) — update heartbeat/battery/signal without re-activating or logging patient telemetry
+        await pool.query(
+            `UPDATE device_whitelist 
+             SET last_heartbeat = NOW(), 
+                 status = 'STANDBY',
+                 ip_address = COALESCE(NULLIF($2, ''), ip_address),
+                 battery_level = COALESCE($3, battery_level),
+                 signal_strength = COALESCE($4, signal_strength)
+             WHERE serial_number = $1`,
+            [deviceSerial, clientIp, earlyBattery, earlySignal]
+        ).catch(() => {});
+        return res.status(422).json({ success: false, message: 'Device is in STANDBY mode.' });
+    }
+
+    // Update device heartbeat and status for active assigned device
     await pool.query(
         `UPDATE device_whitelist 
          SET last_heartbeat = NOW(), 
              status = 'ACTIVE',
              ip_address = COALESCE(NULLIF($2, ''), ip_address)
-         WHERE serial_number = $1`,
+         WHERE serial_number = $1 AND assigned_patient_id IS NOT NULL AND status IS DISTINCT FROM 'STANDBY'`,
         [deviceSerial, clientIp]
     ).catch(() => {});
-
-    const patientId = device.assigned_patient_id;
-    if (!patientId) {
-        return res.status(422).json({ success: false, message: 'Device is not assigned to a patient.' });
-    }
 
     // Step 3: Extract and sanitize readings
     let heartRate   = parseFloat(req.body.heart_rate);
@@ -442,7 +471,20 @@ router.post('/reading', readingValidation, async (req, res) => {
         ai_status    : aiResult.status
     });
 
-    // Step 8: Update device heartbeat timestamp, status, battery, signal & auto-apply pending firmware update when it connects online
+    // Step 8: Re-verify device is still assigned to this patient and not unpaired/standby during async AI evaluation
+    const verifyAssigned = await pool.query(
+        `SELECT assigned_patient_id, status FROM device_whitelist WHERE serial_number = $1`,
+        [deviceSerial]
+    ).catch(() => ({ rows: [] }));
+    const latestDevState = verifyAssigned.rows[0];
+    if (!latestDevState || Number(latestDevState.assigned_patient_id) !== Number(patientId) || latestDevState.status === 'STANDBY') {
+        return res.status(200).json({
+            success: true,
+            status: 'UNPAIRED_OR_STANDBY_DURING_FLIGHT'
+        });
+    }
+
+    // Update device heartbeat timestamp, status, battery, signal & auto-apply pending firmware update when it connects online
     await pool.query(
         `UPDATE device_whitelist 
          SET last_heartbeat = NOW(),
@@ -451,8 +493,8 @@ router.post('/reading', readingValidation, async (req, res) => {
              signal_strength = COALESCE($3, signal_strength),
              firmware_version = COALESCE(pending_firmware_version, firmware_version),
              pending_firmware_version = NULL
-         WHERE serial_number = $1`,
-        [deviceSerial, battery, signal]
+         WHERE serial_number = $1 AND assigned_patient_id = $4 AND status IS DISTINCT FROM 'STANDBY'`,
+        [deviceSerial, battery, signal, patientId]
     ).catch(() => {});
 
     const telemetryTimestamp = new Date().toISOString();
@@ -462,8 +504,10 @@ router.post('/reading', readingValidation, async (req, res) => {
     // Real-time SSE Broadcast: device turned online or refreshed telemetry
     broadcastAlert('device_status_update', {
         serial_number: deviceSerial,
+        serialNumber: deviceSerial,
         status: 'ACTIVE',
         patient_id: patientId,
+        assigned_patient_id: patientId,
         battery_level: battery,
         signal_strength: signal,
         finger_detected: isFingerDetected,

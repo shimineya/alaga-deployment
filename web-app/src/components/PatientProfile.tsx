@@ -233,32 +233,77 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
       if (!detail) return;
       if (detail.type === 'device_status_update' || detail.type === 'patient_telemetry_update') {
         const updatePatientId = String(detail.patient_id || detail.patientId || '');
-        if (!updatePatientId || updatePatientId === patId) {
-          const isAct = detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE';
-          const sn = String(detail.serial_number || '');
-          const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
-          const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
+        const sn = String(detail.serial_number || detail.serialNumber || '');
+        const action = detail.action;
+        const isPermanentUnpair = action === 'unpair_permanent' || detail.assigned_patient_id === null;
+        const isStandby = action === 'unpair_change' || detail.status === 'STANDBY';
+        const isAct = !isPermanentUnpair && !isStandby && (detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE');
+        const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals' || String(detail.device_name || '').toLowerCase().includes('vital');
+        const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture' || String(detail.device_name || '').toLowerCase().includes('diaper');
 
+        const matchesPatient = !updatePatientId || updatePatientId === patId || ((patient as any)?.paired_devices || []).some((d: any) => d.serial_number === sn);
+        if (matchesPatient) {
           const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
           const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
           const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
           const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
           const ts = new Date(detail.recorded_at || detail.timestamp || Date.now());
 
-          const isVOnline = isVS ? isAct : (detail.is_vitals_active !== undefined ? !!detail.is_vitals_active : (patient as any)?.is_vitals_online);
-          const isMOnline = isSD ? isAct : (detail.is_moisture_active !== undefined ? !!detail.is_moisture_active : (patient as any)?.is_moisture_online);
-
           if (isMounted) {
-            setPatient((prev: any) => ({
-              ...prev,
-              is_online: isVOnline || isMOnline,
-              isOnline: isVOnline || isMOnline,
-              deviceConnected: isVOnline || isMOnline,
-              is_vitals_online: isVOnline,
-              is_moisture_online: isMOnline,
-            }));
+            setPatient((prev: any) => {
+              let paired = [...(prev?.paired_devices || [])];
+              if (isPermanentUnpair && sn) {
+                paired = paired.filter((d: any) => d.serial_number !== sn);
+              } else if (sn) {
+                const exists = paired.some((d: any) => d.serial_number === sn);
+                if (exists) {
+                  paired = paired.map((d: any) => d.serial_number === sn ? {
+                    ...d,
+                    status: isStandby ? 'STANDBY' : (detail.status || d.status),
+                    is_online: isAct,
+                    battery_level: detail.battery_level !== undefined ? detail.battery_level : d.battery_level,
+                    signal_strength: detail.signal_strength || d.signal_strength
+                  } : d);
+                } else if ((action === 'pair' || action === 'assign' || isAct) && updatePatientId === patId) {
+                  paired.push({
+                    serial_number: sn,
+                    device_name: detail.device_name || (isSD ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor'),
+                    status: detail.status || 'ACTIVE',
+                    is_online: isAct,
+                    battery_level: detail.battery_level ?? 100,
+                    signal_strength: detail.signal_strength || 'Good'
+                  });
+                }
+              }
+
+              const isVOnline = (isPermanentUnpair || isStandby) && isVS
+                ? paired.some((d: any) => (d.status === 'ACTIVE' && d.is_online !== false) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))
+                : (isVS ? isAct : (detail.is_vitals_active !== undefined ? !!detail.is_vitals_active : prev?.is_vitals_online));
+
+              const isMOnline = (isPermanentUnpair || isStandby) && isSD
+                ? paired.some((d: any) => (d.status === 'ACTIVE' && d.is_online !== false) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))
+                : (isSD ? isAct : (detail.is_moisture_active !== undefined ? !!detail.is_moisture_active : prev?.is_moisture_online));
+
+              const nextVitalSn = isPermanentUnpair && prev?.vital_device_sn === sn ? null : prev?.vital_device_sn;
+              const nextDiaperSn = isPermanentUnpair && prev?.diaper_device_sn === sn ? null : prev?.diaper_device_sn;
+
+              return {
+                ...prev,
+                vital_device_sn: nextVitalSn,
+                diaper_device_sn: nextDiaperSn,
+                paired_devices: paired,
+                devices: paired,
+                is_online: isVOnline || isMOnline,
+                isOnline: isVOnline || isMOnline,
+                deviceConnected: isVOnline || isMOnline,
+                is_vitals_online: isVOnline,
+                is_moisture_online: isMOnline,
+              };
+            });
 
             if (rawHr !== undefined || rawTemp !== undefined || rawSp !== undefined || rawMoist !== undefined) {
+              const isVOnline = isVS ? isAct : (detail.is_vitals_active !== undefined ? !!detail.is_vitals_active : (patient as any)?.is_vitals_online);
+              const isMOnline = isSD ? isAct : (detail.is_moisture_active !== undefined ? !!detail.is_moisture_active : (patient as any)?.is_moisture_online);
               setVitalSigns(prev => {
                 const prevVital = prev[prev.length - 1];
                 const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : (prevVital?.heartRate ?? 0)) : 0;

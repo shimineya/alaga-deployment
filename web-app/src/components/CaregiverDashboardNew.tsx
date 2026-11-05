@@ -380,10 +380,13 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
             const detail = e?.detail;
             if (detail && (detail.type === 'patient_telemetry_update' || detail.type === 'device_status_update')) {
                 const targetPatientId = String(detail.patient_id || detail.patientId || '');
-                const sn = String(detail.serial_number || '');
-                const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals';
-                const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture';
-                const isOnline = detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE';
+                const sn = String(detail.serial_number || detail.serialNumber || '');
+                const action = detail.action;
+                const isPermanentUnpair = action === 'unpair_permanent' || detail.assigned_patient_id === null;
+                const isStandby = action === 'unpair_change' || detail.status === 'STANDBY';
+                const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals' || String(detail.device_name || '').toLowerCase().includes('vital');
+                const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture' || String(detail.device_name || '').toLowerCase().includes('diaper');
+                const isOnline = !isPermanentUnpair && !isStandby && (detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE');
 
                 const rawHr = detail.heart_rate !== undefined ? detail.heart_rate : detail.latest_telemetry?.heart_rate;
                 const rawTemp = detail.temperature !== undefined ? detail.temperature : detail.latest_telemetry?.temperature;
@@ -391,36 +394,73 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                 const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
                 const isFinger = detail.finger_detected !== undefined ? !!detail.finger_detected : (detail.latest_telemetry?.finger_detected !== undefined ? !!detail.latest_telemetry?.finger_detected : undefined);
 
-                if (targetPatientId) {
+                if (targetPatientId || sn) {
                     // 1. Immediately update patient cards in real-time without waiting for network roundtrip
                     setPatients(prev => prev.map(p => {
-                        if (String(p.id) === targetPatientId) {
+                        const pPaired = (p as any).paired_devices || [];
+                        const hasSn = sn && (
+                            pPaired.some((d: any) => d.serial_number === sn) ||
+                            (p as any).vital_device_sn === sn ||
+                            (p as any).diaper_device_sn === sn ||
+                            (p as any).deviceId === sn
+                        );
+                        if ((targetPatientId && String(p.id) === targetPatientId) || hasSn) {
                             const existingTelem = (p as any).latest_telemetry || {};
-                            const pairedDevs = ((p as any).paired_devices || []).map((dev: any) => {
-                                if (dev.serial_number === sn) {
-                                    return {
-                                        ...dev,
-                                        status: isOnline ? 'ACTIVE' : dev.status,
+                            let pairedDevs = [...pPaired];
+
+                            if (isPermanentUnpair && sn) {
+                                pairedDevs = pairedDevs.filter((dev: any) => dev.serial_number !== sn);
+                            } else if (sn) {
+                                const exists = pairedDevs.some((dev: any) => dev.serial_number === sn);
+                                if (exists) {
+                                    pairedDevs = pairedDevs.map((dev: any) => {
+                                        if (dev.serial_number === sn) {
+                                            return {
+                                                ...dev,
+                                                status: isStandby ? 'STANDBY' : (isOnline ? 'ACTIVE' : dev.status),
+                                                is_online: isOnline,
+                                                battery_level: detail.battery_level !== undefined ? detail.battery_level : dev.battery_level,
+                                                signal_strength: detail.signal_strength || dev.signal_strength,
+                                                last_heartbeat: new Date().toISOString()
+                                            };
+                                        }
+                                        return dev;
+                                    });
+                                } else if ((action === 'pair' || action === 'assign' || isOnline) && String(p.id) === targetPatientId) {
+                                    pairedDevs.push({
+                                        serial_number: sn,
+                                        device_name: detail.device_name || (isSD ? 'Smart Diaper Moisture Sensor' : 'Vital Signs Sensor'),
+                                        status: detail.status || 'ACTIVE',
                                         is_online: isOnline,
-                                        battery_level: detail.battery_level !== undefined ? detail.battery_level : dev.battery_level,
-                                        signal_strength: detail.signal_strength || dev.signal_strength,
+                                        battery_level: detail.battery_level ?? 100,
+                                        signal_strength: detail.signal_strength || 'Good',
                                         last_heartbeat: new Date().toISOString()
-                                    };
+                                    });
                                 }
-                                return dev;
-                            });
+                            }
 
-                            const isVOnline = isVS 
-                                ? isOnline 
-                                : (detail.is_vitals_active !== undefined 
-                                    ? !!detail.is_vitals_active 
-                                    : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital'))));
+                            const nextVitalSn = isPermanentUnpair && (p as any).vital_device_sn === sn
+                                ? null
+                                : ((action === 'pair' || action === 'assign') && isVS && String(p.id) === targetPatientId ? sn : (p as any).vital_device_sn);
+                            const nextDiaperSn = isPermanentUnpair && (p as any).diaper_device_sn === sn
+                                ? null
+                                : ((action === 'pair' || action === 'assign') && isSD && String(p.id) === targetPatientId ? sn : (p as any).diaper_device_sn);
 
-                            const isMOnline = isSD 
-                                ? isOnline 
-                                : (detail.is_moisture_active !== undefined 
-                                    ? !!detail.is_moisture_active 
-                                    : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture'))));
+                            const isVOnline = (isPermanentUnpair || isStandby) && isVS
+                                ? pairedDevs.some((d: any) => (d.status === 'ACTIVE' && d.is_online !== false) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))
+                                : (isVS 
+                                    ? isOnline 
+                                    : (detail.is_vitals_active !== undefined 
+                                        ? !!detail.is_vitals_active 
+                                        : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))));
+
+                            const isMOnline = (isPermanentUnpair || isStandby) && isSD
+                                ? pairedDevs.some((d: any) => (d.status === 'ACTIVE' && d.is_online !== false) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))
+                                : (isSD 
+                                    ? isOnline 
+                                    : (detail.is_moisture_active !== undefined 
+                                        ? !!detail.is_moisture_active 
+                                        : pairedDevs.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))));
 
                             const nextTelem = {
                                 ...existingTelem,
@@ -434,12 +474,16 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
                             return {
                                 ...p,
+                                deviceId: nextVitalSn || nextDiaperSn || 'UNASSIGNED',
+                                vital_device_sn: nextVitalSn,
+                                diaper_device_sn: nextDiaperSn,
                                 deviceConnected: isVOnline || isMOnline,
                                 is_online: isVOnline || isMOnline,
                                 isOnline: isVOnline || isMOnline,
                                 is_vitals_online: isVOnline,
                                 is_moisture_online: isMOnline,
                                 paired_devices: pairedDevs,
+                                devices: pairedDevs,
                                 latest_telemetry: nextTelem
                             };
                         }

@@ -142,7 +142,15 @@ export default function FacilityDashboard() {
             fetchStats(selectedFacilityId);
             fetchPatients(selectedFacilityId);
         };
+        const handleRealtime = (e: any) => {
+            const detail = e?.detail;
+            if (detail && (detail.type === 'device_status_update' || detail.type === 'assignment_update')) {
+                fetchStats(selectedFacilityId);
+                fetchPatients(selectedFacilityId);
+            }
+        };
         window.addEventListener('alaga_manual_refresh', handleManual);
+        window.addEventListener('alaga_alert_update', handleRealtime);
 
         const t = setInterval(() => {
             fetchStats(selectedFacilityId);
@@ -151,6 +159,7 @@ export default function FacilityDashboard() {
         return () => {
             clearInterval(t);
             window.removeEventListener('alaga_manual_refresh', handleManual);
+            window.removeEventListener('alaga_alert_update', handleRealtime);
         };
     }, [selectedFacilityId, fetchStats, fetchPatients]);
 

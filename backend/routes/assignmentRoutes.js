@@ -457,14 +457,15 @@ router.post('/device/link', async (req, res) => {
         }
 
         // Link
-        await client.query(
-            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE' WHERE serial_number = $2",
-            [patient_id, serial_number]
+        const linkRes = await client.query(
+            "UPDATE device_whitelist SET assigned_patient_id = $1, status = 'ACTIVE', added_by = COALESCE(added_by, $3) WHERE serial_number = $2 RETURNING device_name",
+            [patient_id, serial_number, req.user.id]
         );
         await client.query(
             "UPDATE patients SET device_serial_number = $1 WHERE patient_id = $2",
             [serial_number, patient_id]
         );
+        const patRes = await client.query("SELECT name FROM patients WHERE patient_id = $1", [patient_id]);
 
         // Audit
         await client.query(
@@ -474,6 +475,16 @@ router.post('/device/link', async (req, res) => {
         );
 
         await client.query('COMMIT');
+        broadcastAlert('device_status_update', {
+            serial_number,
+            serialNumber: serial_number,
+            device_name: linkRes.rows[0]?.device_name,
+            patient_id: Number(patient_id),
+            assigned_patient_id: Number(patient_id),
+            assigned_patient_name: patRes.rows[0]?.name || null,
+            status: 'ACTIVE',
+            action: 'pair'
+        });
         res.json({ success: true, message: 'Device linked successfully.' });
 
     } catch (err) {
@@ -503,9 +514,9 @@ router.post('/device/unlink', async (req, res) => {
 
         await client.query('BEGIN');
 
-        await client.query(
-            "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'MAINTENANCE' WHERE serial_number = $1",
-            [serial_number]
+        const unlinkRes = await client.query(
+            "UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'AVAILABLE', added_by = COALESCE(added_by, $2) WHERE serial_number = $1 RETURNING device_name",
+            [serial_number, req.user.id]
         );
         await client.query(
             "UPDATE patients SET device_serial_number = NULL WHERE patient_id = $1 AND device_serial_number = $2",
@@ -520,6 +531,16 @@ router.post('/device/unlink', async (req, res) => {
         );
 
         await client.query('COMMIT');
+        broadcastAlert('device_status_update', {
+            serial_number,
+            serialNumber: serial_number,
+            device_name: unlinkRes.rows[0]?.device_name,
+            patient_id: Number(patient_id),
+            assigned_patient_id: null,
+            assigned_patient_name: null,
+            status: 'AVAILABLE',
+            action: 'unpair_permanent'
+        });
         res.json({ success: true, message: 'Device unlinked successfully.' });
 
     } catch (err) {

@@ -261,7 +261,7 @@ export default function SystemAdminAssignmentCommandCenter() {
             const data = await res.json();
             if (data.success) {
                 toast.success('Staff account deleted successfully.');
-                setStaff(prev => prev.filter(s => s.user_id !== id));
+                setStaffList(prev => prev.filter(s => s.user_id !== id));
                 setAssignments(prev => prev.filter(a => a.user_id !== id));
                 fetchData();
             } else {

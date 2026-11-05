@@ -123,7 +123,7 @@ export default function AIInsightsHub() {
   const [isLoadingPatients, setIsLoadingPatients] = useState(true);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
 
-  const isSysAdmin = user?.role === 'sysadmin' || user?.role === 'system_admin';
+  const isSysAdmin = (user?.role as string) === 'sysadmin' || user?.role === 'system_admin';
 
   // 1. Fetch accessible patients for the user
   const fetchAccessiblePatients = useCallback(async () => {

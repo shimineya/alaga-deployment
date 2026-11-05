@@ -65,6 +65,13 @@ export default function FacilityTopologyBuilder() {
     const [expandedWards, setExpandedWards] = useState<{ [id: string]: boolean }>({});
     const [expandedRooms, setExpandedRooms] = useState<{ [id: string]: boolean }>({});
 
+    const toggleFacility = (id: number) =>
+        setExpandedFacilities(prev => ({ ...prev, [id]: !prev[id] }));
+    const toggleWard = (id: string) =>
+        setExpandedWards(prev => ({ ...prev, [id]: !prev[id] }));
+    const toggleRoom = (id: string) =>
+        setExpandedRooms(prev => ({ ...prev, [id]: !prev[id] }));
+
     // Search & Filter (Facility Details search)
     const [searchQuery, setSearchQuery] = useState('');
     const [suggestions, setSuggestions] = useState<string[]>([]);

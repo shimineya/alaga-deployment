@@ -165,12 +165,19 @@ void readBattery() {
 //  71% - 100%: HEAVY WETNESS / SOAKED (Diaper saturated - immediate action required)
 // ==============================================================================
 int calculateWetnessPercentage() {
+  // Ensure internal pull resistor is active before digitalRead (touchRead/analogRead detaches it)
+  if (sensor_type == 2) {
+    pinMode(water_pin, INPUT_PULLDOWN);
+  } else if (sensor_type == 0) {
+    pinMode(water_pin, INPUT_PULLUP);
+  }
+  delayMicroseconds(50);
   rawDigitalVal  = digitalRead(water_pin);
 
   // Diaper Change Tare Grace Period: suppresses false 100% triggers while installing fresh dry diaper
   if (isDiaperJustChanged) {
     if (millis() - diaperChangeTime < 20000) {
-      if (rawDigitalVal == HIGH) {
+      if ((sensor_type == 0 && rawDigitalVal == HIGH) || (sensor_type == 2 && rawDigitalVal == LOW)) {
         isDiaperJustChanged = false; // Cleanly returned to dry
       }
       return 0;
@@ -179,13 +186,18 @@ int calculateWetnessPercentage() {
     }
   }
 
-  // 1. Multi-sampled ADC readings to filter high-frequency noise
-  long rawSum = 0;
-  for (int i = 0; i < WETNESS_ADC_SAMPLES; i++) {
-    rawSum += analogRead(water_pin);
-    delay(2);
+  // 1. Multi-sampled ADC readings ONLY on Wi-Fi-safe ADC1 pins (GPIO 32-39).
+  // GPIO 4 is ADC2, which conflicts with ESP32 Wi-Fi and returns false 4095 readings.
+  if (water_pin >= 32) {
+    long rawSum = 0;
+    for (int i = 0; i < WETNESS_ADC_SAMPLES; i++) {
+      rawSum += analogRead(water_pin);
+      delay(2);
+    }
+    rawMoistureADC = (int)(rawSum / WETNESS_ADC_SAMPLES);
+  } else {
+    rawMoistureADC = 0;
   }
-  rawMoistureADC = (int)(rawSum / WETNESS_ADC_SAMPLES);
 
   int percent = 0;
 
@@ -214,22 +226,30 @@ int calculateWetnessPercentage() {
   } else if (sensor_type == 2) {
     // -------------------------------------------------------------------------
     // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / Capacitive Tape
-    // Dry = LOW (0V / 0%) & Touch High (~1200) | Wet = HIGH (3.3V) or Touch Low (~0)
+    // Dry = LOW (0V / 0%) & Touch at dry baseline | Wet = HIGH (3.3V) or Touch collapse
     // -------------------------------------------------------------------------
+    static int dryTouchBaseline = -1;
     int touchVal = -1;
     if (water_pin == 4 || water_pin == 0 || water_pin == 2 || water_pin == 12 || water_pin == 13 || water_pin == 14 || water_pin == 15 || water_pin == 27 || water_pin == 32 || water_pin == 33) {
       touchVal = touchRead(water_pin);
+      pinMode(water_pin, INPUT_PULLDOWN); // Restore pull-down immediately after touchRead
+      if (touchVal > dryTouchBaseline) {
+        dryTouchBaseline = touchVal;
+      }
     }
 
-    if (touchVal >= 0 && touchVal < 400) {
-      // Capacitive Touch collapsed to 0 due to moisture / liquid bridging
+    int wetTouchThreshold  = (dryTouchBaseline > 500) ? 400 : max(15, (int)(dryTouchBaseline * 0.42));
+    int dampTouchThreshold = (dryTouchBaseline > 500) ? 800 : max(25, (int)(dryTouchBaseline * 0.68));
+
+    if (rawDigitalVal == HIGH) {
       percent = 100;
-    } else if (touchVal >= 400 && touchVal < 800) {
+    } else if (touchVal >= 0 && dryTouchBaseline > 20 && touchVal < wetTouchThreshold) {
+      // Capacitive Touch collapsed well below dry baseline due to liquid bridging
+      percent = 100;
+    } else if (touchVal >= wetTouchThreshold && dryTouchBaseline > 20 && touchVal < dampTouchThreshold) {
       // Intermediate moisture / dampness
-      percent = map(touchVal, 800, 400, 20, 85);
+      percent = map(touchVal, dampTouchThreshold, wetTouchThreshold, 20, 85);
       percent = constrain(percent, 0, 100);
-    } else if (rawDigitalVal == HIGH) {
-      percent = 100;
     } else {
       percent = 0;
     }
@@ -238,7 +258,7 @@ int calculateWetnessPercentage() {
       int clamped = constrain(rawMoistureADC, 200, 3200);
       int analogPercent = map(clamped, 200, 3200, 0, 100);
       analogPercent = constrain(analogPercent, 0, 100);
-      if (rawDigitalVal == HIGH || (touchVal >= 0 && touchVal < 400)) {
+      if (rawDigitalVal == HIGH || (touchVal >= 0 && dryTouchBaseline > 20 && touchVal < wetTouchThreshold)) {
         percent = max(percent, max(analogPercent, 85));
       } else {
         percent = analogPercent;

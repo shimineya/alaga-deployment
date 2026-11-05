@@ -17,7 +17,7 @@ class AiInsightsScreen extends StatefulWidget {
 class _AiInsightsScreenState extends State<AiInsightsScreen> {
   static const _teal = Color(0xFF2F7D7B);
   static const _navy = Color(0xFF173C43);
-  static const _background = Color(0xFFF7F9FA);
+  static const _background = Colors.white;
 
   // Timeframe choices
   final List<Map<String, String>> _timeframes = [

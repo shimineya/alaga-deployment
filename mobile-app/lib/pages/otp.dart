@@ -230,7 +230,7 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
                   child: Container(
                     width: double.infinity,
                     decoration: const BoxDecoration(
-                      color: Color(0xFFF5F5F0),
+                      color: Colors.white,
                       borderRadius: BorderRadius.only(
                         topLeft: Radius.circular(30),
                         topRight: Radius.circular(30),

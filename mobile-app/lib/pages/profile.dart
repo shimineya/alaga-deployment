@@ -62,7 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // --- Colour & font constants ---
   static const Color _teal = Color(0xFF4DB6AC);
-  static const Color _bgColor = Color(0xFFF5F5F0);
+  static const Color _bgColor = Colors.white;
 
   TextStyle get _titleStyle => GoogleFonts.poppins(
         fontWeight: FontWeight.bold,

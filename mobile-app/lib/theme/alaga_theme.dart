@@ -17,7 +17,7 @@ class AlagaColors {
   static const Color mintUltraLight = Color(0xFFF0FDFA);// Teal 50 - Card background
 
   // Surfaces & Backgrounds
-  static const Color background = Color(0xFFF8FAFC);   // Slate 50 (Web App standard)
+  static const Color background = Color(0xFFFFFFFF);   // Pure Crisp White (Uniform across all modules)
   static const Color surface = Color(0xFFFFFFFF);      // Crisp Card White
   static const Color cardBorder = Color(0xFFE2E8F0);   // Slate 200 - Hairline border
   static const Color divider = Color(0xFFF1F5F9);      // Slate 100 - Subtle divider

@@ -57,7 +57,7 @@ class RegistrationSuccessPage extends StatelessWidget {
     final BiometricService biometricService = BiometricService();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: ClipRect(
           child: Stack(

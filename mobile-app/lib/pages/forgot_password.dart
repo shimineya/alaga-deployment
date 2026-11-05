@@ -394,7 +394,7 @@ class _BlurredBackground extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Dialog(
                 insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-                backgroundColor: const Color(0xFFF5F5F0),
+                backgroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),

@@ -22,7 +22,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   static const Color _teal = Color(0xFF5FA9A9);
   static const Color _darkTeal = Color(0xFF2F7D7B);
   static const Color _vibrantTeal = Color(0xFF00897B);
-  static const Color _pageBg = Color(0xFFF5F5F0);
+  static const Color _pageBg = Colors.white;
   static const Color _caregiverGreen = Color(0xFF38C976);
 
   static const _storage = FlutterSecureStorage();

@@ -20,7 +20,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   static const Color _caregiverGreen = Color(0xFF38C976);
   static const Color _adminOrange = Color(0xFFF58A4A);
   static const Color _dangerRed = Color(0xFFE57373);
-  static const Color _pageBg = Color(0xFFF5F5F0);
+  static const Color _pageBg = Colors.white;
 
   late TabController _tabController;
   Timer? _realtimeTimer;

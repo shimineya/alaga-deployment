@@ -280,7 +280,7 @@ class _LoginPageState extends State<LoginPage> {
             child: Container(
               width: double.infinity,
               decoration: const BoxDecoration(
-                color: Color(0xFFF5F5F0), // Matching registration page color
+                color: Colors.white, // Uniform crisp white background
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(35),
                   topRight: Radius.circular(35),

@@ -241,7 +241,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F0),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -1627,7 +1627,7 @@ class _RegisterDeviceModalState extends State<_RegisterDeviceModal> {
         ),
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F0),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(18)),
         child: SingleChildScrollView(
           child: Column(

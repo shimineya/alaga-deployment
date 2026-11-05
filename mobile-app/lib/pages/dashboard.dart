@@ -1095,7 +1095,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             final dayEvents = _events[key] ?? [];
 
             return Dialog(
-              backgroundColor: const Color(0xFFF5F5F0),
+              backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(24)),
               insetPadding:
@@ -1624,7 +1624,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             return Container(
               constraints: BoxConstraints(maxHeight: maxSheetHeight),
               decoration: const BoxDecoration(
-                color: Color(0xFFF5F5F0),
+                color: Colors.white,
                 borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(24),
                     topRight: Radius.circular(24)),

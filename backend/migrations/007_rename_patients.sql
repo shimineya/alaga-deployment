@@ -131,3 +131,4 @@ COMMIT;
 SELECT patient_id, name, patient_type, device_serial_number, is_archived
 FROM patients
 ORDER BY patient_id;
+

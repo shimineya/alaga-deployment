@@ -112,8 +112,13 @@ export function useAlertSync() {
   const toggleMute = useCallback(async (durationMinutes: number = 15) => {
     const token = localStorage.getItem('token');
     const newMuted = !isMutedRef.current;
+    isMutedRef.current = newMuted;
     setIsMuted(newMuted);
     setAlarmMuted(newMuted);
+
+    if (newMuted) {
+      toast.dismiss();
+    }
 
     if (!token) return;
 
@@ -129,8 +134,9 @@ export function useAlertSync() {
       const data = await res.json();
       if (data.success) {
         toast.info(newMuted 
-          ? `Alert audio muted on all devices for ${durationMinutes} minutes` 
-          : 'Alert audio unmuted on all devices'
+          ? `Alert audio & popups muted on all devices for ${durationMinutes} minutes` 
+          : 'Alert audio & popups unmuted on all devices',
+          { duration: 3000 }
         );
       }
     } catch (e) {
@@ -244,8 +250,12 @@ export function useAlertSync() {
         if (eventType === 'alert_sound_mute') {
           if (eventData.userId == null || String(eventData.userId) === String(user.id)) {
             const nextMuted = Boolean(eventData.isMuted);
+            isMutedRef.current = nextMuted;
             setIsMuted(nextMuted);
             setAlarmMuted(nextMuted);
+            if (nextMuted) {
+              toast.dismiss();
+            }
           }
           return;
         }
@@ -259,11 +269,30 @@ export function useAlertSync() {
           // Re-evaluate active alerts and start looping
           refreshActiveAlerts();
 
-          // Display Toast Notification
+          // Suppress lower-right toast popups when muted
+          if (isMutedRef.current) {
+            return;
+          }
+
+          const toastId = `clinical-alert-${patientName}-${eventData.anomaly_type || eventData.anomalyType || severity}`;
+
+          // Display Toast Notification with Mute button and X close button
           if (severity === 'critical') {
             toast.error(`🚨 CRITICAL: ${patientName}`, {
+              id: toastId,
               description: msg,
-              duration: 8000,
+              duration: 7000,
+              closeButton: true,
+              cancel: {
+                label: 'Mute',
+                onClick: () => {
+                  if (!isMutedRef.current) {
+                    toggleMute(15);
+                  } else {
+                    toast.dismiss();
+                  }
+                }
+              },
               action: {
                 label: 'View',
                 onClick: () => {
@@ -273,8 +302,20 @@ export function useAlertSync() {
             });
           } else {
             toast.warning(`⚠️ Alert: ${patientName}`, {
+              id: toastId,
               description: msg,
-              duration: 6000,
+              duration: 5000,
+              closeButton: true,
+              cancel: {
+                label: 'Mute',
+                onClick: () => {
+                  if (!isMutedRef.current) {
+                    toggleMute(15);
+                  } else {
+                    toast.dismiss();
+                  }
+                }
+              },
               action: {
                 label: 'View',
                 onClick: () => {

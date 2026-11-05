@@ -121,10 +121,11 @@ router.get('/devices', async (req, res) => {
             );
         }
 
-        // Dynamically compute real-time connection status (Online if heartbeat received within last 120 seconds / 2 minutes)
+        // Dynamically compute real-time connection status (Online if heartbeat received within last 120 seconds / 2 minutes and assigned)
         const processedRows = result.rows.map(row => {
-            const isOnline = row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 120000;
-            let displayStatus = isOnline ? 'ACTIVE' : 'INACTIVE';
+            const isUnassigned = !row.assigned_patient_id || row.status === 'AVAILABLE' || row.status === 'UNASSIGNED';
+            const isOnline = !isUnassigned && row.status !== 'STANDBY' && row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 120000;
+            let displayStatus = isOnline ? 'ACTIVE' : (isUnassigned ? 'AVAILABLE' : 'INACTIVE');
             if (row.status === 'STANDBY') {
                 displayStatus = 'STANDBY';
             } else if (row.status === 'MAINTENANCE') {

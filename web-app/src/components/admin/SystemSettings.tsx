@@ -314,6 +314,9 @@ export default function SystemSettings() {
             }
         };
         fetchData();
+        const handleSync = () => fetchData();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, []);
 
     // --- Handlers ---

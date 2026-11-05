@@ -281,10 +281,12 @@ const AlertsHub: React.FC = () => {
                 fetchAlerts();
             };
             window.addEventListener('alaga_alert_update', handleRealtimeSync);
+            window.addEventListener('alaga_manual_refresh', handleRealtimeSync);
 
             return () => {
                 clearInterval(pollId);
                 window.removeEventListener('alaga_alert_update', handleRealtimeSync);
+                window.removeEventListener('alaga_manual_refresh', handleRealtimeSync);
             };
         }
     }, [token, isSysAdmin]);

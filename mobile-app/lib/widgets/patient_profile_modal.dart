@@ -112,17 +112,44 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
         final updatePatientId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (updatePatientId == null || updatePatientId == targetPatientId) {
           final isAct = data['status'] == 'ACTIVE';
+          final action = data['action']?.toString();
+          final isPermanentUnpair = action == 'permanent' || action == 'removed' || data['status'] == 'AVAILABLE' || data['status'] == 'UNASSIGNED';
           final sn = (data['serial_number'] ?? data['serialNumber'] ?? '').toString();
           final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
           setState(() {
-            _patient['is_online'] = isAct;
-            _patient['isOnline'] = isAct;
-            _patient['device_status'] = isAct ? 'active' : 'inactive';
-            if (isVS) _patient['is_vitals_online'] = isAct;
-            if (isSD) _patient['is_moisture_online'] = isAct;
+            if (_patient['paired_devices'] is List && isPermanentUnpair) {
+              final list = List<dynamic>.from(_patient['paired_devices']);
+              list.removeWhere((d) => d is Map && d['serial_number'] == sn);
+              _patient['paired_devices'] = list;
+            }
+            if (isVS) {
+              _patient['is_vitals_online'] = isPermanentUnpair ? false : isAct;
+              if (isPermanentUnpair) _patient['vital_device_sn'] = null;
+              if (!isAct || isPermanentUnpair) {
+                _telemetry.remove('heart_rate');
+                _telemetry.remove('temperature');
+                _telemetry.remove('spo2');
+              }
+            }
+            if (isSD) {
+              _patient['is_moisture_online'] = isPermanentUnpair ? false : isAct;
+              if (isPermanentUnpair) _patient['diaper_device_sn'] = null;
+              if (!isAct || isPermanentUnpair) {
+                _telemetry.remove('moisture');
+                _telemetry.remove('moisture_value');
+              }
+            }
+            final anyOnline = _patient['is_vitals_online'] == true || _patient['is_moisture_online'] == true;
+            _patient['is_online'] = anyOnline;
+            _patient['isOnline'] = anyOnline;
+            _patient['device_status'] = anyOnline ? 'active' : 'inactive';
           });
+          _fetchHistory(silent: true);
         }
+      }
+      if (eventType == 'system_data_update' || eventType == 'assignment_update' || eventType == 'client_mutation') {
+        _fetchHistory(silent: true);
       }
       final rawTelem = data['latest_telemetry'] is Map ? Map<String, dynamic>.from(data['latest_telemetry']) : null;
       if (eventType == 'patient_telemetry_update' || rawTelem != null) {

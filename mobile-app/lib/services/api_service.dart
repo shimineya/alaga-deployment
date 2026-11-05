@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../models/user_session.dart';
+import 'alert_notification_service.dart';
 
 // ============================================================================
 // ApiService — Centralized HTTP Client for the ALAGA Mobile Application
@@ -287,9 +288,13 @@ class ApiService {
           )
           .timeout(Duration(seconds: timeoutSeconds));
 
-      return _parseResponse(response);
-    } catch (e) {
-      debugPrint('ApiService POST Error [$endpoint]: $e');
+      final parsed = _parseResponse(response);
+      if (parsed['success'] == true &&
+          !endpoint.contains('/auth/') &&
+          !endpoint.contains('/alerts/sync-mute')) {
+        AlertNotificationService.notifyLocalMutation('POST', endpoint);
+      }
+      return parsed;
       final isTimeout = e.toString().toLowerCase().contains('time');
       return {
         'success': false,
@@ -318,7 +323,11 @@ class ApiService {
           )
           .timeout(Duration(seconds: timeoutSeconds));
 
-      return _parseResponse(response);
+      final parsed = _parseResponse(response);
+      if (parsed['success'] == true) {
+        AlertNotificationService.notifyLocalMutation('PUT', endpoint);
+      }
+      return parsed;
     } catch (e) {
       debugPrint('ApiService PUT Error [$endpoint]: $e');
       final isTimeout = e.toString().toLowerCase().contains('time');
@@ -348,7 +357,11 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 15));
 
-      return _parseResponse(response);
+      final parsed = _parseResponse(response);
+      if (parsed['success'] == true) {
+        AlertNotificationService.notifyLocalMutation('PATCH', endpoint);
+      }
+      return parsed;
     } catch (e) {
       return {
         'success': false,
@@ -375,7 +388,11 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 15));
 
-      return _parseResponse(response);
+      final parsed = _parseResponse(response);
+      if (parsed['success'] == true) {
+        AlertNotificationService.notifyLocalMutation('DELETE', endpoint);
+      }
+      return parsed;
     } catch (e) {
       return {
         'success': false,

@@ -85,9 +85,16 @@ export default function CommandCenter() {
 
     useEffect(() => {
         fetchAll();
-        // [ISO 25010] Auto-refresh every 30 seconds for operational visibility
+        // [ISO 25010] Auto-refresh every 30 seconds for operational visibility + real-time sync
         const interval = setInterval(fetchAll, 30000);
-        return () => clearInterval(interval);
+        const handleSync = () => fetchAll();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        window.addEventListener('alaga_alert_update', handleSync);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('alaga_manual_refresh', handleSync);
+            window.removeEventListener('alaga_alert_update', handleSync);
+        };
     }, []);
 
     const handleGlobalLockdown = async () => {

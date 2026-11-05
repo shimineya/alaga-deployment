@@ -151,7 +151,14 @@ export default function AppSidebar({ collapsed = false, onToggle, onClose, isMob
 
     checkUpdates();
     const intervalId = setInterval(checkUpdates, 10000);
-    return () => clearInterval(intervalId);
+    const handleSync = () => checkUpdates();
+    window.addEventListener('alaga_manual_refresh', handleSync);
+    window.addEventListener('alaga_alert_update', handleSync);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('alaga_manual_refresh', handleSync);
+      window.removeEventListener('alaga_alert_update', handleSync);
+    };
   }, [user, role, permissions]);
 
   // [RBAC] Hub visibility: a hub link stays visible as long as the user has

@@ -45,9 +45,13 @@ export default function SystemOverview() {
 
   useEffect(() => {
     fetchStats();
-    // Optional: Auto-refresh every 30 seconds
     const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
+    const handleSync = () => fetchStats();
+    window.addEventListener('alaga_manual_refresh', handleSync);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('alaga_manual_refresh', handleSync);
+    };
   }, []);
 
   // Helper to format uptime

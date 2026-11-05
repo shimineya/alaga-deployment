@@ -133,6 +133,82 @@ pool.connect((err, client, release) => {
       CREATE INDEX IF NOT EXISTS idx_user_consents_user_id ON public.user_consents (user_id);
       CREATE INDEX IF NOT EXISTS idx_user_consents_agreed_at ON public.user_consents (agreed_at);
     `).catch(err => console.error('Failed to run compliance consent migrations:', err));
+
+    // Auto-migration: Device Unpairing & Real-Time Inventory Registration Schema (Neon DB)
+    pool.query(`
+      ALTER TABLE public.device_whitelist
+        ADD COLUMN IF NOT EXISTS added_by INTEGER,
+        ADD COLUMN IF NOT EXISTS assigned_patient_id INTEGER,
+        ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS pending_firmware_version VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS battery_level INTEGER,
+        ADD COLUMN IF NOT EXISTS signal_strength VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45),
+        ADD COLUMN IF NOT EXISTS setup_password VARCHAR(64) DEFAULT '@Password123';
+
+      ALTER TABLE public.device_whitelist
+        ALTER COLUMN assigned_patient_id DROP NOT NULL;
+
+      DO $$
+      DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN (
+          SELECT conname
+          FROM pg_constraint
+          WHERE conrelid = 'public.device_whitelist'::regclass
+            AND contype = 'c'
+            AND pg_get_constraintdef(oid) ILIKE '%status%'
+        ) LOOP
+          EXECUTE 'ALTER TABLE public.device_whitelist DROP CONSTRAINT IF EXISTS ' || quote_ident(r.conname);
+        END LOOP;
+      END $$;
+
+      UPDATE public.device_whitelist
+      SET status = 'AVAILABLE'
+      WHERE assigned_patient_id IS NULL
+        AND (status IS NULL OR status IN ('INACTIVE', 'UNASSIGNED'));
+
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'devices'
+        ) THEN
+          ALTER TABLE public.devices
+            ADD COLUMN IF NOT EXISTS registered_by INTEGER,
+            ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'AVAILABLE',
+            ADD COLUMN IF NOT EXISTS firmware_version VARCHAR(50) DEFAULT 'v1.0.0';
+          ALTER TABLE public.devices
+            ALTER COLUMN patient_id DROP NOT NULL;
+        END IF;
+      END $$;
+
+      CREATE TABLE IF NOT EXISTS public.device_snapshots (
+        snapshot_id SERIAL PRIMARY KEY,
+        serial_number VARCHAR(64) NOT NULL,
+        device_name VARCHAR(120),
+        firmware_version VARCHAR(50),
+        last_status VARCHAR(30),
+        battery_level INTEGER,
+        signal_strength VARCHAR(50),
+        assigned_patient_id INTEGER,
+        assigned_patient_name VARCHAR(255),
+        facility_id INTEGER,
+        facility_name VARCHAR(255),
+        telemetry_count INTEGER DEFAULT 0,
+        alerts_count INTEGER DEFAULT 0,
+        snapshot_data JSONB DEFAULT '{}'::jsonb,
+        deleted_by VARCHAR(255),
+        is_archived BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_device_whitelist_assigned_patient ON public.device_whitelist (assigned_patient_id);
+      CREATE INDEX IF NOT EXISTS idx_device_whitelist_added_by ON public.device_whitelist (added_by);
+      CREATE INDEX IF NOT EXISTS idx_device_whitelist_status ON public.device_whitelist (status);
+    `).catch(err => console.error('Failed to run device unpair/inventory schema migration:', err));
   }
   if (release) release();
 });

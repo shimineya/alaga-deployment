@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 
 class MedicationEntry {
   final String medicineName;
@@ -133,12 +135,30 @@ class _MedicationTrackerScreenState extends State<MedicationTrackerScreen> {
   final List<PatientMedicationRecord> _records = [];
   List<String> _suggestedPatients = [];
   static const _storage = FlutterSecureStorage();
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _loadRecords();
     _loadPatientSuggestions();
+    _realtimeSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      if (eventType == 'system_data_update' ||
+          eventType == 'assignment_update' ||
+          eventType == 'schedule_created' ||
+          eventType == 'schedule_completed' ||
+          eventType == 'client_mutation') {
+        _loadPatientSuggestions();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadRecords() async {

@@ -103,6 +103,11 @@ export default function UserManagement() {
         if (user) {
             fetchUsers();
         }
+        const handleSync = () => {
+            if (user) fetchUsers();
+        };
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, selectedFacility]);
 

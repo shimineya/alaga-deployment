@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 import '../models/user_session.dart';
 
 class UserManagementScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
   late TabController _tabController;
   Timer? _realtimeTimer;
+  StreamSubscription? _realtimeSub;
 
   // Search controllers
   final TextEditingController _careTeamSearchController = TextEditingController();
@@ -46,6 +48,16 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     _tabController = TabController(length: 3, vsync: this);
     _loadAll();
     _startRealtimePolling();
+    _realtimeSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      if (eventType == 'assignment_update' ||
+          eventType == 'system_data_update' ||
+          eventType == 'device_status_update' ||
+          eventType == 'client_mutation') {
+        _loadAll();
+      }
+    });
   }
 
   void _startRealtimePolling() {
@@ -58,6 +70,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
     _realtimeTimer?.cancel();
     _tabController.dispose();
     _careTeamSearchController.dispose();

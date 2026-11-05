@@ -42,6 +42,9 @@ export default function DeviceGovernance() {
 
     useEffect(() => {
         fetchDevices();
+        const handleSync = () => fetchDevices();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, []);
 
     const handleWhitelist = async (e: React.FormEvent) => {

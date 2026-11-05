@@ -70,6 +70,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [fetchPermissions]);
 
   useEffect(() => {
+    const handleSync = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (!detail || detail.domain === 'sysadmin' || detail.domain === 'auth' || detail.domain === 'admin' || detail.type === 'system_data_update') {
+        const activeToken = localStorage.getItem('token');
+        if (activeToken) {
+          fetchPermissions(activeToken);
+        }
+      }
+    };
+    window.addEventListener('alaga_manual_refresh', handleSync);
+    return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+  }, [fetchPermissions]);
+
+  useEffect(() => {
     const checkLogin = async () => {
       const storedToken = localStorage.getItem('token');
       const storedUser  = localStorage.getItem('user');

@@ -89,6 +89,9 @@ export default function InventoryManagement() {
 
     useEffect(() => {
         fetchInventory();
+        const handleSync = () => fetchInventory();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
     }, []);
 
     // [Feature] Filter Logic

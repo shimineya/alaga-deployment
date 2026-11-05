@@ -119,7 +119,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (eventType == 'device_status_update') {
         final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
         final isAct = data['status'] == 'ACTIVE';
-        final sn = data['serial_number']?.toString() ?? '';
+        final action = data['action']?.toString();
+        final isPermanentUnpair = action == 'permanent' || action == 'removed' || data['status'] == 'AVAILABLE' || data['status'] == 'UNASSIGNED';
+        final sn = (data['serial_number'] ?? data['serialNumber'])?.toString() ?? '';
         final isVS = sn.startsWith('VS-');
         final isSD = sn.startsWith('SD-');
 
@@ -127,30 +129,56 @@ class _DashboardScreenState extends State<DashboardScreen>
           for (var i = 0; i < _patients.length; i++) {
             final p = _patients[i];
             if (targetId == null || (p['patient_id'] ?? p['id'])?.toString() == targetId) {
-              final paired = p['paired_devices'] is List ? List<dynamic>.from(p['paired_devices']) : [];
-              for (var j = 0; j < paired.length; j++) {
-                if (paired[j] is Map && paired[j]['serial_number'] == sn) {
-                  paired[j] = {
-                    ...paired[j],
-                    'status': isAct ? 'ACTIVE' : 'INACTIVE',
-                    'is_online': isAct,
-                    if (data['battery_level'] != null) 'battery_level': data['battery_level'],
-                    if (data['signal_strength'] != null) 'signal_strength': data['signal_strength'],
-                  };
+              var paired = p['paired_devices'] is List ? List<dynamic>.from(p['paired_devices']) : [];
+              if (isPermanentUnpair) {
+                paired.removeWhere((d) => d is Map && d['serial_number'] == sn);
+              } else {
+                for (var j = 0; j < paired.length; j++) {
+                  if (paired[j] is Map && paired[j]['serial_number'] == sn) {
+                    paired[j] = {
+                      ...paired[j],
+                      'status': isAct ? 'ACTIVE' : 'INACTIVE',
+                      'is_online': isAct,
+                      if (data['battery_level'] != null) 'battery_level': data['battery_level'],
+                      if (data['signal_strength'] != null) 'signal_strength': data['signal_strength'],
+                    };
+                  }
                 }
+              }
+              final newVOnline = isVS ? (isPermanentUnpair ? false : isAct) : (p['is_vitals_online'] ?? false);
+              final newMOnline = isSD ? (isPermanentUnpair ? false : isAct) : (p['is_moisture_online'] ?? false);
+              final anyOnline = newVOnline == true || newMOnline == true;
+              final existingTelem = p['latest_telemetry'] is Map ? Map<String, dynamic>.from(p['latest_telemetry']) : <String, dynamic>{};
+              if (!newVOnline) {
+                existingTelem.remove('heart_rate');
+                existingTelem.remove('temperature');
+                existingTelem.remove('spo2');
+              }
+              if (!newMOnline) {
+                existingTelem.remove('moisture');
+                existingTelem.remove('moisture_value');
               }
               _patients[i] = {
                 ...p,
-                'is_online': isAct,
-                'isOnline': isAct,
-                'device_status': isAct ? 'active' : 'inactive',
-                'is_vitals_online': isVS ? isAct : (p['is_vitals_online'] ?? false),
-                'is_moisture_online': isSD ? isAct : (p['is_moisture_online'] ?? false),
+                'is_online': anyOnline,
+                'isOnline': anyOnline,
+                'device_status': anyOnline ? 'active' : 'inactive',
+                'is_vitals_online': newVOnline,
+                'is_moisture_online': newMOnline,
+                if (isPermanentUnpair && isVS) 'vital_device_sn': null,
+                if (isPermanentUnpair && isSD) 'diaper_device_sn': null,
                 'paired_devices': paired,
+                'latest_telemetry': existingTelem,
               };
             }
           }
         });
+      }
+
+      if (eventType == 'schedule_created' ||
+          eventType == 'schedule_completed' ||
+          (eventType == 'system_data_update' && data['domain'] == 'schedules')) {
+        _loadSchedules();
       }
 
       final targetId = (data['patient_id'] ?? data['patientId'])?.toString();

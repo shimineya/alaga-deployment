@@ -294,10 +294,25 @@ class AlertNotificationService {
       return;
     }
 
-    // 7. Care team assignment update
-    if (eventType == 'assignment_update') {
+    // 7. Care team assignment update or universal system data mutation
+    if (eventType == 'assignment_update' ||
+        eventType == 'system_data_update' ||
+        eventType == 'device_status_update' ||
+        eventType == 'alert_flagged_normal' ||
+        eventType == 'system_alert_resolved') {
       await checkAlerts();
     }
+  }
+
+  /// Emit a local client mutation event so all open mobile screens refresh immediately
+  static void notifyLocalMutation(String method, String endpoint) {
+    final payload = <String, dynamic>{
+      'type': 'client_mutation',
+      'method': method,
+      'endpoint': endpoint,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+    _alertStreamController.add({'event': 'client_mutation', 'data': payload});
   }
 
 

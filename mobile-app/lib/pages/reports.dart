@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,6 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -57,12 +59,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   // Dynamic list of generated reports in this session and loaded from persistent storage
   List<Map<String, dynamic>> _recentReports = [];
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _fetchPatients();
     _loadRecentReports();
+    _realtimeSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      if (eventType == 'system_data_update' ||
+          eventType == 'assignment_update' ||
+          eventType == 'device_status_update' ||
+          eventType == 'client_mutation') {
+        _fetchPatients();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadRecentReports() async {

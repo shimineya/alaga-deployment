@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 
 class AiInsightsScreen extends StatefulWidget {
   final int? initialPatientId;
@@ -42,16 +44,29 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
   bool _loadingPatients = true;
   bool _loadingInsights = false;
   String? _error;
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _selectedPatientId = widget.initialPatientId;
     _loadPatients();
+    _realtimeSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      if (eventType == 'system_data_update' ||
+          eventType == 'assignment_update' ||
+          eventType == 'device_status_update' ||
+          eventType == 'new_alert' ||
+          eventType == 'client_mutation') {
+        _loadPatients();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }

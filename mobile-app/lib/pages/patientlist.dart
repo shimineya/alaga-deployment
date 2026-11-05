@@ -35,7 +35,12 @@ class _PatientListScreenState extends State<PatientListScreen> {
     _alertSyncSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
       if (!mounted) return;
       final eventType = eventData['event']?.toString() ?? '';
-      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update' || eventType == 'new_alert') {
+      if (eventType == 'patient_telemetry_update' ||
+          eventType == 'device_status_update' ||
+          eventType == 'new_alert' ||
+          eventType == 'system_data_update' ||
+          eventType == 'assignment_update' ||
+          eventType == 'client_mutation') {
         _fetchPatients();
       }
     });

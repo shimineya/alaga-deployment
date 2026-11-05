@@ -49,30 +49,45 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
           ? eventData['data'] as Map<String, dynamic>
           : <String, dynamic>{};
 
-      if (eventType == 'device_status_update' || eventType == 'patient_telemetry_update') {
-        final sn = data['serial_number']?.toString();
+      if (eventType == 'device_status_update' ||
+          eventType == 'patient_telemetry_update' ||
+          eventType == 'system_data_update' ||
+          eventType == 'assignment_update' ||
+          eventType == 'client_mutation') {
+        final sn = (data['serial_number'] ?? data['serialNumber'])?.toString();
         final status = data['status']?.toString();
+        final action = data['action']?.toString();
         final battery = data['battery_level'];
         final signal = data['signal_strength'];
 
         if (sn != null) {
           setState(() {
-            for (var i = 0; i < _allDevices.length; i++) {
-              if (_allDevices[i]['serial_number'] == sn) {
-                final isOnline = (status ?? _allDevices[i]['status']) == 'ACTIVE';
-                _allDevices[i] = {
-                  ..._allDevices[i],
-                  if (status != null) 'status': status,
-                  'is_online': isOnline,
-                  if (battery != null) 'battery_level': battery,
-                  if (signal != null) 'signal_strength': signal,
-                };
-                break;
+            if (action == 'removed') {
+              _allDevices.removeWhere((d) => d['serial_number'] == sn);
+            } else {
+              for (var i = 0; i < _allDevices.length; i++) {
+                if (_allDevices[i]['serial_number'] == sn) {
+                  final isPermanentUnpair = action == 'permanent' || status == 'AVAILABLE' || status == 'UNASSIGNED';
+                  final isOnline = !isPermanentUnpair && (status ?? _allDevices[i]['status']) == 'ACTIVE';
+                  _allDevices[i] = {
+                    ..._allDevices[i],
+                    if (status != null) 'status': status,
+                    'is_online': isOnline,
+                    if (isPermanentUnpair) 'assigned_patient_id': null,
+                    if (isPermanentUnpair) 'assigned_patient_name': null,
+                    if (battery != null) 'battery_level': battery,
+                    if (signal != null) 'signal_strength': isPermanentUnpair ? 'Offline' : signal,
+                  };
+                  break;
+                }
               }
             }
           });
         }
         _fetchDevices(silent: true);
+        if (UserSession.current != null) {
+          _fetchPatientsForDialog();
+        }
       }
     });
 
@@ -790,7 +805,11 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      isStandby ? 'STANDBY' : status,
+                      isStandby
+                          ? 'STANDBY'
+                          : (!isAssigned || status == 'AVAILABLE' || status == 'UNASSIGNED')
+                              ? 'UNASSIGNED'
+                              : status,
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.bold,
@@ -1062,7 +1081,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
         content: Text(
           isChange
               ? "Place $serialNumber on Standby for replacement (e.g. low battery or faulty)?\n\nIt will remain saved under $patientName's device list so you can re-pair or change it."
-              : "Permanently unpair $serialNumber from $patientName?\n\nThis will completely remove this device from the patient's device list.",
+              : "Permanently unpair $serialNumber from $patientName?\n\nThis will unassign the device from the patient while keeping $serialNumber registered in your device inventory as Unassigned.",
           style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[800]),
         ),
         actions: [

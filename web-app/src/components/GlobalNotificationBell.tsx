@@ -175,10 +175,12 @@ export function GlobalNotificationBell() {
       fetchNotifications();
     };
     window.addEventListener('alaga_alert_update', handleRealtimeUpdate);
+    window.addEventListener('alaga_manual_refresh', handleRealtimeUpdate);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('alaga_alert_update', handleRealtimeUpdate);
+      window.removeEventListener('alaga_manual_refresh', handleRealtimeUpdate);
     };
   }, [fetchNotifications]);
 

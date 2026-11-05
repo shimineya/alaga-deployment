@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 // [INTEGRATION] Live data from GET /api/assignments/my-assignments and
 //               GET /api/assignments/pending-invites
 import '../services/api_service.dart';
+import '../services/alert_notification_service.dart';
 
 class AssignmentScreen extends StatefulWidget {
   const AssignmentScreen({super.key});
@@ -26,15 +28,26 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   List<Map<String, dynamic>> _pendingInvites = [];
   bool _isLoading = true;
   String? _errorMessage;
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _fetchAll();
+    _realtimeSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
+      if (!mounted) return;
+      final eventType = eventData['event']?.toString() ?? '';
+      if (eventType == 'assignment_update' ||
+          eventType == 'system_data_update' ||
+          eventType == 'client_mutation') {
+        _fetchAll();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }

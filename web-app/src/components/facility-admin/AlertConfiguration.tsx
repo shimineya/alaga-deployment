@@ -29,7 +29,12 @@ export default function AlertConfiguration() {
         } catch { /* Use defaults if fetch fails */ }
     };
 
-    useEffect(() => { fetchThresholds(); }, []);
+    useEffect(() => {
+        fetchThresholds();
+        const handleSync = () => fetchThresholds();
+        window.addEventListener('alaga_manual_refresh', handleSync);
+        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
+    }, []);
 
     const handleSave = async () => {
         setSaving(true);

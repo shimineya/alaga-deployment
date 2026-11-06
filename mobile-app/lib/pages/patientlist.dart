@@ -94,9 +94,9 @@ class _PatientListScreenState extends State<PatientListScreen> {
                 final bool isTempMisaligned = newVOnline && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrMisaligned && isSpo2Misaligned));
                 final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
 
-                final String hrDisplay = !newVOnline ? '---' : isHrMisaligned ? 'Misaligned' : '${hr.round()}';
-                final String tempDisplay = !newVOnline ? '---' : isTempMisaligned ? 'Misaligned' : '${temp.toStringAsFixed(1)}°C';
-                final String spo2Display = !newVOnline ? '---' : isSpo2Misaligned ? 'Misaligned' : '${spo2.round()}%';
+                final String hrDisplay = !newVOnline ? '---' : (isHrMisaligned || hr == null) ? 'Misaligned' : '${hr.round()}';
+                final String tempDisplay = !newVOnline ? '---' : (isTempMisaligned || temp == null) ? 'Misaligned' : '${temp.toStringAsFixed(1)}°C';
+                final String spo2Display = !newVOnline ? '---' : (isSpo2Misaligned || spo2 == null) ? 'Misaligned' : '${spo2.round()}%';
                 final String wetDisplay = !newMOnline ? '---' : (moist == null ? 'Acquiring...' : (moist >= 70 ? 'Wet (${moist.round()}%)' : 'Dry (${moist.round()}%)'));
                 final String patientStatus = !isDeviceActive ? 'Offline' : isAnyMisaligned ? 'Misaligned' : 'Stable';
 

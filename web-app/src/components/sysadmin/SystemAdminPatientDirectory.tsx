@@ -18,6 +18,9 @@ interface ScopedPatient {
     baseline_data: {
         gender?: string;
         diagnosis?: string;
+        medicalConditions?: string[];
+        emergencyContact?: string | { name?: string; relationship?: string; phone?: string };
+        careNotes?: string;
         ward?: string;
         room?: string;
         bed?: string;
@@ -69,7 +72,11 @@ export const scopedPatientToPatient = (p: ScopedPatient): Patient => {
         name: p.name,
         age: age,
         birthdate: p.birthdate ? bdayStr : undefined,
-        medicalConditions: p.baseline_data?.diagnosis ? [p.baseline_data.diagnosis] : [],
+        medicalConditions: Array.isArray(p.baseline_data?.medicalConditions) && p.baseline_data.medicalConditions.length > 0
+            ? p.baseline_data.medicalConditions
+            : (p.baseline_data?.diagnosis ? [p.baseline_data.diagnosis] : []),
+        emergencyContact: p.baseline_data?.emergencyContact,
+        facility_name: p.facility_name,
         baselineVitals: {
             heartRate: 75,
             temperature: 36.5,
@@ -177,7 +184,15 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
 
     // Edit Patient Profile modal state & topology suggestions
     const [editingPatient, setEditingPatient] = useState<ScopedPatient | null>(null);
-    const [editForm, setEditForm] = useState({ name: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
+    const [editForm, setEditForm] = useState({
+        diagnosis: '',
+        medicalConditions: '',
+        emergencyContact: '',
+        careNotes: '',
+        ward: '',
+        room: '',
+        bed: ''
+    });
     const [editTopology, setEditTopology] = useState<TopologyWard[]>([]);
     const [showEditWardSuggestions, setShowEditWardSuggestions] = useState(false);
     const [showEditRoomSuggestions, setShowEditRoomSuggestions] = useState(false);
@@ -362,13 +377,30 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
         }
     };
 
-    // Edit Patient Profile
+    // Edit Patient Profile (Non-identifying details only; Name, Age, DOB, Gender are locked)
     const handleStartEdit = (patient: ScopedPatient) => {
         setEditingPatient(patient);
+        const rawContact = patient.baseline_data?.emergencyContact;
+        let contactStr = '';
+        if (rawContact) {
+            if (typeof rawContact === 'string') {
+                contactStr = rawContact;
+            } else {
+                const parts = [];
+                if (rawContact.name) parts.push(rawContact.name);
+                if (rawContact.relationship) parts.push(`(${rawContact.relationship})`);
+                if (rawContact.phone) parts.push(`- ${rawContact.phone}`);
+                contactStr = parts.join(' ');
+            }
+        }
+        const conds = Array.isArray(patient.baseline_data?.medicalConditions)
+            ? patient.baseline_data.medicalConditions.join(', ')
+            : '';
         setEditForm({
-            name: patient.name,
-            gender: patient.baseline_data?.gender || 'Male',
             diagnosis: patient.baseline_data?.diagnosis || '',
+            medicalConditions: conds,
+            emergencyContact: contactStr,
+            careNotes: patient.baseline_data?.careNotes || '',
             ward: patient.baseline_data?.ward || '',
             room: patient.baseline_data?.room || '',
             bed: patient.baseline_data?.bed || ''
@@ -396,7 +428,6 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
 
     const handleUpdatePatient = async () => {
         if (!editingPatient) return;
-        if (!editForm.name.trim()) return toast.error("Name is required");
         const isEditingFacilityPatient = !isParentOrGuardian && !!editingPatient.facility_name;
         if (isEditingFacilityPatient) {
             if (!editForm.ward.trim() || !editForm.room.trim() || !editForm.bed.trim()) {
@@ -422,11 +453,23 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
         }
 
         const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
+        const parsedConditions = editForm.medicalConditions
+            ? editForm.medicalConditions.split(',').map(c => c.trim()).filter(Boolean)
+            : [];
         try {
             const res = await fetch(`${targetApi}/patients/${editingPatient.patient_id}`, {
                 method: 'PUT',
                 headers: getAuth(),
-                body: JSON.stringify(editForm)
+                body: JSON.stringify({
+                    diagnosis: editForm.diagnosis.trim(),
+                    medicalCondition: editForm.diagnosis.trim(),
+                    medicalConditions: parsedConditions,
+                    emergencyContact: editForm.emergencyContact.trim() || null,
+                    careNotes: editForm.careNotes.trim() || null,
+                    ward: editForm.ward.trim(),
+                    room: editForm.room.trim(),
+                    bed: editForm.bed.trim()
+                })
             });
             const data = await res.json();
             if (data.success) {
@@ -1509,45 +1552,90 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
             {/* ======================= 6. EDIT PATIENT PROFILE & BED LOCATION MODAL ======================= */}
             {editingPatient && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-                    <Card className="w-full max-w-md mx-4 shadow-2xl border-slate-200 bg-white">
-                        <CardHeader className="pb-3">
+                    <Card className="w-full max-w-lg mx-4 shadow-2xl border-slate-200 bg-white max-h-[90vh] overflow-y-auto">
+                        <CardHeader className="pb-3 border-b border-slate-100">
                             <CardTitle className="text-slate-800 text-sm flex items-center gap-2">
-                                <Edit className="w-4 h-4 text-teal-600" /> Edit Patient Profile &amp; Bed Assignment
+                                <Edit className="w-4 h-4 text-teal-600" /> Edit Clinical Details &amp; Bed Assignment
                             </CardTitle>
-                            <CardDescription className="text-[10px] text-slate-400">
-                                Modify administrative details and Ward/Room/Bed placement for Patient #{editingPatient.patient_id}.
+                            <CardDescription className="text-[10px] text-slate-500">
+                                Update Ward/Room/Bed placement and clinical details for Patient #{editingPatient.patient_id}. Identifying details (Name, Age, Date of Birth, Gender) are locked and cannot be altered.
                             </CardDescription>
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Full Name</label>
-                                <Input
-                                    value={editForm.name}
-                                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                                    className="h-8 text-xs bg-slate-50 border-slate-200"
-                                    placeholder="Enter full name"
-                                />
+                        <CardContent className="space-y-3.5 pt-3">
+                            {/* Locked Identifying Details Banner */}
+                            <div className="p-2.5 rounded-lg bg-slate-100/90 border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                                        Locked Identifying Details (Read-Only)
+                                    </span>
+                                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 bg-white text-slate-500 border-slate-300">
+                                        Immutable Identity
+                                    </Badge>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                    <div>
+                                        <p className="text-[9px] text-slate-400 uppercase font-semibold">Full Name</p>
+                                        <p className="font-bold text-slate-700 truncate" title={editingPatient.name}>{editingPatient.name}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] text-slate-400 uppercase font-semibold">Patient ID</p>
+                                        <p className="font-mono font-bold text-slate-700">#{editingPatient.patient_id}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] text-slate-400 uppercase font-semibold">Birthdate / Age</p>
+                                        <p className="font-semibold text-slate-700">
+                                            {editingPatient.birthdate ? extractBirthdateString(editingPatient.birthdate) : 'N/A'}
+                                            {editingPatient.birthdate ? ` (${Math.max(0, new Date().getFullYear() - new Date(extractBirthdateString(editingPatient.birthdate)).getFullYear())}y)` : ''}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] text-slate-400 uppercase font-semibold">Gender</p>
+                                        <p className="font-semibold text-slate-700">{editingPatient.baseline_data?.gender || 'N/A'}</p>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gender</label>
-                                <select
-                                    value={editForm.gender}
-                                    onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
-                                    className="w-full h-8 text-xs px-2.5 border border-slate-200 rounded-md bg-slate-50 text-slate-700 outline-none"
-                                >
-                                    <option value="Male">Male</option>
-                                    <option value="Female">Female</option>
-                                    <option value="Other">Other</option>
-                                </select>
+
+                            {/* Editable Non-Identifying Clinical & Care Details */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Primary Diagnosis</label>
+                                    <Input
+                                        value={editForm.diagnosis}
+                                        onChange={(e) => setEditForm({ ...editForm, diagnosis: e.target.value })}
+                                        className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                        placeholder="e.g. Hypertension, Post-Op Care..."
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Secondary Conditions (Comma-separated)</label>
+                                    <Input
+                                        value={editForm.medicalConditions}
+                                        onChange={(e) => setEditForm({ ...editForm, medicalConditions: e.target.value })}
+                                        className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                        placeholder="e.g. Diabetes, Asthma, Incontinence"
+                                    />
+                                </div>
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Diagnosis</label>
-                                <Input
-                                    value={editForm.diagnosis}
-                                    onChange={(e) => setEditForm({ ...editForm, diagnosis: e.target.value })}
-                                    className="h-8 text-xs bg-slate-50/50 border-slate-200"
-                                    placeholder="Enter primary medical condition..."
-                                />
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Emergency Contact</label>
+                                    <Input
+                                        value={editForm.emergencyContact}
+                                        onChange={(e) => setEditForm({ ...editForm, emergencyContact: e.target.value })}
+                                        className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                        placeholder="e.g. Maria Santos (Mother) - 0917..."
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Clinical / Bedside Care Notes</label>
+                                    <Input
+                                        value={editForm.careNotes}
+                                        onChange={(e) => setEditForm({ ...editForm, careNotes: e.target.value })}
+                                        className="h-8 text-xs bg-slate-50/50 border-slate-200"
+                                        placeholder="e.g. Reposition every 2h, Fall risk..."
+                                    />
+                                </div>
                             </div>
                             <div className="space-y-1 relative">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">

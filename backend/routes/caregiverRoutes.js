@@ -1630,6 +1630,57 @@ router.delete('/patients/:patientId/unassign-staff', async (req, res) => {
     }
 });
 
+// Unassign a staff member or caregiver from a patient
+router.delete('/patients/:patientId/unassign-staff', async (req, res) => {
+    const { patientId } = req.params;
+    const { caregiver_id, user_id } = req.body;
+    const targetUserId = caregiver_id || user_id;
+
+    if (!targetUserId) {
+        return res.status(400).json({ success: false, message: 'Staff or Caregiver ID is required.' });
+    }
+
+    try {
+        const isAdminOrStaff = ['admin', 'system_admin', 'sysadmin', 'facility_admin', 'medical_staff'].includes(req.user.role?.toLowerCase());
+        if (!isAdminOrStaff) {
+            const accessCheck = await pool.query(
+                `SELECT access_id FROM patient_access WHERE user_id = $1 AND patient_id = $2 AND is_archived IS DISTINCT FROM TRUE`,
+                [req.user.id, patientId]
+            );
+            if (accessCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'You do not have permission to unassign care team members from this patient.' });
+            }
+        }
+
+        const result = await pool.query(
+            `DELETE FROM patient_access WHERE patient_id = $1 AND user_id = $2`,
+            [patientId, targetUserId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.json({ success: true, message: 'That care team member was not assigned to this patient.' });
+        }
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'PATIENT_STAFF_UNASSIGN', $2, 'WARNING')`,
+            [req.user.id, `Removed User ${targetUserId} from Patient ${patientId}`]
+        );
+
+        refreshAllClientsAccess();
+        broadcastAlert('assignment_update', {
+            action: 'unassign_staff',
+            patient_id: Number(patientId),
+            user_id: Number(targetUserId)
+        });
+
+        res.json({ success: true, message: 'Care team member has been unassigned from this patient.' });
+    } catch (err) {
+        console.error('Unassign Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to unassign care team member.' });
+    }
+});
+
 // ==========================================
 // 2.1. UPDATE PATIENT DETAILS
 // [OWASP A01] Ownership check: only users with Edit/Admin access may modify the record.
@@ -1642,8 +1693,9 @@ router.put('/patients/:id', async (req, res) => {
         const userId = req.user.id;
         const { role } = req.user;
 
-        // [OWASP A01] Verify the caller has Edit or Admin access to this specific patient.
+        // [OWASP A01] Verify the caller has Edit, Admin, or facility-scoped access to this specific patient.
         const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(role?.toLowerCase());
+        const isFacAdminOrStaff = ['facility_admin', 'medical_staff'].includes(role?.toLowerCase());
         if (!isSysAdmin) {
             const accessCheck = await client.query(
                 `SELECT access_level FROM patient_access
@@ -1651,16 +1703,27 @@ router.put('/patients/:id', async (req, res) => {
                 [patientId, userId]
             );
             if (accessCheck.rows.length === 0) {
-                return res.status(403).json({
-                    success: false,
-                    // [OWASP A10] Generic message — does not expose whether the patient ID exists
-                    message: 'You do not have permission to edit this patient record.'
-                });
+                let allowedByFacility = false;
+                if (isFacAdminOrStaff && req.user.facility_id) {
+                    const facPatCheck = await client.query(
+                        'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
+                        [patientId, req.user.facility_id]
+                    );
+                    allowedByFacility = facPatCheck.rows.length > 0;
+                }
+                if (!allowedByFacility) {
+                    return res.status(403).json({
+                        success: false,
+                        // [OWASP A10] Generic message — does not expose whether the patient ID exists
+                        message: 'You do not have permission to edit this patient record.'
+                    });
+                }
             }
         }
 
         const { 
-            name, birthdate, medicalCondition, ward, room, bed,
+            medicalCondition, medicalConditions, diagnosis, illness, emergencyContact, careNotes,
+            ward, room, bed,
             heart_rate, heartRate, baseline_heart_rate,
             temperature, baseline_temperature,
             spo2, baseline_spo2,
@@ -1769,11 +1832,21 @@ router.put('/patients/:id', async (req, res) => {
         const spo2Val = spo2 ?? baseline_spo2;
         const moistVal = moisture_threshold ?? moistureThreshold ?? baseline_moisture;
 
+        const resolvedDiag = medicalCondition ?? diagnosis ?? illness;
+        const resolvedConds = Array.isArray(medicalConditions)
+            ? medicalConditions
+            : typeof medicalConditions === 'string'
+                ? medicalConditions.split(',').map(s => s.trim()).filter(Boolean)
+                : currentPatient.rows[0].baseline_data?.medicalConditions;
+
+        // Identifying details (name, birthdate, age, gender) are immutable once registered
         const newBaseline = {
             ...currentPatient.rows[0].baseline_data,
-            condition: (medicalCondition ?? req.body.diagnosis) !== undefined ? (medicalCondition ?? req.body.diagnosis) : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
-            diagnosis: (medicalCondition ?? req.body.diagnosis) !== undefined ? (medicalCondition ?? req.body.diagnosis) : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
-            ...(req.body.gender !== undefined && { gender: req.body.gender }),
+            condition: resolvedDiag !== undefined ? resolvedDiag : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
+            diagnosis: resolvedDiag !== undefined ? resolvedDiag : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
+            ...(resolvedConds !== undefined && { medicalConditions: resolvedConds }),
+            ...(emergencyContact !== undefined && { emergencyContact }),
+            ...(careNotes !== undefined && { careNotes }),
             ward: resolvedWard,
             room: resolvedRoom,
             bed: resolvedBed,
@@ -1783,17 +1856,13 @@ router.put('/patients/:id', async (req, res) => {
             ...(moistVal !== undefined && { moisture_threshold: Number(moistVal) })
         };
 
-        // [OWASP A05] Parameterized query — no string concatenation.
+        // [OWASP A05] Parameterized query — identifying fields (name, birthdate) remain locked.
         await client.query(
             `UPDATE patients
-             SET name = COALESCE($1, name),
-                 birthdate = COALESCE($2, birthdate),
-                 baseline_data = $3,
+             SET baseline_data = $1,
                  updated_at = NOW()
-             WHERE patient_id = $4`,
+             WHERE patient_id = $2`,
             [
-                name || null,
-                birthdate || null,
                 JSON.stringify(newBaseline),
                 patientId
             ]

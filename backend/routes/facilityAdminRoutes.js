@@ -2083,12 +2083,13 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
     }
 });
 
-// PUT /patients/:patientId - Edit patient name, gender, diagnosis, ward, room, bed
+// PUT /patients/:patientId - Edit patient non-identifying details (diagnosis, conditions, emergency contact, care notes, ward, room, bed)
 router.put('/patients/:patientId', async (req, res) => {
     const facilityId = req.user.facility_id;
     const { patientId } = req.params;
     const { 
-        name, gender, diagnosis, ward, room, bed,
+        diagnosis, medicalCondition, medicalConditions, illness, emergencyContact, careNotes,
+        ward, room, bed,
         heart_rate, heartRate, baseline_heart_rate,
         temperature, baseline_temperature,
         spo2, baseline_spo2,
@@ -2223,11 +2224,21 @@ router.put('/patients/:patientId', async (req, res) => {
         const spo2Val = spo2 ?? baseline_spo2;
         const moistVal = moisture_threshold ?? moistureThreshold ?? baseline_moisture;
 
-        const updatedName = name || currentPatient.rows[0].name;
+        const resolvedDiag = diagnosis ?? illness ?? medicalCondition;
+        const resolvedConds = Array.isArray(medicalConditions)
+            ? medicalConditions
+            : typeof medicalConditions === 'string'
+                ? medicalConditions.split(',').map(s => s.trim()).filter(Boolean)
+                : currentPatient.rows[0].baseline_data?.medicalConditions;
+
+        // Identifying details (name, birthdate, age, gender) are immutable after registration
         const newBaseline = {
             ...currentPatient.rows[0].baseline_data,
-            gender: gender !== undefined ? gender : currentPatient.rows[0].baseline_data?.gender,
-            diagnosis: diagnosis !== undefined ? diagnosis : currentPatient.rows[0].baseline_data?.diagnosis,
+            diagnosis: resolvedDiag !== undefined ? resolvedDiag : currentPatient.rows[0].baseline_data?.diagnosis,
+            condition: resolvedDiag !== undefined ? resolvedDiag : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
+            ...(resolvedConds !== undefined && { medicalConditions: resolvedConds }),
+            ...(emergencyContact !== undefined && { emergencyContact }),
+            ...(careNotes !== undefined && { careNotes }),
             ward: resolvedWard,
             room: resolvedRoom,
             bed: resolvedBed,
@@ -2239,9 +2250,9 @@ router.put('/patients/:patientId', async (req, res) => {
 
         await client.query(
             `UPDATE patients
-             SET name = $1, baseline_data = $2
-             WHERE patient_id = $3`,
-            [updatedName, newBaseline, patientId]
+             SET baseline_data = $1, updated_at = NOW()
+             WHERE patient_id = $2`,
+            [newBaseline, patientId]
         );
 
         // Upsert into patient_baselines table

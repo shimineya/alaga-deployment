@@ -59,11 +59,19 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
     setPatient(initialPatient);
   }, [initialPatient]);
 
-  // Edit details state
+  // Edit details state (Non-identifying details only; Name, Age, DOB, Gender are locked)
   const [isEditing, setIsEditing] = useState(false);
   const [editIllness, setEditIllness] = useState('');
   const [editConditions, setEditConditions] = useState('');
   const [editEmergencyContact, setEditEmergencyContact] = useState('');
+  const [editCareNotes, setEditCareNotes] = useState('');
+  const [editWard, setEditWard] = useState('');
+  const [editRoom, setEditRoom] = useState('');
+  const [editBed, setEditBed] = useState('');
+  const [editTopology, setEditTopology] = useState<{ name: string; rooms: { name: string; beds: { name: string; patientId: number | null }[] }[] }[]>([]);
+  const [showWardSuggestions, setShowWardSuggestions] = useState(false);
+  const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
+  const [showBedSuggestions, setShowBedSuggestions] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isResettingDiaper, setIsResettingDiaper] = useState(false);
 
@@ -114,31 +122,105 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
     }
   };
 
-  const handleStartEdit = () => {
-    setEditIllness(patient.illness || '');
-    setEditConditions(patient.medicalConditions?.join(', ') || '');
+  const handleStartEdit = async () => {
+    const bData = (patient as any).baseline_data || {};
+    setEditIllness(patient.illness || bData.diagnosis || '');
+    setEditConditions(patient.medicalConditions?.join(', ') || (Array.isArray(bData.medicalConditions) ? bData.medicalConditions.join(', ') : ''));
+    setEditCareNotes(bData.careNotes || '');
+    setEditWard(bData.ward || '');
+    setEditRoom(bData.room || patient.roomNumber || '');
+    setEditBed(bData.bed || '');
     
     let contactStr = '';
-    if (patient.emergencyContact) {
-      if (typeof patient.emergencyContact === 'string') {
-        contactStr = patient.emergencyContact;
+    const rawContact = patient.emergencyContact || bData.emergencyContact;
+    if (rawContact) {
+      if (typeof rawContact === 'string') {
+        contactStr = rawContact;
       } else {
         const parts = [];
-        if (patient.emergencyContact.name) parts.push(patient.emergencyContact.name);
-        if (patient.emergencyContact.relationship) parts.push(`(${patient.emergencyContact.relationship})`);
-        if (patient.emergencyContact.phone) parts.push(`- ${patient.emergencyContact.phone}`);
+        if (rawContact.name) parts.push(rawContact.name);
+        if (rawContact.relationship) parts.push(`(${rawContact.relationship})`);
+        if (rawContact.phone) parts.push(`- ${rawContact.phone}`);
         contactStr = parts.join(' ');
       }
     }
     setEditEmergencyContact(contactStr);
     setIsEditing(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const facName = (patient as any).facility_name;
+      const query = facName ? `?facility_name=${encodeURIComponent(facName)}` : '';
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/facility-topology${query}`, {
+        headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
+      });
+      const data = await res.json();
+      if (data.success && data.data && Array.isArray(data.data.topology)) {
+        setEditTopology(data.data.topology);
+      } else {
+        setEditTopology([]);
+      }
+    } catch {
+      setEditTopology([]);
+    }
   };
+
+  const matchedEditWard = editTopology.find(
+    w => w.name.trim().toLowerCase() === editWard.trim().toLowerCase()
+  );
+  const editWardSuggestions = editTopology.filter(
+    w => !editWard.trim() || w.name.toLowerCase().includes(editWard.trim().toLowerCase())
+  );
+  const editRoomSuggestions = (matchedEditWard ? matchedEditWard.rooms : []).filter(
+    r => !editRoom.trim() || r.name.toLowerCase().includes(editRoom.trim().toLowerCase())
+  );
+  const matchedEditRoom = matchedEditWard?.rooms.find(
+    r => r.name.trim().toLowerCase() === editRoom.trim().toLowerCase()
+  );
+  const editBedSuggestions = (matchedEditRoom ? matchedEditRoom.beds : []).filter(
+    b => !editBed.trim() || b.name.toLowerCase().includes(editBed.trim().toLowerCase())
+  );
 
   const handleSaveEdit = async () => {
     setIsSaving(true);
     try {
       const isMock = patient.id.startsWith('p');
       const token = localStorage.getItem('token');
+      const patIdNum = Number(String((patient as any).patient_id || patient.id).replace(/\D/g, ''));
+      const isFacilityPatient = !!((patient as any).facility_name || (patient as any).facility_id || editTopology.length > 0);
+
+      if (isFacilityPatient && editTopology.length > 0) {
+        if (!editWard.trim() || !editRoom.trim() || !editBed.trim()) {
+          toast.error('Ward Name, Room Name, and Bed Name are required for facility patients.');
+          setIsSaving(false);
+          return;
+        }
+        if (!matchedEditWard) {
+          toast.error(`Ward "${editWard}" is not registered in this facility. Please choose a registered Ward.`);
+          setIsSaving(false);
+          return;
+        }
+        if (!matchedEditRoom) {
+          toast.error(`Room "${editRoom}" is not registered under Ward "${matchedEditWard.name}".`);
+          setIsSaving(false);
+          return;
+        }
+        const matchedBed = matchedEditRoom.beds.find(b => b.name.trim().toLowerCase() === editBed.trim().toLowerCase());
+        if (!matchedBed) {
+          toast.error(`Bed "${editBed}" is not registered under Room "${matchedEditRoom.name}".`);
+          setIsSaving(false);
+          return;
+        }
+        if (matchedBed.patientId && Number(matchedBed.patientId) !== patIdNum) {
+          toast.error(`Bed "${matchedBed.name}" in Room "${matchedEditRoom.name}" is already occupied.`);
+          setIsSaving(false);
+          return;
+        }
+      } else if (!editRoom.trim()) {
+        toast.error('Room name cannot be empty.');
+        setIsSaving(false);
+        return;
+      }
       
       const newConditions = editConditions ? editConditions.split(',').map(c => c.trim()).filter(Boolean) : [];
       
@@ -150,10 +232,15 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            name: patient.name,
             illness: editIllness || null,
+            diagnosis: editIllness || null,
+            medicalCondition: editIllness || null,
             medicalConditions: newConditions,
-            emergencyContact: editEmergencyContact || null
+            emergencyContact: editEmergencyContact || null,
+            careNotes: editCareNotes || null,
+            ward: editWard.trim() || undefined,
+            room: editRoom.trim() || undefined,
+            bed: editBed.trim() || undefined
           })
         });
         const data = await response.json();
@@ -163,16 +250,28 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
       }
       
       // Update local state
-      setPatient(prev => ({
+      setPatient((prev: any) => ({
         ...prev,
         illness: editIllness || undefined,
         medicalConditions: newConditions,
-        emergencyContact: editEmergencyContact || undefined
+        emergencyContact: editEmergencyContact || undefined,
+        roomNumber: editRoom.trim() || prev.roomNumber,
+        baseline_data: {
+          ...(prev.baseline_data || {}),
+          diagnosis: editIllness || undefined,
+          medicalConditions: newConditions,
+          emergencyContact: editEmergencyContact || undefined,
+          careNotes: editCareNotes || undefined,
+          ward: editWard.trim() || prev.baseline_data?.ward,
+          room: editRoom.trim() || prev.baseline_data?.room,
+          bed: editBed.trim() || prev.baseline_data?.bed
+        }
       }));
       
       toast.success('Patient details updated successfully.');
       setIsEditing(false);
       onRefresh?.();
+      window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || 'Failed to update patient.');
@@ -944,8 +1043,18 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                     </div>
                   </div>
                   <div>
+                    <p className="text-xs text-slate-400">Ward / Room / Bed Location</p>
+                    <p className="font-medium text-slate-800">
+                      {[
+                        (patient as any).baseline_data?.ward,
+                        (patient as any).baseline_data?.room || patient.roomNumber,
+                        (patient as any).baseline_data?.bed ? `Bed ${(patient as any).baseline_data.bed}` : null
+                      ].filter(Boolean).join(' • ') || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
                     <p className="text-xs text-slate-400">Primary Diagnosis</p>
-                    <p className="font-medium text-slate-800">{patient.illness || 'N/A'}</p>
+                    <p className="font-medium text-slate-800">{patient.illness || (patient as any).baseline_data?.diagnosis || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">Conditions</p>
@@ -961,21 +1070,27 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">Emergency Contact</p>
-                    {patient.emergencyContact ? (
-                      typeof patient.emergencyContact === 'string' ? (
-                        <p className="font-medium text-slate-800">{patient.emergencyContact}</p>
+                    {(patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) ? (
+                      typeof (patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) === 'string' ? (
+                        <p className="font-medium text-slate-800">{(patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as string}</p>
                       ) : (
                         <div>
-                          <p className="font-medium text-slate-800">{patient.emergencyContact.name}</p>
-                          {(patient.emergencyContact.relationship || patient.emergencyContact.phone) && (
+                          <p className="font-medium text-slate-800">{((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).name}</p>
+                          {(((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).relationship || ((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).phone) && (
                             <p className="text-sm text-slate-600">
-                              {patient.emergencyContact.relationship || ''} {patient.emergencyContact.relationship && patient.emergencyContact.phone ? '•' : ''} {patient.emergencyContact.phone || ''}
+                              {((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).relationship || ''} {((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).relationship && ((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).phone ? '•' : ''} {((patient.emergencyContact || (patient as any).baseline_data?.emergencyContact) as any).phone || ''}
                             </p>
                           )}
                         </div>
                       )
                     ) : <p className="text-sm">N/A</p>}
                   </div>
+                  {(patient as any).baseline_data?.careNotes && (
+                    <div>
+                      <p className="text-xs text-slate-400">Clinical / Bedside Care Notes</p>
+                      <p className="text-sm text-slate-700">{(patient as any).baseline_data.careNotes}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-xs text-slate-400">Assigned Caregiver</p>
                     <div className="flex items-center gap-2 mt-1">
@@ -995,7 +1110,140 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                   </div>
                 </CardContent>
               ) : (
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-3.5">
+                  {/* Locked Identifying Details Banner */}
+                  <div className="p-2.5 rounded-lg bg-slate-100 border border-slate-200 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Locked Identity (Read-Only)</span>
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 bg-white text-slate-500 border-slate-300">Immutable</Badge>
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">{patient.name}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {patient.age ? `${patient.age} yrs` : 'N/A'} • DOB: {formatBirthdateDisplay(patient.birthdate)}
+                      {(patient as any).baseline_data?.gender ? ` • ${(patient as any).baseline_data.gender}` : ''}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1 relative">
+                    <label className="text-xs font-semibold text-slate-500">Ward Name</label>
+                    <Input
+                      value={editWard}
+                      onChange={e => {
+                        setEditWard(e.target.value);
+                        setEditRoom('');
+                        setEditBed('');
+                        setShowWardSuggestions(true);
+                      }}
+                      onFocus={() => setShowWardSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowWardSuggestions(false), 200)}
+                      placeholder="Select registered Ward..."
+                      className="h-8 text-sm"
+                    />
+                    {editTopology.length > 0 && showWardSuggestions && (
+                      <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
+                        {editWardSuggestions.map((w, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              setEditWard(w.name);
+                              setEditRoom('');
+                              setEditBed('');
+                              setShowWardSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                          >
+                            <span className="font-semibold">{w.name}</span>
+                            <span className="text-[10px] text-slate-400">{w.rooms?.length || 0} room(s)</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1 relative">
+                      <label className="text-xs font-semibold text-slate-500">Room Name</label>
+                      <Input
+                        value={editRoom}
+                        onChange={e => {
+                          setEditRoom(e.target.value);
+                          setEditBed('');
+                          setShowRoomSuggestions(true);
+                        }}
+                        onFocus={() => setShowRoomSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowRoomSuggestions(false), 200)}
+                        placeholder="Select Room..."
+                        className="h-8 text-sm"
+                      />
+                      {editTopology.length > 0 && showRoomSuggestions && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
+                          {editRoomSuggestions.map((r, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onMouseDown={e => {
+                                e.preventDefault();
+                                setEditRoom(r.name);
+                                setEditBed('');
+                                setShowRoomSuggestions(false);
+                              }}
+                              className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                            >
+                              <span className="font-semibold">{r.name}</span>
+                              <span className="text-[10px] text-slate-400">{r.beds?.length || 0} bed(s)</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-1 relative">
+                      <label className="text-xs font-semibold text-slate-500">Bed Name</label>
+                      <Input
+                        value={editBed}
+                        onChange={e => {
+                          setEditBed(e.target.value);
+                          setShowBedSuggestions(true);
+                        }}
+                        onFocus={() => setShowBedSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowBedSuggestions(false), 200)}
+                        placeholder="Select Bed..."
+                        className="h-8 text-sm"
+                      />
+                      {editTopology.length > 0 && showBedSuggestions && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
+                          {editBedSuggestions.map((b, idx) => {
+                            const patIdNum = Number(String((patient as any).patient_id || patient.id).replace(/\D/g, ''));
+                            const isOccupiedByOther = b.patientId !== null && Number(b.patientId) !== patIdNum;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                disabled={isOccupiedByOther}
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  if (!isOccupiedByOther) {
+                                    setEditBed(b.name);
+                                    setShowBedSuggestions(false);
+                                  }
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+                                  isOccupiedByOther ? 'text-slate-400 bg-slate-50 cursor-not-allowed' : 'hover:bg-teal-50 text-slate-700'
+                                }`}
+                              >
+                                <span className="font-semibold">{b.name}</span>
+                                <span className={`text-[10px] font-semibold ${isOccupiedByOther ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                  {isOccupiedByOther ? 'Occupied' : 'Available'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-500">Primary Diagnosis</label>
                     <Input 
@@ -1020,6 +1268,15 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                       value={editEmergencyContact} 
                       onChange={e => setEditEmergencyContact(e.target.value)} 
                       placeholder="e.g. Juan Santos (Son) - +63 912 345 6789"
+                      className="h-8 text-sm" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500">Clinical / Bedside Care Notes</label>
+                    <Input 
+                      value={editCareNotes} 
+                      onChange={e => setEditCareNotes(e.target.value)} 
+                      placeholder="e.g. Reposition every 2h, Fall risk"
                       className="h-8 text-sm" 
                     />
                   </div>

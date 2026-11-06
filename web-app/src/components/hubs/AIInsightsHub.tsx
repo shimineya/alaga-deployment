@@ -66,6 +66,23 @@ interface PossibleIllness {
   recommendations: string[];
 }
 
+interface ReviewedAlertItem {
+  alert_id: number;
+  alert_category: string;
+  severity: string;
+  status: string;
+  review_type: string;
+  message: string;
+  sent_at: string;
+  acknowledged_at?: string;
+  action_taken?: string;
+  resolution_notes?: string | null;
+  anomaly_type?: string;
+  ocsvm_score?: number | null;
+  flag_count?: number;
+  reviewer_name?: string;
+}
+
 interface InsightsData {
   patient: {
     id: number | string;
@@ -98,6 +115,7 @@ interface InsightsData {
   };
   possibleIllnesses: PossibleIllness[];
   keyInsights: string[];
+  reviewedAlerts?: ReviewedAlertItem[];
   chartData: Array<{
     timestamp: string;
     timeLabel: string;
@@ -202,6 +220,15 @@ export default function AIInsightsHub() {
     if (selectedPatientId) {
       fetchInsights();
     }
+    const handleAlertOrRefresh = () => {
+      if (selectedPatientId) fetchInsights();
+    };
+    window.addEventListener('alaga_alert_update', handleAlertOrRefresh);
+    window.addEventListener('alaga_manual_refresh', handleAlertOrRefresh);
+    return () => {
+      window.removeEventListener('alaga_alert_update', handleAlertOrRefresh);
+      window.removeEventListener('alaga_manual_refresh', handleAlertOrRefresh);
+    };
   }, [fetchInsights, selectedPatientId, timeframe]);
 
   // Filter patients by search query
@@ -769,6 +796,89 @@ export default function AIInsightsHub() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* 7. Acknowledged, Reviewed & Flagged Alerts (Moved from Alerts Module) */}
+          <Card className="border border-slate-200 shadow-xs bg-white">
+            <CardHeader className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-teal-600" />
+                  Acknowledged, Reviewed &amp; Flagged Alerts
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Clinical alerts that have been acknowledged, reviewed, or flagged as normal to train the patient&apos;s personalized AI baseline.
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="text-xs bg-teal-50 border-teal-200 text-teal-800 w-fit">
+                {(insights.reviewedAlerts || []).length} {(insights.reviewedAlerts || []).length === 1 ? 'reviewed alert' : 'reviewed alerts'}
+              </Badge>
+            </CardHeader>
+            <CardContent className="p-4">
+              {!insights.reviewedAlerts || insights.reviewedAlerts.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  No acknowledged, reviewed, or flagged alerts recorded for this patient yet.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {insights.reviewedAlerts.map(alert => {
+                    const isFlagged = alert.review_type.includes('Flagged') || alert.review_type.includes('Learned');
+                    const isCritical = (alert.severity || '').toLowerCase() === 'critical';
+                    return (
+                      <div
+                        key={alert.alert_id}
+                        className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-bold ${
+                                isCritical
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {alert.severity}
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-semibold ${
+                                isFlagged
+                                  ? 'bg-teal-50 text-teal-800 border-teal-200'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}
+                            >
+                              {alert.review_type}
+                            </Badge>
+                            {alert.anomaly_type && (
+                              <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                {alert.anomaly_type}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-bold text-slate-800 leading-relaxed">{alert.message}</p>
+                          {alert.action_taken && (
+                            <p className="text-[11px] text-teal-800 bg-teal-50/70 border border-teal-100 rounded-lg px-2.5 py-1.5 font-medium">
+                              <span className="font-bold">Resolution / AI Learning Note:</span> {alert.action_taken}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-500 md:text-right shrink-0 space-y-0.5">
+                          <div className="font-semibold text-slate-700">
+                            Reviewed by: {alert.reviewer_name || 'Care Team'}
+                          </div>
+                          <div className="flex items-center md:justify-end gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>{new Date(alert.acknowledged_at || alert.sent_at).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

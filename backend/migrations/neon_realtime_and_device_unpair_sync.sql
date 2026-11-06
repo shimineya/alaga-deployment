@@ -97,10 +97,36 @@ CREATE TABLE IF NOT EXISTS public.device_snapshots (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. Ensure real-time query indexes exist
+-- 7. Ensure facilities.topology JSONB column and patients.baseline_data JSONB column exist
+ALTER TABLE public.facilities
+  ADD COLUMN IF NOT EXISTS topology JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
+UPDATE public.facilities
+SET topology = '[]'::jsonb
+WHERE topology IS NULL;
+
+ALTER TABLE public.patients
+  ADD COLUMN IF NOT EXISTS baseline_data JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS facility_id INTEGER,
+  ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS is_monitoring_disabled BOOLEAN DEFAULT FALSE;
+
+-- 8. Ensure alerts table supports Acknowledged / Reviewed / Flagged status & review notes for AI Insights
+ALTER TABLE public.alerts
+  ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'New',
+  ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS acknowledged_by INTEGER,
+  ADD COLUMN IF NOT EXISTS review_notes TEXT;
+
+-- 9. Ensure real-time query indexes exist
 CREATE INDEX IF NOT EXISTS idx_device_whitelist_assigned_patient ON public.device_whitelist (assigned_patient_id);
 CREATE INDEX IF NOT EXISTS idx_device_whitelist_added_by ON public.device_whitelist (added_by);
 CREATE INDEX IF NOT EXISTS idx_device_whitelist_status ON public.device_whitelist (status);
 CREATE INDEX IF NOT EXISTS idx_sensor_readings_patient_recorded ON public.sensor_readings (patient_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_patient_status_created ON public.alerts (patient_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patients_facility_archived ON public.patients (facility_id, is_archived);
 
 COMMIT;
+

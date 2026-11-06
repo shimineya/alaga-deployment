@@ -190,20 +190,60 @@ export const CaregiverSettings: React.FC = () => {
     return () => clearTimeout(delayDebounceId);
   }, [alertTone, vibrationEnabled, spo2Min, heartRateMin, heartRateMax, tempMin, tempMax, token]);
 
+  // Reset SVM Learning Baseline state
+  const [resetPatientId, setResetPatientId] = useState('');
+  const [resetDeviceSN, setResetDeviceSN] = useState('');
+  const [resetReason, setResetReason] = useState('');
+  const [isResettingBaseline, setIsResettingBaseline] = useState(false);
+
   const handleResetBaseline = async () => {
+    setIsResettingBaseline(true);
     try {
       const token = localStorage.getItem('token');
+      const pid = resetPatientId.trim();
+      const dsn = resetDeviceSN.trim();
+      const rsn = resetReason.trim();
+
+      if ((pid || dsn) && !rsn) {
+        toast.error(t('Clinical reason for baseline reset is required when specifying a Patient ID or Device.', 'Kailangan ang klinikal na dahilan sa pag-reset ng baseline.'));
+        setIsResettingBaseline(false);
+        return;
+      }
+
       const res = await fetch(`${API_BASE}/api/caregiver/baseline/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          patient_id: pid || undefined,
+          device_sn: dsn || undefined,
+          reason: rsn || 'Settings Baseline Calibration Reset',
+        }),
       });
-      if (res.ok) {
-        toast.success(t('Baseline reset started. New 24-hour learning phase active.', 'Sinimulan ang reset ng baseline. Aktibo na ang bagong 24-oras na learning phase.'));
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success !== false) {
+        toast.success(
+          data.message ||
+            t(
+              'Baseline reset started. New 24-hour learning phase active.',
+              'Sinimulan ang reset ng baseline. Aktibo na ang bagong 24-oras na learning phase.'
+            )
+        );
+        setResetPatientId('');
+        setResetDeviceSN('');
+        setResetReason('');
       } else {
-        toast.info(t('Baseline reset requested. Backend may not be connected.', 'Hiniling ang reset ng baseline. Maaaring hindi nakakonekta ang backend.'));
+        toast.error(
+          data.message ||
+            t(
+              'Failed to reset SVM learning baseline.',
+              'Hindi ma-reset ang SVM learning baseline.'
+            )
+        );
       }
     } catch {
       toast.info(t('Baseline reset requested. New 24-hour learning phase will start when devices sync.', 'Hiniling ang reset ng baseline. Mag-uumpisa ang bagong 24-oras na learning phase kapag naka-sync na ang mga device.'));
+    } finally {
+      setIsResettingBaseline(false);
     }
   };
 
@@ -380,58 +420,139 @@ export const CaregiverSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* 2. Baseline Calibration (AI Training) */}
-      <Card className="shadow-sm border border-slate-200/90 rounded-xl overflow-hidden">
-        <CardHeader className="py-2.5 px-4 bg-slate-50/70 border-b border-slate-200/80">
+      {/* 2. Baseline Calibration (AI Training) — Reset SVM Learning Baseline */}
+      <Card className="shadow-sm border border-amber-200/90 rounded-xl overflow-hidden">
+        <CardHeader className="py-2.5 px-4 bg-amber-50/60 border-b border-amber-200/80">
           <CardTitle className="text-xs font-bold text-slate-800 flex items-center gap-2">
             <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
-            {t('Baseline calibration (AI training)', 'Baseline calibration (AI training)')}
+            {t('Baseline calibration (AI training) — Reset SVM Learning Baseline', 'Baseline calibration (AI training) — I-reset ang SVM Learning Baseline')}
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-4">
-          <p className="text-xs text-slate-600 mb-3 leading-relaxed">
-            {t('Use when the patient\'s health state changes significantly (e.g. after fever). Starts a new 24-hour learning phase for the OC-SVM algorithm.', 'Gamitin kapag malaki ang pagbabago sa kalusugan ng pasyente (hal. pagkatapos ng lagnat). Mag-uumpisa ng bagong 24-oras na learning phase para sa OC-SVM.')}
+        <CardContent className="p-4 space-y-3">
+          <p className="text-xs text-slate-600 leading-relaxed">
+            {t(
+              'Forces the One-Class SVM algorithm to relearn the patient\'s normal ranges (24-hour learning phase). Specify a Patient ID / Device Serial Number and clinical reason, or leave Patient ID blank to reset all your assigned patients.',
+              'Pinipilit ang OC-SVM algorithm na pag-aralan muli ang normal na vitals ng pasyente (24-oras na learning phase).'
+            )}
           </p>
-          <Button size="sm" variant="outline" className="h-8 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-100" onClick={handleResetBaseline}>
-            <RefreshCw className="w-3 h-3 mr-1.5 text-amber-600" />
-            {t('Reset baseline', 'I-reset ang baseline')}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[11px] font-bold text-slate-700">Patient ID (Optional for All Assigned)</Label>
+              <Input
+                type="number"
+                value={resetPatientId}
+                onChange={(e) => setResetPatientId(e.target.value)}
+                placeholder="e.g. 5"
+                className="h-8 text-xs bg-slate-50/50 border-slate-200 mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-[11px] font-bold text-slate-700">Device Serial Number (Optional)</Label>
+              <Input
+                value={resetDeviceSN}
+                onChange={(e) => setResetDeviceSN(e.target.value)}
+                placeholder="e.g. VS-2026-0001"
+                className="h-8 text-xs font-mono bg-slate-50/50 border-slate-200 mt-1"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-[11px] font-bold text-slate-700">Clinical Reason for Reset</Label>
+            <Input
+              value={resetReason}
+              onChange={(e) => setResetReason(e.target.value)}
+              placeholder="e.g. Post-fever recovery / medication adjustment"
+              className="h-8 text-xs bg-slate-50/50 border-slate-200 mt-1"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isResettingBaseline}
+            className="h-8 text-xs font-semibold border-amber-400 text-amber-800 hover:bg-amber-50 cursor-pointer"
+            onClick={handleResetBaseline}
+          >
+            <RefreshCw className={`w-3 h-3 mr-1.5 text-amber-600 ${isResettingBaseline ? 'animate-spin' : ''}`} />
+            {isResettingBaseline
+              ? t('Resetting...', 'Nire-reset...')
+              : t('Reset SVM Learning Baseline', 'I-reset ang SVM Learning Baseline')}
           </Button>
         </CardContent>
       </Card>
 
-      {/* 3. Threshold safety nets */}
+      {/* 3. Threshold safety nets (Read-Only Baseline Reference Guides) */}
       <Card className="shadow-sm border border-slate-200/90 rounded-xl overflow-hidden">
         <CardHeader className="py-2.5 px-4 bg-slate-50/70 border-b border-slate-200/80">
-          <CardTitle className="text-xs font-bold text-slate-800 flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5 text-rose-600" />
-            {t('Threshold safety nets', 'Safety nets sa threshold')}
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs font-bold text-slate-800 flex items-center gap-2">
+              <Shield className="w-3.5 h-3.5 text-rose-600" />
+              {t('Threshold safety nets (Baseline Reference Guide)', 'Safety nets sa threshold (Gabay sa Baseline)')}
+            </CardTitle>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600">
+              Read-Only Guide
+            </span>
+          </div>
         </CardHeader>
         <CardContent className="p-4">
           <p className="text-xs text-slate-600 mb-3 leading-relaxed">
-            {t('Always alert if vital goes beyond these limits (manual override).', 'Laging mag-alert kung lumampas ang vital sa mga limiteng ito (manual override).')}
+            {t(
+              'Standard clinical safety boundaries provided as non-editable reference guides for patient baselines. Vitals crossing these limits always trigger an alert.',
+              'Mga karaniwang klinikal na safety boundary bilang gabay sa baseline ng pasyente. Laging mag-a-alert kung lalampas dito ang vitals.'
+            )}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div>
               <Label className="text-[11px] font-bold text-slate-700">SpO₂ min (%)</Label>
-              <Input type="number" min={70} max={100} value={spo2Min} onChange={(e) => setSpo2Min(Number(e.target.value) || 90)} className="h-8 text-xs font-semibold text-slate-800 border-slate-200 mt-1" />
+              <Input
+                type="number"
+                value={spo2Min}
+                readOnly
+                disabled
+                className="h-8 text-xs font-semibold text-slate-700 bg-slate-100 border-slate-200 mt-1 cursor-not-allowed opacity-90"
+              />
             </div>
             <div>
               <Label className="text-[11px] font-bold text-slate-700">HR min (bpm)</Label>
-              <Input type="number" min={30} max={100} value={heartRateMin} onChange={(e) => setHeartRateMin(Number(e.target.value) || 50)} className="h-8 text-xs font-semibold text-slate-800 border-slate-200 mt-1" />
+              <Input
+                type="number"
+                value={heartRateMin}
+                readOnly
+                disabled
+                className="h-8 text-xs font-semibold text-slate-700 bg-slate-100 border-slate-200 mt-1 cursor-not-allowed opacity-90"
+              />
             </div>
             <div>
               <Label className="text-[11px] font-bold text-slate-700">HR max (bpm)</Label>
-              <Input type="number" min={80} max={200} value={heartRateMax} onChange={(e) => setHeartRateMax(Number(e.target.value) || 120)} className="h-8 text-xs font-semibold text-slate-800 border-slate-200 mt-1" />
+              <Input
+                type="number"
+                value={heartRateMax}
+                readOnly
+                disabled
+                className="h-8 text-xs font-semibold text-slate-700 bg-slate-100 border-slate-200 mt-1 cursor-not-allowed opacity-90"
+              />
             </div>
             <div className="col-span-2 sm:col-span-2 flex gap-2">
               <div className="flex-1">
                 <Label className="text-[11px] font-bold text-slate-700">Temp min (°C)</Label>
-                <Input type="number" step={0.1} min={35} max={38} value={tempMin} onChange={(e) => setTempMin(Number(e.target.value) || 36)} className="h-8 text-xs font-semibold text-slate-800 border-slate-200 mt-1" />
+                <Input
+                  type="number"
+                  step={0.1}
+                  value={tempMin}
+                  readOnly
+                  disabled
+                  className="h-8 text-xs font-semibold text-slate-700 bg-slate-100 border-slate-200 mt-1 cursor-not-allowed opacity-90"
+                />
               </div>
               <div className="flex-1">
                 <Label className="text-[11px] font-bold text-slate-700">Temp max (°C)</Label>
-                <Input type="number" step={0.1} min={36} max={40} value={tempMax} onChange={(e) => setTempMax(Number(e.target.value) || 37.5)} className="h-8 text-xs font-semibold text-slate-800 border-slate-200 mt-1" />
+                <Input
+                  type="number"
+                  step={0.1}
+                  value={tempMax}
+                  readOnly
+                  disabled
+                  className="h-8 text-xs font-semibold text-slate-700 bg-slate-100 border-slate-200 mt-1 cursor-not-allowed opacity-90"
+                />
               </div>
             </div>
           </div>

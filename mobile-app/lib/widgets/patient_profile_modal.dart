@@ -869,21 +869,21 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF10B981),
-                              shape: BoxShape.circle,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isDeviceActive ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isDeviceActive ? const Color(0xFFA7F3D0) : const Color(0xFFCBD5E1),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            "LIVE",
-                            style: GoogleFonts.poppins(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF10B981),
-                              letterSpacing: 0.5,
+                            child: Text(
+                              isDeviceActive ? "Active" : "Offline",
+                              style: GoogleFonts.poppins(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                                color: isDeviceActive ? const Color(0xFF059669) : const Color(0xFF64748B),
+                              ),
                             ),
                           ),
                         ],

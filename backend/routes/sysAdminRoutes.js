@@ -1448,19 +1448,79 @@ router.put('/facilities/:id', async (req, res) => {
     }
 });
 
-// PUT /facilities/:id/topology - Update facility topology (wards, rooms, beds)
+// PUT /facilities/:id/topology - Update facility topology (wards, rooms, beds) and sync patient locations
 router.put('/facilities/:id/topology', async (req, res) => {
     const { id } = req.params;
     const { topology } = req.body;
+    if (!Array.isArray(topology)) {
+        return res.status(400).json({ success: false, message: 'Topology must be a valid array of wards.' });
+    }
+
+    const client = await pool.connect();
     try {
-        await pool.query(
+        await client.query('BEGIN');
+
+        // Ensure each patientId appears in at most one bed (latest assignment wins)
+        const seenPatients = new Set();
+        const normalizedTopology = topology.map(ward => ({
+            name: String(ward.name || '').trim(),
+            classification: String(ward.classification || 'general').trim(),
+            rooms: Array.isArray(ward.rooms) ? ward.rooms.map(room => ({
+                name: String(room.name || '').trim(),
+                beds: Array.isArray(room.beds) ? room.beds.map(bed => {
+                    let pid = bed.patientId ? Number(bed.patientId) : null;
+                    if (pid && (isNaN(pid) || seenPatients.has(pid))) {
+                        pid = null;
+                    } else if (pid) {
+                        seenPatients.add(pid);
+                    }
+                    return {
+                        name: String(bed.name || '').trim(),
+                        patientId: pid
+                    };
+                }).filter(b => b.name) : []
+            })).filter(r => r.name) : []
+        })).filter(w => w.name);
+
+        await client.query(
             'UPDATE facilities SET topology = $1 WHERE facility_id = $2',
-            [JSON.stringify(topology), id]
+            [JSON.stringify(normalizedTopology), id]
         );
-        res.json({ success: true, message: 'Facility topology updated successfully.' });
+
+        // Synchronize patient baseline_data (ward, room, bed) for any patient assigned to a bed in this topology
+        for (const ward of normalizedTopology) {
+            for (const room of ward.rooms) {
+                for (const bed of room.beds) {
+                    if (bed.patientId) {
+                        const patRes = await client.query(
+                            'SELECT baseline_data FROM patients WHERE patient_id = $1',
+                            [bed.patientId]
+                        );
+                        if (patRes.rows.length > 0) {
+                            const updatedBaseline = {
+                                ...(patRes.rows[0].baseline_data || {}),
+                                ward: ward.name,
+                                room: room.name,
+                                bed: bed.name
+                            };
+                            await client.query(
+                                'UPDATE patients SET baseline_data = $1, facility_id = COALESCE(facility_id, $2) WHERE patient_id = $3',
+                                [JSON.stringify(updatedBaseline), id, bed.patientId]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Facility topology updated successfully.', data: normalizedTopology });
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error('Update Facility Topology Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to update facility topology.' });
+    } finally {
+        client.release();
     }
 });
 

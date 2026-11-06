@@ -592,9 +592,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            // 3. Functioning Threshold Safety Nets (Caregiver and Parent Role)
+            // 3. Threshold Safety Nets (Read-Only Baseline Reference Guide)
             _buildSectionCard(
-              title: "Threshold Safety Nets",
+              title: "Threshold Safety Nets (Baseline Guide)",
               icon: Icons.shield_outlined,
               children: [
                 Container(
@@ -611,7 +611,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          "Configure personal threshold safety boundaries for telemetry monitoring. Patient vitals crossing these limits trigger high-priority alerts.",
+                          "Standard clinical safety boundaries provided as non-editable reference guides for patient baselines. Patient vitals crossing these limits trigger high-priority alerts.",
                           style: GoogleFonts.albertSans(
                               fontSize: 12, color: const Color(0xFF004D40), height: 1.3),
                         ),
@@ -627,7 +627,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   min: 30,
                   max: 100,
                   step: 1,
-                  onChanged: (val) => setState(() => _hrMin = val),
+                  onChanged: (_) {},
                 ),
                 _buildThresholdStepper(
                   label: "Heart rate maximum (BPM)",
@@ -636,7 +636,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   min: 80,
                   max: 220,
                   step: 1,
-                  onChanged: (val) => setState(() => _hrMax = val),
+                  onChanged: (_) {},
                 ),
                 _buildThresholdStepper(
                   label: "Temperature minimum (°C)",
@@ -646,7 +646,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   max: 37.0,
                   step: 0.1,
                   isDecimal: true,
-                  onChanged: (val) => setState(() => _tempMin = val),
+                  onChanged: (_) {},
                 ),
                 _buildThresholdStepper(
                   label: "Temperature maximum (°C)",
@@ -656,7 +656,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   max: 42.0,
                   step: 0.1,
                   isDecimal: true,
-                  onChanged: (val) => setState(() => _tempMax = val),
+                  onChanged: (_) {},
                 ),
                 _buildThresholdStepper(
                   label: "SpO₂ minimum (%)",
@@ -665,37 +665,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   min: 70,
                   max: 99,
                   step: 1,
-                  onChanged: (val) => setState(() => _spo2Min = val),
-                ),
-                const SizedBox(height: 8),
-                Center(
-                  child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _hrMin = 50.0;
-                        _hrMax = 120.0;
-                        _tempMin = 36.0;
-                        _tempMax = 37.5;
-                        _spo2Min = 90.0;
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("Restored clinical standard defaults."),
-                          duration: Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.restart_alt, size: 16, color: Color(0xFF00796B)),
-                    label: Text(
-                      "Reset to Clinical Defaults",
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF00796B),
-                      ),
-                    ),
-                  ),
+                  onChanged: (_) {},
                 ),
               ],
             ),
@@ -1032,54 +1002,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline, size: 22, color: Color(0xFF4DB6AC)),
-                  onPressed: value > min
-                      ? () {
-                          final newVal = isDecimal
-                              ? double.parse((value - step).toStringAsFixed(1))
-                              : value - step;
-                          onChanged(newVal < min ? min : newVal);
-                        }
-                      : null,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            Container(
+              constraints: const BoxConstraints(minWidth: 68),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Text(
+                "$displayStr $unit",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF475569),
                 ),
-                Container(
-                  constraints: const BoxConstraints(minWidth: 52),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Text(
-                    displayStr,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF2D3436),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add_circle_outline, size: 22, color: Color(0xFF4DB6AC)),
-                  onPressed: value < max
-                      ? () {
-                          final newVal = isDecimal
-                              ? double.parse((value + step).toStringAsFixed(1))
-                              : value + step;
-                          onChanged(newVal > max ? max : newVal);
-                        }
-                      : null,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
-              ],
+              ),
             ),
           ],
         ),

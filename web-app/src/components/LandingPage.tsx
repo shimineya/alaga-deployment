@@ -575,12 +575,12 @@ export const LandingPage: React.FC = () => {
                             <div className="w-12 h-12 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700">
                                 <Shield className="w-6 h-6" />
                             </div>
-                            <h3 className="text-lg font-black text-slate-900">AI Artifact Rejection</h3>
+                            <h3 className="text-lg font-black text-slate-900">Alert Flagging &amp; Normal Baselines</h3>
                             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                                Our One-Class SVM machine learning model separates active infant crying, movement, and feeding from real clinical hypoxia or hyperthermia.
+                                Caregivers and medical staff can flag recurring benign readings as normal and calibrate personalized normal baselines so our One-Class SVM model adapts to each patient&apos;s unique resting vitals.
                             </p>
                             <div className="text-[11px] font-semibold text-teal-700 bg-teal-50/80 p-2.5 rounded-lg border border-teal-200/80">
-                                Reduces nuisance alarm fatigue by over 80%.
+                                Adaptive 5-flag baseline learning reduces nuisance alarm fatigue.
                             </div>
                         </div>
 

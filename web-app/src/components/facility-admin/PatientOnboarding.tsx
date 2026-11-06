@@ -52,6 +52,35 @@ interface ScopedPatient {
     }[];
 }
 
+interface TopologyBed {
+    name: string;
+    patientId: number | null;
+}
+
+interface TopologyRoom {
+    name: string;
+    beds: TopologyBed[];
+}
+
+interface TopologyWard {
+    name: string;
+    classification?: string;
+    rooms: TopologyRoom[];
+}
+
+interface FacilityTopologyData {
+    facility_id: number;
+    facility_name: string;
+    topology: TopologyWard[];
+    total_wards: number;
+    total_rooms: number;
+    total_beds: number;
+    occupied_beds: number;
+    available_beds: number;
+    registered_patients_count: number;
+    can_register_more: boolean;
+}
+
 export default function PatientOnboarding() {
     const { user, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
@@ -63,7 +92,7 @@ export default function PatientOnboarding() {
         ? `${API_URL}/api/facility-admin` 
         : `${API_URL}/api/caregiver`;
 
-    // Patient form state with normal standard baselines
+    // Patient form state
     const [form, setForm] = useState({ 
         first_name: '', 
         last_name: '', 
@@ -84,7 +113,13 @@ export default function PatientOnboarding() {
     const [submitting, setSubmitting] = useState(false);
     const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);
 
-    // Existing patient baseline configuration state
+    // Facility topology & capacity state
+    const [facilityTopology, setFacilityTopology] = useState<FacilityTopologyData | null>(null);
+    const [showWardSuggestions, setShowWardSuggestions] = useState(false);
+    const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
+    const [showBedSuggestions, setShowBedSuggestions] = useState(false);
+
+    // Existing patient lookup state
     const [existingPatientId, setExistingPatientId] = useState('');
     const [loadedPatientId, setLoadedPatientId] = useState<number | null>(null);
     const [isSearchingExisting, setIsSearchingExisting] = useState(false);
@@ -97,6 +132,26 @@ export default function PatientOnboarding() {
     const [diaperSN, setDiaperSN] = useState('');
     const [vitalSN, setVitalSN] = useState('');
     const [availableDevices, setAvailableDevices] = useState<{ serial_number: string; device_name?: string; status: string }[]>([]);
+
+    const fetchFacilityTopology = useCallback(async (facNameOverride?: string) => {
+        if (isParentOrGuardian) return;
+        try {
+            const facQuery = isSystemAdmin && (facNameOverride ?? form.facility_name).trim()
+                ? `?facility_name=${encodeURIComponent((facNameOverride ?? form.facility_name).trim())}`
+                : '';
+            const res = await fetch(`${API_URL}/api/caregiver/facility-topology${facQuery}`, {
+                headers: getAuth()
+            });
+            const data = await res.json();
+            if (data.success && data.data) {
+                setFacilityTopology(data.data);
+            } else {
+                setFacilityTopology(null);
+            }
+        } catch (err) {
+            console.error('Failed to fetch facility topology:', err);
+        }
+    }, [isParentOrGuardian, isSystemAdmin, form.facility_name]);
 
     // Fetch available devices
     const fetchAvailableDevices = async () => {
@@ -115,7 +170,8 @@ export default function PatientOnboarding() {
 
     useEffect(() => {
         fetchAvailableDevices();
-    }, []);
+        fetchFacilityTopology();
+    }, [fetchFacilityTopology]);
 
     // SVM reset state
     const [resetPatientId, setResetPatientId] = useState('');
@@ -255,12 +311,17 @@ export default function PatientOnboarding() {
         fetchUnassignedPatients();
         const handleSync = () => {
             fetchAvailableDevices();
+            fetchFacilityTopology();
             fetchPatients();
             fetchUnassignedPatients();
         };
         window.addEventListener('alaga_manual_refresh', handleSync);
-        return () => window.removeEventListener('alaga_manual_refresh', handleSync);
-    }, [fetchPatients, fetchUnassignedPatients]);
+        window.addEventListener('alaga_alert_update', handleSync);
+        return () => {
+            window.removeEventListener('alaga_manual_refresh', handleSync);
+            window.removeEventListener('alaga_alert_update', handleSync);
+        };
+    }, [fetchPatients, fetchUnassignedPatients, fetchFacilityTopology]);
 
     const handleLookupExistingPatient = async () => {
         const id = existingPatientId.trim();
@@ -288,7 +349,7 @@ export default function PatientOnboarding() {
                     gender: base.gender || 'Male',
                     diagnosis: base.diagnosis || base.condition || '',
                     ward: base.ward || '',
-                    room: base.room || 'Room 1',
+                    room: base.room || '',
                     bed: base.bed || '',
                     patient_type: p.patient_type || 'facility',
                     facility_name: p.facility_name || '',
@@ -297,9 +358,12 @@ export default function PatientOnboarding() {
                     spo2: Number(base.spo2) || 98,
                     moisture_threshold: Number(base.moisture_threshold || base.moistureThreshold) || 30
                 });
+                if (p.facility_name) {
+                    fetchFacilityTopology(p.facility_name);
+                }
                 setConsentConfirmed(true);
                 setLoadedPatientId(p.patient_id);
-                toast.success(`Loaded patient #${p.patient_id} (${p.name}). Baseline & details populated.`);
+                toast.success(`Loaded patient #${p.patient_id} (${p.name}). Details populated.`);
             } else {
                 toast.error(data.message || `Patient #${id} not found.`);
             }
@@ -334,12 +398,62 @@ export default function PatientOnboarding() {
         toast.success('Applied standard physiological baseline preset.');
     };
 
+    // Cascading suggestions from facility topology
+    const topologyWards = facilityTopology?.topology || [];
+    const matchedTopologyWard = topologyWards.find(
+        w => w.name.trim().toLowerCase() === form.ward.trim().toLowerCase()
+    );
+    const wardSuggestionsList = topologyWards.filter(
+        w => !form.ward.trim() || w.name.toLowerCase().includes(form.ward.trim().toLowerCase())
+    );
+    const roomSuggestionsList = (matchedTopologyWard ? matchedTopologyWard.rooms : []).filter(
+        r => !form.room.trim() || r.name.toLowerCase().includes(form.room.trim().toLowerCase())
+    );
+    const matchedTopologyRoom = matchedTopologyWard?.rooms.find(
+        r => r.name.trim().toLowerCase() === form.room.trim().toLowerCase()
+    );
+    const bedSuggestionsList = (matchedTopologyRoom ? matchedTopologyRoom.beds : []).filter(
+        b => !form.bed.trim() || b.name.toLowerCase().includes(form.bed.trim().toLowerCase())
+    );
+
+    const isFacilityMode = !isParentOrGuardian && form.patient_type === 'facility';
+    const isBedLimitReached = isFacilityMode && !loadedPatientId && facilityTopology !== null && (facilityTopology.total_beds === 0 || facilityTopology.available_beds <= 0);
+
     const handleRegister = async () => {
-        if (!form.first_name || !form.last_name || !form.age || !form.diagnosis || !form.room) {
-            return toast.error('Please fill in all required fields (First Name, Last Name, Age, Diagnosis, Room).');
+        if (!form.first_name || !form.last_name || !form.age || !form.diagnosis) {
+            return toast.error('Please fill in all required fields (First Name, Last Name, Age, Diagnosis).');
         }
         if (isSystemAdmin && form.patient_type === 'facility' && !form.facility_name.trim()) {
             return toast.error('Facility Name is required when Care Setting is Facility.');
+        }
+        if (isFacilityMode) {
+            if (!form.ward.trim() || !form.room.trim() || !form.bed.trim()) {
+                return toast.error('Ward Name, Room Name, and Bed Name are required for facility patients.');
+            }
+            if (!loadedPatientId && facilityTopology && (facilityTopology.total_beds === 0 || facilityTopology.available_beds <= 0)) {
+                return toast.error(
+                    facilityTopology.total_beds === 0
+                        ? `Cannot register patient anymore: No wards, rooms, or beds have been configured in ${facilityTopology.facility_name} by the System Administrator.`
+                        : `Cannot register patient anymore: ${facilityTopology.facility_name} has reached its maximum capacity of ${facilityTopology.total_beds} bed(s).`
+                );
+            }
+            if (facilityTopology && topologyWards.length > 0) {
+                if (!matchedTopologyWard) {
+                    return toast.error(`Ward "${form.ward}" is not registered in ${facilityTopology.facility_name}. Please select a registered Ward from the suggestion list.`);
+                }
+                if (!matchedTopologyRoom) {
+                    return toast.error(`Room "${form.room}" is not registered under Ward "${matchedTopologyWard.name}". Please select a valid Room from the suggestion list.`);
+                }
+                const matchedBed = matchedTopologyRoom.beds.find(b => b.name.trim().toLowerCase() === form.bed.trim().toLowerCase());
+                if (!matchedBed) {
+                    return toast.error(`Bed "${form.bed}" is not registered under Room "${matchedTopologyRoom.name}". Please select a valid Bed from the suggestion list.`);
+                }
+                if (matchedBed.patientId && Number(matchedBed.patientId) !== Number(loadedPatientId || 0)) {
+                    return toast.error(`Bed "${matchedBed.name}" in Room "${matchedTopologyRoom.name}" is already occupied. Please select an available bed.`);
+                }
+            }
+        } else if (!form.room.trim()) {
+            return toast.error('Room Name is required.');
         }
         if (!consentConfirmed) {
             return toast.error('Informed consent must be confirmed before registering a patient. (DPA § 13)');
@@ -347,7 +461,7 @@ export default function PatientOnboarding() {
         setSubmitting(true);
         try {
             if (loadedPatientId) {
-                // Update existing patient and baselines
+                // Update existing patient
                 const res = await fetch(`${API}/patients/${loadedPatientId}`, {
                     method: 'PUT',
                     headers: getAuth(),
@@ -355,7 +469,7 @@ export default function PatientOnboarding() {
                         name: `${form.first_name.trim()} ${form.last_name.trim()}`,
                         gender: form.gender,
                         diagnosis: form.diagnosis,
-                        ward: form.ward || null,
+                        ward: form.ward.trim() || null,
                         room: form.room.trim(),
                         bed: form.bed.trim() || null,
                         heart_rate: Number(form.heart_rate),
@@ -366,20 +480,24 @@ export default function PatientOnboarding() {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    toast.success(data.message || `Patient #${loadedPatientId} baselines updated successfully.`);
+                    toast.success(data.message || `Patient #${loadedPatientId} updated successfully.`);
+                    fetchFacilityTopology();
                     fetchPatients();
                     fetchUnassignedPatients();
+                    window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 } else {
-                    toast.error(data.message || 'Failed to update baselines.');
+                    toast.error(data.message || 'Failed to update patient.');
                 }
             } else {
-                // Register new patient with baselines
+                // Register new patient
                 const res = await fetch(`${API}/patients`, {
                     method: 'POST', headers: getAuth(),
                     body: JSON.stringify({ 
                         ...form, 
                         age: parseInt(form.age), 
-                        bed: form.bed.trim() || null, 
+                        ward: form.ward.trim(),
+                        room: form.room.trim(),
+                        bed: form.bed.trim(), 
                         consent_confirmed: true,
                         heart_rate: Number(form.heart_rate),
                         temperature: Number(form.temperature),
@@ -393,12 +511,14 @@ export default function PatientOnboarding() {
                     setLastCreatedId(data.patient_id);
                     setForm({ 
                         first_name: '', last_name: '', age: '', gender: 'Male', diagnosis: '', 
-                        ward: '', room: '', bed: '', patient_type: 'facility', facility_name: '',
+                        ward: '', room: '', bed: '', patient_type: 'facility', facility_name: form.facility_name,
                         heart_rate: 75, temperature: 36.8, spo2: 98, moisture_threshold: 30
                     });
                     setConsentConfirmed(false);
+                    fetchFacilityTopology();
                     fetchPatients();
                     fetchUnassignedPatients();
+                    window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 } else toast.error(data.message);
             }
         } catch { toast.error('Action failed.'); }
@@ -458,43 +578,6 @@ export default function PatientOnboarding() {
         }
     };
 
-    const handleResetBaseline = async () => {
-        const cleanPatientId = resetPatientId.trim();
-        const cleanDeviceSN = resetDeviceSN.trim().toUpperCase();
-
-        if (!cleanPatientId && !cleanDeviceSN) {
-            return toast.error('Patient ID or Device Serial Number is required.');
-        }
-        if (!resetReason.trim()) {
-            return toast.error('Clinical reason for baseline reset is required.');
-        }
-
-        const targetIdentifier = cleanPatientId || cleanDeviceSN;
-
-        try {
-            const res = await fetch(`${API}/patients/${targetIdentifier}/reset-baseline`, {
-                method: 'POST', 
-                headers: getAuth(),
-                body: JSON.stringify({ 
-                    reason: resetReason.trim(),
-                    device_sn: cleanDeviceSN || undefined
-                })
-            });
-            const data = await res.json();
-            if (data.success) { 
-                toast.success(data.message); 
-                setResetPatientId(''); 
-                setResetDeviceSN('');
-                setResetReason(''); 
-                fetchPatients();
-            } else {
-                toast.error(data.message || 'Baseline reset failed.');
-            }
-        } catch (err: any) {
-            toast.error(err.message || 'Network error during baseline reset.');
-        }
-    };
-
     // Filter patients
     const filteredPatients = patients.filter(p => {
         const query = searchQuery.toLowerCase();
@@ -529,9 +612,9 @@ export default function PatientOnboarding() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
                 <div>
                     <h2 className="text-lg font-bold text-teal-900 tracking-tight">Patient Onboarding</h2>
-                    <p className="text-[10px] font-medium text-slate-500">Register new patients, pair devices, and manage SVM baselines within your facility.</p>
+                    <p className="text-[10px] font-medium text-slate-500">Register new patients into verified facility wards/rooms/beds and pair monitoring devices.</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={fetchPatients} disabled={isLoading} className="h-9 gap-1.5 cursor-pointer">
+                <Button size="sm" variant="outline" onClick={() => { fetchPatients(); fetchFacilityTopology(); }} disabled={isLoading} className="h-9 gap-1.5 cursor-pointer">
                     <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
                     Refresh List
                 </Button>
@@ -539,13 +622,13 @@ export default function PatientOnboarding() {
 
             {/* Forms Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 shrink-0">
-                {/* Patient Registration & Baseline Configuration */}
+                {/* Patient Registration & Location Assignment */}
                 <Card className="bg-white border-slate-200 shadow-sm">
                     <CardHeader className="py-4">
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-slate-800 text-sm flex items-center gap-2">
                                 <UserPlus className="w-4 h-4 text-teal-600" />
-                                {loadedPatientId ? `Edit Patient #${loadedPatientId} Baseline` : 'Register Patient & Normal Baselines'}
+                                {loadedPatientId ? `Edit Patient #${loadedPatientId} Profile & Bed Assignment` : 'Register Patient & Normal Baselines'}
                             </CardTitle>
                             {loadedPatientId && (
                                 <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-300 text-[10px]">
@@ -554,10 +637,37 @@ export default function PatientOnboarding() {
                             )}
                         </div>
                         <CardDescription className="text-[10px] text-slate-500">
-                            Enroll a new clinical record or load an existing patient to calibrate normal standard baselines.
+                            Enroll a new clinical record into a registered Ward, Room, and Bed or load an existing patient to update their profile.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
+                        {/* Facility Bed Capacity Status Banner */}
+                        {isFacilityMode && facilityTopology && (
+                            <div className={`p-2.5 rounded-lg border text-xs flex flex-col gap-1 ${
+                                isBedLimitReached
+                                    ? 'bg-rose-50 border-rose-200 text-rose-800'
+                                    : 'bg-teal-50/70 border-teal-200 text-teal-900'
+                            }`}>
+                                <div className="flex items-center justify-between">
+                                    <span className="font-bold text-[11px]">
+                                        {facilityTopology.facility_name} Bed Capacity
+                                    </span>
+                                    <Badge className={`text-[10px] border-none font-bold ${
+                                        isBedLimitReached ? 'bg-rose-600 text-white' : 'bg-teal-600 text-white'
+                                    }`}>
+                                        {facilityTopology.available_beds} / {facilityTopology.total_beds} Beds Available
+                                    </Badge>
+                                </div>
+                                <p className="text-[10px] leading-snug">
+                                    {facilityTopology.total_beds === 0
+                                        ? 'Cannot register patient anymore: No wards, rooms, or beds have been configured in the system for this facility by the System Administrator.'
+                                        : isBedLimitReached
+                                            ? `Cannot register patient anymore: Facility bed capacity limit (${facilityTopology.total_beds} beds) has been reached.`
+                                            : `${facilityTopology.total_wards} Ward(s), ${facilityTopology.total_rooms} Room(s), and ${facilityTopology.available_beds} open Bed(s) available for patient onboarding.`}
+                                </p>
+                            </div>
+                        )}
+
                         {/* Existing Patient Lookup Box */}
                         <div className="p-2.5 bg-slate-50/90 border border-slate-200 rounded-lg space-y-1.5">
                             <div className="flex items-center justify-between">
@@ -576,7 +686,7 @@ export default function PatientOnboarding() {
                                     value={existingPatientId}
                                     onChange={e => setExistingPatientId(e.target.value.replace(/[^0-9]/g, ''))}
                                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleLookupExistingPatient(); } }}
-                                    placeholder="Enter Patient ID (e.g. 5) to load baseline..."
+                                    placeholder="Enter Patient ID (e.g. 5) to load patient details..."
                                     className="h-8 text-xs bg-white flex-1"
                                 />
                                 <Button
@@ -673,8 +783,12 @@ export default function PatientOnboarding() {
                                         <label className="block text-[10px] font-semibold text-slate-600 mb-1">Facility Name <span className="text-red-500">*</span></label>
                                         <Input
                                             value={form.facility_name}
-                                            onChange={e => setForm(f => ({ ...f, facility_name: e.target.value }))}
-                                            placeholder="e.g. Alaga Medical Center"
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setForm(f => ({ ...f, facility_name: val, ward: '', room: '', bed: '' }));
+                                                fetchFacilityTopology(val);
+                                            }}
+                                            placeholder="e.g. Alaga General Hospital"
                                             className="h-8 text-xs bg-slate-50/50"
                                         />
                                     </div>
@@ -682,96 +796,162 @@ export default function PatientOnboarding() {
                             </div>
                         )}
                         <div className="border-t border-slate-100 pt-2.5 mt-2.5">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location Assignment</span>
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                Location Assignment (Registered Facility Topology)
+                            </span>
                             <div className="space-y-2">
-                                <div>
+                                {/* WARD NAME WITH SUGGESTIONS */}
+                                <div className="relative">
                                     <label className="block text-[10px] font-semibold text-slate-600 mb-1">
-                                        Ward Name <span className="text-slate-400 font-normal"> (Optional)</span>
+                                        Ward Name {isFacilityMode ? <span className="text-red-500">*</span> : <span className="text-slate-400 font-normal">(Optional)</span>}
                                     </label>
-                                    <Input value={form.ward} onChange={e => setForm(f => ({ ...f, ward: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Ward A (Optional)" />
+                                    <Input
+                                        value={form.ward}
+                                        onChange={e => {
+                                            setForm(f => ({ ...f, ward: e.target.value, room: '', bed: '' }));
+                                            setShowWardSuggestions(true);
+                                        }}
+                                        onFocus={() => setShowWardSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowWardSuggestions(false), 200)}
+                                        className="h-8 text-xs bg-slate-50/50"
+                                        placeholder="Select registered Ward..."
+                                    />
+                                    {isFacilityMode && showWardSuggestions && (
+                                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                            <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                                Registered Facility Wards ({wardSuggestionsList.length})
+                                            </div>
+                                            {wardSuggestionsList.length > 0 ? (
+                                                wardSuggestionsList.map((w, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onMouseDown={e => {
+                                                            e.preventDefault();
+                                                            setForm(f => ({ ...f, ward: w.name, room: '', bed: '' }));
+                                                            setShowWardSuggestions(false);
+                                                        }}
+                                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                                    >
+                                                        <span className="font-semibold">{w.name}</span>
+                                                        <span className="text-[10px] text-slate-400">{w.rooms?.length || 0} room(s)</span>
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                                    No matching wards configured in Facility Profile Details.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
+
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
+                                    {/* ROOM NAME WITH CASCADING SUGGESTIONS */}
+                                    <div className="relative">
                                         <label className="block text-[10px] font-semibold text-slate-600 mb-1">
                                             Room Name <span className="text-red-500">*</span>
                                         </label>
-                                        <Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Room 101" />
+                                        <Input
+                                            value={form.room}
+                                            onChange={e => {
+                                                setForm(f => ({ ...f, room: e.target.value, bed: '' }));
+                                                setShowRoomSuggestions(true);
+                                            }}
+                                            onFocus={() => setShowRoomSuggestions(true)}
+                                            onBlur={() => setTimeout(() => setShowRoomSuggestions(false), 200)}
+                                            disabled={isFacilityMode && !form.ward.trim()}
+                                            className="h-8 text-xs bg-slate-50/50"
+                                            placeholder={isFacilityMode && !form.ward.trim() ? "Select Ward first..." : "Select registered Room..."}
+                                        />
+                                        {isFacilityMode && showRoomSuggestions && (
+                                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                                <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                                    Rooms in {matchedTopologyWard?.name || form.ward || 'Ward'}
+                                                </div>
+                                                {roomSuggestionsList.length > 0 ? (
+                                                    roomSuggestionsList.map((r, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onMouseDown={e => {
+                                                                e.preventDefault();
+                                                                setForm(f => ({ ...f, room: r.name, bed: '' }));
+                                                                setShowRoomSuggestions(false);
+                                                            }}
+                                                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                                        >
+                                                            <span className="font-semibold">{r.name}</span>
+                                                            <span className="text-[10px] text-slate-400">{r.beds?.length || 0} bed(s)</span>
+                                                        </button>
+                                                    ))
+                                                ) : (
+                                                    <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                                        No matching rooms registered under this ward.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div>
+
+                                    {/* BED NAME WITH CASCADING SUGGESTIONS */}
+                                    <div className="relative">
                                         <label className="block text-[10px] font-semibold text-slate-600 mb-1">
-                                            Bed Name <span className="text-slate-400 font-normal"> (Optional)</span>
+                                            Bed Name {isFacilityMode ? <span className="text-red-500">*</span> : <span className="text-slate-400 font-normal">(Optional)</span>}
                                         </label>
-                                        <Input value={form.bed} onChange={e => setForm(f => ({ ...f, bed: e.target.value }))} className="h-8 text-xs bg-slate-50/50" placeholder="e.g. Bed 1 (Optional)" />
+                                        <Input
+                                            value={form.bed}
+                                            onChange={e => {
+                                                setForm(f => ({ ...f, bed: e.target.value }));
+                                                setShowBedSuggestions(true);
+                                            }}
+                                            onFocus={() => setShowBedSuggestions(true)}
+                                            onBlur={() => setTimeout(() => setShowBedSuggestions(false), 200)}
+                                            disabled={isFacilityMode && (!form.ward.trim() || !form.room.trim())}
+                                            className="h-8 text-xs bg-slate-50/50"
+                                            placeholder={isFacilityMode && !form.room.trim() ? "Select Room first..." : "Select registered Bed..."}
+                                        />
+                                        {isFacilityMode && showBedSuggestions && (
+                                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                                <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                                    Beds in {matchedTopologyRoom?.name || form.room || 'Room'}
+                                                </div>
+                                                {bedSuggestionsList.length > 0 ? (
+                                                    bedSuggestionsList.map((b, idx) => {
+                                                        const isOccupiedByOther = b.patientId !== null && Number(b.patientId) !== Number(loadedPatientId || 0);
+                                                        return (
+                                                            <button
+                                                                key={idx}
+                                                                type="button"
+                                                                disabled={isOccupiedByOther}
+                                                                onMouseDown={e => {
+                                                                    e.preventDefault();
+                                                                    if (!isOccupiedByOther) {
+                                                                        setForm(f => ({ ...f, bed: b.name }));
+                                                                        setShowBedSuggestions(false);
+                                                                    }
+                                                                }}
+                                                                className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+                                                                    isOccupiedByOther
+                                                                        ? 'text-slate-400 bg-slate-50 cursor-not-allowed'
+                                                                        : 'hover:bg-teal-50 text-slate-700'
+                                                                }`}
+                                                            >
+                                                                <span className="font-semibold">{b.name}</span>
+                                                                <span className={`text-[10px] font-semibold ${isOccupiedByOther ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                                                    {isOccupiedByOther ? 'Occupied' : 'Available'}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                                        No matching beds registered under this room.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* NORMAL STANDARD BASELINES */}
-                        <div className="border-t border-slate-200/80 pt-3 mt-3 bg-slate-50/70 p-3 rounded-xl border border-slate-200">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-1.5">
-                                    <Heart className="w-3.5 h-3.5 text-rose-500" />
-                                    <h4 className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">
-                                        NORMAL STANDARD BASELINES
-                                    </h4>
-                                </div>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setIsBaselineGuideOpen(true)}
-                                    className="h-6 px-2 text-[10px] font-bold text-teal-700 bg-teal-50 border-teal-300 hover:bg-teal-100 hover:text-teal-800 flex items-center gap-1 shadow-2xs rounded cursor-pointer"
-                                >
-                                    <BookOpen className="w-3 h-3 text-teal-600" />
-                                    BASELINE GUIDE
-                                </Button>
-                            </div>
-                            <p className="text-[10px] text-slate-500 mb-2.5 leading-snug">
-                                Sets the personalized normal center-point for the AI anomaly detector.
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Heart Rate (bpm)</label>
-                                    <Input 
-                                        type="number" 
-                                        value={form.heart_rate} 
-                                        onChange={e => setForm(f => ({ ...f, heart_rate: Number(e.target.value) || 75 }))} 
-                                        className="h-8 text-xs bg-white font-bold" 
-                                    />
-                                    <span className="text-[9px] text-slate-400">Adult: 60-100 bpm</span>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Temperature (°C)</label>
-                                    <Input 
-                                        type="number" 
-                                        step={0.1}
-                                        value={form.temperature} 
-                                        onChange={e => setForm(f => ({ ...f, temperature: Number(e.target.value) || 36.8 }))} 
-                                        className="h-8 text-xs bg-white font-bold" 
-                                    />
-                                    <span className="text-[9px] text-slate-400">Normal: 36.5-37.5°C</span>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">SpO₂ (%)</label>
-                                    <Input 
-                                        type="number" 
-                                        value={form.spo2} 
-                                        onChange={e => setForm(f => ({ ...f, spo2: Number(e.target.value) || 98 }))} 
-                                        className="h-8 text-xs bg-white font-bold" 
-                                    />
-                                    <span className="text-[9px] text-slate-400">Target: 95-100%</span>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Moisture Limit (%)</label>
-                                    <Input 
-                                        type="number" 
-                                        value={form.moisture_threshold} 
-                                        onChange={e => setForm(f => ({ ...f, moisture_threshold: Number(e.target.value) || 30 }))} 
-                                        className="h-8 text-xs bg-white font-bold" 
-                                    />
-                                    <span className="text-[9px] text-slate-400">Threshold: ≥ 30%</span>
                                 </div>
                             </div>
                         </div>
@@ -789,8 +969,18 @@ export default function PatientOnboarding() {
                                 Patient registered successfully. Patient ID: <strong>{lastCreatedId}</strong>. Use this ID below to pair a device.
                             </div>
                         )}
-                        <Button onClick={handleRegister} disabled={submitting} className="w-full h-8 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold cursor-pointer">
-                            {submitting ? 'Saving...' : (loadedPatientId ? 'Update Patient & Baselines' : 'Register Patient')}
+                        <Button
+                            onClick={handleRegister}
+                            disabled={submitting || isBedLimitReached}
+                            className="w-full h-8 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
+                        >
+                            {submitting
+                                ? 'Saving...'
+                                : isBedLimitReached
+                                    ? 'Cannot Register Patient (Bed Limit Reached)'
+                                    : loadedPatientId
+                                        ? 'Update Patient Profile & Bed'
+                                        : 'Register Patient'}
                         </Button>
                     </CardContent>
                 </Card>
@@ -935,24 +1125,6 @@ export default function PatientOnboarding() {
 
                             <Button onClick={handlePairDevice} className="w-full h-8 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold cursor-pointer">
                                 {pairMode === 'new' ? 'Register & Pair New Device' : 'Pair Existing Device'}
-                            </Button>
-                        </CardContent>
-                    </Card>
-
-                    {/* SVM Baseline Reset */}
-                    <Card className="bg-white border-amber-200 border shadow-sm">
-                        <CardHeader className="py-4">
-                            <CardTitle className="text-slate-800 text-sm flex items-center gap-2"><RotateCcw className="w-4 h-4 text-amber-600" /> Reset SVM Learning Baseline</CardTitle>
-                            <CardDescription className="text-[10px] text-slate-500">
-                                Forces SVM algorithm to relearn patient's normal ranges. Validates device/patient existence.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-2">
-                            <Input value={resetPatientId} onChange={e => setResetPatientId(e.target.value)} placeholder="Patient ID (e.g. 5)" type="number" className="h-8 text-xs bg-slate-50/50" />
-                            <Input value={resetDeviceSN} onChange={e => setResetDeviceSN(e.target.value)} placeholder="Device Serial Number (Optional, e.g. VS-2026-0001)" className="h-8 text-xs font-mono bg-slate-50/50" />
-                            <Input value={resetReason} onChange={e => setResetReason(e.target.value)} placeholder="Clinical reason for reset (Required)" className="h-8 text-xs bg-slate-50/50" />
-                            <Button onClick={handleResetBaseline} variant="outline" className="w-full h-8 border-amber-400 text-amber-700 hover:bg-amber-50 text-xs font-semibold cursor-pointer">
-                                Reset Baseline
                             </Button>
                         </CardContent>
                     </Card>

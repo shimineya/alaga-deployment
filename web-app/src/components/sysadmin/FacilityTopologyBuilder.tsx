@@ -21,9 +21,103 @@ interface RoomNode {
     beds: BedNode[];
 }
 
+export type WardClassificationType =
+    | 'general'
+    | 'nicu'
+    | 'pediatrics'
+    | 'geriatrics'
+    | 'long_term_care'
+    | 'icu'
+    | 'ccu'
+    | 'psychiatry'
+    | 'ob_gyn'
+    | 'isolation'
+    | 'rehabilitation'
+    | 'emergency_observation';
+
+export const WARD_CLASSIFICATIONS: {
+    value: WardClassificationType;
+    label: string;
+    shortLabel: string;
+    suggestedWardNames: string[];
+}[] = [
+    {
+        value: 'general',
+        label: 'General Medical-Surgical Ward (Med-Surg)',
+        shortLabel: 'Med-Surg',
+        suggestedWardNames: ['General Medical Ward', 'General Surgical Ward', 'Medical-Surgical Ward A', 'Medical-Surgical Ward B']
+    },
+    {
+        value: 'nicu',
+        label: 'Neonatal Intensive Care / Nursery (NICU / Infant Care)',
+        shortLabel: 'NICU / Infant',
+        suggestedWardNames: ['NICU Ward', 'Neonatal Nursery Ward', 'Special Care Baby Unit (SCBU)']
+    },
+    {
+        value: 'pediatrics',
+        label: 'Pediatric Ward (Child & Adolescent Care)',
+        shortLabel: 'Pediatrics',
+        suggestedWardNames: ['Pediatrics Ward', 'Pediatric Medical Ward', 'Pediatric ICU (PICU)']
+    },
+    {
+        value: 'geriatrics',
+        label: 'Geriatric & Elderly Care Ward',
+        shortLabel: 'Geriatrics',
+        suggestedWardNames: ['Geriatric Care Ward', 'Senior Acute Care Ward', 'Memory & Dementia Care Ward']
+    },
+    {
+        value: 'long_term_care',
+        label: 'Long-Term Bedridden & Skilled Nursing Ward',
+        shortLabel: 'Long-Term / Bedridden',
+        suggestedWardNames: ['Long-Term Bedridden Ward', 'Skilled Nursing Facility Ward', 'Chronic Care & Incontinence Monitoring Ward']
+    },
+    {
+        value: 'icu',
+        label: 'Intensive Care Unit (ICU / Critical Care)',
+        shortLabel: 'ICU',
+        suggestedWardNames: ['Intensive Care Unit (ICU)', 'Medical ICU (MICU)', 'Surgical ICU (SICU)']
+    },
+    {
+        value: 'ccu',
+        label: 'Cardiac & Telemetry Monitoring Unit (CCU)',
+        shortLabel: 'CCU / Telemetry',
+        suggestedWardNames: ['Cardiac Care Unit (CCU)', 'Telemetry Step-Down Ward', 'Cardiovascular Ward']
+    },
+    {
+        value: 'psychiatry',
+        label: 'Psychiatric & Behavioral Health Ward',
+        shortLabel: 'Psychiatry',
+        suggestedWardNames: ['Psychiatry Ward', 'Behavioral Health Ward', 'Neuro-Psychiatric Ward']
+    },
+    {
+        value: 'ob_gyn',
+        label: 'Maternity / Obstetrics & Gynecology Ward (OB-GYN)',
+        shortLabel: 'OB-GYN / Maternity',
+        suggestedWardNames: ['Maternity & Postpartum Ward', 'OB-GYN Ward', 'Labor, Delivery & Recovery (LDR)']
+    },
+    {
+        value: 'isolation',
+        label: 'Infectious Disease & Isolation Ward',
+        shortLabel: 'Isolation',
+        suggestedWardNames: ['Isolation Ward', 'Infectious Disease Unit', 'Negative Pressure Isolation Ward']
+    },
+    {
+        value: 'rehabilitation',
+        label: 'Physical Medicine, Rehab & Palliative Ward',
+        shortLabel: 'Rehab / Palliative',
+        suggestedWardNames: ['Rehabilitation Ward', 'Palliative & Hospice Care Ward', 'Stroke Recovery Ward']
+    },
+    {
+        value: 'emergency_observation',
+        label: 'Emergency Observation / Short-Stay Unit',
+        shortLabel: 'Observation',
+        suggestedWardNames: ['Emergency Observation Ward', 'Clinical Decision / Short-Stay Unit', 'Acute Triage Ward']
+    }
+];
+
 interface WardNode {
     name: string;
-    classification: 'general' | 'pediatrics' | 'icu';
+    classification: WardClassificationType | string;
     rooms: RoomNode[];
 }
 
@@ -42,9 +136,13 @@ interface ScopedPatient {
     baseline_data: {
         gender?: string;
         diagnosis?: string;
+        ward?: string;
+        room?: string;
+        bed?: string;
     };
     created_at: string;
     facility_id: number | null;
+    facility_name?: string | null;
     device_serial_number: string | null;
 }
 
@@ -93,17 +191,25 @@ export default function FacilityTopologyBuilder() {
 
     // Topology Add Modals
     const [isAddWardOpen, setIsAddWardOpen] = useState(false);
-    const [wardForm, setWardForm] = useState({ name: '', classification: 'general' as any });
+    const [wardForm, setWardForm] = useState({ name: '', classification: 'general' as WardClassificationType | string });
+    const [showWardNameSuggestions, setShowWardNameSuggestions] = useState(false);
 
     const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
     const [roomForm, setRoomForm] = useState({ name: '', wardName: '' });
-    const [wardSuggestions, setWardSuggestions] = useState<string[]>([]);
-    const [showWardSuggestions, setShowWardSuggestions] = useState(false);
+    const [roomWardSuggestions, setRoomWardSuggestions] = useState<{ name: string; classification: string }[]>([]);
+    const [showRoomWardSuggestions, setShowRoomWardSuggestions] = useState(false);
+    const [roomNameSuggestions, setRoomNameSuggestions] = useState<{ name: string; isExisting: boolean }[]>([]);
+    const [showRoomNameSuggestions, setShowRoomNameSuggestions] = useState(false);
 
     const [isAddBedOpen, setIsAddBedOpen] = useState(false);
-    const [bedForm, setBedForm] = useState({ name: '', roomName: '', wardName: '', patientId: '' as string });
-    const [roomSuggestions, setRoomSuggestions] = useState<string[]>([]);
-    const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
+    const [bedForm, setBedForm] = useState({ name: '', roomName: '', wardName: '', patientId: '' as string, patientSearch: '' });
+    const [bedWardSuggestions, setBedWardSuggestions] = useState<{ name: string; classification: string }[]>([]);
+    const [showBedWardSuggestions, setShowBedWardSuggestions] = useState(false);
+    const [bedRoomSuggestions, setBedRoomSuggestions] = useState<{ name: string; wardName: string; bedCount: number }[]>([]);
+    const [showBedRoomSuggestions, setShowBedRoomSuggestions] = useState(false);
+    const [bedNameSuggestions, setBedNameSuggestions] = useState<{ name: string; isExisting: boolean }[]>([]);
+    const [showBedNameSuggestions, setShowBedNameSuggestions] = useState(false);
+    const [showBedPatientSuggestions, setShowBedPatientSuggestions] = useState(false);
 
     const SYSADMIN_API = `${import.meta.env.VITE_API_URL || ''}/api/sysadmin`;
     const PATIENT_API = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
@@ -112,14 +218,16 @@ export default function FacilityTopologyBuilder() {
     // Fetch Database data
     const fetchData = useCallback(async () => {
         try {
-            const [facRes, patRes, userRes] = await Promise.all([
+            const [facRes, patAssignedRes, patUnassignedRes, userRes] = await Promise.all([
                 fetch(`${SYSADMIN_API}/facilities`, { headers: getAuth() }),
                 fetch(`${PATIENT_API}/patients-added-and-assigned`, { headers: getAuth() }),
+                fetch(`${PATIENT_API}/unassigned-patients`, { headers: getAuth() }),
                 fetch(`${SYSADMIN_API}/users`, { headers: getAuth() })
             ]);
 
             const facData = await facRes.json();
-            const patData = await patRes.json();
+            const patAssignedData = await patAssignedRes.json();
+            const patUnassignedData = await patUnassignedRes.json();
             const userData = await userRes.json();
 
             if (facData.success) {
@@ -132,7 +240,19 @@ export default function FacilityTopologyBuilder() {
                     setSelectedFacility(facData.data[0]);
                 }
             }
-            if (patData.success) setPatients(patData.data);
+
+            const combinedPatientsMap = new Map<number, ScopedPatient>();
+            if (patAssignedData.success && Array.isArray(patAssignedData.data)) {
+                patAssignedData.data.forEach((p: ScopedPatient) => combinedPatientsMap.set(p.patient_id, p));
+            }
+            if (patUnassignedData.success && Array.isArray(patUnassignedData.data)) {
+                patUnassignedData.data.forEach((p: ScopedPatient) => {
+                    if (!combinedPatientsMap.has(p.patient_id)) {
+                        combinedPatientsMap.set(p.patient_id, p);
+                    }
+                });
+            }
+            setPatients(Array.from(combinedPatientsMap.values()));
 
             if (userData.success && Array.isArray(userData.data)) {
                 setUsers(userData.data);
@@ -171,28 +291,106 @@ export default function FacilityTopologyBuilder() {
 
     // Ward suggestions for Add Room
     useEffect(() => {
-        if (!selectedFacility || !selectedFacility.topology) return;
-        const query = roomForm.wardName.toLowerCase();
-        const matches = selectedFacility.topology
-            .filter(w => w.name.toLowerCase().includes(query))
-            .map(w => w.name);
-        setWardSuggestions(matches);
-    }, [roomForm.wardName, selectedFacility]);
-
-    // Room suggestions for Add Bed
-    useEffect(() => {
-        if (!selectedFacility || !selectedFacility.topology) return;
-        const ward = selectedFacility.topology.find(w => w.name.toLowerCase() === bedForm.wardName.toLowerCase());
-        if (!ward) {
-            setRoomSuggestions([]);
+        if (!selectedFacility || !selectedFacility.topology) {
+            setRoomWardSuggestions([]);
             return;
         }
-        const query = bedForm.roomName.toLowerCase();
-        const matches = ward.rooms
-            .filter(r => r.name.toLowerCase().includes(query))
-            .map(r => r.name);
-        setRoomSuggestions(matches);
+        const query = roomForm.wardName.trim().toLowerCase();
+        const matches = selectedFacility.topology
+            .filter(w => !query || w.name.toLowerCase().includes(query))
+            .map(w => ({ name: w.name, classification: w.classification }));
+        setRoomWardSuggestions(matches);
+    }, [roomForm.wardName, selectedFacility]);
+
+    // Room Name suggestions for Add Room (shows existing rooms in selected ward + suggested next room names)
+    useEffect(() => {
+        if (!selectedFacility) {
+            setRoomNameSuggestions([]);
+            return;
+        }
+        const topo = selectedFacility.topology || [];
+        const ward = topo.find(w => w.name.toLowerCase() === roomForm.wardName.trim().toLowerCase());
+        const existingRooms = ward ? ward.rooms.map(r => r.name) : topo.flatMap(w => w.rooms.map(r => r.name));
+        const nextNum = (ward ? ward.rooms.length : 0) + 1;
+        const candidatePresets = [
+            `Room ${100 + nextNum}`,
+            `Room ${nextNum}`,
+            `Room ${200 + nextNum}`,
+            `Suite ${nextNum}`
+        ].filter(c => !existingRooms.some(er => er.toLowerCase() === c.toLowerCase()));
+
+        const query = roomForm.name.trim().toLowerCase();
+        const items = [
+            ...candidatePresets.map(name => ({ name, isExisting: false })),
+            ...existingRooms.map(name => ({ name, isExisting: true }))
+        ].filter(item => !query || item.name.toLowerCase().includes(query));
+        setRoomNameSuggestions(items.slice(0, 8));
+    }, [roomForm.name, roomForm.wardName, selectedFacility]);
+
+    // Ward suggestions for Add Bed
+    useEffect(() => {
+        if (!selectedFacility || !selectedFacility.topology) {
+            setBedWardSuggestions([]);
+            return;
+        }
+        const query = bedForm.wardName.trim().toLowerCase();
+        const matches = selectedFacility.topology
+            .filter(w => !query || w.name.toLowerCase().includes(query))
+            .map(w => ({ name: w.name, classification: w.classification }));
+        setBedWardSuggestions(matches);
+    }, [bedForm.wardName, selectedFacility]);
+
+    // Room suggestions for Add Bed (filters by selected ward, or lists all rooms in facility if ward is blank)
+    useEffect(() => {
+        if (!selectedFacility || !selectedFacility.topology) {
+            setBedRoomSuggestions([]);
+            return;
+        }
+        const wardQuery = bedForm.wardName.trim().toLowerCase();
+        const roomQuery = bedForm.roomName.trim().toLowerCase();
+        const matchedWard = wardQuery
+            ? selectedFacility.topology.find(w => w.name.toLowerCase() === wardQuery)
+            : null;
+
+        const sourceWards = matchedWard
+            ? [matchedWard]
+            : selectedFacility.topology.filter(w => !wardQuery || w.name.toLowerCase().includes(wardQuery));
+
+        const roomsList = sourceWards.flatMap(w =>
+            (w.rooms || []).map(r => ({
+                name: r.name,
+                wardName: w.name,
+                bedCount: (r.beds || []).length
+            }))
+        ).filter(r => !roomQuery || r.name.toLowerCase().includes(roomQuery));
+
+        setBedRoomSuggestions(roomsList);
     }, [bedForm.roomName, bedForm.wardName, selectedFacility]);
+
+    // Bed Name suggestions for Add Bed
+    useEffect(() => {
+        if (!selectedFacility || !selectedFacility.topology) {
+            setBedNameSuggestions([]);
+            return;
+        }
+        const ward = selectedFacility.topology.find(w => w.name.toLowerCase() === bedForm.wardName.trim().toLowerCase());
+        const room = ward?.rooms.find(r => r.name.toLowerCase() === bedForm.roomName.trim().toLowerCase());
+        const existingBeds = room ? room.beds.map(b => b.name) : [];
+        const nextIdx = existingBeds.length + 1;
+        const nextLetter = String.fromCharCode(64 + Math.min(nextIdx, 26));
+        const candidatePresets = [
+            `Bed ${nextIdx}`,
+            `Bed ${nextLetter}`,
+            `${room ? room.name : 'Room'}-B${nextIdx}`
+        ].filter(c => !existingBeds.some(eb => eb.toLowerCase() === c.toLowerCase()));
+
+        const query = bedForm.name.trim().toLowerCase();
+        const items = [
+            ...candidatePresets.map(name => ({ name, isExisting: false })),
+            ...existingBeds.map(name => ({ name, isExisting: true }))
+        ].filter(item => !query || item.name.toLowerCase().includes(query));
+        setBedNameSuggestions(items.slice(0, 8));
+    }, [bedForm.name, bedForm.wardName, bedForm.roomName, selectedFacility]);
 
     // DB calls
     const handleRegisterFacilityAndAdmin = async () => {
@@ -288,7 +486,7 @@ export default function FacilityTopologyBuilder() {
     };
 
     const saveTopology = async (newTopology: WardNode[]) => {
-        if (!selectedFacility) return;
+        if (!selectedFacility) return false;
         try {
             const res = await fetch(`${SYSADMIN_API}/facilities/${selectedFacility.facility_id}/topology`, {
                 method: 'PUT',
@@ -297,22 +495,29 @@ export default function FacilityTopologyBuilder() {
             });
             const data = await res.json();
             if (data.success) {
-                fetchData();
+                if (data.data) {
+                    setSelectedFacility(data.data);
+                }
+                await fetchData();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+                return true;
             } else {
                 toast.error(data.message || "Failed to update topology");
+                return false;
             }
         } catch {
             toast.error("Network error saving topology configuration");
+            return false;
         }
     };
 
     // Add Ward
-    const handleAddWard = () => {
+    const handleAddWard = async () => {
         if (!selectedFacility) return;
         if (!wardForm.name.trim()) return toast.error("Ward Name is required");
 
         const currentTopology = selectedFacility.topology || [];
-        if (currentTopology.some(w => w.name.toLowerCase() === wardForm.name.toLowerCase())) {
+        if (currentTopology.some(w => w.name.toLowerCase() === wardForm.name.trim().toLowerCase())) {
             return toast.error("A ward with this name already exists");
         }
 
@@ -321,60 +526,91 @@ export default function FacilityTopologyBuilder() {
             { name: wardForm.name.trim(), classification: wardForm.classification, rooms: [] }
         ];
 
-        saveTopology(updated);
-        setIsAddWardOpen(false);
-        setWardForm({ name: '', classification: 'general' });
-        toast.success("Ward added successfully!");
+        const ok = await saveTopology(updated);
+        if (ok) {
+            setExpandedFacilities(prev => ({ ...prev, [selectedFacility.facility_id]: true }));
+            setIsAddWardOpen(false);
+            setWardForm({ name: '', classification: 'general' });
+            toast.success("Ward added successfully!");
+        }
     };
 
     // Add Room
-    const handleAddRoom = () => {
+    const handleAddRoom = async () => {
         if (!selectedFacility) return;
         if (!roomForm.name.trim()) return toast.error("Room Name is required");
         if (!roomForm.wardName.trim()) return toast.error("Ward target selection is required");
 
-        const currentTopology = [...(selectedFacility.topology || [])];
-        const targetWard = currentTopology.find(w => w.name.toLowerCase() === roomForm.wardName.toLowerCase());
-        if (!targetWard) return toast.error("Selected ward classification not found in facility topology");
+        const currentTopology = JSON.parse(JSON.stringify(selectedFacility.topology || [])) as WardNode[];
+        const targetWardIdx = currentTopology.findIndex(w => w.name.toLowerCase() === roomForm.wardName.trim().toLowerCase());
+        if (targetWardIdx === -1) return toast.error("Selected ward not found in facility topology");
+        const targetWard = currentTopology[targetWardIdx];
 
-        if (targetWard.rooms.some(r => r.name.toLowerCase() === roomForm.name.toLowerCase())) {
+        if (targetWard.rooms.some(r => r.name.toLowerCase() === roomForm.name.trim().toLowerCase())) {
             return toast.error("A room with this name already exists in this ward");
         }
 
         targetWard.rooms.push({ name: roomForm.name.trim(), beds: [] });
-        saveTopology(currentTopology);
-        setIsAddRoomOpen(false);
-        setRoomForm({ name: '', wardName: '' });
-        toast.success("Room provisioned successfully!");
+        const ok = await saveTopology(currentTopology);
+        if (ok) {
+            const wardId = `fac-${selectedFacility.facility_id}-w-${targetWardIdx}`;
+            setExpandedFacilities(prev => ({ ...prev, [selectedFacility.facility_id]: true }));
+            setExpandedWards(prev => ({ ...prev, [wardId]: true }));
+            setIsAddRoomOpen(false);
+            setRoomForm({ name: '', wardName: '' });
+            toast.success("Room provisioned successfully!");
+        }
     };
 
     // Add Bed
-    const handleAddBed = () => {
+    const handleAddBed = async () => {
         if (!selectedFacility) return;
         if (!bedForm.name.trim()) return toast.error("Bed Name is required");
         if (!bedForm.roomName.trim()) return toast.error("Room target selection is required");
         if (!bedForm.wardName.trim()) return toast.error("Ward target selection is required");
 
-        const currentTopology = [...(selectedFacility.topology || [])];
-        const targetWard = currentTopology.find(w => w.name.toLowerCase() === bedForm.wardName.toLowerCase());
-        if (!targetWard) return toast.error("Selected ward not found");
+        const currentTopology = JSON.parse(JSON.stringify(selectedFacility.topology || [])) as WardNode[];
+        const targetWardIdx = currentTopology.findIndex(w => w.name.toLowerCase() === bedForm.wardName.trim().toLowerCase());
+        if (targetWardIdx === -1) return toast.error("Selected ward not found in facility topology");
+        const targetWard = currentTopology[targetWardIdx];
 
-        const targetRoom = targetWard.rooms.find(r => r.name.toLowerCase() === bedForm.roomName.toLowerCase());
-        if (!targetRoom) return toast.error("Selected room not found");
+        const targetRoomIdx = targetWard.rooms.findIndex(r => r.name.toLowerCase() === bedForm.roomName.trim().toLowerCase());
+        if (targetRoomIdx === -1) return toast.error("Selected room not found under this ward");
+        const targetRoom = targetWard.rooms[targetRoomIdx];
 
-        if (targetRoom.beds.some(b => b.name.toLowerCase() === bedForm.name.toLowerCase())) {
+        if (targetRoom.beds.some(b => b.name.toLowerCase() === bedForm.name.trim().toLowerCase())) {
             return toast.error("A bed with this name already exists in this room");
+        }
+
+        const parsedPatientId = bedForm.patientId ? parseInt(bedForm.patientId, 10) : null;
+        if (parsedPatientId) {
+            for (const w of currentTopology) {
+                for (const r of (w.rooms || [])) {
+                    for (const b of (r.beds || [])) {
+                        if (b.patientId === parsedPatientId) {
+                            b.patientId = null;
+                        }
+                    }
+                }
+            }
         }
 
         targetRoom.beds.push({
             name: bedForm.name.trim(),
-            patientId: bedForm.patientId ? parseInt(bedForm.patientId) : null
+            patientId: parsedPatientId
         });
 
-        saveTopology(currentTopology);
-        setIsAddBedOpen(false);
-        setBedForm({ name: '', roomName: '', wardName: '', patientId: '' });
-        toast.success("Bed provisioned successfully!");
+        const ok = await saveTopology(currentTopology);
+        if (ok) {
+            const wardId = `fac-${selectedFacility.facility_id}-w-${targetWardIdx}`;
+            const roomId = `${wardId}-r-${targetRoomIdx}`;
+            setExpandedFacilities(prev => ({ ...prev, [selectedFacility.facility_id]: true }));
+            setExpandedWards(prev => ({ ...prev, [wardId]: true }));
+            setExpandedRooms(prev => ({ ...prev, [roomId]: true }));
+            setIsAddBedOpen(false);
+            setBedForm({ name: '', roomName: '', wardName: '', patientId: '', patientSearch: '' });
+            toast.success("Bed provisioned successfully!");
+        }
     };
 
     // Calculations for Details Card
@@ -390,9 +626,28 @@ export default function FacilityTopologyBuilder() {
     const facilityMedStaff = selectedFacility 
         ? users.filter(u => u.role === 'medical_staff' && u.facility_id === selectedFacility.facility_id).length 
         : 0;
-    const facilityPatients = selectedFacility 
-        ? patients.filter(p => p.facility_id === selectedFacility.facility_id).length 
+    const facilityPatientsList = selectedFacility
+        ? patients.filter(p => p.facility_id === selectedFacility.facility_id || (p.facility_name && p.facility_name.toLowerCase() === selectedFacility.facility_name.toLowerCase()))
+        : [];
+    const facilityPatients = facilityPatientsList.length;
+
+    const findBedOccupant = (fac: Facility, wardName: string, roomName: string, bed: BedNode): ScopedPatient | undefined => {
+        const facPats = patients.filter(p => p.facility_id === fac.facility_id || (p.facility_name && p.facility_name.toLowerCase() === fac.facility_name.toLowerCase()));
+        if (bed.patientId) {
+            const byId = facPats.find(p => Number(p.patient_id) === Number(bed.patientId));
+            if (byId) return byId;
+        }
+        return facPats.find(p =>
+            (p.baseline_data?.ward || '').trim().toLowerCase() === wardName.trim().toLowerCase() &&
+            (p.baseline_data?.room || '').trim().toLowerCase() === roomName.trim().toLowerCase() &&
+            (p.baseline_data?.bed || '').trim().toLowerCase() === bed.name.trim().toLowerCase()
+        );
+    };
+
+    const occupiedBedsCount = selectedFacility
+        ? topology.reduce((sum, w) => sum + w.rooms.reduce((rSum, r) => rSum + r.beds.filter(b => !!findBedOccupant(selectedFacility, w.name, r.name, b)).length, 0), 0)
         : 0;
+    const availableBedsCount = Math.max(0, totalBeds - occupiedBedsCount);
 
     // System-wide calculations (for the 5 status cards)
     const systemWards = facilities.reduce((sum, f) => sum + (f.topology || []).length, 0);
@@ -524,6 +779,7 @@ export default function FacilityTopologyBuilder() {
                                             {isFacExpanded && currentTopology.map((ward, wIdx) => {
                                                 const wardId = `fac-${fac.facility_id}-w-${wIdx}`;
                                                 const isWardExpanded = !!expandedWards[wardId];
+                                                const classMeta = WARD_CLASSIFICATIONS.find(c => c.value === ward.classification);
 
                                                 return (
                                                     <React.Fragment key={wardId}>
@@ -542,6 +798,9 @@ export default function FacilityTopologyBuilder() {
                                                             <td className="px-2 py-2.5 flex items-center gap-2 pl-4">
                                                                 <Layers className="w-3.5 h-3.5 text-slate-400" />
                                                                 <span className="font-semibold text-slate-700">{ward.name}</span>
+                                                                <Badge className="bg-slate-100 text-slate-600 border-none text-[9px] font-semibold px-1.5 py-0">
+                                                                    {classMeta ? classMeta.shortLabel : ward.classification}
+                                                                </Badge>
                                                             </td>
                                                         </tr>
 
@@ -571,7 +830,7 @@ export default function FacilityTopologyBuilder() {
 
                                                                     {/* Beds list */}
                                                                     {isRoomExpanded && room.beds.map((bed, bIdx) => {
-                                                                        const pairedPatient = bed.patientId ? patients.find(p => p.patient_id === bed.patientId) : null;
+                                                                        const pairedPatient = findBedOccupant(fac, ward.name, room.name, bed);
                                                                         return (
                                                                             <tr key={bIdx} className="bg-slate-100/30 border-l-2 border-l-teal-500 hover:bg-slate-100/50 transition-colors">
                                                                                 <td className="px-4 py-1.5 pl-20"></td>
@@ -729,7 +988,12 @@ export default function FacilityTopologyBuilder() {
                                     </div>
                                     <div className="space-y-1">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Beds</span>
-                                        <p className="font-semibold text-slate-700">{totalBeds} Bed slots configured</p>
+                                        <p className="font-semibold text-slate-700">
+                                            {totalBeds} Bed slots configured{" "}
+                                            <span className={`text-[10px] font-bold ${availableBedsCount > 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                ({availableBedsCount} available / {occupiedBedsCount} occupied)
+                                            </span>
+                                        </p>
                                     </div>
                                     <div className="space-y-1">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Address Location</span>
@@ -745,7 +1009,12 @@ export default function FacilityTopologyBuilder() {
                                     </div>
                                     <div className="space-y-1 col-span-2">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Patients Registered</span>
-                                        <p className="font-semibold text-slate-700">{facilityPatients} Patients registered</p>
+                                        <p className="font-semibold text-slate-700">
+                                            {facilityPatients} Patients registered
+                                            {totalBeds > 0 && facilityPatients >= totalBeds && (
+                                                <span className="ml-2 text-[10px] text-rose-600 font-bold">(Bed capacity reached)</span>
+                                            )}
+                                        </p>
                                     </div>
                                 </div>
                             </CardContent>
@@ -765,25 +1034,80 @@ export default function FacilityTopologyBuilder() {
                     <DialogHeader>
                         <DialogTitle>Add New Ward</DialogTitle>
                         <DialogDescription className="text-xs">
-                            Define a new ward boundary inside the facility.
+                            Define a new clinical ward classification and boundary inside {selectedFacility?.facility_name || 'the facility'}.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-1">
-                            <Label className="text-xs font-semibold text-slate-600">Ward Name</Label>
-                            <Input value={wardForm.name} onChange={(e) => setWardForm({ ...wardForm, name: e.target.value })} className="h-8 text-xs border-slate-200" placeholder="e.g. Pediatrics Ward" />
-                        </div>
-                        <div className="space-y-1">
                             <Label className="text-xs font-semibold text-slate-600">Ward Classification</Label>
                             <select
                                 value={wardForm.classification}
-                                onChange={(e) => setWardForm({ ...wardForm, classification: e.target.value as any })}
+                                onChange={(e) => {
+                                    const newClass = e.target.value as WardClassificationType;
+                                    const found = WARD_CLASSIFICATIONS.find(c => c.value === newClass);
+                                    setWardForm(prev => ({
+                                        ...prev,
+                                        classification: newClass,
+                                        name: prev.name.trim() ? prev.name : (found?.suggestedWardNames[0] || '')
+                                    }));
+                                }}
                                 className="w-full h-8 text-xs px-2.5 border border-slate-200 rounded-md bg-slate-50 text-slate-700 outline-none"
                             >
-                                <option value="general">General</option>
-                                <option value="pediatrics">Pediatrics</option>
-                                <option value="icu">ICU</option>
+                                {WARD_CLASSIFICATIONS.map(cls => (
+                                    <option key={cls.value} value={cls.value}>{cls.label}</option>
+                                ))}
                             </select>
+                        </div>
+                        <div className="space-y-1 relative">
+                            <Label className="text-xs font-semibold text-slate-600">Ward Name</Label>
+                            <Input
+                                value={wardForm.name}
+                                onChange={(e) => {
+                                    setWardForm({ ...wardForm, name: e.target.value });
+                                    setShowWardNameSuggestions(true);
+                                }}
+                                onFocus={() => setShowWardNameSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowWardNameSuggestions(false), 200)}
+                                className="h-8 text-xs border-slate-200"
+                                placeholder="e.g. Pediatrics Ward, NICU Ward, Geriatric Care Ward"
+                            />
+                            {showWardNameSuggestions && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                        Suggested Ward Names
+                                    </div>
+                                    {(WARD_CLASSIFICATIONS.find(c => c.value === wardForm.classification)?.suggestedWardNames || [])
+                                        .filter(n => !wardForm.name.trim() || n.toLowerCase().includes(wardForm.name.trim().toLowerCase()))
+                                        .map((sName, idx) => (
+                                            <button
+                                                key={idx}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    setWardForm(prev => ({ ...prev, name: sName }));
+                                                    setShowWardNameSuggestions(false);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                            >
+                                                <span>{sName}</span>
+                                                <span className="text-[10px] text-teal-600 font-semibold">Suggested</span>
+                                            </button>
+                                        ))}
+                                    {(selectedFacility?.topology || []).length > 0 && (
+                                        <>
+                                            <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-y border-slate-100">
+                                                Existing Wards in {selectedFacility?.facility_name}
+                                            </div>
+                                            {(selectedFacility?.topology || []).map((w, idx) => (
+                                                <div key={`ex-${idx}`} className="px-3 py-1.5 text-xs text-slate-400 flex items-center justify-between">
+                                                    <span>{w.name}</span>
+                                                    <span className="text-[10px] italic">Already registered</span>
+                                                </div>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                     <DialogFooter>
@@ -798,37 +1122,96 @@ export default function FacilityTopologyBuilder() {
                 <DialogContent className="bg-white border-slate-200">
                     <DialogHeader>
                         <DialogTitle>Add New Room</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Select a registered Ward and assign a Room name inside {selectedFacility?.facility_name || 'the facility'}.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
-                        <div className="space-y-1">
-                            <Label className="text-xs font-semibold text-slate-600">Room Name</Label>
-                            <Input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} className="h-8 text-xs border-slate-200" placeholder="e.g. Room 101" />
-                        </div>
                         <div className="space-y-1 relative">
                             <Label className="text-xs font-semibold text-slate-600">Ward Name</Label>
                             <Input
                                 value={roomForm.wardName}
                                 onChange={(e) => {
                                     setRoomForm({ ...roomForm, wardName: e.target.value });
-                                    setShowWardSuggestions(true);
+                                    setShowRoomWardSuggestions(true);
                                 }}
-                                onFocus={() => setShowWardSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowWardSuggestions(false), 200)}
+                                onFocus={() => setShowRoomWardSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowRoomWardSuggestions(false), 200)}
                                 className="h-8 text-xs border-slate-200"
-                                placeholder="Type matching Ward name..."
+                                placeholder="Click or type to choose a registered Ward..."
                             />
-                            {showWardSuggestions && wardSuggestions.length > 0 && (
-                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                                    {wardSuggestions.map((name, i) => (
+                            {showRoomWardSuggestions && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                        Registered Wards ({roomWardSuggestions.length})
+                                    </div>
+                                    {roomWardSuggestions.length > 0 ? (
+                                        roomWardSuggestions.map((item, i) => {
+                                            const clsMeta = WARD_CLASSIFICATIONS.find(c => c.value === item.classification);
+                                            return (
+                                                <button
+                                                    key={i}
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        setRoomForm(prev => ({ ...prev, wardName: item.name }));
+                                                        setShowRoomWardSuggestions(false);
+                                                    }}
+                                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                                >
+                                                    <span className="font-semibold">{item.name}</span>
+                                                    <span className="text-[10px] text-slate-500">{clsMeta ? clsMeta.shortLabel : item.classification}</span>
+                                                </button>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                            No matching wards registered. Add a Ward first.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="space-y-1 relative">
+                            <Label className="text-xs font-semibold text-slate-600">Room Name</Label>
+                            <Input
+                                value={roomForm.name}
+                                onChange={(e) => {
+                                    setRoomForm({ ...roomForm, name: e.target.value });
+                                    setShowRoomNameSuggestions(true);
+                                }}
+                                onFocus={() => setShowRoomNameSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowRoomNameSuggestions(false), 200)}
+                                className="h-8 text-xs border-slate-200"
+                                placeholder="e.g. Room 101"
+                            />
+                            {showRoomNameSuggestions && roomNameSuggestions.length > 0 && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                        Room Name Suggestions &amp; Existing Rooms
+                                    </div>
+                                    {roomNameSuggestions.map((item, i) => (
                                         <button
                                             key={i}
-                                            onClick={() => {
-                                                setRoomForm(prev => ({ ...prev, wardName: name }));
-                                                setShowWardSuggestions(false);
+                                            type="button"
+                                            disabled={item.isExisting}
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                if (!item.isExisting) {
+                                                    setRoomForm(prev => ({ ...prev, name: item.name }));
+                                                    setShowRoomNameSuggestions(false);
+                                                }
                                             }}
-                                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-600"
+                                            className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+                                                item.isExisting
+                                                    ? 'text-slate-400 bg-slate-50/50 cursor-not-allowed'
+                                                    : 'hover:bg-teal-50 text-slate-700'
+                                            }`}
                                         >
-                                            {name}
+                                            <span>{item.name}</span>
+                                            <span className={`text-[10px] ${item.isExisting ? 'text-slate-400 italic' : 'text-teal-600 font-semibold'}`}>
+                                                {item.isExisting ? 'Already exists' : 'Suggested'}
+                                            </span>
                                         </button>
                                     ))}
                                 </div>
@@ -847,39 +1230,53 @@ export default function FacilityTopologyBuilder() {
                 <DialogContent className="bg-white border-slate-200">
                     <DialogHeader>
                         <DialogTitle>Add New Bed</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Configure a bed slot under a registered Ward and Room, and optionally assign a registered patient.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
-                        <div className="space-y-1">
-                            <Label className="text-xs font-semibold text-slate-600">Bed Name</Label>
-                            <Input value={bedForm.name} onChange={(e) => setBedForm({ ...bedForm, name: e.target.value })} className="h-8 text-xs border-slate-200" placeholder="e.g. Bed A" />
-                        </div>
                         <div className="space-y-1 relative">
                             <Label className="text-xs font-semibold text-slate-600">Ward Name</Label>
                             <Input
                                 value={bedForm.wardName}
                                 onChange={(e) => {
                                     setBedForm(prev => ({ ...prev, wardName: e.target.value, roomName: '' }));
-                                    setShowWardSuggestions(true);
+                                    setShowBedWardSuggestions(true);
                                 }}
-                                onFocus={() => setShowWardSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowWardSuggestions(false), 200)}
+                                onFocus={() => setShowBedWardSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowBedWardSuggestions(false), 200)}
                                 className="h-8 text-xs border-slate-200"
-                                placeholder="Type matching Ward name..."
+                                placeholder="Click or type to choose a registered Ward..."
                             />
-                            {showWardSuggestions && wardSuggestions.length > 0 && (
-                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                                    {wardSuggestions.map((name, i) => (
-                                        <button
-                                            key={i}
-                                            onClick={() => {
-                                                setBedForm(prev => ({ ...prev, wardName: name }));
-                                                setShowWardSuggestions(false);
-                                            }}
-                                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-600"
-                                        >
-                                            {name}
-                                        </button>
-                                    ))}
+                            {showBedWardSuggestions && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                        Registered Wards ({bedWardSuggestions.length})
+                                    </div>
+                                    {bedWardSuggestions.length > 0 ? (
+                                        bedWardSuggestions.map((item, i) => {
+                                            const clsMeta = WARD_CLASSIFICATIONS.find(c => c.value === item.classification);
+                                            return (
+                                                <button
+                                                    key={i}
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        setBedForm(prev => ({ ...prev, wardName: item.name, roomName: '' }));
+                                                        setShowBedWardSuggestions(false);
+                                                    }}
+                                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                                >
+                                                    <span className="font-semibold">{item.name}</span>
+                                                    <span className="text-[10px] text-slate-500">{clsMeta ? clsMeta.shortLabel : item.classification}</span>
+                                                </button>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                            No matching wards registered.
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -889,47 +1286,147 @@ export default function FacilityTopologyBuilder() {
                                 value={bedForm.roomName}
                                 onChange={(e) => {
                                     setBedForm(prev => ({ ...prev, roomName: e.target.value }));
-                                    setShowRoomSuggestions(true);
+                                    setShowBedRoomSuggestions(true);
                                 }}
-                                onFocus={() => setShowRoomSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowRoomSuggestions(false), 200)}
+                                onFocus={() => setShowBedRoomSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowBedRoomSuggestions(false), 200)}
                                 className="h-8 text-xs border-slate-200"
-                                placeholder="Type matching Room name..."
-                                disabled={!bedForm.wardName}
+                                placeholder={bedForm.wardName ? `Select room in ${bedForm.wardName}...` : "Select or type Room name..."}
                             />
-                            {showRoomSuggestions && roomSuggestions.length > 0 && (
-                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                                    {roomSuggestions.map((name, i) => (
+                            {showBedRoomSuggestions && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                        Registered Rooms ({bedRoomSuggestions.length})
+                                    </div>
+                                    {bedRoomSuggestions.length > 0 ? (
+                                        bedRoomSuggestions.map((item, i) => (
+                                            <button
+                                                key={i}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    setBedForm(prev => ({
+                                                        ...prev,
+                                                        roomName: item.name,
+                                                        wardName: prev.wardName || item.wardName
+                                                    }));
+                                                    setShowBedRoomSuggestions(false);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                            >
+                                                <span className="font-semibold">{item.name}</span>
+                                                <span className="text-[10px] text-slate-500">{item.wardName} ({item.bedCount} beds)</span>
+                                            </button>
+                                        ))
+                                    ) : (
+                                        <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                            No rooms found for this ward. Add a Room first.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="space-y-1 relative">
+                            <Label className="text-xs font-semibold text-slate-600">Bed Name</Label>
+                            <Input
+                                value={bedForm.name}
+                                onChange={(e) => {
+                                    setBedForm({ ...bedForm, name: e.target.value });
+                                    setShowBedNameSuggestions(true);
+                                }}
+                                onFocus={() => setShowBedNameSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowBedNameSuggestions(false), 200)}
+                                className="h-8 text-xs border-slate-200"
+                                placeholder="e.g. Bed 1, Bed A"
+                            />
+                            {showBedNameSuggestions && bedNameSuggestions.length > 0 && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <div className="px-2.5 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                        Bed Name Suggestions &amp; Existing Beds
+                                    </div>
+                                    {bedNameSuggestions.map((item, i) => (
                                         <button
                                             key={i}
-                                            onClick={() => {
-                                                setBedForm(prev => ({ ...prev, roomName: name }));
-                                                setShowRoomSuggestions(false);
+                                            type="button"
+                                            disabled={item.isExisting}
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                if (!item.isExisting) {
+                                                    setBedForm(prev => ({ ...prev, name: item.name }));
+                                                    setShowBedNameSuggestions(false);
+                                                }
                                             }}
-                                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-600"
+                                            className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+                                                item.isExisting
+                                                    ? 'text-slate-400 bg-slate-50/50 cursor-not-allowed'
+                                                    : 'hover:bg-teal-50 text-slate-700'
+                                            }`}
                                         >
-                                            {name}
+                                            <span>{item.name}</span>
+                                            <span className={`text-[10px] ${item.isExisting ? 'text-slate-400 italic' : 'text-teal-600 font-semibold'}`}>
+                                                {item.isExisting ? 'Already exists' : 'Suggested'}
+                                            </span>
                                         </button>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs font-semibold text-slate-600">Assign Patient (Optional)</Label>
-                            <select
-                                value={bedForm.patientId}
-                                onChange={(e) => setBedForm({ ...bedForm, patientId: e.target.value })}
-                                className="w-full h-8 text-xs px-2.5 border border-slate-200 rounded-md bg-slate-50 text-slate-700 outline-none"
-                            >
-                                <option value="">-- Unassigned --</option>
-                                {patients
-                                    .filter(p => p.facility_id === selectedFacility?.facility_id)
-                                    .map(p => (
-                                        <option key={p.patient_id} value={p.patient_id}>
-                                            {p.name} (#{p.patient_id})
-                                        </option>
-                                    ))}
-                            </select>
+                        <div className="space-y-1 relative">
+                            <Label className="text-xs font-semibold text-slate-600">Patient Name (Optional)</Label>
+                            <Input
+                                value={bedForm.patientSearch}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setBedForm(prev => ({
+                                        ...prev,
+                                        patientSearch: val,
+                                        patientId: val.trim() === '' ? '' : prev.patientId
+                                    }));
+                                    setShowBedPatientSuggestions(true);
+                                }}
+                                onFocus={() => setShowBedPatientSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowBedPatientSuggestions(false), 200)}
+                                className="h-8 text-xs border-slate-200"
+                                placeholder="Search or select patient name (Optional)..."
+                            />
+                            {showBedPatientSuggestions && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
+                                    <button
+                                        type="button"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            setBedForm(prev => ({ ...prev, patientId: '', patientSearch: '' }));
+                                            setShowBedPatientSuggestions(false);
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-500 italic border-b border-slate-100"
+                                    >
+                                        -- Leave Bed Unassigned (Empty Bed) --
+                                    </button>
+                                    {facilityPatientsList
+                                        .filter(p => !bedForm.patientSearch.trim() || p.name.toLowerCase().includes(bedForm.patientSearch.trim().toLowerCase()) || String(p.patient_id).includes(bedForm.patientSearch.trim()))
+                                        .map((p) => (
+                                            <button
+                                                key={p.patient_id}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    setBedForm(prev => ({
+                                                        ...prev,
+                                                        patientId: String(p.patient_id),
+                                                        patientSearch: `${p.name} (#${p.patient_id})`
+                                                    }));
+                                                    setShowBedPatientSuggestions(false);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                            >
+                                                <span className="font-semibold">{p.name} <span className="font-mono text-slate-400">#{p.patient_id}</span></span>
+                                                <span className="text-[10px] text-slate-400">
+                                                    {p.baseline_data?.room ? `${p.baseline_data.ward ? `${p.baseline_data.ward} / ` : ''}${p.baseline_data.room}` : 'No room yet'}
+                                                </span>
+                                            </button>
+                                        ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                     <DialogFooter>

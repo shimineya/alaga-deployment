@@ -886,8 +886,107 @@ router.get('/all', async (req, res) => {
 });
 
 // ==========================================
-// 2. ADD NEW PATIENT
-// [OWASP A01] Only admin / parent / medical_staff can enroll new patients.
+// 1.9. GET FACILITY TOPOLOGY & BED CAPACITY (For Facility Admin, Medical Staff, SysAdmin)
+// ==========================================
+router.get('/facility-topology', async (req, res) => {
+    let facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
+    if (isSysAdmin && req.query.facility_id) {
+        facilityId = parseInt(req.query.facility_id, 10);
+    }
+    try {
+        if (isSysAdmin && !facilityId && req.query.facility_name) {
+            const byName = await pool.query(
+                'SELECT facility_id FROM facilities WHERE LOWER(facility_name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE',
+                [String(req.query.facility_name).trim()]
+            );
+            if (byName.rows.length > 0) facilityId = byName.rows[0].facility_id;
+        }
+
+        const facilitiesRes = await pool.query(
+            `SELECT facility_id, facility_name, address, topology, created_at
+             FROM facilities
+             WHERE is_archived IS DISTINCT FROM TRUE
+             ${facilityId ? 'AND facility_id = $1' : ''}
+             ORDER BY facility_name ASC`,
+            facilityId ? [facilityId] : []
+        );
+
+        const activePatientsRes = await pool.query(
+            `SELECT patient_id, name, facility_id, baseline_data
+             FROM patients
+             WHERE is_archived IS DISTINCT FROM TRUE`
+        );
+        const allActivePatients = activePatientsRes.rows;
+
+        const enrichedFacilities = facilitiesRes.rows.map(fac => {
+            const topology = Array.isArray(fac.topology) ? fac.topology : [];
+            const facPatients = allActivePatients.filter(p => p.facility_id === fac.facility_id);
+            const activePatientMap = new Map(facPatients.map(p => [Number(p.patient_id), p]));
+
+            let totalRooms = 0;
+            let totalBeds = 0;
+            let occupiedBeds = 0;
+
+            const wards = topology.map(w => {
+                const rooms = (Array.isArray(w.rooms) ? w.rooms : []).map(r => {
+                    totalRooms += 1;
+                    const beds = (Array.isArray(r.beds) ? r.beds : []).map(b => {
+                        totalBeds += 1;
+                        let occupant = b.patientId ? activePatientMap.get(Number(b.patientId)) : null;
+                        if (!occupant) {
+                            occupant = facPatients.find(p =>
+                                String(p.baseline_data?.ward || '').toLowerCase() === String(w.name || '').toLowerCase() &&
+                                String(p.baseline_data?.room || '').toLowerCase() === String(r.name || '').toLowerCase() &&
+                                String(p.baseline_data?.bed || '').toLowerCase() === String(b.name || '').toLowerCase()
+                            ) || null;
+                        }
+                        if (occupant) occupiedBeds += 1;
+                        return {
+                            name: b.name,
+                            patientId: occupant ? Number(occupant.patient_id) : null,
+                            patientName: occupant ? occupant.name : null,
+                            isOccupied: !!occupant
+                        };
+                    });
+                    return { name: r.name, beds };
+                });
+                return {
+                    name: w.name,
+                    classification: w.classification || 'general',
+                    rooms
+                };
+            });
+
+            const effectiveOccupied = Math.max(occupiedBeds, facPatients.length);
+            const availableBeds = Math.max(0, totalBeds - effectiveOccupied);
+
+            return {
+                facility_id: fac.facility_id,
+                facility_name: fac.facility_name,
+                address: fac.address,
+                topology: wards,
+                total_wards: wards.length,
+                total_rooms: totalRooms,
+                total_beds: totalBeds,
+                occupied_beds: occupiedBeds,
+                registered_patients: facPatients.length,
+                available_beds: availableBeds,
+                is_full: totalBeds === 0 || availableBeds <= 0
+            };
+        });
+
+        res.json({
+            success: true,
+            data: enrichedFacilities[0] || null,
+            facilities: enrichedFacilities
+        });
+    } catch (err) {
+        console.error('Fetch Facility Topology Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch facility topology.' });
+    }
+});
+
 // ==========================================
 // 2. ADD NEW PATIENT
 // [OWASP A01] Only admin / facility_admin / parent / guardian / medical_staff can enroll new patients.
@@ -983,10 +1082,144 @@ router.post('/patients', async (req, res) => {
             moisture_threshold: moistVal
         };
 
-        // 1. Insert Patient
+        // 1. Insert Patient (with strict Facility Topology & Bed Capacity validation if facility setting)
         const isParentOrGuardian = ['parent', 'guardian'].includes(req.user.role?.toLowerCase());
-        const patientFacilityId = isParentOrGuardian ? null : (req.user.facility_id || null);
+        const isSysAdminUser = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
+        let patientFacilityId = isParentOrGuardian ? null : (req.user.facility_id || null);
         const patientType = patient_type || (patientFacilityId ? 'facility' : 'at_home');
+
+        if (isSysAdminUser && patientType === 'facility' && facility_name && facility_name.trim()) {
+            const facLookup = await client.query(
+                'SELECT facility_id FROM facilities WHERE LOWER(facility_name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE',
+                [facility_name.trim()]
+            );
+            if (facLookup.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Facility "${facility_name.trim()}" is not registered in the system.`
+                });
+            }
+            patientFacilityId = facLookup.rows[0].facility_id;
+        } else if (patientType === 'at_home') {
+            patientFacilityId = null;
+        }
+
+        let updatedTopologyToSave = null;
+        if (patientFacilityId) {
+            if (!resolvedWard || !resolvedRoom || !resolvedBed) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Ward Name, Room Name, and Bed Name are all required when registering a patient in a facility.'
+                });
+            }
+
+            const facRes = await client.query(
+                'SELECT facility_id, facility_name, topology FROM facilities WHERE facility_id = $1 AND is_archived IS DISTINCT FROM TRUE FOR UPDATE',
+                [patientFacilityId]
+            );
+            if (facRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({
+                    success: false,
+                    message: 'Assigned facility not found or has been decommissioned.'
+                });
+            }
+
+            const fac = facRes.rows[0];
+            const topology = Array.isArray(fac.topology) ? JSON.parse(JSON.stringify(fac.topology)) : [];
+
+            const activePatientsRes = await client.query(
+                'SELECT patient_id, name, baseline_data FROM patients WHERE facility_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+                [patientFacilityId]
+            );
+            const activePatients = activePatientsRes.rows;
+            const activePatientIds = new Set(activePatients.map(p => Number(p.patient_id)));
+
+            let totalBeds = 0;
+            let occupiedBeds = 0;
+            topology.forEach(w => {
+                (w.rooms || []).forEach(r => {
+                    (r.beds || []).forEach(b => {
+                        totalBeds += 1;
+                        const isOccupiedById = b.patientId && activePatientIds.has(Number(b.patientId));
+                        const isOccupiedByLoc = activePatients.some(p =>
+                            String(p.baseline_data?.ward || '').toLowerCase() === String(w.name || '').toLowerCase() &&
+                            String(p.baseline_data?.room || '').toLowerCase() === String(r.name || '').toLowerCase() &&
+                            String(p.baseline_data?.bed || '').toLowerCase() === String(b.name || '').toLowerCase()
+                        );
+                        if (isOccupiedById || isOccupiedByLoc) occupiedBeds += 1;
+                    });
+                });
+            });
+
+            if (totalBeds === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot register patient anymore: No wards, rooms, or beds have been configured for ${fac.facility_name} by the System Administrator.`
+                });
+            }
+
+            if (activePatients.length >= totalBeds || occupiedBeds >= totalBeds) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot register patient anymore: Facility bed capacity limit reached (${totalBeds}/${totalBeds} beds occupied in ${fac.facility_name}).`
+                });
+            }
+
+            const targetWard = topology.find(w => String(w.name || '').toLowerCase() === resolvedWard.toLowerCase());
+            if (!targetWard) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Ward "${resolvedWard}" is not registered in ${fac.facility_name}. Patients can only be placed in wards registered by the System Administrator.`
+                });
+            }
+
+            const targetRoom = (targetWard.rooms || []).find(r => String(r.name || '').toLowerCase() === resolvedRoom.toLowerCase());
+            if (!targetRoom) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Room "${resolvedRoom}" is not registered under Ward "${targetWard.name}" in ${fac.facility_name}.`
+                });
+            }
+
+            const targetBed = (targetRoom.beds || []).find(b => String(b.name || '').toLowerCase() === resolvedBed.toLowerCase());
+            if (!targetBed) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Bed "${resolvedBed}" is not registered under Room "${targetRoom.name}" (${targetWard.name}) in ${fac.facility_name}.`
+                });
+            }
+
+            const bedOccupantById = targetBed.patientId && activePatientIds.has(Number(targetBed.patientId))
+                ? activePatients.find(p => Number(p.patient_id) === Number(targetBed.patientId))
+                : null;
+            const bedOccupantByLoc = activePatients.find(p =>
+                String(p.baseline_data?.ward || '').toLowerCase() === String(targetWard.name || '').toLowerCase() &&
+                String(p.baseline_data?.room || '').toLowerCase() === String(targetRoom.name || '').toLowerCase() &&
+                String(p.baseline_data?.bed || '').toLowerCase() === String(targetBed.name || '').toLowerCase()
+            );
+            const existingOccupant = bedOccupantById || bedOccupantByLoc;
+            if (existingOccupant) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Bed "${targetBed.name}" in ${targetWard.name} - ${targetRoom.name} is already occupied by another patient. Please select an available bed.`
+                });
+            }
+
+            baselineData.ward = targetWard.name;
+            baselineData.room = targetRoom.name;
+            baselineData.bed = targetBed.name;
+            updatedTopologyToSave = { topology, targetBed };
+        }
+
         const patientRes = await client.query(
             `INSERT INTO patients (name, birthdate, baseline_data, facility_id, patient_type, created_at)
              VALUES ($1, $2, $3, $4, $5, NOW())
@@ -995,6 +1228,14 @@ router.post('/patients', async (req, res) => {
         );
 
         const newPatientId = patientRes.rows[0].patient_id;
+
+        if (patientFacilityId && updatedTopologyToSave) {
+            updatedTopologyToSave.targetBed.patientId = Number(newPatientId);
+            await client.query(
+                'UPDATE facilities SET topology = $1 WHERE facility_id = $2',
+                [JSON.stringify(updatedTopologyToSave.topology), patientFacilityId]
+            );
+        }
 
         // Seed clinical baseline in patient_baselines for AI engine
         try {
@@ -1209,7 +1450,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             if (device.assigned_patient_id && device.assigned_patient_id != patientId) {
                 return res.status(409).json({
                     success: false,
-                    message: `Device ${cleanSN} is already assigned to another patient (#${device.assigned_patient_id}).`
+                    message: `Device ${cleanSN} is already assigned to another patient.`
                 });
             }
 
@@ -1380,11 +1621,96 @@ router.put('/patients/:id', async (req, res) => {
         }
 
         const currentPatient = await client.query(
-            'SELECT name, baseline_data FROM patients WHERE patient_id = $1',
+            'SELECT name, facility_id, baseline_data FROM patients WHERE patient_id = $1',
             [patientId]
         );
         if (currentPatient.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const patFacilityId = currentPatient.rows[0].facility_id;
+        let resolvedWard = ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward;
+        let resolvedRoom = room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room;
+        let resolvedBed = bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed;
+
+        if (patFacilityId && (ward !== undefined || room !== undefined || bed !== undefined)) {
+            if (!resolvedWard || !resolvedRoom || !resolvedBed) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Ward Name, Room Name, and Bed Name are all required for facility patients.'
+                });
+            }
+            const facRes = await client.query(
+                'SELECT facility_name, topology FROM facilities WHERE facility_id = $1',
+                [patFacilityId]
+            );
+            if (facRes.rows.length > 0) {
+                const fac = facRes.rows[0];
+                const topology = Array.isArray(fac.topology) ? JSON.parse(JSON.stringify(fac.topology)) : [];
+                const targetWard = topology.find(w => String(w.name || '').toLowerCase() === String(resolvedWard).toLowerCase());
+                if (!targetWard) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Ward "${resolvedWard}" is not registered in ${fac.facility_name}.`
+                    });
+                }
+                const targetRoom = (targetWard.rooms || []).find(r => String(r.name || '').toLowerCase() === String(resolvedRoom).toLowerCase());
+                if (!targetRoom) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Room "${resolvedRoom}" is not registered under Ward "${targetWard.name}" in ${fac.facility_name}.`
+                    });
+                }
+                const targetBed = (targetRoom.beds || []).find(b => String(b.name || '').toLowerCase() === String(resolvedBed).toLowerCase());
+                if (!targetBed) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bed "${resolvedBed}" is not registered under Room "${targetRoom.name}" in ${fac.facility_name}.`
+                    });
+                }
+
+                const activePatientsRes = await client.query(
+                    'SELECT patient_id, name, baseline_data FROM patients WHERE facility_id = $1 AND patient_id != $2 AND is_archived IS DISTINCT FROM TRUE',
+                    [patFacilityId, patientId]
+                );
+                const otherPatients = activePatientsRes.rows;
+                const otherIds = new Set(otherPatients.map(p => Number(p.patient_id)));
+
+                const occupantById = targetBed.patientId && Number(targetBed.patientId) !== Number(patientId) && otherIds.has(Number(targetBed.patientId))
+                    ? otherPatients.find(p => Number(p.patient_id) === Number(targetBed.patientId))
+                    : null;
+                const occupantByLoc = otherPatients.find(p =>
+                    String(p.baseline_data?.ward || '').toLowerCase() === String(targetWard.name || '').toLowerCase() &&
+                    String(p.baseline_data?.room || '').toLowerCase() === String(targetRoom.name || '').toLowerCase() &&
+                    String(p.baseline_data?.bed || '').toLowerCase() === String(targetBed.name || '').toLowerCase()
+                );
+                const existingOccupant = occupantById || occupantByLoc;
+                if (existingOccupant) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bed "${targetBed.name}" in ${targetWard.name} - ${targetRoom.name} is already occupied by another patient.`
+                    });
+                }
+
+                topology.forEach(w => {
+                    (w.rooms || []).forEach(r => {
+                        (r.beds || []).forEach(b => {
+                            if (Number(b.patientId) === Number(patientId)) {
+                                b.patientId = null;
+                            }
+                        });
+                    });
+                });
+                targetBed.patientId = Number(patientId);
+                resolvedWard = targetWard.name;
+                resolvedRoom = targetRoom.name;
+                resolvedBed = targetBed.name;
+
+                await client.query(
+                    'UPDATE facilities SET topology = $1 WHERE facility_id = $2',
+                    [JSON.stringify(topology), patFacilityId]
+                );
+            }
         }
 
         const hrVal = heart_rate ?? heartRate ?? baseline_heart_rate;
@@ -1394,11 +1720,12 @@ router.put('/patients/:id', async (req, res) => {
 
         const newBaseline = {
             ...currentPatient.rows[0].baseline_data,
-            condition: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
-            diagnosis: medicalCondition !== undefined ? medicalCondition : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
-            ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
-            room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
-            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed,
+            condition: (medicalCondition ?? req.body.diagnosis) !== undefined ? (medicalCondition ?? req.body.diagnosis) : (currentPatient.rows[0].baseline_data?.condition || currentPatient.rows[0].baseline_data?.diagnosis),
+            diagnosis: (medicalCondition ?? req.body.diagnosis) !== undefined ? (medicalCondition ?? req.body.diagnosis) : (currentPatient.rows[0].baseline_data?.diagnosis || currentPatient.rows[0].baseline_data?.condition),
+            ...(req.body.gender !== undefined && { gender: req.body.gender }),
+            ward: resolvedWard,
+            room: resolvedRoom,
+            bed: resolvedBed,
             ...(hrVal !== undefined && { heart_rate: Number(hrVal) }),
             ...(tempVal !== undefined && { temperature: Number(tempVal) }),
             ...(spo2Val !== undefined && { spo2: Number(spo2Val) }),
@@ -1474,7 +1801,7 @@ router.put('/patients/:id', async (req, res) => {
 // [GDPR] Soft-delete preserves audit trail; hard delete requires a separate "Right to Erasure" workflow.
 // [OWASP A01] Only users with Edit/Admin access or privileged roles may archive.
 // ==========================================
-router.patch('/patients/:id/archive', async (req, res) => {
+const handleArchiveCaregiverPatient = async (req, res) => {
     const client = await pool.connect();
     try {
         // All user roles are permitted to archive data
@@ -1496,6 +1823,35 @@ router.patch('/patients/:id/archive', async (req, res) => {
             `UPDATE patients SET is_archived = TRUE, updated_at = NOW() WHERE patient_id = $1`,
             [patientId]
         );
+        await client.query(
+            `UPDATE patient_access SET is_archived = TRUE, invite_status = 'Archived' WHERE patient_id = $1`,
+            [patientId]
+        );
+        await client.query(
+            `UPDATE device_whitelist SET assigned_patient_id = NULL, status = 'AVAILABLE' WHERE assigned_patient_id = $1`,
+            [patientId]
+        );
+
+        if (facilityId) {
+            const facRes = await client.query('SELECT topology FROM facilities WHERE facility_id = $1', [facilityId]);
+            if (facRes.rows.length > 0 && Array.isArray(facRes.rows[0].topology)) {
+                const topology = JSON.parse(JSON.stringify(facRes.rows[0].topology));
+                let changed = false;
+                topology.forEach(w => {
+                    (w.rooms || []).forEach(r => {
+                        (r.beds || []).forEach(b => {
+                            if (Number(b.patientId) === Number(patientId)) {
+                                b.patientId = null;
+                                changed = true;
+                            }
+                        });
+                    });
+                });
+                if (changed) {
+                    await client.query('UPDATE facilities SET topology = $1 WHERE facility_id = $2', [JSON.stringify(topology), facilityId]);
+                }
+            }
+        }
 
         // Record entry in the archives table
         await client.query(
@@ -1513,7 +1869,10 @@ router.patch('/patients/:id/archive', async (req, res) => {
     } finally {
         client.release();
     }
-});
+};
+
+router.patch('/patients/:id/archive', handleArchiveCaregiverPatient);
+router.delete('/patients/:id', handleArchiveCaregiverPatient);
 
 // ==========================================
 // 2.3. TOGGLE PATIENT MONITORING
@@ -3334,19 +3693,13 @@ router.delete('/devices/:serialNumber', async (req, res) => {
 
         const device     = check.rows[0];
         const patientId  = device.assigned_patient_id;
+        const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role?.toLowerCase());
 
         // Resolve facility ID for the archive table
         const facilityCheck = await client.query('SELECT facility_id FROM users WHERE user_id = $1', [device.added_by || actorId]);
         const devFacilityId = facilityCheck.rows[0]?.facility_id || null;
 
         await client.query('BEGIN');
-
-        // [HIPAA] Audit trail before archiving.
-        await client.query(
-            `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
-             VALUES ($1, 'ARCHIVE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
-            [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
-        );
 
         // If the device was assigned to a patient, clear the patient's device reference first.
         if (patientId) {
@@ -3356,21 +3709,65 @@ router.delete('/devices/:serialNumber', async (req, res) => {
             );
         }
 
-        // Soft-delete the device from the whitelist.
-        await client.query(
-            "UPDATE device_whitelist SET is_archived = TRUE, status = 'ARCHIVED', assigned_patient_id = NULL WHERE serial_number = $1",
-            [serialNumber]
-        );
+        if (isSysAdmin) {
+            // [HIPAA] Audit trail before archiving from master whitelist.
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+                 VALUES ($1, 'ARCHIVE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+                [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
+            );
 
-        // Record entry in the archives table
-        await client.query(
-            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id, details)
-             VALUES ('Device', $1, $2, $3, NOW(), 'Archived', $4, $5::jsonb)`,
-            [serialNumber, device.device_name || serialNumber, actorId, devFacilityId, JSON.stringify({ assigned_patient_id: patientId })]
-        );
+            // Soft-delete the device from the whitelist.
+            await client.query(
+                "UPDATE device_whitelist SET is_archived = TRUE, status = 'ARCHIVED', assigned_patient_id = NULL WHERE serial_number = $1",
+                [serialNumber]
+            );
 
-        await client.query('COMMIT');
-        res.json({ success: true, message: `Device ${serialNumber} has been archived successfully.` });
+            // Record entry in the archives table
+            await client.query(
+                `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id, details)
+                 VALUES ('Device', $1, $2, $3, NOW(), 'Archived', $4, $5::jsonb)`,
+                [serialNumber, device.device_name || serialNumber, actorId, devFacilityId, JSON.stringify({ assigned_patient_id: patientId })]
+            );
+
+            await client.query('COMMIT');
+            refreshAllClientsAccess();
+            broadcastAlert('device_status_update', {
+                serial_number: serialNumber,
+                serialNumber: serialNumber,
+                status: 'ARCHIVED',
+                action: 'removed'
+            });
+            return res.json({ success: true, message: `Device ${serialNumber} has been archived successfully.` });
+        } else {
+            // Non-System Admin: Unregister the device from the user's / patients' devices ONLY.
+            // Keep the device in the master whitelist registry (is_archived = FALSE, status = 'AVAILABLE').
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+                 VALUES ($1, 'UNREGISTER_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+                [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
+            );
+
+            await client.query(
+                `UPDATE device_whitelist
+                 SET is_archived = FALSE,
+                     status = 'AVAILABLE',
+                     assigned_patient_id = NULL,
+                     added_by = (SELECT user_id FROM users WHERE LOWER(role) IN ('system_admin', 'admin', 'sysadmin') ORDER BY user_id ASC LIMIT 1)
+                 WHERE serial_number = $1`,
+                [serialNumber]
+            );
+
+            await client.query('COMMIT');
+            refreshAllClientsAccess();
+            broadcastAlert('device_status_update', {
+                serial_number: serialNumber,
+                serialNumber: serialNumber,
+                status: 'AVAILABLE',
+                action: 'removed'
+            });
+            return res.json({ success: true, message: `Device ${serialNumber} has been unregistered from your Patients' Devices.` });
+        }
 
     } catch (err) {
         await client.query('ROLLBACK');
@@ -3466,25 +3863,105 @@ router.delete('/users/:userId', async (req, res) => {
 
 // ==========================================
 // ROUTE: POST /baseline/reset
-// Description: Reset baseline for all patients assigned to this caregiver
+// Description: Reset SVM learning baseline for a specific patient/device or all assigned patients
 // ==========================================
 router.post('/baseline/reset', async (req, res) => {
     const userId = req.user.id;
+    const role = (req.user.role || '').toLowerCase();
+    const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role);
+    const { patient_id, patientId: bodyPatientId, device_sn, deviceSn, reason } = req.body || {};
+    const targetInputId = patient_id || bodyPatientId;
+    const targetInputSn = (device_sn || deviceSn || '').trim().toUpperCase();
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
 
-        // Get all patient IDs assigned to this caregiver
-        const accessResult = await client.query(
-            "SELECT patient_id FROM patient_access WHERE user_id = $1 AND (invite_status = 'Active' OR invite_status IS NULL)",
-            [userId]
-        );
+        let patientIds = [];
 
-        const patientIds = accessResult.rows.map(row => row.patient_id);
+        if (targetInputId || targetInputSn) {
+            let resolvedPatientId = parseInt(targetInputId, 10);
+            if ((isNaN(resolvedPatientId) || resolvedPatientId <= 0) && targetInputSn) {
+                const devLookup = await client.query(
+                    'SELECT serial_number, assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE',
+                    [targetInputSn]
+                );
+                if (devLookup.rows.length === 0) {
+                    await client.query('ROLLBACK');
+                    return res.status(404).json({
+                        success: false,
+                        message: `Device "${targetInputSn}" does not exist in the system.`
+                    });
+                }
+                if (!devLookup.rows[0].assigned_patient_id) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Device "${targetInputSn}" is currently not assigned to any patient.`
+                    });
+                }
+                resolvedPatientId = Number(devLookup.rows[0].assigned_patient_id);
+            } else if (targetInputSn) {
+                const devLookup = await client.query(
+                    'SELECT serial_number, assigned_patient_id FROM device_whitelist WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE',
+                    [targetInputSn]
+                );
+                if (devLookup.rows.length === 0) {
+                    await client.query('ROLLBACK');
+                    return res.status(404).json({
+                        success: false,
+                        message: `Device "${targetInputSn}" does not exist in the system.`
+                    });
+                }
+                if (devLookup.rows[0].assigned_patient_id && Number(devLookup.rows[0].assigned_patient_id) !== resolvedPatientId) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Device "${targetInputSn}" is assigned to another patient, not Patient #${resolvedPatientId}.`
+                    });
+                }
+            }
+
+            if (isNaN(resolvedPatientId) || resolvedPatientId <= 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Please provide a valid Patient ID or Device Serial Number.' });
+            }
+
+            // Check patient exists and is accessible
+            const patCheck = await client.query(
+                'SELECT patient_id, name, facility_id FROM patients WHERE patient_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+                [resolvedPatientId]
+            );
+            if (patCheck.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: `Patient #${resolvedPatientId} not found in the system.` });
+            }
+            if (!isSysAdmin && role === 'facility_admin' && req.user.facility_id && patCheck.rows[0].facility_id && Number(patCheck.rows[0].facility_id) !== Number(req.user.facility_id)) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ success: false, message: 'Patient does not belong to your facility.' });
+            }
+            patientIds = [resolvedPatientId];
+        } else {
+            // Get all patient IDs accessible to this user
+            if (isSysAdmin) {
+                const allRes = await client.query('SELECT patient_id FROM patients WHERE is_archived IS DISTINCT FROM TRUE');
+                patientIds = allRes.rows.map(r => r.patient_id);
+            } else if (role === 'facility_admin' && req.user.facility_id) {
+                const facRes = await client.query(
+                    'SELECT patient_id FROM patients WHERE facility_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+                    [req.user.facility_id]
+                );
+                patientIds = facRes.rows.map(r => r.patient_id);
+            } else {
+                const accessResult = await client.query(
+                    "SELECT patient_id FROM patient_access WHERE user_id = $1 AND (invite_status = 'Active' OR invite_status = 'Accepted' OR invite_status IS NULL)",
+                    [userId]
+                );
+                patientIds = accessResult.rows.map(row => row.patient_id);
+            }
+        }
 
         if (patientIds.length > 0) {
-            // Delete learned vitals baselines if table exists
             try {
                 await client.query(
                     'DELETE FROM patient_baselines WHERE patient_id = ANY($1)',
@@ -3494,26 +3971,34 @@ router.post('/baseline/reset', async (req, res) => {
                 // Table might not exist in all environments
             }
 
-            // Reset SVM baseline on patients table (both column and JSONB for resilience)
+            const resetReasonText = reason && reason.trim() ? reason.trim() : 'Settings Baseline Calibration Reset';
             await client.query(
                 `UPDATE patients 
                  SET svm_baseline_data = NULL, 
                      baseline_reset_at = NOW(),
-                     baseline_data = jsonb_set(COALESCE(baseline_data, '{}'::jsonb), '{baseline_reset_at}', to_jsonb(NOW()::text))
+                     baseline_data = COALESCE(baseline_data, '{}'::jsonb) || jsonb_build_object(
+                         'baseline_reset_at', NOW()::text,
+                         'baseline_reset_reason', $2::text,
+                         'svm_status', 'Recalibrating (24h Learning Window)'
+                     )
                  WHERE patient_id = ANY($1)`,
-                [patientIds]
+                [patientIds, resetReasonText]
             );
 
-            // Log access
             await client.query(
                 `INSERT INTO access_logs (user_id, action, resource_affected, severity)
                  VALUES ($1, 'SVM_BASELINE_RESET', $2, 'WARNING')`,
-                [userId, `Reset baseline for patients: ${patientIds.join(', ')}`]
+                [userId, `Reset SVM baseline for patient(s): [${patientIds.join(', ')}]. Reason: ${resetReasonText}`]
             );
         }
 
         await client.query('COMMIT');
-        res.json({ success: true, message: 'Baseline reset successful for all assigned patients.' });
+        res.json({
+            success: true,
+            message: patientIds.length === 1
+                ? `SVM learning baseline reset for Patient #${patientIds[0]}. New 24-hour AI calibration window initiated.`
+                : 'SVM learning baseline reset successful for your assigned patients. New 24-hour AI calibration window initiated.'
+        });
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('Caregiver Baseline Reset Error:', err.message);
@@ -3525,14 +4010,13 @@ router.post('/baseline/reset', async (req, res) => {
 
 // ==========================================
 // ROUTE: POST /devices/archive
-// Description: Archive a device by serial number (deletes from whitelist)
+// Description: Archive a device (System Admin) or Unregister from Patients' Devices (Non-System Admin)
 // ==========================================
 router.post('/devices/archive', async (req, res) => {
     const { serialNumber } = req.body;
     const actorId = req.user.id;
     const role = req.user.role;
-
-    // All user roles are permitted to archive data
+    const isSysAdmin = req.user.is_sys_admin_override || ['admin', 'system_admin', 'sysadmin'].includes(role?.toLowerCase());
 
     if (!serialNumber) {
         return res.status(400).json({ success: false, message: 'Serial number is required.' });
@@ -3554,7 +4038,7 @@ router.post('/devices/archive', async (req, res) => {
         const patientId = device.assigned_patient_id;
 
         // System Admin: Only allow archiving if the device is unpaired and inactive
-        if (['admin', 'system_admin', 'sysadmin'].includes(role)) {
+        if (isSysAdmin) {
             if (patientId || device.status !== 'INACTIVE') {
                 client.release();
                 return res.status(400).json({
@@ -3568,11 +4052,13 @@ router.post('/devices/archive', async (req, res) => {
         if (role === 'facility_admin') {
             const hasAccess = await client.query(
                 `SELECT 1 FROM device_whitelist d
+                 LEFT JOIN patients p ON d.assigned_patient_id = p.patient_id
                  WHERE d.serial_number = $1 AND (
                      d.added_by = $2
                      OR d.added_by IN (
                          SELECT user_id FROM users WHERE created_by = $2
                      )
+                     OR (p.facility_id IS NOT NULL AND p.facility_id = $3)
                      OR d.assigned_patient_id IN (
                          SELECT patient_id FROM patient_access WHERE invited_by = $2
                      )
@@ -3582,22 +4068,15 @@ router.post('/devices/archive', async (req, res) => {
                          )
                      )
                  )`,
-                [serialNumber, actorId]
+                [serialNumber, actorId, req.user.facility_id]
             );
             if (hasAccess.rows.length === 0) {
                 client.release();
-                return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to delete this device.' });
+                return res.status(403).json({ success: false, message: 'Unauthorized: You do not have permission to unregister this device.' });
             }
         }
 
         await client.query('BEGIN');
-
-        // [HIPAA] Audit trail before deletion.
-        await client.query(
-            `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
-             VALUES ($1, 'DELETE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
-            [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
-        );
 
         // If the device was assigned to a patient, clear the patient's device reference first.
         if (patientId) {
@@ -3607,30 +4086,74 @@ router.post('/devices/archive', async (req, res) => {
             );
         }
 
-        // Soft-delete/Archive the device from the whitelist.
-        await client.query(
-            "UPDATE device_whitelist SET is_archived = TRUE, status = 'ARCHIVED', assigned_patient_id = NULL WHERE serial_number = $1",
-            [serialNumber]
-        );
+        if (isSysAdmin) {
+            // [HIPAA] Audit trail before archiving from whitelist.
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+                 VALUES ($1, 'DELETE_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+                [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
+            );
 
-        // Resolve facility ID for the archive table
-        const facilityCheck = await client.query('SELECT facility_id FROM users WHERE user_id = $1', [device.added_by || actorId]);
-        const devFacilityId = facilityCheck.rows[0]?.facility_id || null;
+            // Soft-delete/Archive the device from the whitelist.
+            await client.query(
+                "UPDATE device_whitelist SET is_archived = TRUE, status = 'ARCHIVED', assigned_patient_id = NULL WHERE serial_number = $1",
+                [serialNumber]
+            );
 
-        // Record entry in the archives table
-        await client.query(
-            `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id, details)
-             VALUES ('Device', $1, $2, $3, NOW(), 'Archived', $4, $5::jsonb)`,
-            [serialNumber, device.device_name, actorId, devFacilityId, JSON.stringify({ assigned_patient_id: patientId })]
-        );
+            // Resolve facility ID for the archive table
+            const facilityCheck = await client.query('SELECT facility_id FROM users WHERE user_id = $1', [device.added_by || actorId]);
+            const devFacilityId = facilityCheck.rows[0]?.facility_id || null;
 
-        await client.query('COMMIT');
-        res.json({ success: true, message: `Device ${serialNumber} has been removed from inventory.` });
+            // Record entry in the archives table
+            await client.query(
+                `INSERT INTO archives (entity_type, target_id, target_name, archived_by, archived_at, status, facility_id, details)
+                 VALUES ('Device', $1, $2, $3, NOW(), 'Archived', $4, $5::jsonb)`,
+                [serialNumber, device.device_name, actorId, devFacilityId, JSON.stringify({ assigned_patient_id: patientId })]
+            );
+
+            await client.query('COMMIT');
+            refreshAllClientsAccess();
+            broadcastAlert('device_status_update', {
+                serial_number: serialNumber,
+                serialNumber: serialNumber,
+                status: 'ARCHIVED',
+                action: 'removed'
+            });
+            return res.json({ success: true, message: `Device ${serialNumber} has been archived from the whitelist registry.` });
+        } else {
+            // Non-System Admin: Unregister the device from the user's / patients' devices ONLY.
+            // It remains in the global whitelist registry (is_archived = FALSE, status = 'AVAILABLE').
+            await client.query(
+                `INSERT INTO access_logs (user_id, action, resource_affected, details, "timestamp")
+                 VALUES ($1, 'UNREGISTER_DEVICE', 'device_whitelist', $2::jsonb, NOW())`,
+                [actorId, JSON.stringify({ serial_number: serialNumber, device_name: device.device_name, had_patient: !!patientId })]
+            );
+
+            await client.query(
+                `UPDATE device_whitelist
+                 SET is_archived = FALSE,
+                     status = 'AVAILABLE',
+                     assigned_patient_id = NULL,
+                     added_by = (SELECT user_id FROM users WHERE LOWER(role) IN ('system_admin', 'admin', 'sysadmin') ORDER BY user_id ASC LIMIT 1)
+                 WHERE serial_number = $1`,
+                [serialNumber]
+            );
+
+            await client.query('COMMIT');
+            refreshAllClientsAccess();
+            broadcastAlert('device_status_update', {
+                serial_number: serialNumber,
+                serialNumber: serialNumber,
+                status: 'AVAILABLE',
+                action: 'removed'
+            });
+            return res.json({ success: true, message: `Device ${serialNumber} has been unregistered from your Patients' Devices.` });
+        }
 
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Archive Device Error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to archive device from inventory.' });
+        console.error('Archive/Unregister Device Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to unregister device from inventory.' });
     } finally {
         client.release();
     }

@@ -408,7 +408,10 @@ export const MyDevices: React.FC = () => {
     };
 
     const handleArchive = async (device: Device) => {
-        if (!confirm(`Are you sure you want to archive ${device.device_name} (SN: ${device.serial_number})? This will permanently remove the device from the whitelist registry.`)) return;
+        const confirmMsg = isSystemAdmin
+            ? `Are you sure you want to archive ${device.device_name} (SN: ${device.serial_number})? This will permanently remove the device from the whitelist registry.`
+            : `Are you sure you want to unregister ${device.device_name} (SN: ${device.serial_number})? This will permanently remove the device from your Patients' Devices.`;
+        if (!confirm(confirmMsg)) return;
 
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/caregiver/devices/archive`, {
@@ -421,14 +424,14 @@ export const MyDevices: React.FC = () => {
             });
             const data = await res.json();
             if (data.success) {
-                toast.success("Device archived successfully");
+                toast.success(data.message || (isSystemAdmin ? "Device archived successfully" : "Device unregistered successfully"));
                 fetchInventory(); // Refresh list
             } else {
-                toast.error(data.message || "Failed to archive device");
+                toast.error(data.message || (isSystemAdmin ? "Failed to archive device" : "Failed to unregister device"));
             }
         } catch (err) {
             console.error(err);
-            toast.error("Network error during archival");
+            toast.error(isSystemAdmin ? "Network error during archival" : "Network error while unregistering device");
         }
     };
 
@@ -722,7 +725,7 @@ export const MyDevices: React.FC = () => {
                                                                 className="text-red-600 focus:text-red-600 focus:bg-red-50 font-semibold"
                                                                 onClick={() => handleArchive(device)}
                                                             >
-                                                                Archive Device
+                                                                {isSystemAdmin ? 'Archive Device' : 'Unregister Device'}
                                                             </DropdownMenuItem>
                                                         )}
                                                     </DropdownMenuContent>

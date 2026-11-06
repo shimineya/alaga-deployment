@@ -801,7 +801,111 @@ router.get('/patients', async (req, res) => {
     }
 });
 
-// Create new patient with consent verification
+// GET /facility-profile - Fetch facility profile details, topology, and live bed capacity stats
+router.get('/facility-profile', async (req, res) => {
+    let facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
+    if (isSysAdmin && req.query.facility_id) {
+        facilityId = parseInt(req.query.facility_id, 10);
+    }
+    try {
+        if (isSysAdmin && !facilityId && req.query.facility_name) {
+            const byName = await pool.query(
+                'SELECT facility_id FROM facilities WHERE LOWER(facility_name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE',
+                [String(req.query.facility_name).trim()]
+            );
+            if (byName.rows.length > 0) facilityId = byName.rows[0].facility_id;
+        }
+
+        const facilitiesRes = await pool.query(
+            `SELECT facility_id, facility_name, address, topology, created_at
+             FROM facilities
+             WHERE is_archived IS DISTINCT FROM TRUE
+             ${facilityId ? 'AND facility_id = $1' : ''}
+             ORDER BY facility_id ASC`,
+            facilityId ? [facilityId] : []
+        );
+
+        if (facilitiesRes.rows.length === 0) {
+            return res.json({ success: true, data: null, facilities: [] });
+        }
+
+        const activePatientsRes = await pool.query(
+            `SELECT patient_id, name, facility_id, baseline_data
+             FROM patients
+             WHERE is_archived IS DISTINCT FROM TRUE`
+        );
+        const allActivePatients = activePatientsRes.rows;
+
+        const enrichedFacilities = facilitiesRes.rows.map(fac => {
+            const topology = Array.isArray(fac.topology) ? fac.topology : [];
+            const facPatients = allActivePatients.filter(p => p.facility_id === fac.facility_id);
+            const activePatientMap = new Map(facPatients.map(p => [Number(p.patient_id), p]));
+
+            let totalRooms = 0;
+            let totalBeds = 0;
+            let occupiedBeds = 0;
+
+            const wards = topology.map(w => {
+                const rooms = (Array.isArray(w.rooms) ? w.rooms : []).map(r => {
+                    totalRooms += 1;
+                    const beds = (Array.isArray(r.beds) ? r.beds : []).map(b => {
+                        totalBeds += 1;
+                        let occupant = b.patientId ? activePatientMap.get(Number(b.patientId)) : null;
+                        if (!occupant) {
+                            occupant = facPatients.find(p =>
+                                String(p.baseline_data?.ward || '').toLowerCase() === String(w.name || '').toLowerCase() &&
+                                String(p.baseline_data?.room || '').toLowerCase() === String(r.name || '').toLowerCase() &&
+                                String(p.baseline_data?.bed || '').toLowerCase() === String(b.name || '').toLowerCase()
+                            ) || null;
+                        }
+                        if (occupant) occupiedBeds += 1;
+                        return {
+                            name: b.name,
+                            patientId: occupant ? Number(occupant.patient_id) : null,
+                            patientName: occupant ? occupant.name : null,
+                            isOccupied: !!occupant
+                        };
+                    });
+                    return { name: r.name, beds };
+                });
+                return {
+                    name: w.name,
+                    classification: w.classification || 'general',
+                    rooms
+                };
+            });
+
+            const effectiveOccupied = Math.max(occupiedBeds, facPatients.length);
+            const availableBeds = Math.max(0, totalBeds - effectiveOccupied);
+
+            return {
+                facility_id: fac.facility_id,
+                facility_name: fac.facility_name,
+                address: fac.address,
+                topology: wards,
+                total_wards: wards.length,
+                total_rooms: totalRooms,
+                total_beds: totalBeds,
+                occupied_beds: occupiedBeds,
+                registered_patients: facPatients.length,
+                available_beds: availableBeds,
+                is_full: totalBeds === 0 || availableBeds <= 0
+            };
+        });
+
+        res.json({
+            success: true,
+            data: enrichedFacilities[0] || null,
+            facilities: enrichedFacilities
+        });
+    } catch (err) {
+        console.error('Fetch Facility Profile Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch facility profile.' });
+    }
+});
+
+// Create new patient with consent verification and strict facility topology / bed capacity validation
 router.post('/patients', async (req, res) => {
     let facilityId = req.user.facility_id;
     const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
@@ -822,23 +926,147 @@ router.post('/patients', async (req, res) => {
         });
     }
 
+    const client = await pool.connect();
     try {
+        await client.query('BEGIN');
+
         if (isSysAdmin) {
             if (patient_type === 'at_home') {
                 facilityId = null;
             } else if (facility_name && facility_name.trim()) {
-                let facilityRes = await pool.query(
-                    `SELECT facility_id FROM facilities WHERE LOWER(facility_name) = LOWER($1)`,
+                const facilityRes = await client.query(
+                    `SELECT facility_id FROM facilities WHERE LOWER(facility_name) = LOWER($1) AND is_archived IS DISTINCT FROM TRUE`,
                     [facility_name.trim()]
                 );
                 if (facilityRes.rows.length === 0) {
-                    facilityRes = await pool.query(
-                        `INSERT INTO facilities (facility_name) VALUES ($1) RETURNING facility_id`,
-                        [facility_name.trim()]
-                    );
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Facility "${facility_name.trim()}" is not registered in the system. Only facilities registered by the System Administrator can be used.`
+                    });
                 }
                 facilityId = facilityRes.rows[0].facility_id;
             }
+        }
+
+        let resolvedWard = ward ? ward.trim() : null;
+        let resolvedRoom = room.trim();
+        let resolvedBed = bed && bed.trim() ? bed.trim() : null;
+        let updatedTopologyToSave = null;
+
+        // Strict Facility Topology & Bed Capacity Validation for Facility Patients
+        if (facilityId) {
+            if (!resolvedWard || !resolvedRoom || !resolvedBed) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Ward Name, Room Name, and Bed Name are all required when registering a patient in a facility.'
+                });
+            }
+
+            const facRes = await client.query(
+                'SELECT facility_id, facility_name, topology FROM facilities WHERE facility_id = $1 AND is_archived IS DISTINCT FROM TRUE FOR UPDATE',
+                [facilityId]
+            );
+            if (facRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({
+                    success: false,
+                    message: 'Assigned facility not found or has been decommissioned.'
+                });
+            }
+
+            const fac = facRes.rows[0];
+            const topology = Array.isArray(fac.topology) ? JSON.parse(JSON.stringify(fac.topology)) : [];
+
+            const activePatientsRes = await client.query(
+                'SELECT patient_id, name, baseline_data FROM patients WHERE facility_id = $1 AND is_archived IS DISTINCT FROM TRUE',
+                [facilityId]
+            );
+            const activePatients = activePatientsRes.rows;
+            const activePatientIds = new Set(activePatients.map(p => Number(p.patient_id)));
+
+            let totalBeds = 0;
+            let occupiedBeds = 0;
+            topology.forEach(w => {
+                (w.rooms || []).forEach(r => {
+                    (r.beds || []).forEach(b => {
+                        totalBeds += 1;
+                        const isOccupiedById = b.patientId && activePatientIds.has(Number(b.patientId));
+                        const isOccupiedByLoc = activePatients.some(p =>
+                            String(p.baseline_data?.ward || '').toLowerCase() === String(w.name || '').toLowerCase() &&
+                            String(p.baseline_data?.room || '').toLowerCase() === String(r.name || '').toLowerCase() &&
+                            String(p.baseline_data?.bed || '').toLowerCase() === String(b.name || '').toLowerCase()
+                        );
+                        if (isOccupiedById || isOccupiedByLoc) occupiedBeds += 1;
+                    });
+                });
+            });
+
+            if (totalBeds === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot register patient anymore: No wards, rooms, or beds have been configured for ${fac.facility_name} by the System Administrator.`
+                });
+            }
+
+            if (activePatients.length >= totalBeds || occupiedBeds >= totalBeds) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot register patient anymore: Facility bed capacity limit reached (${totalBeds}/${totalBeds} beds occupied in ${fac.facility_name}).`
+                });
+            }
+
+            const targetWard = topology.find(w => String(w.name || '').toLowerCase() === resolvedWard.toLowerCase());
+            if (!targetWard) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Ward "${resolvedWard}" is not registered in ${fac.facility_name}. Patients can only be placed in wards registered by the System Administrator.`
+                });
+            }
+
+            const targetRoom = (targetWard.rooms || []).find(r => String(r.name || '').toLowerCase() === resolvedRoom.toLowerCase());
+            if (!targetRoom) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Room "${resolvedRoom}" is not registered under Ward "${targetWard.name}" in ${fac.facility_name}.`
+                });
+            }
+
+            const targetBed = (targetRoom.beds || []).find(b => String(b.name || '').toLowerCase() === resolvedBed.toLowerCase());
+            if (!targetBed) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Bed "${resolvedBed}" is not registered under Room "${targetRoom.name}" (${targetWard.name}) in ${fac.facility_name}.`
+                });
+            }
+
+            const bedOccupantById = targetBed.patientId && activePatientIds.has(Number(targetBed.patientId))
+                ? activePatients.find(p => Number(p.patient_id) === Number(targetBed.patientId))
+                : null;
+            const bedOccupantByLoc = activePatients.find(p =>
+                String(p.baseline_data?.ward || '').toLowerCase() === String(targetWard.name || '').toLowerCase() &&
+                String(p.baseline_data?.room || '').toLowerCase() === String(targetRoom.name || '').toLowerCase() &&
+                String(p.baseline_data?.bed || '').toLowerCase() === String(targetBed.name || '').toLowerCase()
+            );
+            const existingOccupant = bedOccupantById || bedOccupantByLoc;
+            if (existingOccupant) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: `Bed "${targetBed.name}" in ${targetWard.name} - ${targetRoom.name} is already occupied by another patient. Please select an available bed.`
+                });
+            }
+
+            resolvedWard = targetWard.name;
+            resolvedRoom = targetRoom.name;
+            resolvedBed = targetBed.name;
+            updatedTopologyToSave = { topology, targetBed };
         }
 
         const name = `${first_name.trim()} ${last_name.trim()}`;
@@ -855,9 +1083,9 @@ router.post('/patients', async (req, res) => {
             diagnosis,
             created_by: req.user.id,
             condition: diagnosis,
-            ward: ward ? ward.trim() : null,
-            room: room.trim(),
-            bed: bed && bed.trim() ? bed.trim() : null,
+            ward: resolvedWard,
+            room: resolvedRoom,
+            bed: resolvedBed,
             heart_rate: hrVal,
             temperature: tempVal,
             spo2: spo2Val,
@@ -865,7 +1093,7 @@ router.post('/patients', async (req, res) => {
         };
 
         // [OWASP A05] Parameterized insert
-        const result = await pool.query(
+        const result = await client.query(
             `INSERT INTO patients (name, birthdate, baseline_data, facility_id, patient_type, created_at)
              VALUES ($1, $2, $3, $4, $5, NOW())
              RETURNING patient_id`,
@@ -873,9 +1101,18 @@ router.post('/patients', async (req, res) => {
         );
         const newPatientId = result.rows[0].patient_id;
 
+        // Link the newly registered patient to the bed in facilities.topology
+        if (facilityId && updatedTopologyToSave) {
+            updatedTopologyToSave.targetBed.patientId = Number(newPatientId);
+            await client.query(
+                'UPDATE facilities SET topology = $1 WHERE facility_id = $2',
+                [JSON.stringify(updatedTopologyToSave.topology), facilityId]
+            );
+        }
+
         // Seed clinical baseline in patient_baselines for AI engine
         try {
-            await pool.query(`
+            await client.query(`
                 INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
                 VALUES 
                     ($1, 'heart_rate', 1, $2, 60, 100, NOW()),
@@ -890,22 +1127,26 @@ router.post('/patients', async (req, res) => {
         }
 
         // Grant access to the registering Facility Admin
-        await pool.query(
+        await client.query(
             `INSERT INTO patient_access (user_id, patient_id, relationship, access_level)
              VALUES ($1, $2, 'Facility Admin', 'Edit')`,
             [req.user.id, newPatientId]
         );
 
-        await pool.query(
+        await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'PATIENT_CREATE', $2, 'INFO')`,
-            [req.user.id, `Created Patient ID ${newPatientId} in Facility ${facilityId || 'At Home'}`]
+            [req.user.id, `Created Patient ID ${newPatientId} in Facility ${facilityId || 'At Home'} (${resolvedWard ? `${resolvedWard} / ${resolvedRoom} / ${resolvedBed}` : resolvedRoom})`]
         );
 
+        await client.query('COMMIT');
         res.status(201).json({ success: true, message: 'Patient registered successfully.', patient_id: newPatientId });
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error("Register Patient Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to register patient.' });
+    } finally {
+        client.release();
     }
 });
 
@@ -965,7 +1206,7 @@ router.post('/patients/:patientId/pair-device', async (req, res) => {
             if (devRow.assigned_patient_id && devRow.assigned_patient_id != patientId) {
                 return res.status(409).json({
                     success: false,
-                    message: `Device ${cleanSN} is already assigned to another patient (#${devRow.assigned_patient_id}).`
+                    message: `Device ${cleanSN} is already assigned to another patient.`
                 });
             }
 
@@ -1076,7 +1317,7 @@ router.post('/patients/:patientId/reset-baseline', async (req, res) => {
             if (devCheck.rows[0].assigned_patient_id && devCheck.rows[0].assigned_patient_id !== targetPatientId) {
                 return res.status(400).json({
                     success: false,
-                    message: `Device "${specificSn}" is assigned to Patient #${devCheck.rows[0].assigned_patient_id}, not Patient #${targetPatientId}.`
+                    message: `Device "${specificSn}" is assigned to another patient, not Patient #${targetPatientId}.`
                 });
             }
         }
@@ -1543,6 +1784,7 @@ router.delete('/staff-given-accounts/:id', async (req, res) => {
 // 7. GET /patients-added-and-assigned - Scoped Patient Onboarding list
 router.get('/patients-added-and-assigned', async (req, res) => {
     const adminId = req.user.id;
+    const facilityId = req.user.facility_id;
     const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
     try {
         let query;
@@ -1550,6 +1792,7 @@ router.get('/patients-added-and-assigned', async (req, res) => {
         if (isSysAdmin) {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                       p.facility_id,
                        COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
@@ -1585,7 +1828,7 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                                 WHERE pa.patient_id = p.patient_id
                                   AND pa.is_archived IS DISTINCT FROM TRUE
                                   AND u.is_archived IS DISTINCT FROM TRUE
-                                  AND (u.role NOT IN ('caregiver', 'medical_staff') OR pa.invite_status = 'Active')
+                                  AND (u.role NOT IN ('caregiver', 'medical_staff') OR pa.invite_status IN ('Active', 'Accepted', 'Pending'))
                             ),
                             '[]'::json
                        ) AS assigned_users
@@ -1598,6 +1841,7 @@ router.get('/patients-added-and-assigned', async (req, res) => {
         } else {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, p.created_at, p.device_serial_number,
+                       p.facility_id,
                        COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
@@ -1633,19 +1877,23 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                                 WHERE pa.patient_id = p.patient_id AND pa.user_id IS DISTINCT FROM $1
                                   AND pa.is_archived IS DISTINCT FROM TRUE
                                   AND u.is_archived IS DISTINCT FROM TRUE
-                                  AND (u.role NOT IN ('caregiver', 'medical_staff') OR pa.invite_status = 'Active')
+                                  AND (u.role NOT IN ('caregiver', 'medical_staff') OR pa.invite_status IN ('Active', 'Accepted', 'Pending'))
                             ),
                             '[]'::json
                        ) AS assigned_users
                 FROM patients p
                 LEFT JOIN facilities f ON p.facility_id = f.facility_id
                 WHERE (
-                    -- Condition 1: patients they added AND assigned to other users
-                    ((p.baseline_data->>'created_by') = $1::text AND EXISTS (
+                    -- Condition 1: patients in this facility or added by this admin that are assigned to staff
+                    (((p.baseline_data->>'created_by') = $1::text OR p.facility_id = $2) AND EXISTS (
                         SELECT 1 FROM patient_access pa2
+                        JOIN users u3 ON pa2.user_id = u3.user_id
                         WHERE pa2.patient_id = p.patient_id
                           AND pa2.user_id IS NOT NULL
                           AND pa2.user_id IS DISTINCT FROM $1
+                          AND pa2.is_archived IS DISTINCT FROM TRUE
+                          AND u3.is_archived IS DISTINCT FROM TRUE
+                          AND pa2.invite_status IS DISTINCT FROM 'Declined'
                     ))
                     OR
                     -- Condition 2: patients from the users they gave an account to (caregivers provisioned by admin)
@@ -1653,11 +1901,12 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                         SELECT pa3.patient_id FROM patient_access pa3
                         JOIN users u2 ON pa3.user_id = u2.user_id
                         WHERE u2.created_by = $1
+                          AND pa3.is_archived IS DISTINCT FROM TRUE
                     )
                 ) AND p.is_archived IS DISTINCT FROM TRUE
                 ORDER BY p.created_at DESC
             `;
-            params = [adminId];
+            params = [adminId, facilityId];
         }
         const result = await pool.query(query, params);
         res.json({ success: true, data: result.rows });
@@ -1678,6 +1927,7 @@ router.get('/unassigned-patients', async (req, res) => {
         if (isSysAdmin) {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                       p.facility_id,
                        COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
@@ -1702,6 +1952,8 @@ router.get('/unassigned-patients', async (req, res) => {
                       JOIN users u ON pa.user_id = u.user_id
                       WHERE pa.patient_id = p.patient_id 
                         AND u.role IN ('caregiver', 'medical_staff')
+                        AND pa.is_archived IS DISTINCT FROM TRUE
+                        AND u.is_archived IS DISTINCT FROM TRUE
                         AND pa.invite_status IS DISTINCT FROM 'Declined'
                   )
                 ORDER BY p.created_at DESC
@@ -1710,6 +1962,7 @@ router.get('/unassigned-patients', async (req, res) => {
         } else {
             query = `
                 SELECT p.patient_id, p.name, p.birthdate, p.baseline_data, to_char(p.created_at, 'YYYY-MM-DD') AS created_at,
+                       p.facility_id,
                        COALESCE(p.is_monitoring_disabled, FALSE) AS is_monitoring_disabled,
                        f.facility_name,
                        COALESCE(
@@ -1735,6 +1988,8 @@ router.get('/unassigned-patients', async (req, res) => {
                       JOIN users u ON pa.user_id = u.user_id
                       WHERE pa.patient_id = p.patient_id 
                         AND u.role IN ('caregiver', 'medical_staff')
+                        AND pa.is_archived IS DISTINCT FROM TRUE
+                        AND u.is_archived IS DISTINCT FROM TRUE
                         AND pa.invite_status IS DISTINCT FROM 'Declined'
                   )
                 ORDER BY p.created_at DESC
@@ -1831,29 +2086,128 @@ router.put('/patients/:patientId', async (req, res) => {
         spo2, baseline_spo2,
         moisture_threshold, moistureThreshold, baseline_moisture
     } = req.body;
-    const isSysAdmin = req.user.is_sys_admin_override;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
 
     if (room !== undefined && (!room || !room.trim())) {
         return res.status(400).json({ success: false, message: 'Room name cannot be empty.' });
     }
 
+    const client = await pool.connect();
     try {
+        await client.query('BEGIN');
+
         if (!isSysAdmin) {
-            const patientCheck = await pool.query(
+            const patientCheck = await client.query(
                 'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
                 [patientId, facilityId]
             );
             if (patientCheck.rows.length === 0) {
+                await client.query('ROLLBACK');
                 return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
             }
         }
 
-        const currentPatient = await pool.query(
-            'SELECT name, baseline_data FROM patients WHERE patient_id = $1',
+        const currentPatient = await client.query(
+            'SELECT name, facility_id, baseline_data FROM patients WHERE patient_id = $1',
             [patientId]
         );
         if (currentPatient.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ success: false, message: 'Patient not found.' });
+        }
+
+        const patFacilityId = currentPatient.rows[0].facility_id;
+        let resolvedWard = ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward;
+        let resolvedRoom = room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room;
+        let resolvedBed = bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed;
+
+        // Validate Ward, Room, and Bed against facility topology if patient belongs to a facility
+        if (patFacilityId && (ward !== undefined || room !== undefined || bed !== undefined)) {
+            if (!resolvedWard || !resolvedRoom || !resolvedBed) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    success: false,
+                    message: 'Ward Name, Room Name, and Bed Name are all required for facility patients.'
+                });
+            }
+
+            const facRes = await client.query(
+                'SELECT facility_name, topology FROM facilities WHERE facility_id = $1 FOR UPDATE',
+                [patFacilityId]
+            );
+            if (facRes.rows.length > 0) {
+                const fac = facRes.rows[0];
+                const topology = Array.isArray(fac.topology) ? JSON.parse(JSON.stringify(fac.topology)) : [];
+                const targetWard = topology.find(w => String(w.name || '').toLowerCase() === String(resolvedWard).toLowerCase());
+                if (!targetWard) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Ward "${resolvedWard}" is not registered in ${fac.facility_name}.`
+                    });
+                }
+                const targetRoom = (targetWard.rooms || []).find(r => String(r.name || '').toLowerCase() === String(resolvedRoom).toLowerCase());
+                if (!targetRoom) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Room "${resolvedRoom}" is not registered under Ward "${targetWard.name}" in ${fac.facility_name}.`
+                    });
+                }
+                const targetBed = (targetRoom.beds || []).find(b => String(b.name || '').toLowerCase() === String(resolvedBed).toLowerCase());
+                if (!targetBed) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bed "${resolvedBed}" is not registered under Room "${targetRoom.name}" in ${fac.facility_name}.`
+                    });
+                }
+
+                // Check if bed is occupied by ANOTHER active patient
+                const activePatientsRes = await client.query(
+                    'SELECT patient_id, name, baseline_data FROM patients WHERE facility_id = $1 AND patient_id != $2 AND is_archived IS DISTINCT FROM TRUE',
+                    [patFacilityId, patientId]
+                );
+                const otherPatients = activePatientsRes.rows;
+                const otherIds = new Set(otherPatients.map(p => Number(p.patient_id)));
+
+                const occupantById = targetBed.patientId && Number(targetBed.patientId) !== Number(patientId) && otherIds.has(Number(targetBed.patientId))
+                    ? otherPatients.find(p => Number(p.patient_id) === Number(targetBed.patientId))
+                    : null;
+                const occupantByLoc = otherPatients.find(p =>
+                    String(p.baseline_data?.ward || '').toLowerCase() === String(targetWard.name || '').toLowerCase() &&
+                    String(p.baseline_data?.room || '').toLowerCase() === String(targetRoom.name || '').toLowerCase() &&
+                    String(p.baseline_data?.bed || '').toLowerCase() === String(targetBed.name || '').toLowerCase()
+                );
+                const existingOccupant = occupantById || occupantByLoc;
+                if (existingOccupant) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        success: false,
+                        message: `Bed "${targetBed.name}" in ${targetWard.name} - ${targetRoom.name} is already occupied by another patient.`
+                    });
+                }
+
+                // Clear old bed for this patient and assign to new bed
+                topology.forEach(w => {
+                    (w.rooms || []).forEach(r => {
+                        (r.beds || []).forEach(b => {
+                            if (Number(b.patientId) === Number(patientId)) {
+                                b.patientId = null;
+                            }
+                        });
+                    });
+                });
+                targetBed.patientId = Number(patientId);
+                resolvedWard = targetWard.name;
+                resolvedRoom = targetRoom.name;
+                resolvedBed = targetBed.name;
+
+                await client.query(
+                    'UPDATE facilities SET topology = $1 WHERE facility_id = $2',
+                    [JSON.stringify(topology), patFacilityId]
+                );
+            }
         }
 
         const hrVal = heart_rate ?? heartRate ?? baseline_heart_rate;
@@ -1866,16 +2220,16 @@ router.put('/patients/:patientId', async (req, res) => {
             ...currentPatient.rows[0].baseline_data,
             gender: gender !== undefined ? gender : currentPatient.rows[0].baseline_data?.gender,
             diagnosis: diagnosis !== undefined ? diagnosis : currentPatient.rows[0].baseline_data?.diagnosis,
-            ward: ward !== undefined ? (ward ? ward.trim() : null) : currentPatient.rows[0].baseline_data?.ward,
-            room: room !== undefined ? room.trim() : currentPatient.rows[0].baseline_data?.room,
-            bed: bed !== undefined ? (bed ? bed.trim() : null) : currentPatient.rows[0].baseline_data?.bed,
+            ward: resolvedWard,
+            room: resolvedRoom,
+            bed: resolvedBed,
             ...(hrVal !== undefined && { heart_rate: Number(hrVal) }),
             ...(tempVal !== undefined && { temperature: Number(tempVal) }),
             ...(spo2Val !== undefined && { spo2: Number(spo2Val) }),
             ...(moistVal !== undefined && { moisture_threshold: Number(moistVal) })
         };
 
-        await pool.query(
+        await client.query(
             `UPDATE patients
              SET name = $1, baseline_data = $2
              WHERE patient_id = $3`,
@@ -1885,7 +2239,7 @@ router.put('/patients/:patientId', async (req, res) => {
         // Upsert into patient_baselines table
         try {
             if (hrVal !== undefined) {
-                await pool.query(`
+                await client.query(`
                     INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
                     VALUES ($1, 'heart_rate', 1, $2, 60, 100, NOW())
                     ON CONFLICT (patient_id, vital_name) DO UPDATE
@@ -1893,7 +2247,7 @@ router.put('/patients/:patientId', async (req, res) => {
                 `, [patientId, Number(hrVal)]);
             }
             if (tempVal !== undefined) {
-                await pool.query(`
+                await client.query(`
                     INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
                     VALUES ($1, 'temperature', 1, $2, 36.5, 37.5, NOW())
                     ON CONFLICT (patient_id, vital_name) DO UPDATE
@@ -1901,7 +2255,7 @@ router.put('/patients/:patientId', async (req, res) => {
                 `, [patientId, Number(tempVal)]);
             }
             if (spo2Val !== undefined) {
-                await pool.query(`
+                await client.query(`
                     INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
                     VALUES ($1, 'spo2', 1, $2, 95, 100, NOW())
                     ON CONFLICT (patient_id, vital_name) DO UPDATE
@@ -1909,7 +2263,7 @@ router.put('/patients/:patientId', async (req, res) => {
                 `, [patientId, Number(spo2Val)]);
             }
             if (moistVal !== undefined) {
-                await pool.query(`
+                await client.query(`
                     INSERT INTO patient_baselines (patient_id, vital_name, flag_count, mean_value, lower_bound, upper_bound, updated_at)
                     VALUES ($1, 'moisture', 1, $2, 0, $2, NOW())
                     ON CONFLICT (patient_id, vital_name) DO UPDATE
@@ -1920,16 +2274,20 @@ router.put('/patients/:patientId', async (req, res) => {
             console.warn('[FACILITY_UPDATE_PATIENT] Upserting patient_baselines notice:', pbErr.message);
         }
 
-        await pool.query(
+        await client.query(
             `INSERT INTO access_logs (user_id, action, resource_affected)
              VALUES ($1, 'PATIENT_UPDATE', $2)`,
             [req.user.id, `Updated patient ID ${patientId}`]
         );
 
+        await client.query('COMMIT');
         res.json({ success: true, message: 'Patient updated successfully.' });
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error('Update Patient Error:', err.message);
         res.status(500).json({ success: false, message: 'Failed to update patient.' });
+    } finally {
+        client.release();
     }
 });
 
@@ -2038,6 +2396,28 @@ router.delete('/patients/:patientId', async (req, res) => {
              WHERE assigned_patient_id = $1`,
             [patientId]
         );
+
+        // Free any bed occupied by this patient in the facility topology
+        if (finalFacilityId) {
+            const facRes = await pool.query('SELECT topology FROM facilities WHERE facility_id = $1', [finalFacilityId]);
+            if (facRes.rows.length > 0 && Array.isArray(facRes.rows[0].topology)) {
+                const topology = JSON.parse(JSON.stringify(facRes.rows[0].topology));
+                let changed = false;
+                topology.forEach(w => {
+                    (w.rooms || []).forEach(r => {
+                        (r.beds || []).forEach(b => {
+                            if (Number(b.patientId) === Number(patientId)) {
+                                b.patientId = null;
+                                changed = true;
+                            }
+                        });
+                    });
+                });
+                if (changed) {
+                    await pool.query('UPDATE facilities SET topology = $1 WHERE facility_id = $2', [JSON.stringify(topology), finalFacilityId]);
+                }
+            }
+        }
 
         // Record entry in the archives table
         await pool.query(

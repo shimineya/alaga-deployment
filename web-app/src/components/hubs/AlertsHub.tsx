@@ -263,8 +263,17 @@ const AlertsHub: React.FC = () => {
                 axios.get(`${API_BASE}/api/alerts/clinical`, getHeaders()),
                 axios.get(`${API_BASE}/api/alerts/system`, getHeaders())
             ]);
-            setClinicalAlerts(clinicalRes.data.data || []);
-            setSystemAlerts(sysRes.data.data || []);
+            const activeClinical = (clinicalRes.data.data || []).filter((a: any) =>
+                a.status !== 'Acknowledged' &&
+                a.status !== 'Reviewed' &&
+                a.status !== 'Flagged' &&
+                !a.acknowledged_at &&
+                (a.flag_count || 0) < 5 &&
+                !a.is_suppressed
+            );
+            const activeSystem = (sysRes.data.data || []).filter((a: any) => a.status === 'Active');
+            setClinicalAlerts(activeClinical);
+            setSystemAlerts(activeSystem);
         } catch (error) {
             console.error("Failed to load alerts", error);
         } finally {
@@ -297,8 +306,10 @@ const AlertsHub: React.FC = () => {
             await axios.put(`${API_BASE}/api/alerts/clinical/${selectedAlert.alert_id}/acknowledge`, {
                 action_taken: actionTaken
             }, getHeaders());
-            // Immediately mark as Acknowledged in local state so the repeating sound stops without delay
-            setClinicalAlerts(prev => prev.map(a => a.alert_id === selectedAlert.alert_id ? { ...a, status: 'Acknowledged' } : a));
+            // Immediately remove acknowledged alert from Alerts Module (it is now moved to AI Insights)
+            setClinicalAlerts(prev => prev.filter(a => a.alert_id !== selectedAlert.alert_id));
+            toast.success('Alert acknowledged and moved to AI Insights.');
+            window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
             await fetchAlerts();
         } catch (error) {
             console.error("Failed to acknowledge alert", error);
@@ -309,6 +320,9 @@ const AlertsHub: React.FC = () => {
         if (!token) return;
         try {
             await axios.put(`${API_BASE}/api/alerts/system/${sysAlertId}/resolve`, {}, getHeaders());
+            setSystemAlerts(prev => prev.filter(a => a.sys_alert_id !== sysAlertId));
+            toast.success('Hardware diagnostic alert resolved.');
+            window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
             await fetchAlerts();
         } catch (error) {
             console.error("Failed to resolve system alert", error);
@@ -328,18 +342,9 @@ const AlertsHub: React.FC = () => {
             );
             if (res.data.success) {
                 toast.info(res.data.message);
-                setClinicalAlerts(prev => prev.map(a => {
-                    if (a.alert_id === alert.alert_id || (alert.patient_id && a.patient_id === alert.patient_id && a.anomaly_type === alert.anomaly_type)) {
-                        return {
-                            ...a,
-                            flag_count: res.data.flag_count,
-                            remaining_flags: res.data.remaining_flags,
-                            is_suppressed: res.data.suppressed,
-                            status: res.data.suppressed ? 'Acknowledged' : a.status
-                        };
-                    }
-                    return a;
-                }));
+                // Remove the flagged alert from the active Alerts Module (it is now recorded in AI Insights)
+                setClinicalAlerts(prev => prev.filter(a => a.alert_id !== alert.alert_id));
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 fetchAlerts();
             } else {
                 toast.error(res.data.message || "Failed to flag alert.");

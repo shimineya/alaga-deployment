@@ -1219,6 +1219,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
     Map<String, dynamic> device,
   ) async {
     final serialNumber = device['serial_number'] as String? ?? 'this device';
+    final deviceName = device['device_name'] as String? ?? 'Device';
     final isAssigned = device['assigned_patient_id'] != null;
 
     final confirmed = await showDialog<bool>(
@@ -1226,7 +1227,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          "Remove Device?",
+          "Unregister Device?",
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.redAccent),
         ),
         content: Column(
@@ -1234,7 +1235,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "You are about to remove $serialNumber from the device inventory.",
+              "Are you sure you want to unregister $deviceName (SN: $serialNumber)? This will permanently remove the device from your Patients' Devices.",
               style: GoogleFonts.albertSans(fontSize: 13, color: Colors.grey[700]),
             ),
             if (isAssigned) ...[
@@ -1252,7 +1253,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        "This device is currently assigned to a patient. Removing it will unlink it from that patient.",
+                        "This device is currently assigned to a patient. Unregistering it will unlink it from that patient.",
                         style: GoogleFonts.albertSans(fontSize: 12, color: Colors.orange.shade800),
                       ),
                     ),
@@ -1274,7 +1275,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            child: Text("Yes, Remove", style: GoogleFonts.poppins(fontSize: 13)),
+            child: Text("Unregister Device", style: GoogleFonts.poppins(fontSize: 13)),
           ),
         ],
       ),
@@ -1291,7 +1292,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       _fetchDevices();
       ScaffoldMessenger.of(pageContext).showSnackBar(
         SnackBar(
-          content: Text("Device $serialNumber removed from inventory.", style: GoogleFonts.albertSans()),
+          content: Text(result['message'] ?? "Device $serialNumber unregistered from your Patients' Devices.", style: GoogleFonts.albertSans()),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),
@@ -1300,7 +1301,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
       // [OWASP A10] Display only the server's generic error — no stack traces.
       ScaffoldMessenger.of(pageContext).showSnackBar(
         SnackBar(
-          content: Text(result['message'] ?? 'Failed to remove device.', style: GoogleFonts.albertSans()),
+          content: Text(result['message'] ?? 'Failed to unregister device.', style: GoogleFonts.albertSans()),
           backgroundColor: Colors.grey[700],
           behavior: SnackBarBehavior.floating,
         ),

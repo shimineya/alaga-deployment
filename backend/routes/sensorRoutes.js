@@ -1034,7 +1034,7 @@ router.get(
 
             const rawReadings = readingsRes.rows;
 
-            // 4. Query recent OC-SVM anomaly events
+            // 4. Query recent OC-SVM anomaly events & Acknowledged/Reviewed/Flagged Alerts
             const anomalyRes = await pool.query(
                 `SELECT anomaly_type, ocsvm_score, detected_at
                  FROM anomaly_events
@@ -1045,6 +1045,56 @@ router.get(
             ).catch(() => ({ rows: [] }));
 
             const anomalies = anomalyRes.rows;
+
+            const reviewedAlertsRes = await pool.query(
+                `SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message,
+                        a.sent_at, a.acknowledged_at, a.action_taken, a.resolution_notes,
+                        e.anomaly_type, e.ocsvm_score,
+                        u.first_name as reviewer_first_name, u.last_name as reviewer_last_name, u.role as reviewer_role,
+                        COALESCE(pb.flag_count, pb2.flag_count, 0) as flag_count
+                 FROM alert_notifications a
+                 JOIN anomaly_events e ON a.event_id = e.event_id
+                 LEFT JOIN users u ON a.acknowledged_by = u.user_id
+                 LEFT JOIN patient_baselines pb ON pb.patient_id = e.patient_id AND pb.vital_name = e.anomaly_type
+                 LEFT JOIN patient_baselines pb2 ON pb2.patient_id = e.patient_id AND (
+                     (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                     (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                     (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                     (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                     (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                 )
+                 WHERE e.patient_id = $1
+                   AND (
+                       a.status IN ('Acknowledged', 'Reviewed', 'Flagged')
+                       OR a.acknowledged_at IS NOT NULL
+                       OR COALESCE(pb.flag_count, pb2.flag_count, 0) > 0
+                   )
+                 ORDER BY COALESCE(a.acknowledged_at, a.sent_at) DESC
+                 LIMIT 50`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+
+            const reviewedAlerts = (reviewedAlertsRes.rows || []).map(row => {
+                const fc = parseInt(row.flag_count || 0, 10);
+                const isFlagged = (row.action_taken || '').toLowerCase().includes('flagged as normal') || fc > 0;
+                const reviewerName = [row.reviewer_first_name, row.reviewer_last_name].filter(Boolean).join(' ').trim();
+                return {
+                    alert_id: row.alert_id,
+                    alert_category: row.alert_category || 'Clinical Alert',
+                    severity: row.severity || 'Warning',
+                    status: row.status || 'Acknowledged',
+                    review_type: fc >= 5 ? 'AI Baseline Learned (5/5)' : isFlagged ? `Flagged as Normal (${fc}/5)` : 'Reviewed & Acknowledged',
+                    message: row.message,
+                    sent_at: row.sent_at,
+                    acknowledged_at: row.acknowledged_at || row.sent_at,
+                    action_taken: row.action_taken || 'Reviewed by clinical care team',
+                    resolution_notes: row.resolution_notes || null,
+                    anomaly_type: row.anomaly_type || 'clinical_anomaly',
+                    ocsvm_score: row.ocsvm_score,
+                    flag_count: fc,
+                    reviewer_name: reviewerName || (row.reviewer_role ? row.reviewer_role.replace('_', ' ') : 'Care Team')
+                };
+            });
 
             // 5. Statistical Aggregates Calculation
             const hrVals = [];
@@ -1268,11 +1318,23 @@ router.get(
                 keyInsights.push(`Diaper moisture telemetry shows dry conditions throughout this tracking period.`);
             }
 
-            // Check 6: OC-SVM Multi-Feature Model Insights
+            // Check 6: OC-SVM Multi-Feature Model Insights & Reviewed/Flagged Alerts
             const recentOcsvmAnomalies = anomalies.filter(a => a.anomaly_type === 'ocsvm_anomaly');
             if (recentOcsvmAnomalies.length > 0) {
                 stabilityScore -= 12;
                 keyInsights.push(`OC-SVM machine learning flagged ${recentOcsvmAnomalies.length} multi-feature deviation events where combined vitals deviated from the patient's individual baseline.`);
+            }
+
+            if (reviewedAlerts.length > 0) {
+                const flaggedCount = reviewedAlerts.filter(a => a.review_type.includes('Flagged') || a.review_type.includes('Learned')).length;
+                const ackCount = reviewedAlerts.length - flaggedCount;
+                if (flaggedCount > 0 && ackCount > 0) {
+                    keyInsights.push(`${reviewedAlerts.length} clinical alert(s) have been reviewed (${ackCount} acknowledged with clinical intervention, ${flaggedCount} flagged as normal to calibrate the patient's OC-SVM baseline).`);
+                } else if (flaggedCount > 0) {
+                    keyInsights.push(`${flaggedCount} alert pattern(s) were flagged as normal by the care team to train and adapt the patient's personalized AI baseline.`);
+                } else {
+                    keyInsights.push(`${ackCount} clinical alert(s) were reviewed and acknowledged by the care team with documented clinical actions.`);
+                }
             }
 
             // If no illnesses detected:
@@ -1399,6 +1461,7 @@ router.get(
                 },
                 possibleIllnesses,
                 keyInsights,
+                reviewedAlerts,
                 chartData
             };
 

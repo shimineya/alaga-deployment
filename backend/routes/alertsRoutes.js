@@ -152,6 +152,13 @@ router.get('/clinical', async (req, res) => {
         // Auto-record due schedules first
         await recordDueSchedules();
 
+        const includeReviewed = req.query.includeReviewed === 'true' || Boolean(patientId);
+        const activeFilterClause = includeReviewed
+            ? ''
+            : `AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged')
+               AND a.acknowledged_at IS NULL
+               AND COALESCE(pb.flag_count, pb2.flag_count, 0) < 5`;
+
         // [OWASP A01] Role-Based Data Scoping
         if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
             // High-level staff see all active clinical alerts
@@ -174,6 +181,7 @@ router.get('/clinical', async (req, res) => {
                 )
                 WHERE a.status IS DISTINCT FROM 'Archived'
                   AND p.is_archived IS DISTINCT FROM TRUE
+                  ${activeFilterClause}
             `;
             if (patientId) {
                 query += ` AND p.patient_id = $1`;
@@ -181,7 +189,7 @@ router.get('/clinical', async (req, res) => {
             }
             query += ` ORDER BY a.sent_at DESC LIMIT 100`;
         } else if (role === 'facility_admin') {
-            // Facility admin sees alerts from patients they added, assignments they created, or staff they provisioned
+            // Facility admin sees alerts from patients in their facility, patients they added, assignments they created, or staff they provisioned
             query = `
                 SELECT a.alert_id, a.alert_category, a.severity, a.status, a.message, a.sent_at, 
                        a.acknowledged_by, a.acknowledged_at, a.action_taken,
@@ -201,8 +209,10 @@ router.get('/clinical', async (req, res) => {
                 )
                 WHERE a.status IS DISTINCT FROM 'Archived'
                   AND p.is_archived IS DISTINCT FROM TRUE
+                  ${activeFilterClause}
                   AND (
-                      p.patient_id IN (
+                      p.facility_id = (SELECT facility_id FROM users WHERE user_id = $1)
+                      OR p.patient_id IN (
                           -- Patients assigned to users they gave an account to
                           SELECT pa.patient_id 
                           FROM patient_access pa
@@ -252,6 +262,7 @@ router.get('/clinical', async (req, res) => {
                 )
                 WHERE a.status IS DISTINCT FROM 'Archived'
                   AND p.is_archived IS DISTINCT FROM TRUE
+                  ${activeFilterClause}
                   AND p.patient_id IN (
                     SELECT pa.patient_id FROM patient_access pa WHERE pa.user_id = $1
                     UNION
@@ -548,27 +559,29 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
         }
 
         const remainingFlags = Math.max(0, 5 - newFlagCount);
+        const flagActionNote = newFlagCount >= 5
+            ? 'AI Baseline Updated - Flagged as Normal (5/5). Pattern learned and future alerts suppressed.'
+            : `Flagged as Normal (${newFlagCount}/5) - AI Baseline Learning (${remainingFlags} more flags needed)`;
 
-        // If reached 5 flags, auto-acknowledge this alert
-        if (newFlagCount >= 5) {
-            await pool.query(
-                `UPDATE alert_notifications
-                 SET status = 'Acknowledged',
-                     action_taken = 'AI Baseline Updated - Flagged as Normal (5/5). Pattern learned and future alerts suppressed.',
-                     acknowledged_by = $1,
-                     acknowledged_at = NOW()
-                 WHERE alert_id = $2 AND status != 'Acknowledged'`,
-                [userId, alertId]
-            ).catch(() => {});
+        // Mark this flagged alert as Acknowledged/Flagged so it is removed from the active Alerts Module
+        // and included in the patient's AI Insights history.
+        await pool.query(
+            `UPDATE alert_notifications
+             SET status = 'Acknowledged',
+                 action_taken = $1,
+                 acknowledged_by = COALESCE(acknowledged_by, $2),
+                 acknowledged_at = COALESCE(acknowledged_at, NOW())
+             WHERE alert_id = $3`,
+            [flagActionNote, userId, alertId]
+        ).catch(() => {});
 
-            broadcastAlert('alert_acknowledged', {
-                alertId,
-                patientId,
-                acknowledgedBy: userId,
-                action: 'flag_normal_learned',
-                action_taken: 'AI Baseline Updated - Flagged as Normal (5/5)'
-            });
-        }
+        broadcastAlert('alert_acknowledged', {
+            alertId,
+            patientId,
+            acknowledgedBy: userId,
+            action: newFlagCount >= 5 ? 'flag_normal_learned' : 'flag_normal',
+            action_taken: flagActionNote
+        });
 
         broadcastAlert('alert_flagged_normal', {
             alertId,
@@ -625,6 +638,7 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
 router.get('/system', async (req, res) => {
     try {
         const { role, id: userId } = req.user;
+        const includeResolved = req.query.includeResolved === 'true';
         let query;
         let params;
 
@@ -635,6 +649,7 @@ router.get('/system', async (req, res) => {
                        p.patient_id, p.name as patient_name
                 FROM hardware_system_alerts h
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
+                ${includeResolved ? '' : "WHERE h.status = 'Active'"}
                 ORDER BY h.triggered_at DESC
                 LIMIT 100
             `;
@@ -647,8 +662,9 @@ router.get('/system', async (req, res) => {
                        p.patient_id, p.name as patient_name
                 FROM hardware_system_alerts h
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
-                WHERE (
-                    p.patient_id IN (
+                WHERE ${includeResolved ? 'TRUE' : "h.status = 'Active'"} AND (
+                    p.facility_id = (SELECT facility_id FROM users WHERE user_id = $1)
+                    OR p.patient_id IN (
                         -- Patients assigned to users they gave an account to
                         SELECT pa.patient_id 
                         FROM patient_access pa
@@ -689,7 +705,7 @@ router.get('/system', async (req, res) => {
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
                 LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
                 LEFT JOIN device_whitelist dw ON LOWER(h.device_mac_address) = LOWER(dw.serial_number)
-                WHERE pa.user_id = $1 OR dw.added_by = $1
+                WHERE ${includeResolved ? 'TRUE' : "h.status = 'Active'"} AND (pa.user_id = $1 OR dw.added_by = $1)
                 ORDER BY h.triggered_at DESC
                 LIMIT 50
             `;

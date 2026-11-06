@@ -175,8 +175,24 @@ class _NotificationScreenState extends State<NotificationScreen> {
     if (!mounted) return;
 
     if (result['success'] == true) {
+      final rawList = List<dynamic>.from(result['data'] ?? []);
       setState(() {
-        _alerts = result['data'] ?? [];
+        if (_showClinicalAlerts) {
+          _alerts = rawList.where((a) {
+            final status = (a['status'] ?? '').toString();
+            final flagCount = int.tryParse('${a['flag_count'] ?? 0}') ?? 0;
+            final ackAt = a['acknowledged_at'];
+            final suppressed = a['is_suppressed'] == true;
+            return status != 'Acknowledged' &&
+                status != 'Reviewed' &&
+                status != 'Flagged' &&
+                ackAt == null &&
+                flagCount < 5 &&
+                !suppressed;
+          }).toList();
+        } else {
+          _alerts = rawList.where((a) => (a['status'] ?? 'Active').toString() == 'Active').toList();
+        }
         _isLoading = false;
       });
     } else {
@@ -280,6 +296,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
     );
 
     if (result['success'] == true) {
+      setState(() {
+        _alerts.removeWhere((a) => a['alert_id'] == alertId);
+      });
       _fetchAlerts(); // Refresh list
       AlertNotificationService.cancelNotification(alertId);
       AlertNotificationService.checkAlerts();
@@ -304,10 +323,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (res['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(res['message'] ?? 'Pattern flagged as normal.'),
+            content: Text(res['message'] ?? 'Pattern flagged as normal and moved to AI Insights.'),
             backgroundColor: const Color(0xFF0D9488),
           ),
         );
+        setState(() {
+          _alerts.removeWhere((a) => a['alert_id'] == alertId);
+        });
         _fetchAlerts();
         AlertNotificationService.checkAlerts();
       } else {

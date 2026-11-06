@@ -123,13 +123,31 @@ const ExpandableList: React.FC<{ items: React.ReactNode[]; emptyLabel?: string }
     );
 };
 
+interface TopologyBed {
+    name: string;
+    patientId: number | null;
+}
+
+interface TopologyRoom {
+    name: string;
+    beds: TopologyBed[];
+}
+
+interface TopologyWard {
+    name: string;
+    classification?: string;
+    rooms: TopologyRoom[];
+}
+
 export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: Props) {
-    const { user, token } = useAuth();
+    const { user, token, isSysAdmin } = useAuth();
     const role = user?.role?.toLowerCase() || '';
+    const isSystemAdmin = isSysAdmin || ['system_admin', 'admin', 'sysadmin'].includes(role);
     const isFacilityAdmin = role === 'facility_admin';
+    const isMedicalStaff = role === 'medical_staff';
     const isParentOrGuardian = role === 'parent' || role === 'guardian';
     const isCaregiver = role === 'caregiver';
-    const canManage = isFacilityAdmin || isParentOrGuardian;
+    const canManage = isFacilityAdmin || isSystemAdmin || isMedicalStaff || isParentOrGuardian;
 
     const [selectedProfilePatient, setSelectedProfilePatient] = useState<Patient | null>(null);
 
@@ -157,9 +175,13 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
     const [unassignedSuggestions, setUnassignedSuggestions] = useState<string[]>([]);
     const [showUnassignedSuggestions, setShowUnassignedSuggestions] = useState(false);
 
-    // Edit Patient Profile modal state
+    // Edit Patient Profile modal state & topology suggestions
     const [editingPatient, setEditingPatient] = useState<ScopedPatient | null>(null);
     const [editForm, setEditForm] = useState({ name: '', gender: 'Male', diagnosis: '', ward: '', room: '', bed: '' });
+    const [editTopology, setEditTopology] = useState<TopologyWard[]>([]);
+    const [showEditWardSuggestions, setShowEditWardSuggestions] = useState(false);
+    const [showEditRoomSuggestions, setShowEditRoomSuggestions] = useState(false);
+    const [showEditBedSuggestions, setShowEditBedSuggestions] = useState(false);
 
     // Assign staff by email state
     const [assigningEmails, setAssigningEmails] = useState<{ [patientId: number]: string }>({});
@@ -167,6 +189,21 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
     const API_BASE = `${import.meta.env.VITE_API_URL || ''}/api/facility-admin`;
     const CAREGIVER_API = `${import.meta.env.VITE_API_URL || ''}/api/caregiver`;
     const getAuth = () => ({ 'Authorization': `Bearer ${token || localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
+
+    const fetchEditTopology = useCallback(async (facilityName?: string | null) => {
+        try {
+            const query = facilityName ? `?facility_name=${encodeURIComponent(facilityName)}` : '';
+            const res = await fetch(`${CAREGIVER_API}/facility-topology${query}`, { headers: getAuth() });
+            const data = await res.json();
+            if (data.success && data.data && Array.isArray(data.data.topology)) {
+                setEditTopology(data.data.topology);
+            } else {
+                setEditTopology([]);
+            }
+        } catch {
+            setEditTopology([]);
+        }
+    }, [CAREGIVER_API, token]);
 
     // Fetch Lists
     const fetchAssigned = useCallback(async () => {
@@ -183,7 +220,7 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
     }, [API_BASE, CAREGIVER_API, isFacilityAdmin, token]);
 
     const fetchUnassigned = useCallback(async () => {
-        if (!isFacilityAdmin && role !== 'medical_staff' && !isParentOrGuardian) {
+        if (!isFacilityAdmin && role !== 'medical_staff' && !isParentOrGuardian && !isSystemAdmin) {
             setUnassignedPatients([]);
             return;
         }
@@ -194,12 +231,15 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
             const res = await fetch(url, { headers: getAuth() });
             const data = await res.json();
             if (data.success) {
-                if (isParentOrGuardian) {
-                    // Filter to patients created by parent that do not have an active caregiver assigned
-                    const unassignedList = (data.data || []).filter((p: ScopedPatient) => 
-                        !p.assigned_users || p.assigned_users.length === 0 || 
-                        !p.assigned_users.some(u => u.role === 'caregiver' && (u.invite_status === 'Active' || u.invite_status === 'Accepted'))
-                    );
+                if (isParentOrGuardian || role === 'medical_staff') {
+                    // Filter to patients that do not yet have an active bedside caregiver assigned
+                    const unassignedList = (data.data || []).filter((p: ScopedPatient) => {
+                        const hasAssignedUserCg = p.assigned_users?.some(
+                            u => u.role === 'caregiver' && (u.invite_status === 'Active' || u.invite_status === 'Accepted' || !u.invite_status)
+                        );
+                        const hasAssignedStaffCg = p.assigned_staff?.some(u => u.role === 'caregiver');
+                        return !hasAssignedUserCg && !hasAssignedStaffCg;
+                    });
                     setUnassignedPatients(unassignedList);
                 } else {
                     setUnassignedPatients(data.data || []);
@@ -208,7 +248,7 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
         } catch {
             toast.error("Failed to load unassigned patients");
         }
-    }, [API_BASE, CAREGIVER_API, isFacilityAdmin, isParentOrGuardian, role, token]);
+    }, [API_BASE, CAREGIVER_API, isFacilityAdmin, isParentOrGuardian, isSystemAdmin, role, token]);
 
     useEffect(() => {
         fetchAssigned();
@@ -333,12 +373,53 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
             room: patient.baseline_data?.room || '',
             bed: patient.baseline_data?.bed || ''
         });
+        if (!isParentOrGuardian) {
+            fetchEditTopology(patient.facility_name);
+        }
     };
+
+    const matchedEditWard = editTopology.find(
+        w => w.name.trim().toLowerCase() === editForm.ward.trim().toLowerCase()
+    );
+    const editWardSuggestions = editTopology.filter(
+        w => !editForm.ward.trim() || w.name.toLowerCase().includes(editForm.ward.trim().toLowerCase())
+    );
+    const editRoomSuggestions = (matchedEditWard ? matchedEditWard.rooms : []).filter(
+        r => !editForm.room.trim() || r.name.toLowerCase().includes(editForm.room.trim().toLowerCase())
+    );
+    const matchedEditRoom = matchedEditWard?.rooms.find(
+        r => r.name.trim().toLowerCase() === editForm.room.trim().toLowerCase()
+    );
+    const editBedSuggestions = (matchedEditRoom ? matchedEditRoom.beds : []).filter(
+        b => !editForm.bed.trim() || b.name.toLowerCase().includes(editForm.bed.trim().toLowerCase())
+    );
 
     const handleUpdatePatient = async () => {
         if (!editingPatient) return;
         if (!editForm.name.trim()) return toast.error("Name is required");
-        if (!editForm.room.trim() || !editForm.bed.trim()) return toast.error("Room name and Bed name are required");
+        const isEditingFacilityPatient = !isParentOrGuardian && !!editingPatient.facility_name;
+        if (isEditingFacilityPatient) {
+            if (!editForm.ward.trim() || !editForm.room.trim() || !editForm.bed.trim()) {
+                return toast.error("Ward Name, Room Name, and Bed Name are required for facility patients.");
+            }
+            if (editTopology.length > 0) {
+                if (!matchedEditWard) {
+                    return toast.error(`Ward "${editForm.ward}" is not registered in ${editingPatient.facility_name}. Please select a registered Ward from the suggestion list.`);
+                }
+                if (!matchedEditRoom) {
+                    return toast.error(`Room "${editForm.room}" is not registered under Ward "${matchedEditWard.name}". Please select a valid Room from the suggestion list.`);
+                }
+                const matchedBed = matchedEditRoom.beds.find(b => b.name.trim().toLowerCase() === editForm.bed.trim().toLowerCase());
+                if (!matchedBed) {
+                    return toast.error(`Bed "${editForm.bed}" is not registered under Room "${matchedEditRoom.name}". Please select a valid Bed from the suggestion list.`);
+                }
+                if (matchedBed.patientId && Number(matchedBed.patientId) !== Number(editingPatient.patient_id)) {
+                    return toast.error(`Bed "${matchedBed.name}" in Room "${matchedEditRoom.name}" is already occupied. Please select an available bed.`);
+                }
+            }
+        } else if (!editForm.room.trim() || !editForm.bed.trim()) {
+            return toast.error("Room name and Bed name are required");
+        }
 
         const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
         try {
@@ -353,6 +434,7 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                 setEditingPatient(null);
                 fetchAssigned();
                 fetchUnassigned();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
             } else {
                 toast.error(data.message || "Failed to update patient");
             }
@@ -903,33 +985,152 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                     placeholder="Enter primary medical condition..."
                                 />
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ward Name (Optional)</label>
+                            <div className="space-y-1 relative">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    Ward Name {!isParentOrGuardian && editingPatient.facility_name ? <span className="text-red-500">*</span> : '(Optional)'}
+                                </label>
                                 <Input
                                     value={editForm.ward}
-                                    onChange={(e) => setEditForm({ ...editForm, ward: e.target.value })}
+                                    onChange={(e) => {
+                                        setEditForm({ ...editForm, ward: e.target.value, room: '', bed: '' });
+                                        setShowEditWardSuggestions(true);
+                                    }}
+                                    onFocus={() => setShowEditWardSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowEditWardSuggestions(false), 200)}
                                     className="h-8 text-xs bg-slate-50/50 border-slate-200"
-                                    placeholder="e.g. Ward A (Optional)"
+                                    placeholder="Select registered Ward..."
                                 />
+                                {!isParentOrGuardian && showEditWardSuggestions && (
+                                    <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                        <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                            Registered Wards ({editWardSuggestions.length})
+                                        </div>
+                                        {editWardSuggestions.length > 0 ? (
+                                            editWardSuggestions.map((w, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        setEditForm(prev => ({ ...prev, ward: w.name, room: '', bed: '' }));
+                                                        setShowEditWardSuggestions(false);
+                                                    }}
+                                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                                >
+                                                    <span className="font-semibold">{w.name}</span>
+                                                    <span className="text-[10px] text-slate-400">{w.rooms?.length || 0} room(s)</span>
+                                                </button>
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                                No matching wards configured in Facility Profile Details.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Room Name</label>
+                                <div className="space-y-1 relative">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                        Room Name <span className="text-red-500">*</span>
+                                    </label>
                                     <Input
                                         value={editForm.room}
-                                        onChange={(e) => setEditForm({ ...editForm, room: e.target.value })}
+                                        onChange={(e) => {
+                                            setEditForm({ ...editForm, room: e.target.value, bed: '' });
+                                            setShowEditRoomSuggestions(true);
+                                        }}
+                                        onFocus={() => setShowEditRoomSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowEditRoomSuggestions(false), 200)}
+                                        disabled={!isParentOrGuardian && !!editingPatient.facility_name && !editForm.ward.trim()}
                                         className="h-8 text-xs bg-slate-50/50 border-slate-200"
-                                        placeholder="e.g. Room 101"
+                                        placeholder={!isParentOrGuardian && !editForm.ward.trim() ? "Select Ward first..." : "Select Room..."}
                                     />
+                                    {!isParentOrGuardian && showEditRoomSuggestions && (
+                                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                            <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                                Rooms in {matchedEditWard?.name || editForm.ward || 'Ward'}
+                                            </div>
+                                            {editRoomSuggestions.length > 0 ? (
+                                                editRoomSuggestions.map((r, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onMouseDown={(e) => {
+                                                            e.preventDefault();
+                                                            setEditForm(prev => ({ ...prev, room: r.name, bed: '' }));
+                                                            setShowEditRoomSuggestions(false);
+                                                        }}
+                                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
+                                                    >
+                                                        <span className="font-semibold">{r.name}</span>
+                                                        <span className="text-[10px] text-slate-400">{r.beds?.length || 0} bed(s)</span>
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                                    No matching rooms registered under this ward.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bed Name</label>
+                                <div className="space-y-1 relative">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                        Bed Name <span className="text-red-500">*</span>
+                                    </label>
                                     <Input
                                         value={editForm.bed}
-                                        onChange={(e) => setEditForm({ ...editForm, bed: e.target.value })}
+                                        onChange={(e) => {
+                                            setEditForm({ ...editForm, bed: e.target.value });
+                                            setShowEditBedSuggestions(true);
+                                        }}
+                                        onFocus={() => setShowEditBedSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowEditBedSuggestions(false), 200)}
+                                        disabled={!isParentOrGuardian && !!editingPatient.facility_name && (!editForm.ward.trim() || !editForm.room.trim())}
                                         className="h-8 text-xs bg-slate-50/50 border-slate-200"
-                                        placeholder="e.g. Bed A"
+                                        placeholder={!isParentOrGuardian && !editForm.room.trim() ? "Select Room first..." : "Select Bed..."}
                                     />
+                                    {!isParentOrGuardian && showEditBedSuggestions && (
+                                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                            <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                                Beds in {matchedEditRoom?.name || editForm.room || 'Room'}
+                                            </div>
+                                            {editBedSuggestions.length > 0 ? (
+                                                editBedSuggestions.map((b, idx) => {
+                                                    const isOccupiedByOther = b.patientId !== null && Number(b.patientId) !== Number(editingPatient.patient_id);
+                                                    return (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            disabled={isOccupiedByOther}
+                                                            onMouseDown={(e) => {
+                                                                e.preventDefault();
+                                                                if (!isOccupiedByOther) {
+                                                                    setEditForm(prev => ({ ...prev, bed: b.name }));
+                                                                    setShowEditBedSuggestions(false);
+                                                                }
+                                                            }}
+                                                            className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+                                                                isOccupiedByOther
+                                                                    ? 'text-slate-400 bg-slate-50 cursor-not-allowed'
+                                                                    : 'hover:bg-teal-50 text-slate-700'
+                                                            }`}
+                                                        >
+                                                            <span className="font-semibold">{b.name}</span>
+                                                            <span className={`text-[10px] font-semibold ${isOccupiedByOther ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                                                {isOccupiedByOther ? 'Occupied' : 'Available'}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })
+                                            ) : (
+                                                <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                                    No matching beds registered under this room.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">

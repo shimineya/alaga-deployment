@@ -58,6 +58,8 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
           eventType == 'assignment_update' ||
           eventType == 'device_status_update' ||
           eventType == 'new_alert' ||
+          eventType == 'alert_acknowledged' ||
+          eventType == 'alert_flagged_normal' ||
           eventType == 'client_mutation') {
         _loadPatients();
       }
@@ -568,6 +570,10 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
 
                         // AI Longitudinal Pattern Observations
                         _buildKeyInsightsSection(),
+                        const SizedBox(height: 14),
+
+                        // Acknowledged, Reviewed & Flagged Alerts
+                        _buildReviewedAlertsSection(),
                         const SizedBox(height: 14),
 
                         // Clinical Disclaimer
@@ -1395,6 +1401,121 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewedAlertsSection() {
+    final raw = _insightsData?['reviewedAlerts'];
+    final reviewed = raw is List
+        ? raw.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : <Map<String, dynamic>>[];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.task_alt_rounded, color: _teal, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Acknowledged, Reviewed & Flagged Alerts',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w700,
+                    color: _navy,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _teal.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${reviewed.length}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _teal,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (reviewed.isEmpty)
+            Text(
+              'No acknowledged, reviewed, or flagged alerts recorded for this patient yet.',
+              style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black54),
+            )
+          else
+            ...reviewed.map((alert) {
+              final msg = (alert['message'] ?? '').toString();
+              final revType = (alert['review_type'] ?? 'Reviewed & Acknowledged').toString();
+              final action = (alert['action_taken'] ?? '').toString();
+              final reviewer = (alert['reviewer_name'] ?? 'Care Team').toString();
+              return Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _teal.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            revType,
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: _teal,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'By $reviewer',
+                          style: GoogleFonts.albertSans(fontSize: 11, color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      msg,
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: _navy),
+                    ),
+                    if (action.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Note: $action',
+                        style: GoogleFonts.albertSans(fontSize: 11.5, color: Colors.black87),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );

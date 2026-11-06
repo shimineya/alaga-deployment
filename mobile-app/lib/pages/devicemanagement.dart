@@ -50,12 +50,9 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
           : <String, dynamic>{};
 
       if (eventType == 'device_status_update' ||
-          eventType == 'patient_telemetry_update' ||
-          eventType == 'system_data_update' ||
-          eventType == 'assignment_update' ||
-          eventType == 'client_mutation') {
+          eventType == 'patient_telemetry_update') {
         final sn = (data['serial_number'] ?? data['serialNumber'])?.toString();
-        final status = data['status']?.toString();
+        final status = (data['status'] ?? data['device_status'])?.toString();
         final action = data['action']?.toString();
         final battery = data['battery_level'];
         final signal = data['signal_strength'];
@@ -68,15 +65,15 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
               for (var i = 0; i < _allDevices.length; i++) {
                 if (_allDevices[i]['serial_number'] == sn) {
                   final isPermanentUnpair = action == 'permanent' || status == 'AVAILABLE' || status == 'UNASSIGNED';
-                  final isOnline = !isPermanentUnpair && (status ?? _allDevices[i]['status']) == 'ACTIVE';
+                  final isOnline = !isPermanentUnpair && data['is_online'] != false && (status ?? _allDevices[i]['status']) == 'ACTIVE';
                   _allDevices[i] = {
                     ..._allDevices[i],
-                    if (status != null) 'status': status,
+                    if (status != null) 'status': isOnline ? 'ACTIVE' : (isPermanentUnpair ? 'AVAILABLE' : status),
                     'is_online': isOnline,
                     if (isPermanentUnpair) 'assigned_patient_id': null,
                     if (isPermanentUnpair) 'assigned_patient_name': null,
                     if (battery != null) 'battery_level': battery,
-                    if (signal != null) 'signal_strength': isPermanentUnpair ? 'Offline' : signal,
+                    if (signal != null) 'signal_strength': (!isOnline || isPermanentUnpair) ? 'Offline' : signal,
                   };
                   break;
                 }
@@ -84,6 +81,9 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
             }
           });
         }
+      } else if (eventType == 'system_data_update' ||
+          eventType == 'assignment_update' ||
+          eventType == 'client_mutation') {
         _fetchDevices(silent: true);
         if (UserSession.current != null) {
           _fetchPatientsForDialog();

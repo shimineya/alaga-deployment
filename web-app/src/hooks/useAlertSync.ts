@@ -268,7 +268,7 @@ export function useAlertSync() {
           eventType === 'alert_archived_bulk' ||
           eventType === 'alert_flagged_normal' ||
           eventType === 'system_alert_resolved' ||
-          (eventType === 'device_status_update' && !!eventData.action)
+          (eventType === 'device_status_update' && (!!eventData.action || eventData.status === 'INACTIVE'))
         ) {
           triggerGlobalRefresh(eventData);
           if (eventData.domain === 'alerts' || eventType === 'system_data_update') {

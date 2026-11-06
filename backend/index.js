@@ -1717,7 +1717,7 @@ app.post('/api/device/data', async (req, res) => {
                  WHERE assigned_patient_id = $1 
                    AND (serial_number LIKE 'VS-%' OR device_name ILIKE '%Vital%')
                    AND status = 'ACTIVE' 
-                   AND last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                   AND last_heartbeat >= NOW() - INTERVAL '12 seconds'
                    AND is_archived IS DISTINCT FROM TRUE 
                  LIMIT 1`,
                 [patientId]
@@ -1753,7 +1753,7 @@ app.post('/api/device/data', async (req, res) => {
                  WHERE assigned_patient_id = $1 
                    AND (serial_number LIKE 'SD-%' OR device_name ILIKE '%Diaper%' OR device_name ILIKE '%Moisture%')
                    AND status = 'ACTIVE' 
-                   AND last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                   AND last_heartbeat >= NOW() - INTERVAL '12 seconds'
                    AND is_archived IS DISTINCT FROM TRUE 
                  LIMIT 1`,
                 [patientId]
@@ -2126,29 +2126,71 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, message: 'An unexpected server error occurred.' });
 });
 
-// Background Reaper: Automatically transition offline devices (no heartbeat for > 2 mins) to INACTIVE
+// Background Reaper: Automatically transition powered-off/offline devices (no heartbeat for > 10s) to INACTIVE in real time
 setInterval(async () => {
     try {
         const deadDevices = await pool.query(
             `UPDATE device_whitelist
              SET status = 'INACTIVE'
              WHERE status = 'ACTIVE'
-               AND (last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '2 minutes')
+               AND (last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '10 seconds')
              RETURNING serial_number, assigned_patient_id, device_name`
         );
         if (deadDevices.rowCount > 0) {
             for (const dev of deadDevices.rows) {
-                console.log(`[ALAGA REAPER] Device ${dev.device_name} (${dev.serial_number}) marked INACTIVE (no heartbeat > 2m).`);
+                console.log(`[ALAGA REAPER] Device ${dev.device_name} (${dev.serial_number}) marked INACTIVE (no heartbeat > 10s).`);
+                let stillVsOnline = false;
+                let stillSdOnline = false;
+
+                if (dev.assigned_patient_id) {
+                    const activeCheck = await pool.query(
+                        `SELECT serial_number, device_name
+                         FROM device_whitelist
+                         WHERE assigned_patient_id = $1
+                           AND status = 'ACTIVE'
+                           AND last_heartbeat >= NOW() - INTERVAL '10 seconds'
+                           AND is_archived IS DISTINCT FROM TRUE`,
+                        [dev.assigned_patient_id]
+                    ).catch(() => ({ rows: [] }));
+
+                    for (const row of activeCheck.rows) {
+                        const sn = String(row.serial_number || '');
+                        const dn = String(row.device_name || '').toLowerCase();
+                        if (sn.startsWith('VS-') || dn.includes('vital')) stillVsOnline = true;
+                        if (sn.startsWith('SD-') || dn.includes('diaper') || dn.includes('moisture')) stillSdOnline = true;
+                    }
+                }
+
+                const nowIso = new Date().toISOString();
                 broadcastAlert('device_status_update', {
                     serial_number: dev.serial_number,
+                    serialNumber: dev.serial_number,
+                    device_name: dev.device_name,
                     status: 'INACTIVE',
+                    is_online: false,
                     patient_id: dev.assigned_patient_id,
-                    timestamp: new Date().toISOString()
+                    assigned_patient_id: dev.assigned_patient_id,
+                    is_vitals_active: stillVsOnline,
+                    is_moisture_active: stillSdOnline,
+                    timestamp: nowIso
                 });
+
+                if (dev.assigned_patient_id) {
+                    broadcastAlert('patient_telemetry_update', {
+                        patient_id: dev.assigned_patient_id,
+                        serial_number: dev.serial_number,
+                        device_type: String(dev.serial_number || '').startsWith('SD-') ? 'moisture' : 'vitals',
+                        device_status: (stillVsOnline || stillSdOnline) ? 'ACTIVE' : 'INACTIVE',
+                        is_online: stillVsOnline || stillSdOnline,
+                        is_vitals_active: stillVsOnline,
+                        is_moisture_active: stillSdOnline,
+                        timestamp: nowIso
+                    });
+                }
             }
         }
     } catch (_) {}
-}, 30000);
+}, 3000);
 
 // --- Start Server ---
 const HOST = '0.0.0.0';

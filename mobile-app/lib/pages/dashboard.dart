@@ -118,12 +118,12 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       if (eventType == 'device_status_update') {
         final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
-        final isAct = data['status'] == 'ACTIVE';
+        final isAct = data['status'] == 'ACTIVE' && data['is_online'] != false;
         final action = data['action']?.toString();
         final isPermanentUnpair = action == 'permanent' || action == 'removed' || data['status'] == 'AVAILABLE' || data['status'] == 'UNASSIGNED';
         final sn = (data['serial_number'] ?? data['serialNumber'])?.toString() ?? '';
-        final isVS = sn.startsWith('VS-');
-        final isSD = sn.startsWith('SD-');
+        final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
+        final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
 
         setState(() {
           for (var i = 0; i < _patients.length; i++) {
@@ -145,8 +145,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                   }
                 }
               }
-              final newVOnline = isVS ? (isPermanentUnpair ? false : isAct) : (p['is_vitals_online'] ?? false);
-              final newMOnline = isSD ? (isPermanentUnpair ? false : isAct) : (p['is_moisture_online'] ?? false);
+              final newVOnline = data['is_vitals_active'] != null
+                  ? (data['is_vitals_active'] == true)
+                  : (isVS ? (isPermanentUnpair ? false : isAct) : (p['is_vitals_online'] == true));
+              final newMOnline = data['is_moisture_active'] != null
+                  ? (data['is_moisture_active'] == true)
+                  : (isSD ? (isPermanentUnpair ? false : isAct) : (p['is_moisture_online'] == true));
               final anyOnline = newVOnline == true || newMOnline == true;
               final existingTelem = p['latest_telemetry'] is Map ? Map<String, dynamic>.from(p['latest_telemetry']) : <String, dynamic>{};
               if (!newVOnline) {
@@ -189,6 +193,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
           final isVitalsActiveParam = data['is_vitals_active'];
           final isMoistureActiveParam = data['is_moisture_active'];
+          final statusStr = (data['device_status'] ?? data['status'])?.toString().toUpperCase();
+          final isExplicitOffline = data['is_online'] == false || statusStr == 'INACTIVE';
 
           setState(() {
             for (var i = 0; i < _patients.length; i++) {
@@ -200,10 +206,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
                 final bool newVOnline = isVitalsActiveParam != null
                     ? (isVitalsActiveParam == true)
-                    : (isVS ? true : (p['is_vitals_online'] == true));
+                    : (isVS ? !isExplicitOffline : (p['is_vitals_online'] == true));
                 final bool newMOnline = isMoistureActiveParam != null
                     ? (isMoistureActiveParam == true)
-                    : (isSD ? true : (p['is_moisture_online'] == true));
+                    : (isSD ? !isExplicitOffline : (p['is_moisture_online'] == true));
+                final bool anyOnline = newVOnline || newMOnline;
 
                 final hr = data['heart_rate'] ?? rawTelem?['heart_rate'];
                 final temp = data['temperature'] ?? rawTelem?['temperature'];
@@ -232,9 +239,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
                 _patients[i] = {
                   ...p,
-                  'is_online': true,
-                  'isOnline': true,
-                  'device_status': 'active',
+                  'is_online': anyOnline,
+                  'isOnline': anyOnline,
+                  'device_status': anyOnline ? 'active' : 'inactive',
                   'is_vitals_online': newVOnline,
                   'is_moisture_online': newMOnline,
                   'latest_telemetry': existingTelem,
@@ -243,8 +250,19 @@ class _DashboardScreenState extends State<DashboardScreen>
               }
             }
           });
+          return;
         }
-        _fetchDashboardData();
+        if (eventType == 'new_alert' ||
+            eventType == 'new_clinical_alert' ||
+            eventType == 'alert_acknowledged' ||
+            eventType == 'alert_archived' ||
+            eventType == 'alert_archived_bulk' ||
+            eventType == 'alert_flagged_normal' ||
+            eventType == 'assignment_update' ||
+            eventType == 'system_data_update' ||
+            eventType == 'client_mutation') {
+          _fetchDashboardData();
+        }
       });
     }
 
@@ -2541,23 +2559,23 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildPatientCard(Map<String, dynamic> patient) {
     final telemetry = patient['latest_telemetry'] ?? {};
     final pairedList = patient['paired_devices'] is List ? (patient['paired_devices'] as List) : [];
-    final bool isDeviceActive = patient['is_online'] == true ||
-        patient['isOnline'] == true ||
-        patient['device_status']?.toString().toLowerCase() == 'active' ||
-        pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
 
-    final bool isVitalsActive = (patient['is_vitals_online'] == true ||
-        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+    final bool isVitalsActive = patient['is_vitals_online'] is bool
+        ? (patient['is_vitals_online'] == true)
+        : pairedList.any((d) =>
+            d['is_online'] == true &&
             ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)))) &&
-        patient['is_vitals_online'] != false;
+                (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)));
 
-    final bool isMoistureActive = (patient['is_moisture_online'] == true ||
-        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+    final bool isMoistureActive = patient['is_moisture_online'] is bool
+        ? (patient['is_moisture_online'] == true)
+        : pairedList.any((d) =>
+            d['is_online'] == true &&
             ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)))) &&
-        patient['is_moisture_online'] != false;
+                (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+                (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)));
+
+    final bool isDeviceActive = isVitalsActive || isMoistureActive;
 
     final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
     final patientName = (patient['name'] ?? '').toString().toLowerCase().trim();

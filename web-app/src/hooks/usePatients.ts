@@ -46,9 +46,9 @@ export const usePatients = (token: string | null) => {
                             temperature: temp,
                             moistureLevel: moist
                         },
-                        deviceConnected: !!p.is_online,
-                        is_online: !!p.is_online,
-                        isOnline: !!p.is_online,
+                        deviceConnected: !!(p.is_vitals_online || p.is_moisture_online),
+                        is_online: !!(p.is_vitals_online || p.is_moisture_online),
+                        isOnline: !!(p.is_vitals_online || p.is_moisture_online),
                         is_vitals_online: !!p.is_vitals_online,
                         is_moisture_online: !!p.is_moisture_online,
                         assignedCaregiverName: p.assigned_caregiver_name,
@@ -95,7 +95,7 @@ export const usePatients = (token: string | null) => {
                 const action = detail.action;
                 const isPermanentUnpair = action === 'unpair_permanent' || detail.assigned_patient_id === null;
                 const isStandby = action === 'unpair_change' || detail.status === 'STANDBY';
-                const isOnline = !isPermanentUnpair && !isStandby && (detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE');
+                const isOnline = !isPermanentUnpair && !isStandby && detail.is_online !== false && (detail.status === 'ACTIVE' || detail.device_status === 'ACTIVE');
                 const sn = String(detail.serial_number || detail.serialNumber || '');
                 const isVS = sn.startsWith('VS-') || detail.device_type === 'vitals' || String(detail.device_name || '').toLowerCase().includes('vital');
                 const isSD = sn.startsWith('SD-') || detail.device_type === 'moisture' || String(detail.device_name || '').toLowerCase().includes('diaper');
@@ -156,20 +156,20 @@ export const usePatients = (token: string | null) => {
                             : ((action === 'pair' || action === 'assign') && isSD && String(p.id) === targetPatientId ? sn : (p as any).diaper_device_sn);
 
                         const isVOnline = (isPermanentUnpair || isStandby) && isVS
-                            ? paired.some((d: any) => (d.status === 'ACTIVE' && d.is_online !== false) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))
-                            : (isVS 
-                                ? isOnline 
-                                : (detail.is_vitals_active !== undefined 
-                                    ? !!detail.is_vitals_active 
-                                    : paired.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))));
+                            ? paired.some((d: any) => d.is_online === true && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))
+                            : (detail.is_vitals_active !== undefined
+                                ? !!detail.is_vitals_active
+                                : (isVS
+                                    ? isOnline
+                                    : paired.some((d: any) => d.is_online === true && (String(d.serial_number).startsWith('VS-') || String(d.device_name).toLowerCase().includes('vital')))));
 
                         const isMOnline = (isPermanentUnpair || isStandby) && isSD
-                            ? paired.some((d: any) => (d.status === 'ACTIVE' && d.is_online !== false) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))
-                            : (isSD 
-                                ? isOnline 
-                                : (detail.is_moisture_active !== undefined 
-                                    ? !!detail.is_moisture_active 
-                                    : paired.some((d: any) => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))));
+                            ? paired.some((d: any) => d.is_online === true && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))
+                            : (detail.is_moisture_active !== undefined
+                                ? !!detail.is_moisture_active
+                                : (isSD
+                                    ? isOnline
+                                    : paired.some((d: any) => d.is_online === true && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))));
 
                         const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : existingTelem.heart_rate) : 0;
                         const finalTemp = isVOnline ? (rawTemp !== undefined && rawTemp !== null ? Number(rawTemp) : existingTelem.temperature) : 0;

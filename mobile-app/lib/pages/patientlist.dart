@@ -26,22 +26,135 @@ class _PatientListScreenState extends State<PatientListScreen> {
   // [INTEGRATION] Live patient data from the backend
   List<Map<String, dynamic>> allPatients = [];
   bool _isLoading = true;
+  bool _isFetching = false;
   StreamSubscription<Map<String, dynamic>>? _alertSyncSub;
+  Timer? _syncTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchPatients();
+    _syncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted) _fetchPatients(silent: true);
+    });
     _alertSyncSub = AlertNotificationService.onAlertUpdate.listen((eventData) {
       if (!mounted) return;
       final eventType = eventData['event']?.toString() ?? '';
-      if (eventType == 'patient_telemetry_update' ||
-          eventType == 'device_status_update' ||
-          eventType == 'new_alert' ||
+      final data = eventData['data'] is Map<String, dynamic>
+          ? eventData['data'] as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (eventType == 'patient_telemetry_update' || eventType == 'device_status_update') {
+        final targetId = (data['patient_id'] ?? data['patientId'])?.toString();
+        final rawTelem = data['latest_telemetry'] is Map
+            ? Map<String, dynamic>.from(data['latest_telemetry'])
+            : null;
+        final sn = (data['serial_number'] ?? data['serialNumber'])?.toString() ?? '';
+        final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
+        final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
+        final isVitalsActiveParam = data['is_vitals_active'];
+        final isMoistureActiveParam = data['is_moisture_active'];
+        final statusStr = (data['status'] ?? data['device_status'])?.toString().toUpperCase();
+        final isExplicitOffline = data['is_online'] == false ||
+            statusStr == 'INACTIVE' ||
+            statusStr == 'STANDBY' ||
+            statusStr == 'AVAILABLE' ||
+            statusStr == 'UNASSIGNED';
+
+        if (targetId != null || sn.isNotEmpty) {
+          setState(() {
+            for (var i = 0; i < allPatients.length; i++) {
+              final p = allPatients[i];
+              final matchesPatient = (targetId != null && p['patient_id']?.toString() == targetId) ||
+                  (sn.isNotEmpty && (p['vs_id'] == sn || p['sd_id'] == sn));
+              if (matchesPatient) {
+                final bool newVOnline = isVitalsActiveParam != null
+                    ? (isVitalsActiveParam == true)
+                    : (isVS ? !isExplicitOffline : (p['is_vitals_online'] == true));
+                final bool newMOnline = isMoistureActiveParam != null
+                    ? (isMoistureActiveParam == true)
+                    : (isSD ? !isExplicitOffline : (p['is_moisture_online'] == true));
+                final bool isDeviceActive = newVOnline || newMOnline;
+
+                final hr = !newVOnline
+                    ? null
+                    : (data['heart_rate'] ?? rawTelem?['heart_rate'] ?? p['hr_num']) as num?;
+                final temp = !newVOnline
+                    ? null
+                    : (data['temperature'] ?? rawTelem?['temperature'] ?? p['temp_num']) as num?;
+                final spo2 = !newVOnline
+                    ? null
+                    : (data['spo2'] ?? rawTelem?['spo2'] ?? p['spo2_num']) as num?;
+                final moist = !newMOnline
+                    ? null
+                    : (data['moisture'] ?? data['moisture_value'] ?? rawTelem?['moisture'] ?? rawTelem?['moisture_value'] ?? p['moist_num']) as num?;
+
+                final bool isHrMisaligned = newVOnline && (hr == 0 || hr == null);
+                final bool isSpo2Misaligned = newVOnline && (spo2 == 0 || spo2 == null);
+                final bool isTempMisaligned = newVOnline && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrMisaligned && isSpo2Misaligned));
+                final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
+
+                final String hrDisplay = !newVOnline ? '---' : isHrMisaligned ? 'Misaligned' : '${hr.round()}';
+                final String tempDisplay = !newVOnline ? '---' : isTempMisaligned ? 'Misaligned' : '${temp.toStringAsFixed(1)}°C';
+                final String spo2Display = !newVOnline ? '---' : isSpo2Misaligned ? 'Misaligned' : '${spo2.round()}%';
+                final String wetDisplay = !newMOnline ? '---' : (moist == null ? 'Acquiring...' : (moist >= 70 ? 'Wet (${moist.round()}%)' : 'Dry (${moist.round()}%)'));
+                final String patientStatus = !isDeviceActive ? 'Offline' : isAnyMisaligned ? 'Misaligned' : 'Stable';
+
+                final existingTelem = p['latest_telemetry'] is Map
+                    ? Map<String, dynamic>.from(p['latest_telemetry'])
+                    : <String, dynamic>{};
+                if (!newVOnline) {
+                  existingTelem.remove('heart_rate');
+                  existingTelem.remove('temperature');
+                  existingTelem.remove('spo2');
+                } else {
+                  if (hr != null) existingTelem['heart_rate'] = hr;
+                  if (temp != null) existingTelem['temperature'] = temp;
+                  if (spo2 != null) existingTelem['spo2'] = spo2;
+                }
+                if (!newMOnline) {
+                  existingTelem.remove('moisture');
+                  existingTelem.remove('moisture_value');
+                } else if (moist != null) {
+                  existingTelem['moisture'] = moist;
+                  existingTelem['moisture_value'] = moist;
+                }
+
+                allPatients[i] = {
+                  ...p,
+                  'status': patientStatus,
+                  'device_status': isDeviceActive ? 'active' : 'inactive',
+                  'is_online': isDeviceActive,
+                  'isOnline': isDeviceActive,
+                  'is_vitals_online': newVOnline,
+                  'is_moisture_online': newMOnline,
+                  'latest_telemetry': existingTelem,
+                  'hr': hrDisplay,
+                  'temp': tempDisplay,
+                  'spo2': spo2Display,
+                  'wetness': wetDisplay,
+                  'is_wet': newMOnline && moist != null && moist >= 70,
+                  'hr_num': hr?.toDouble() ?? 0.0,
+                  'temp_num': temp?.toDouble() ?? 0.0,
+                  'spo2_num': spo2?.toDouble() ?? 0.0,
+                  'moist_num': moist?.toDouble() ?? 0.0,
+                };
+                break;
+              }
+            }
+          });
+          if (eventType == 'device_status_update' && data['action'] != null) {
+            _fetchPatients(silent: true);
+          }
+          return;
+        }
+      }
+
+      if (eventType == 'new_alert' ||
           eventType == 'system_data_update' ||
           eventType == 'assignment_update' ||
           eventType == 'client_mutation') {
-        _fetchPatients();
+        _fetchPatients(silent: true);
       }
     });
   }
@@ -49,10 +162,14 @@ class _PatientListScreenState extends State<PatientListScreen> {
   // [INTEGRATION] Fetches patient list from GET /api/caregiver/patients.
   // The backend returns role-scoped data: admins see all patients,
   // caregivers only see patients they have access to (OWASP A01).
-    Future<void> _fetchPatients() async {
-    setState(() {
-      _isLoading = true;
-    });
+    Future<void> _fetchPatients({bool silent = false}) async {
+    if (_isFetching) return;
+    _isFetching = true;
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       final result = await ApiService.get('/api/caregiver/patients');
@@ -65,23 +182,23 @@ class _PatientListScreenState extends State<PatientListScreen> {
           allPatients = rawPatients.map((p) {
             final telemetry = p['latest_telemetry'] ?? {};
             final pairedList = p['paired_devices'] is List ? (p['paired_devices'] as List) : [];
-            final bool isDeviceActive = p['is_online'] == true ||
-                p['isOnline'] == true ||
-                p['device_status']?.toString().toLowerCase() == 'active' ||
-                pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
 
-            final bool isVitalsActive = (p['is_vitals_online'] == true ||
-                pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+            final bool isVitalsActive = p['is_vitals_online'] is bool
+                ? (p['is_vitals_online'] == true)
+                : pairedList.any((d) =>
+                    d['is_online'] == true &&
                     ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-                     (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)))) &&
-                p['is_vitals_online'] != false;
+                        (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)));
 
-            final bool isMoistureActive = (p['is_moisture_online'] == true ||
-                pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+            final bool isMoistureActive = p['is_moisture_online'] is bool
+                ? (p['is_moisture_online'] == true)
+                : pairedList.any((d) =>
+                    d['is_online'] == true &&
                     ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
-                     (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-                     (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)))) &&
-                p['is_moisture_online'] != false;
+                        (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+                        (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)));
+
+            final bool isDeviceActive = isVitalsActive || isMoistureActive;
 
             // Extract raw numbers (or null) to allow for graph calculations
             final hr = (telemetry['heart_rate'] ?? p['heart_rate'] ?? p['heartRate']) as num?;
@@ -137,23 +254,28 @@ class _PatientListScreenState extends State<PatientListScreen> {
           _isLoading = false;
         });
       } else {
-        setState(() {
-          allPatients = [];
-          _isLoading = false;
-        });
+        if (!silent) {
+          setState(() {
+            allPatients = [];
+            _isLoading = false;
+          });
+        }
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           allPatients = [];
           _isLoading = false;
         });
       }
+    } finally {
+      _isFetching = false;
     }
   }
 
   @override
   void dispose() {
+    _syncTimer?.cancel();
     _alertSyncSub?.cancel();
     _searchController.dispose();
     super.dispose();

@@ -144,8 +144,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     // Listen to real-time events synced across Web and Mobile
     _alertSub = AlertNotificationService.onAlertUpdate.listen((event) {
-      if (mounted) {
-        _fetchAlerts();
+      if (!mounted) return;
+      final eventType = event['event']?.toString() ?? '';
+      if (eventType == 'new_alert' ||
+          eventType == 'new_clinical_alert' ||
+          eventType == 'alert_acknowledged' ||
+          eventType == 'alert_archived' ||
+          eventType == 'alert_archived_bulk' ||
+          eventType == 'alert_flagged_normal' ||
+          eventType == 'system_alert_resolved' ||
+          eventType == 'system_data_update' ||
+          eventType == 'client_mutation') {
+        _fetchAlerts(silent: true);
       }
     });
   }
@@ -162,44 +172,56 @@ class _NotificationScreenState extends State<NotificationScreen> {
   // The backend enforces RBAC — caregivers only see their assigned patients.
   // [OWASP A01] JWT is sent in the Authorization header via ApiService.
   // --------------------------------------------------------------------------
-  Future<void> _fetchAlerts() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  bool _isFetchingAlerts = false;
 
-    final result = await ApiService.get(
-      _showClinicalAlerts ? '/api/alerts/clinical' : '/api/alerts/system',
-    );
-
-    if (!mounted) return;
-
-    if (result['success'] == true) {
-      final rawList = List<dynamic>.from(result['data'] ?? []);
+  Future<void> _fetchAlerts({bool silent = false}) async {
+    if (_isFetchingAlerts) return;
+    _isFetchingAlerts = true;
+    if (!silent) {
       setState(() {
-        if (_showClinicalAlerts) {
-          _alerts = rawList.where((a) {
-            final status = (a['status'] ?? '').toString();
-            final flagCount = int.tryParse('${a['flag_count'] ?? 0}') ?? 0;
-            final ackAt = a['acknowledged_at'];
-            final suppressed = a['is_suppressed'] == true;
-            return status != 'Acknowledged' &&
-                status != 'Reviewed' &&
-                status != 'Flagged' &&
-                ackAt == null &&
-                flagCount < 5 &&
-                !suppressed;
-          }).toList();
-        } else {
-          _alerts = rawList.where((a) => (a['status'] ?? 'Active').toString() == 'Active').toList();
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    try {
+      final result = await ApiService.get(
+        _showClinicalAlerts ? '/api/alerts/clinical' : '/api/alerts/system',
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        final rawList = List<dynamic>.from(result['data'] ?? []);
+        setState(() {
+          if (_showClinicalAlerts) {
+            _alerts = rawList.where((a) {
+              final status = (a['status'] ?? '').toString();
+              final flagCount = int.tryParse('${a['flag_count'] ?? 0}') ?? 0;
+              final ackAt = a['acknowledged_at'];
+              final suppressed = a['is_suppressed'] == true;
+              return status != 'Acknowledged' &&
+                  status != 'Reviewed' &&
+                  status != 'Flagged' &&
+                  ackAt == null &&
+                  flagCount < 5 &&
+                  !suppressed;
+            }).toList();
+          } else {
+            _alerts = rawList.where((a) => (a['status'] ?? 'Active').toString() == 'Active').toList();
+          }
+          _isLoading = false;
+        });
+      } else {
+        if (!silent) {
+          setState(() {
+            _errorMessage = result['message'] ?? 'Failed to load alerts.';
+            _isLoading = false;
+          });
         }
-        _isLoading = false;
-      });
-    } else {
-      setState(() {
-        _errorMessage = result['message'] ?? 'Failed to load alerts.';
-        _isLoading = false;
-      });
+      }
+    } finally {
+      _isFetchingAlerts = false;
     }
   }
 

@@ -40,7 +40,7 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
       if (eventType == 'assignment_update' ||
           eventType == 'system_data_update' ||
           eventType == 'client_mutation') {
-        _fetchAll();
+        _fetchAll(silent: true);
       }
     });
   }
@@ -59,11 +59,13 @@ class _AssignmentScreenState extends State<AssignmentScreen> {
   // [INTEGRATION] Fetches both active assignments and pending invitations in
   // parallel for efficiency. Pending invites are only fetched for caregivers
   // (non-parent users) since parents are the ones who send invitations.
-  Future<void> _fetchAll() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _fetchAll({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     // Run both fetches concurrently
     final results = await Future.wait([

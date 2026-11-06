@@ -97,7 +97,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final targetPatientId = (_patient['patient_id'] ?? _patient['id'])?.toString();
 
     _fetchHistory();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted) _fetchHistory(silent: true);
     });
 
@@ -111,35 +111,53 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
       if (eventType == 'device_status_update') {
         final updatePatientId = (data['patient_id'] ?? data['patientId'])?.toString();
         if (updatePatientId == null || updatePatientId == targetPatientId) {
-          final isAct = data['status'] == 'ACTIVE';
+          final isAct = data['status'] == 'ACTIVE' && data['is_online'] != false;
           final action = data['action']?.toString();
           final isPermanentUnpair = action == 'permanent' || action == 'removed' || data['status'] == 'AVAILABLE' || data['status'] == 'UNASSIGNED';
           final sn = (data['serial_number'] ?? data['serialNumber'] ?? '').toString();
           final isVS = sn.startsWith('VS-') || data['device_type'] == 'vitals';
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
           setState(() {
-            if (_patient['paired_devices'] is List && isPermanentUnpair) {
+            if (_patient['paired_devices'] is List) {
               final list = List<dynamic>.from(_patient['paired_devices']);
-              list.removeWhere((d) => d is Map && d['serial_number'] == sn);
+              if (isPermanentUnpair) {
+                list.removeWhere((d) => d is Map && d['serial_number'] == sn);
+              } else {
+                for (var j = 0; j < list.length; j++) {
+                  if (list[j] is Map && list[j]['serial_number'] == sn) {
+                    list[j] = {
+                      ...list[j],
+                      'status': isAct ? 'ACTIVE' : 'INACTIVE',
+                      'is_online': isAct,
+                    };
+                  }
+                }
+              }
               _patient['paired_devices'] = list;
             }
-            if (isVS) {
+            if (data['is_vitals_active'] != null) {
+              _patient['is_vitals_online'] = data['is_vitals_active'] == true;
+            } else if (isVS) {
               _patient['is_vitals_online'] = isPermanentUnpair ? false : isAct;
-              if (isPermanentUnpair) _patient['vital_device_sn'] = null;
-              if (!isAct || isPermanentUnpair) {
-                _telemetry.remove('heart_rate');
-                _telemetry.remove('temperature');
-                _telemetry.remove('spo2');
-              }
             }
-            if (isSD) {
+            if (isVS && isPermanentUnpair) _patient['vital_device_sn'] = null;
+            if (_patient['is_vitals_online'] != true) {
+              _telemetry.remove('heart_rate');
+              _telemetry.remove('temperature');
+              _telemetry.remove('spo2');
+            }
+
+            if (data['is_moisture_active'] != null) {
+              _patient['is_moisture_online'] = data['is_moisture_active'] == true;
+            } else if (isSD) {
               _patient['is_moisture_online'] = isPermanentUnpair ? false : isAct;
-              if (isPermanentUnpair) _patient['diaper_device_sn'] = null;
-              if (!isAct || isPermanentUnpair) {
-                _telemetry.remove('moisture');
-                _telemetry.remove('moisture_value');
-              }
             }
+            if (isSD && isPermanentUnpair) _patient['diaper_device_sn'] = null;
+            if (_patient['is_moisture_online'] != true) {
+              _telemetry.remove('moisture');
+              _telemetry.remove('moisture_value');
+            }
+
             final anyOnline = _patient['is_vitals_online'] == true || _patient['is_moisture_online'] == true;
             _patient['is_online'] = anyOnline;
             _patient['isOnline'] = anyOnline;
@@ -160,19 +178,21 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
           final isSD = sn.startsWith('SD-') || data['device_type'] == 'moisture';
           final isVitalsActiveParam = data['is_vitals_active'];
           final isMoistureActiveParam = data['is_moisture_active'];
+          final statusStr = (data['device_status'] ?? data['status'])?.toString().toUpperCase();
+          final isExplicitOffline = data['is_online'] == false || statusStr == 'INACTIVE';
 
           setState(() {
-            _patient['is_online'] = true;
-            _patient['isOnline'] = true;
-            _patient['device_status'] = 'active';
-
             final bool newVOnline = isVitalsActiveParam != null
                 ? (isVitalsActiveParam == true)
-                : (isVS ? true : (_patient['is_vitals_online'] == true));
+                : (isVS ? !isExplicitOffline : (_patient['is_vitals_online'] == true));
             final bool newMOnline = isMoistureActiveParam != null
                 ? (isMoistureActiveParam == true)
-                : (isSD ? true : (_patient['is_moisture_online'] == true));
+                : (isSD ? !isExplicitOffline : (_patient['is_moisture_online'] == true));
+            final bool anyOnline = newVOnline || newMOnline;
 
+            _patient['is_online'] = anyOnline;
+            _patient['isOnline'] = anyOnline;
+            _patient['device_status'] = anyOnline ? 'active' : 'inactive';
             _patient['is_vitals_online'] = newVOnline;
             _patient['is_moisture_online'] = newMOnline;
 
@@ -227,7 +247,48 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
 
     try {
       final tfParam = _selectedTimeframe.toLowerCase();
-      final result = await ApiService.get('/sensor/history/$targetPatientId?timeframe=$tfParam');
+      final results = await Future.wait([
+        ApiService.get('/sensor/history/$targetPatientId?timeframe=$tfParam'),
+        ApiService.get('/api/caregiver/patients/$targetPatientId'),
+      ]);
+      final result = results[0];
+      final patResult = results[1];
+
+      if (!mounted) return;
+
+      if (patResult['success'] == true && patResult['data'] is Map) {
+        final freshPat = Map<String, dynamic>.from(patResult['data']);
+        final bool vOnline = freshPat['is_vitals_online'] == true;
+        final bool mOnline = freshPat['is_moisture_online'] == true;
+        final bool anyOnline = vOnline || mOnline;
+        final freshTelem = freshPat['latest_telemetry'] is Map
+            ? Map<String, dynamic>.from(freshPat['latest_telemetry'])
+            : <String, dynamic>{};
+
+        if (!vOnline) {
+          freshTelem.remove('heart_rate');
+          freshTelem.remove('temperature');
+          freshTelem.remove('spo2');
+        }
+        if (!mOnline) {
+          freshTelem.remove('moisture');
+          freshTelem.remove('moisture_value');
+        }
+
+        setState(() {
+          _patient = {
+            ..._patient,
+            ...freshPat,
+            'is_online': anyOnline,
+            'isOnline': anyOnline,
+            'device_status': anyOnline ? 'active' : 'inactive',
+            'is_vitals_online': vOnline,
+            'is_moisture_online': mOnline,
+            'latest_telemetry': freshTelem,
+          };
+          _telemetry = freshTelem;
+        });
+      }
 
       if (mounted && result['success'] == true) {
         final List<dynamic> historyData = result['history'] ?? [];
@@ -301,23 +362,23 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final telemetry = _telemetry;
 
     final pairedList = patient['paired_devices'] is List ? (patient['paired_devices'] as List) : [];
-    final isDeviceActive = patient['is_online'] == true ||
-        patient['isOnline'] == true ||
-        patient['device_status']?.toString().toLowerCase() == 'active' ||
-        pairedList.any((d) => d['is_online'] == true || d['status'] == 'ACTIVE');
 
-    final bool isVitalsActive = (patient['is_vitals_online'] == true ||
-        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+    final bool isVitalsActive = patient['is_vitals_online'] is bool
+        ? (patient['is_vitals_online'] == true)
+        : pairedList.any((d) =>
+            d['is_online'] == true &&
             ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)))) &&
-        patient['is_vitals_online'] != false;
+                (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)));
 
-    final bool isMoistureActive = (patient['is_moisture_online'] == true ||
-        pairedList.any((d) => (d['is_online'] == true || d['status'] == 'ACTIVE') &&
+    final bool isMoistureActive = patient['is_moisture_online'] is bool
+        ? (patient['is_moisture_online'] == true)
+        : pairedList.any((d) =>
+            d['is_online'] == true &&
             ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
-             (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)))) &&
-        patient['is_moisture_online'] != false;
+                (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+                (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)));
+
+    final bool isDeviceActive = isVitalsActive || isMoistureActive;
 
     // 2. Parse Birthday & Age
     final dynamic rawBday = patient['birthdate'] ??

@@ -183,9 +183,40 @@ router.post('/reading', readingValidation, async (req, res) => {
 
     const isVS = String(deviceSerial).startsWith('VS-');
     const isSD = String(deviceSerial).startsWith('SD-');
+    let isVsActive = isVS;
+    let isSdActive = isSD;
 
-    // Carry forward previous complementary sensor readings for disjoint separate devices
+    // Carry forward previous complementary sensor readings only if complementary device is actively online
     try {
+        if (isSD) {
+            const vsCheck = await pool.query(
+                `SELECT 1 FROM device_whitelist 
+                 WHERE assigned_patient_id = $1 
+                   AND (serial_number LIKE 'VS-%' OR device_name ILIKE '%Vital%')
+                   AND status = 'ACTIVE' 
+                   AND last_heartbeat >= NOW() - INTERVAL '12 seconds'
+                   AND is_archived IS DISTINCT FROM TRUE 
+                 LIMIT 1`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+            isVsActive = !!(vsCheck.rows && vsCheck.rows.length > 0);
+        } else if (isVS) {
+            const sdCheck = await pool.query(
+                `SELECT 1 FROM device_whitelist 
+                 WHERE assigned_patient_id = $1 
+                   AND (serial_number LIKE 'SD-%' OR device_name ILIKE '%Diaper%' OR device_name ILIKE '%Moisture%')
+                   AND status = 'ACTIVE' 
+                   AND last_heartbeat >= NOW() - INTERVAL '12 seconds'
+                   AND is_archived IS DISTINCT FROM TRUE 
+                 LIMIT 1`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+            isSdActive = !!(sdCheck.rows && sdCheck.rows.length > 0);
+        } else {
+            isVsActive = true;
+            isSdActive = true;
+        }
+
         const lastSnapshot = await pool.query(
             `SELECT heart_rate, temperature, spo2, moisture_value 
              FROM sensor_readings 
@@ -197,13 +228,21 @@ router.post('/reading', readingValidation, async (req, res) => {
         if (lastSnapshot.rows.length > 0) {
             const prev = lastSnapshot.rows[0];
             if (isSD) {
-                // Smart Diaper Moisture Sensor: preserves vitals from Vital Signs Sensor
-                heartRate = parseFloat(prev.heart_rate) || 0;
-                temperature = parseFloat(prev.temperature) || 0;
-                spo2 = parseFloat(prev.spo2) || 0;
+                if (isVsActive) {
+                    heartRate = parseFloat(prev.heart_rate) || 0;
+                    temperature = parseFloat(prev.temperature) || 0;
+                    spo2 = parseFloat(prev.spo2) || 0;
+                } else {
+                    heartRate = 0;
+                    temperature = 0;
+                    spo2 = 0;
+                }
             } else if (isVS) {
-                // Vital Signs Sensor: preserves diaper moisture from Smart Diaper Moisture Sensor
-                moisture = parseInt(prev.moisture_value, 10) || 0;
+                if (isSdActive) {
+                    moisture = parseInt(prev.moisture_value, 10) || 0;
+                } else {
+                    moisture = 0;
+                }
             } else {
                 if (heartRate <= 0 && temperature <= 0 && spo2 <= 0) {
                     heartRate = parseFloat(prev.heart_rate) || 0;
@@ -529,6 +568,9 @@ router.post('/reading', readingValidation, async (req, res) => {
         serial_number: deviceSerial,
         device_type: isSD ? 'moisture' : (isVS ? 'vitals' : 'unified'),
         device_status: 'ACTIVE',
+        is_online: true,
+        is_vitals_active: isVsActive,
+        is_moisture_active: isSdActive,
         heart_rate: heartRate,
         temperature: temperature,
         spo2: spo2,

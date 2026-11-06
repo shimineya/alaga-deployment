@@ -53,9 +53,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       final eventType = eventData['event']?.toString() ?? '';
       if (eventType == 'assignment_update' ||
           eventType == 'system_data_update' ||
-          eventType == 'device_status_update' ||
           eventType == 'client_mutation') {
-        _loadAll();
+        _loadAll(silent: true);
       }
     });
   }
@@ -81,11 +80,13 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   // ---------------------------------------------------------------------------
   // DATA FETCHING & SILENT POLLING
   // ---------------------------------------------------------------------------
-  Future<void> _loadAll() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _loadAll({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final results = await Future.wait([

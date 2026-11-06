@@ -121,10 +121,10 @@ router.get('/devices', async (req, res) => {
             );
         }
 
-        // Dynamically compute real-time connection status (Online if heartbeat received within last 120 seconds / 2 minutes and assigned)
+        // Dynamically compute real-time connection status (Online if heartbeat received within last 12 seconds and assigned)
         const processedRows = result.rows.map(row => {
             const isUnassigned = !row.assigned_patient_id || row.status === 'AVAILABLE' || row.status === 'UNASSIGNED';
-            const isOnline = !isUnassigned && row.status !== 'STANDBY' && row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 120000;
+            const isOnline = !isUnassigned && row.status !== 'STANDBY' && row.last_heartbeat && (Date.now() - new Date(row.last_heartbeat).getTime()) < 12000;
             let displayStatus = isOnline ? 'ACTIVE' : (isUnassigned ? 'AVAILABLE' : 'INACTIVE');
             if (row.status === 'STANDBY') {
                 displayStatus = 'STANDBY';
@@ -157,7 +157,7 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
     const { serialNumber } = req.params;
     try {
         const devRes = await pool.query(
-            `SELECT serial_number, device_name, status, last_heartbeat, ip_address, battery_level, signal_strength
+            `SELECT serial_number, device_name, status, last_heartbeat, ip_address, battery_level, signal_strength, assigned_patient_id
              FROM device_whitelist
              WHERE serial_number = $1 AND is_archived IS DISTINCT FROM TRUE`,
             [serialNumber]
@@ -170,6 +170,7 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
         const device = devRes.rows[0];
         const t0 = Date.now();
         let isReachable = false;
+        let probedDirectly = false;
         let latencyMs = 0;
         let extraInfo = {};
 
@@ -185,6 +186,7 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
                 if (probeRes.ok) {
                     latencyMs = Date.now() - t0;
                     isReachable = true;
+                    probedDirectly = true;
                     try {
                         const json = await probeRes.json();
                         extraInfo = json;
@@ -195,10 +197,10 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
             }
         }
 
-        // 2. If direct probe didn't succeed, check if device sent telemetry within last 2 minutes (120s)
+        // 2. If direct probe didn't succeed, check if device sent telemetry within last 12 seconds
         if (!isReachable && device.last_heartbeat) {
             const timeSinceLastHeartbeat = Date.now() - new Date(device.last_heartbeat).getTime();
-            if (timeSinceLastHeartbeat < 120000) {
+            if (timeSinceLastHeartbeat < 12000) {
                 isReachable = true;
                 latencyMs = Math.min(Math.round(timeSinceLastHeartbeat / 100), 45) || 18;
             }
@@ -209,18 +211,21 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
             const updatedBattery = extraInfo.battery !== undefined ? parseInt(extraInfo.battery, 10) : device.battery_level;
             await pool.query(
                 `UPDATE device_whitelist
-                 SET last_heartbeat = NOW(),
+                 SET last_heartbeat = CASE WHEN $3::boolean THEN NOW() ELSE last_heartbeat END,
                      status = 'ACTIVE',
                      battery_level = COALESCE($2, battery_level)
                  WHERE serial_number = $1`,
-                [serialNumber, updatedBattery]
+                [serialNumber, updatedBattery, probedDirectly]
             );
 
             // Broadcast real-time online status to all active dashboards
             broadcastAlert('device_status_update', {
                 serial_number: serialNumber,
+                serialNumber,
                 status: 'ACTIVE',
+                is_online: true,
                 patient_id: device.assigned_patient_id,
+                assigned_patient_id: device.assigned_patient_id,
                 battery_level: updatedBattery,
                 timestamp: new Date().toISOString()
             });
@@ -235,15 +240,18 @@ router.post('/devices/:serialNumber/ping', async (req, res) => {
         } else {
             // Explicitly mark offline
             await pool.query(
-                `UPDATE device_whitelist SET status = 'INACTIVE' WHERE serial_number = $1`,
+                `UPDATE device_whitelist SET status = 'INACTIVE' WHERE serial_number = $1 AND status IS DISTINCT FROM 'STANDBY' AND assigned_patient_id IS NOT NULL`,
                 [serialNumber]
             );
 
             // Broadcast real-time offline status to all active dashboards
             broadcastAlert('device_status_update', {
                 serial_number: serialNumber,
+                serialNumber,
                 status: 'INACTIVE',
+                is_online: false,
                 patient_id: device.assigned_patient_id,
+                assigned_patient_id: device.assigned_patient_id,
                 timestamp: new Date().toISOString()
             });
 
@@ -2160,11 +2168,11 @@ router.get('/patients/:id', async (req, res) => {
                                    'status', CASE 
                                        WHEN dw.status = 'STANDBY' THEN 'STANDBY'
                                        WHEN dw.status = 'MAINTENANCE' THEN 'MAINTENANCE'
-                                       WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'ACTIVE'
+                                       WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE'
                                        ELSE 'INACTIVE'
                                    END,
                                    'is_online', CASE 
-                                       WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
+                                       WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN true
                                        ELSE false
                                    END,
                                    'battery_level', dw.battery_level,
@@ -2184,7 +2192,7 @@ router.get('/patients/:id', async (req, res) => {
                                SELECT 1 FROM device_whitelist dw 
                                WHERE dw.assigned_patient_id = p.patient_id 
                                AND dw.status = 'ACTIVE' 
-                               AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                AND dw.is_archived IS DISTINCT FROM TRUE
                            ) THEN true 
                            ELSE false 
@@ -2196,7 +2204,7 @@ router.get('/patients/:id', async (req, res) => {
                                SELECT 1 FROM device_whitelist dw 
                                WHERE dw.assigned_patient_id = p.patient_id 
                                AND dw.status = 'ACTIVE' 
-                               AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
                                AND dw.is_archived IS DISTINCT FROM TRUE
                            ) THEN true 
@@ -2209,7 +2217,7 @@ router.get('/patients/:id', async (req, res) => {
                                SELECT 1 FROM device_whitelist dw 
                                WHERE dw.assigned_patient_id = p.patient_id 
                                AND dw.status = 'ACTIVE' 
-                               AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                               AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
                                AND dw.is_archived IS DISTINCT FROM TRUE
                            ) THEN true 
@@ -2376,11 +2384,11 @@ router.get('/patients', async (req, res) => {
                                     'status', CASE 
                                         WHEN dw.status = 'STANDBY' THEN 'STANDBY'
                                         WHEN dw.status = 'MAINTENANCE' THEN 'MAINTENANCE'
-                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'ACTIVE'
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE'
                                         ELSE 'INACTIVE'
                                     END,
                                     'is_online', CASE 
-                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN true
                                         ELSE false
                                     END,
                                     'battery_level', dw.battery_level,
@@ -2400,7 +2408,7 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
                             ELSE false 
@@ -2412,7 +2420,7 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                 AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
@@ -2425,7 +2433,7 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                 AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
@@ -2573,11 +2581,11 @@ router.get('/patients', async (req, res) => {
                                     'status', CASE 
                                         WHEN dw.status = 'STANDBY' THEN 'STANDBY'
                                         WHEN dw.status = 'MAINTENANCE' THEN 'MAINTENANCE'
-                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'ACTIVE'
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE'
                                         ELSE 'INACTIVE'
                                     END,
                                     'is_online', CASE 
-                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN true
+                                        WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN true
                                         ELSE false
                                     END,
                                     'battery_level', dw.battery_level,
@@ -2597,7 +2605,7 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '2 minutes'
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
                             ELSE false 
@@ -2609,7 +2617,7 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                 AND (dw.serial_number LIKE 'VS-%' OR dw.device_name ILIKE '%Vital%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 
@@ -2622,7 +2630,7 @@ router.get('/patients', async (req, res) => {
                                 SELECT 1 FROM device_whitelist dw 
                                 WHERE dw.assigned_patient_id = p.patient_id 
                                 AND dw.status = 'ACTIVE' 
-                                AND dw.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+                                AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds'
                                 AND (dw.serial_number LIKE 'SD-%' OR dw.device_name ILIKE '%Diaper%' OR dw.device_name ILIKE '%Moisture%')
                                 AND dw.is_archived IS DISTINCT FROM TRUE
                             ) THEN true 

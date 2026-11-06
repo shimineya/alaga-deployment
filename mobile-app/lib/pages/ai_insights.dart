@@ -56,12 +56,11 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
       final eventType = eventData['event']?.toString() ?? '';
       if (eventType == 'system_data_update' ||
           eventType == 'assignment_update' ||
-          eventType == 'device_status_update' ||
           eventType == 'new_alert' ||
           eventType == 'alert_acknowledged' ||
           eventType == 'alert_flagged_normal' ||
           eventType == 'client_mutation') {
-        _loadPatients();
+        _loadPatients(silent: true);
       }
     });
   }
@@ -73,8 +72,10 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadPatients() async {
-    setState(() => _loadingPatients = true);
+  Future<void> _loadPatients({bool silent = false}) async {
+    if (!silent) {
+      setState(() => _loadingPatients = true);
+    }
     try {
       final result = await ApiService.get('/caregiver/patients');
       if (!mounted) return;
@@ -97,25 +98,27 @@ class _AiInsightsScreenState extends State<AiInsightsScreen> {
       setState(() => _loadingPatients = false);
 
       if (_selectedPatientId != null) {
-        await _loadInsights();
+        await _loadInsights(silent: silent);
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadingPatients = false;
-        _error = 'Failed to load accessible patients.';
+        if (!silent) _error = 'Failed to load accessible patients.';
       });
     }
   }
 
-  Future<void> _loadInsights() async {
+  Future<void> _loadInsights({bool silent = false}) async {
     final patientId = _selectedPatientId;
     if (patientId == null) return;
 
-    setState(() {
-      _loadingInsights = true;
-      _error = null;
-    });
+    if (!silent) {
+      setState(() {
+        _loadingInsights = true;
+        _error = null;
+      });
+    }
 
     try {
       final res = await ApiService.get(

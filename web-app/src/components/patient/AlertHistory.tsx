@@ -117,7 +117,7 @@ export const AlertHistory: React.FC<AlertHistoryProps> = ({ patientId }) => {
                     <Bell className="w-4 h-4 text-teal-600 animate-pulse" />
                     Clinical Alerts History
                 </CardTitle>
-                
+
                 {alerts.length > 0 && (
                     <div className="flex items-center gap-3">
                         <span className="text-xs text-slate-500 font-medium">
@@ -140,7 +140,7 @@ export const AlertHistory: React.FC<AlertHistoryProps> = ({ patientId }) => {
                     </div>
                 )}
             </CardHeader>
-            
+
             <CardContent className="p-0">
                 {loading ? (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
@@ -177,11 +177,10 @@ export const AlertHistory: React.FC<AlertHistoryProps> = ({ patientId }) => {
                         {alerts.map((alert) => {
                             const isSelected = selectedIds.includes(alert.alert_id);
                             return (
-                                <div 
-                                    key={alert.alert_id} 
-                                    className={`flex items-center gap-4 px-6 py-3.5 transition-colors hover:bg-slate-50/50 ${
-                                        isSelected ? 'bg-teal-50/10' : ''
-                                    }`}
+                                <div
+                                    key={alert.alert_id}
+                                    className={`flex items-center gap-4 px-6 py-3.5 transition-colors hover:bg-slate-50/50 ${isSelected ? 'bg-teal-50/10' : ''
+                                        }`}
                                 >
                                     <div className="flex items-center shrink-0">
                                         <input
@@ -198,8 +197,8 @@ export const AlertHistory: React.FC<AlertHistoryProps> = ({ patientId }) => {
                                         {formatAlertTime(alert.sent_at)}
                                     </div>
                                     <div className="w-28 shrink-0">
-                                        <Badge 
-                                            variant="outline" 
+                                        <Badge
+                                            variant="outline"
                                             className={`text-[10px] px-1.5 py-0.5 font-semibold capitalize border ${getSeverityStyles(alert.severity)}`}
                                         >
                                             {alert.alert_category || alert.anomaly_type || 'Clinical'}

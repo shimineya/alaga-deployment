@@ -71,9 +71,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final eventType = eventData['event']?.toString() ?? '';
       if (eventType == 'system_data_update' ||
           eventType == 'assignment_update' ||
-          eventType == 'device_status_update' ||
           eventType == 'client_mutation') {
-        _fetchPatients();
+        _fetchPatients(silent: true);
       }
     });
   }
@@ -128,8 +127,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _fetchPatients() async {
-    setState(() => _isPatientsLoading = true);
+  Future<void> _fetchPatients({bool silent = false}) async {
+    if (!silent) {
+      setState(() => _isPatientsLoading = true);
+    }
     final result = await ApiService.get('/api/caregiver/patients');
     if (!mounted) return;
     if (result['success'] == true) {

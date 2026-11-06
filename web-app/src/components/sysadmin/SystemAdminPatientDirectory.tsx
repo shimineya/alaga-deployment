@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Search, UserPlus, Trash2, Edit, Check, ShieldAlert, Users, Layers, Mail, Calendar, UserCheck, Activity, BellOff } from 'lucide-react';
+import { Search, UserPlus, Trash2, Edit, Check, ShieldAlert, Users, Layers, Mail, Calendar, UserCheck, Activity, BellOff, Eye, Cpu, X, AlertTriangle, UserMinus } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/lib/auth-context';
 import { Patient } from '@/types';
@@ -443,55 +443,167 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
         }
     };
 
-    // Soft-delete/Archive Patient
-    const handleArchivePatient = async (patientId: number) => {
-        if (!confirm("Are you sure you want to archive this patient? Doing so will automatically unpair all active sensors.")) return;
+    // Confirmation Modal & Action States
+    const [patientToRemove, setPatientToRemove] = useState<ScopedPatient | null>(null);
+    const [patientToToggleMonitoring, setPatientToToggleMonitoring] = useState<ScopedPatient | null>(null);
+    const [careTeamModalPatient, setCareTeamModalPatient] = useState<ScopedPatient | null>(null);
+    const [careTeamEmailInput, setCareTeamEmailInput] = useState('');
+    const [staffToUnassign, setStaffToUnassign] = useState<{ patient: ScopedPatient; userId: number; name: string; role: string } | null>(null);
+    const [deviceToUnpair, setDeviceToUnpair] = useState<{ patient: ScopedPatient; serialNumber: string; deviceName?: string; mode: 'change' | 'permanent' } | null>(null);
+    const [isActionSubmitting, setIsActionSubmitting] = useState(false);
 
+    // Soft-delete / Remove Patient (with Confirmation Popup Modal)
+    const confirmRemovePatient = async () => {
+        if (!patientToRemove) return;
+        setIsActionSubmitting(true);
         const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
         try {
-            const res = await fetch(`${targetApi}/patients/${patientId}`, {
+            const res = await fetch(`${targetApi}/patients/${patientToRemove.patient_id}`, {
                 method: 'DELETE',
                 headers: getAuth()
             });
             const data = await res.json();
             if (data.success) {
-                toast.success("Patient archived successfully!");
+                toast.success(data.message || `Patient ${patientToRemove.name} removed and archived successfully.`);
+                setPatientToRemove(null);
                 fetchAssigned();
                 fetchUnassigned();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
             } else {
-                toast.error(data.message || "Failed to archive patient");
+                toast.error(data.message || "Failed to remove patient");
             }
         } catch {
-            toast.error("Failed to archive patient");
+            toast.error("Failed to remove patient");
+        } finally {
+            setIsActionSubmitting(false);
         }
     };
 
-    // Toggle patient monitoring
-    const handleToggleMonitoring = async (patient: ScopedPatient) => {
-        const isDisabling = !patient.is_monitoring_disabled;
-        const confirmMsg = isDisabling
-            ? `Disable live monitoring for ${patient.name}? Active clinical alerts will be paused.`
-            : `Re-enable live monitoring for ${patient.name}?`;
-        
-        if (!confirm(confirmMsg)) return;
-
+    // Toggle patient monitoring (with Confirmation Popup Modal)
+    const confirmToggleMonitoring = async () => {
+        if (!patientToToggleMonitoring) return;
+        const isDisabling = !patientToToggleMonitoring.is_monitoring_disabled;
+        setIsActionSubmitting(true);
         const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
         try {
-            const res = await fetch(`${targetApi}/patients/${patient.patient_id}/toggle-monitoring`, {
+            const res = await fetch(`${targetApi}/patients/${patientToToggleMonitoring.patient_id}/toggle-monitoring`, {
                 method: 'PATCH',
                 headers: getAuth(),
                 body: JSON.stringify({ is_monitoring_disabled: isDisabling })
             });
             const data = await res.json();
             if (data.success) {
-                toast.success(data.message || `Monitoring ${isDisabling ? 'disabled' : 'enabled'} for ${patient.name}.`);
+                toast.success(data.message || `Monitoring ${isDisabling ? 'paused' : 'resumed'} for ${patientToToggleMonitoring.name}.`);
+                setPatientToToggleMonitoring(null);
                 fetchAssigned();
                 fetchUnassigned();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
             } else {
                 toast.error(data.message || "Failed to update monitoring status");
             }
         } catch {
             toast.error("Network error updating monitoring status");
+        } finally {
+            setIsActionSubmitting(false);
+        }
+    };
+
+    // Unassign specific Caregiver / Staff member (with Confirmation Popup Modal)
+    const confirmUnassignStaff = async () => {
+        if (!staffToUnassign) return;
+        setIsActionSubmitting(true);
+        const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
+        try {
+            const res = await fetch(`${targetApi}/patients/${staffToUnassign.patient.patient_id}/unassign-staff`, {
+                method: 'DELETE',
+                headers: getAuth(),
+                body: JSON.stringify({
+                    caregiver_id: staffToUnassign.userId,
+                    user_id: staffToUnassign.userId
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || `${staffToUnassign.name} unassigned from ${staffToUnassign.patient.name}.`);
+                setStaffToUnassign(null);
+                if (careTeamModalPatient && careTeamModalPatient.patient_id === staffToUnassign.patient.patient_id) {
+                    setCareTeamModalPatient(prev => prev ? {
+                        ...prev,
+                        assigned_users: (prev.assigned_users || []).filter(u => u.user_id !== staffToUnassign.userId)
+                    } : null);
+                }
+                fetchAssigned();
+                fetchUnassigned();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+            } else {
+                toast.error(data.message || "Failed to unassign care team member");
+            }
+        } catch {
+            toast.error("Network error unassigning care team member");
+        } finally {
+            setIsActionSubmitting(false);
+        }
+    };
+
+    // Assign Caregiver / Staff from Care Team Modal
+    const handleAssignFromCareTeamModal = async () => {
+        if (!careTeamModalPatient) return;
+        const email = careTeamEmailInput.trim();
+        if (!email) return toast.error("Please enter a caregiver or staff email address");
+        setIsActionSubmitting(true);
+        const targetApi = isFacilityAdmin ? API_BASE : CAREGIVER_API;
+        try {
+            const res = await fetch(`${targetApi}/patients/${careTeamModalPatient.patient_id}/assign-staff-by-email`, {
+                method: 'POST',
+                headers: getAuth(),
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || "Care team member assigned successfully!");
+                setCareTeamEmailInput('');
+                setCareTeamModalPatient(null);
+                fetchAssigned();
+                fetchUnassigned();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+            } else {
+                toast.error(data.message || "Failed to assign care team member");
+            }
+        } catch {
+            toast.error("Network error during assignment");
+        } finally {
+            setIsActionSubmitting(false);
+        }
+    };
+
+    // Unpair Sensor Device (with Confirmation Popup Modal)
+    const confirmUnpairDevice = async () => {
+        if (!deviceToUnpair) return;
+        setIsActionSubmitting(true);
+        try {
+            const res = await fetch(`${CAREGIVER_API}/devices/unpair`, {
+                method: 'POST',
+                headers: getAuth(),
+                body: JSON.stringify({
+                    patient_id: deviceToUnpair.patient.patient_id,
+                    serial_number: deviceToUnpair.serialNumber,
+                    mode: deviceToUnpair.mode
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || `Device ${deviceToUnpair.serialNumber} unpaired from ${deviceToUnpair.patient.name}.`);
+                setDeviceToUnpair(null);
+                fetchAssigned();
+                fetchUnassigned();
+                window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
+            } else {
+                toast.error(data.message || "Failed to unpair device");
+            }
+        } catch {
+            toast.error("Network error unpairing device");
+        } finally {
+            setIsActionSubmitting(false);
         }
     };
 
@@ -563,7 +675,7 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                     Patients Directory
                                 </CardTitle>
                                 <CardDescription className="text-[10px] text-slate-400">
-                                    Browse all registered patients and active caregivers across the entire database.
+                                    Browse all registered patients, manage care teams, transfer rooms/beds, unpair devices, or remove patient records.
                                 </CardDescription>
                             </div>
                             <div className="relative w-full sm:w-64">
@@ -619,7 +731,7 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                                     <th className="px-4 py-3">Paired Device(s)</th>
                                                     <th className="px-4 py-3">Assigned Caregivers</th>
                                                     <th className="px-4 py-3">Created At</th>
-                                                    {canManage && <th className="px-4 py-3 text-right">Actions</th>}
+                                                    <th className="px-4 py-3 text-right">Actions</th>
                                                 </tr>
                                              </thead>
                                              <tbody className="divide-y divide-slate-100 text-xs text-slate-700 bg-white">
@@ -673,66 +785,158 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                                          <td className="px-4 py-3">
                                                              <ExpandableList
                                                                  items={(p.paired_devices || []).map((dev, i) => (
-                                                                     <Badge key={i} className="bg-teal-50 text-teal-700 border-teal-200/50 font-semibold font-mono text-[9px] w-max">
-                                                                         {dev.serial_number}
-                                                                     </Badge>
+                                                                     <div key={i} className="inline-flex items-center gap-1 bg-teal-50 text-teal-700 border border-teal-200/60 rounded px-1.5 py-0.5 font-semibold font-mono text-[9px] w-max">
+                                                                         <span>{dev.serial_number}</span>
+                                                                         {canManage && (
+                                                                             <button
+                                                                                 type="button"
+                                                                                 onClick={(e) => {
+                                                                                     e.stopPropagation();
+                                                                                     setDeviceToUnpair({
+                                                                                         patient: p,
+                                                                                         serialNumber: dev.serial_number,
+                                                                                         deviceName: dev.device_name,
+                                                                                         mode: 'permanent'
+                                                                                     });
+                                                                                 }}
+                                                                                 title={`Unpair ${dev.serial_number} from ${p.name}`}
+                                                                                 className="text-teal-500 hover:text-rose-600 transition-colors cursor-pointer ml-0.5"
+                                                                             >
+                                                                                 <X className="w-2.5 h-2.5" />
+                                                                             </button>
+                                                                         )}
+                                                                     </div>
                                                                  ))}
                                                                  emptyLabel="None paired"
                                                              />
                                                          </td>
                                                          <td className="px-4 py-3">
                                                              <ExpandableList
-                                                                 items={(p.assigned_users || []).map((u, i) => (
-                                                                     <div key={i} className="text-[10px] truncate">
-                                                                         <span className="font-semibold text-slate-800">{u.first_name || u.username} {u.last_name || ''}</span>{" "}
-                                                                         <span className="text-slate-400">({u.role === 'caregiver' ? 'CG' : 'Staff'})</span>
-                                                                     </div>
-                                                                 ))}
+                                                                 items={(p.assigned_users || []).map((u, i) => {
+                                                                     const displayName = `${u.first_name || u.username} ${u.last_name || ''}`.trim();
+                                                                     const roleLabel = u.role === 'caregiver' ? 'CG' : 'Staff';
+                                                                     return (
+                                                                         <div key={i} className="inline-flex items-center gap-1 text-[10px] truncate">
+                                                                             <span className="font-semibold text-slate-800">{displayName}</span>
+                                                                             <span className="text-slate-400">({roleLabel})</span>
+                                                                             {canManage && u.user_id && (
+                                                                                 <button
+                                                                                     type="button"
+                                                                                     onClick={(e) => {
+                                                                                         e.stopPropagation();
+                                                                                         setStaffToUnassign({
+                                                                                             patient: p,
+                                                                                             userId: u.user_id,
+                                                                                             name: displayName,
+                                                                                             role: roleLabel
+                                                                                         });
+                                                                                     }}
+                                                                                     title={`Unassign ${displayName} from ${p.name}`}
+                                                                                     className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                                                                                 >
+                                                                                     <X className="w-3 h-3" />
+                                                                                 </button>
+                                                                             )}
+                                                                         </div>
+                                                                     );
+                                                                 })}
                                                                  emptyLabel="No staff assigned"
                                                              />
                                                          </td>
                                                          <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
                                                              {new Date(p.created_at).toLocaleDateString()}
                                                          </td>
-                                                         {canManage && (
-                                                             <td className="px-4 py-3 text-right">
-                                                                  <div className="flex justify-end gap-1.5">
-                                                                      <Button
-                                                                          variant="outline"
-                                                                          size="icon"
-                                                                          onClick={() => handleToggleMonitoring(p)}
-                                                                          title={p.is_monitoring_disabled ? "Enable Live Monitoring" : "Disable Live Monitoring"}
-                                                                          className={`w-7 h-7 border cursor-pointer transition-colors ${
-                                                                              p.is_monitoring_disabled 
-                                                                                  ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-700' 
-                                                                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-teal-600'
-                                                                          }`}
-                                                                      >
-                                                                          {p.is_monitoring_disabled ? (
-                                                                              <BellOff className="w-3.5 h-3.5 text-amber-600" />
-                                                                          ) : (
-                                                                              <Activity className="w-3.5 h-3.5 text-teal-600" />
-                                                                          )}
-                                                                      </Button>
-                                                                      <Button
-                                                                          variant="outline"
-                                                                          size="icon"
-                                                                          onClick={() => handleStartEdit(p)}
-                                                                          className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
-                                                                      >
-                                                                          <Edit className="w-3.5 h-3.5 text-slate-500" />
-                                                                      </Button>
-                                                                      <Button
-                                                                          variant="outline"
-                                                                          size="icon"
-                                                                          onClick={() => handleArchivePatient(p.patient_id)}
-                                                                          className="w-7 h-7 border-slate-200 hover:border-red-300 hover:bg-red-50 cursor-pointer"
-                                                                      >
-                                                                          <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" />
-                                                                      </Button>
-                                                                  </div>
-                                                             </td>
-                                                         )}
+                                                         <td className="px-4 py-3 text-right">
+                                                             <div className="flex justify-end items-center gap-1">
+                                                                 {/* View Clinical Profile */}
+                                                                 <Button
+                                                                     variant="outline"
+                                                                     size="icon"
+                                                                     onClick={() => handlePatientClick(p)}
+                                                                     title="View Clinical Chart & Live Telemetry"
+                                                                     className="w-7 h-7 border-slate-200 hover:border-teal-300 hover:bg-teal-50 text-teal-700 cursor-pointer"
+                                                                 >
+                                                                     <Eye className="w-3.5 h-3.5" />
+                                                                 </Button>
+                                                                 {canManage && (
+                                                                     <>
+                                                                         {/* Manage Care Team (Assign / Unassign Caregiver or Staff) */}
+                                                                         <Button
+                                                                             variant="outline"
+                                                                             size="icon"
+                                                                             onClick={() => {
+                                                                                 setCareTeamModalPatient(p);
+                                                                                 setCareTeamEmailInput('');
+                                                                             }}
+                                                                             title="Manage Care Team (Assign / Remove Caregiver or Staff)"
+                                                                             className="w-7 h-7 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 text-indigo-600 cursor-pointer"
+                                                                         >
+                                                                             <UserPlus className="w-3.5 h-3.5" />
+                                                                         </Button>
+
+                                                                         {/* Unpair / Manage Paired Sensor Devices */}
+                                                                         {(p.paired_devices && p.paired_devices.length > 0) && (
+                                                                             <Button
+                                                                                 variant="outline"
+                                                                                 size="icon"
+                                                                                 onClick={() => setDeviceToUnpair({
+                                                                                     patient: p,
+                                                                                     serialNumber: p.paired_devices[0].serial_number,
+                                                                                     deviceName: p.paired_devices[0].device_name,
+                                                                                     mode: 'permanent'
+                                                                                 })}
+                                                                                 title="Unpair Sensor Device(s)"
+                                                                                 className="w-7 h-7 border-slate-200 hover:border-amber-300 hover:bg-amber-50 text-amber-600 cursor-pointer"
+                                                                             >
+                                                                                 <Cpu className="w-3.5 h-3.5" />
+                                                                             </Button>
+                                                                         )}
+
+                                                                         {/* Pause / Resume Live Monitoring */}
+                                                                         <Button
+                                                                             variant="outline"
+                                                                             size="icon"
+                                                                             onClick={() => setPatientToToggleMonitoring(p)}
+                                                                             title={p.is_monitoring_disabled ? "Resume Live Monitoring" : "Pause Live Monitoring"}
+                                                                             className={`w-7 h-7 border cursor-pointer transition-colors ${
+                                                                                 p.is_monitoring_disabled 
+                                                                                     ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-700' 
+                                                                                     : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-teal-600'
+                                                                             }`}
+                                                                         >
+                                                                             {p.is_monitoring_disabled ? (
+                                                                                 <BellOff className="w-3.5 h-3.5 text-amber-600" />
+                                                                             ) : (
+                                                                                 <Activity className="w-3.5 h-3.5 text-teal-600" />
+                                                                             )}
+                                                                         </Button>
+
+                                                                         {/* Edit Patient Profile & Bed Location */}
+                                                                         <Button
+                                                                             variant="outline"
+                                                                             size="icon"
+                                                                             onClick={() => handleStartEdit(p)}
+                                                                             title="Edit Patient Details & Ward/Room/Bed Assignment"
+                                                                             className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                                                                         >
+                                                                             <Edit className="w-3.5 h-3.5 text-slate-500" />
+                                                                         </Button>
+
+                                                                         {/* Remove / Archive Patient */}
+                                                                         <Button
+                                                                             variant="outline"
+                                                                             size="sm"
+                                                                             onClick={() => setPatientToRemove(p)}
+                                                                             title="Remove / Archive Patient from Directory"
+                                                                             className="h-7 px-2 border-rose-200 text-rose-600 hover:border-rose-300 hover:bg-rose-50 cursor-pointer text-[10px] font-semibold flex items-center gap-1"
+                                                                         >
+                                                                             <Trash2 className="w-3 h-3" />
+                                                                             Remove
+                                                                         </Button>
+                                                                     </>
+                                                                 )}
+                                                             </div>
+                                                         </td>
                                                      </tr>
                                                  ))}
                                              </tbody>
@@ -753,7 +957,7 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                     Unassigned Patients
                                 </CardTitle>
                                 <CardDescription className="text-[10px] text-slate-400">
-                                    Browse patients with no assigned staff and directly assign caregiver email addresses.
+                                    Browse patients needing bedside caregiver assignment and directly assign caregiver/staff email addresses.
                                 </CardDescription>
                             </div>
                             <div className="relative w-full sm:w-64">
@@ -864,9 +1068,27 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                                             <div className="flex flex-col gap-1">
                                                                 {p.paired_devices && p.paired_devices.length > 0 ? (
                                                                     p.paired_devices.map((dev, i) => (
-                                                                        <Badge key={i} className="bg-teal-50 text-teal-700 border-teal-200/50 font-semibold font-mono text-[9px] w-max">
-                                                                            {dev.serial_number}
-                                                                        </Badge>
+                                                                        <div key={i} className="inline-flex items-center gap-1 bg-teal-50 text-teal-700 border border-teal-200/60 rounded px-1.5 py-0.5 font-semibold font-mono text-[9px] w-max">
+                                                                            <span>{dev.serial_number}</span>
+                                                                            {canManage && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        setDeviceToUnpair({
+                                                                                            patient: p,
+                                                                                            serialNumber: dev.serial_number,
+                                                                                            deviceName: dev.device_name,
+                                                                                            mode: 'permanent'
+                                                                                        });
+                                                                                    }}
+                                                                                    title={`Unpair ${dev.serial_number} from ${p.name}`}
+                                                                                    className="text-teal-500 hover:text-rose-600 transition-colors cursor-pointer ml-0.5"
+                                                                                >
+                                                                                    <X className="w-2.5 h-2.5" />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
                                                                     ))
                                                                 ) : (
                                                                     <span className="text-[10px] text-slate-400">None paired</span>
@@ -891,15 +1113,24 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
-                                                            {p.created_at}
+                                                            {new Date(p.created_at).toLocaleDateString()}
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
-                                                            <div className="flex justify-end gap-1.5">
+                                                            <div className="flex justify-end items-center gap-1">
                                                                 <Button
                                                                     variant="outline"
                                                                     size="icon"
-                                                                    onClick={() => handleToggleMonitoring(p)}
-                                                                    title={p.is_monitoring_disabled ? "Enable Live Monitoring" : "Disable Live Monitoring"}
+                                                                    onClick={() => handlePatientClick(p)}
+                                                                    title="View Clinical Chart & Live Telemetry"
+                                                                    className="w-7 h-7 border-slate-200 hover:border-teal-300 hover:bg-teal-50 text-teal-700 cursor-pointer"
+                                                                >
+                                                                    <Eye className="w-3.5 h-3.5" />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="icon"
+                                                                    onClick={() => setPatientToToggleMonitoring(p)}
+                                                                    title={p.is_monitoring_disabled ? "Resume Live Monitoring" : "Pause Live Monitoring"}
                                                                     className={`w-7 h-7 border cursor-pointer transition-colors ${
                                                                         p.is_monitoring_disabled 
                                                                             ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-700' 
@@ -916,17 +1147,20 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                                                                     variant="outline"
                                                                     size="icon"
                                                                     onClick={() => handleStartEdit(p)}
+                                                                    title="Edit Patient Details & Ward/Room/Bed Assignment"
                                                                     className="w-7 h-7 border-slate-200 hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
                                                                 >
                                                                     <Edit className="w-3.5 h-3.5 text-slate-500" />
                                                                 </Button>
                                                                 <Button
                                                                     variant="outline"
-                                                                    size="icon"
-                                                                    onClick={() => handleArchivePatient(p.patient_id)}
-                                                                    className="w-7 h-7 border-slate-200 hover:border-red-300 hover:bg-red-50 cursor-pointer"
+                                                                    size="sm"
+                                                                    onClick={() => setPatientToRemove(p)}
+                                                                    title="Remove / Archive Patient from Directory"
+                                                                    className="h-7 px-2 border-rose-200 text-rose-600 hover:border-rose-300 hover:bg-rose-50 cursor-pointer text-[10px] font-semibold flex items-center gap-1"
                                                                 >
-                                                                    <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" />
+                                                                    <Trash2 className="w-3 h-3" />
+                                                                    Remove
                                                                 </Button>
                                                             </div>
                                                         </td>
@@ -942,16 +1176,346 @@ export default function SystemAdminPatientDirectory({ mode, onSelectPatient }: P
                 </TabsContent>
             </Tabs>
 
-            {/* Edit Patient Modal */}
+            {/* ======================= 1. CONFIRM REMOVE / ARCHIVE PATIENT MODAL ======================= */}
+            {patientToRemove && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+                    <Card className="w-full max-w-md mx-4 shadow-2xl border-rose-200 bg-white">
+                        <CardHeader className="pb-3 border-b border-rose-100 bg-rose-50/40">
+                            <CardTitle className="text-rose-700 text-sm flex items-center gap-2">
+                                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                                Confirm Patient Removal
+                            </CardTitle>
+                            <CardDescription className="text-[11px] text-rose-800/80">
+                                Are you sure you want to remove <strong>{patientToRemove.name}</strong> (#{patientToRemove.patient_id}) from the active Patient Directory?
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-4 space-y-3 text-xs text-slate-600">
+                            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
+                                <p className="font-semibold text-slate-800">This action will only archive the patient (no permanent deletion):</p>
+                                <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-600">
+                                    <li>
+                                        Archive <strong>{patientToRemove.name}</strong> (#{patientToRemove.patient_id}) into the <strong>System Admin Archive Hub</strong>{patientToRemove.facility_name ? <> and the <strong>Facility Admin Archive Hub</strong> ({patientToRemove.facility_name})</> : ''}, where they can be restored at any time.
+                                    </li>
+                                    <li>Automatically unpair any active Smart Diaper or Vital Signs sensors ({patientToRemove.paired_devices?.length || 0} paired).</li>
+                                    {patientToRemove.baseline_data?.room && (
+                                        <li>
+                                            Release their assigned bed slot (<strong>{patientToRemove.baseline_data.ward ? `${patientToRemove.baseline_data.ward} / ` : ''}{patientToRemove.baseline_data.room} / Bed {patientToRemove.baseline_data.bed}</strong>) so it becomes available for new admissions.
+                                        </li>
+                                    )}
+                                </ul>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={() => setPatientToRemove(null)}
+                                    className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={confirmRemovePatient}
+                                    className="h-8 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold cursor-pointer"
+                                >
+                                    {isActionSubmitting ? 'Removing...' : 'Yes, Remove Patient'}
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* ======================= 2. CONFIRM PAUSE / RESUME MONITORING MODAL ======================= */}
+            {patientToToggleMonitoring && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+                    <Card className="w-full max-w-md mx-4 shadow-2xl border-slate-200 bg-white">
+                        <CardHeader className="pb-3 border-b border-slate-100">
+                            <CardTitle className="text-slate-800 text-sm flex items-center gap-2">
+                                {patientToToggleMonitoring.is_monitoring_disabled ? (
+                                    <Activity className="w-4 h-4 text-teal-600" />
+                                ) : (
+                                    <BellOff className="w-4 h-4 text-amber-600" />
+                                )}
+                                {patientToToggleMonitoring.is_monitoring_disabled ? 'Confirm Resume Live Monitoring' : 'Confirm Pause Live Monitoring'}
+                            </CardTitle>
+                            <CardDescription className="text-[11px] text-slate-500">
+                                Are you sure you want to {patientToToggleMonitoring.is_monitoring_disabled ? 'resume' : 'pause'} live telemetry monitoring for <strong>{patientToToggleMonitoring.name}</strong> (#{patientToToggleMonitoring.patient_id})?
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-4 space-y-3 text-xs text-slate-600">
+                            <p className="text-[11px] leading-relaxed">
+                                {patientToToggleMonitoring.is_monitoring_disabled
+                                    ? 'Resuming live monitoring will re-enable real-time clinical and moisture alert notifications for this patient across all assigned staff and caregivers.'
+                                    : 'Pausing live monitoring will temporarily silence new clinical and moisture alerts for this patient until monitoring is re-enabled.'}
+                            </p>
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={() => setPatientToToggleMonitoring(null)}
+                                    className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={confirmToggleMonitoring}
+                                    className={`h-8 text-xs text-white font-semibold cursor-pointer ${
+                                        patientToToggleMonitoring.is_monitoring_disabled
+                                            ? 'bg-teal-600 hover:bg-teal-700'
+                                            : 'bg-amber-600 hover:bg-amber-700'
+                                    }`}
+                                >
+                                    {isActionSubmitting
+                                        ? 'Updating...'
+                                        : patientToToggleMonitoring.is_monitoring_disabled
+                                            ? 'Yes, Resume Monitoring'
+                                            : 'Yes, Pause Monitoring'}
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* ======================= 3. MANAGE CARE TEAM MODAL (ASSIGN / UNASSIGN STAFF) ======================= */}
+            {careTeamModalPatient && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+                    <Card className="w-full max-w-md mx-4 shadow-2xl border-slate-200 bg-white">
+                        <CardHeader className="pb-3 border-b border-slate-100">
+                            <CardTitle className="text-slate-800 text-sm flex items-center gap-2">
+                                <Users className="w-4 h-4 text-indigo-600" />
+                                Manage Care Team — {careTeamModalPatient.name} (#{careTeamModalPatient.patient_id})
+                            </CardTitle>
+                            <CardDescription className="text-[11px] text-slate-500">
+                                Assign a Caregiver or Medical Staff member by email or remove an existing care team member.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-4 space-y-4 text-xs">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Assign New Caregiver / Medical Staff by Email
+                                </label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        value={careTeamEmailInput}
+                                        onChange={(e) => setCareTeamEmailInput(e.target.value)}
+                                        placeholder="e.g. caregiver@alaga.local"
+                                        className="h-8 text-xs bg-slate-50 border-slate-200 flex-1"
+                                    />
+                                    <Button
+                                        size="sm"
+                                        disabled={isActionSubmitting || !careTeamEmailInput.trim()}
+                                        onClick={handleAssignFromCareTeamModal}
+                                        className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer"
+                                    >
+                                        <UserPlus className="w-3.5 h-3.5 mr-1" />
+                                        Assign
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Currently Assigned Care Team ({(careTeamModalPatient.assigned_users || []).length})
+                                </label>
+                                {(careTeamModalPatient.assigned_users || []).length === 0 ? (
+                                    <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 italic text-[11px]">
+                                        No caregivers or medical staff currently assigned.
+                                    </div>
+                                ) : (
+                                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                                        {(careTeamModalPatient.assigned_users || []).map((u, idx) => {
+                                            const displayName = `${u.first_name || u.username} ${u.last_name || ''}`.trim();
+                                            const roleLabel = u.role === 'caregiver' ? 'Caregiver' : 'Medical Staff';
+                                            return (
+                                                <div key={idx} className="px-3 py-2 flex items-center justify-between bg-white hover:bg-slate-50">
+                                                    <div>
+                                                        <p className="font-semibold text-slate-800">{displayName}</p>
+                                                        <p className="text-[10px] text-slate-400">{roleLabel} {u.email ? `• ${u.email}` : ''}</p>
+                                                    </div>
+                                                    {u.user_id && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => setStaffToUnassign({
+                                                                patient: careTeamModalPatient,
+                                                                userId: u.user_id,
+                                                                name: displayName,
+                                                                role: roleLabel
+                                                            })}
+                                                            className="h-7 px-2 text-[10px] border-rose-200 text-rose-600 hover:bg-rose-50 cursor-pointer flex items-center gap-1"
+                                                        >
+                                                            <UserMinus className="w-3 h-3" />
+                                                            Unassign
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex justify-end pt-2 border-t border-slate-100">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCareTeamModalPatient(null)}
+                                    className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer"
+                                >
+                                    Close
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* ======================= 4. CONFIRM UNASSIGN CAREGIVER / STAFF MODAL ======================= */}
+            {staffToUnassign && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[60] animate-in fade-in duration-200">
+                    <Card className="w-full max-w-md mx-4 shadow-2xl border-rose-200 bg-white">
+                        <CardHeader className="pb-3 border-b border-rose-100 bg-rose-50/40">
+                            <CardTitle className="text-rose-700 text-sm flex items-center gap-2">
+                                <UserMinus className="w-4 h-4 text-rose-600" />
+                                Confirm Unassign Care Team Member
+                            </CardTitle>
+                            <CardDescription className="text-[11px] text-rose-800/80">
+                                Are you sure you want to unassign <strong>{staffToUnassign.name}</strong> ({staffToUnassign.role}) from <strong>{staffToUnassign.patient.name}</strong> (#{staffToUnassign.patient.patient_id})?
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-4 space-y-3 text-xs text-slate-600">
+                            <p className="text-[11px] leading-relaxed">
+                                Once unassigned, <strong>{staffToUnassign.name}</strong> will no longer have direct care team access or receive bedside alerts for <strong>{staffToUnassign.patient.name}</strong>.
+                            </p>
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={() => setStaffToUnassign(null)}
+                                    className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={confirmUnassignStaff}
+                                    className="h-8 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold cursor-pointer"
+                                >
+                                    {isActionSubmitting ? 'Unassigning...' : 'Yes, Unassign Member'}
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* ======================= 5. CONFIRM UNPAIR DEVICE MODAL ======================= */}
+            {deviceToUnpair && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+                    <Card className="w-full max-w-md mx-4 shadow-2xl border-amber-200 bg-white">
+                        <CardHeader className="pb-3 border-b border-amber-100 bg-amber-50/40">
+                            <CardTitle className="text-amber-800 text-sm flex items-center gap-2">
+                                <Cpu className="w-4 h-4 text-amber-600" />
+                                Confirm Sensor Device Unpairing
+                            </CardTitle>
+                            <CardDescription className="text-[11px] text-amber-900/80">
+                                Are you sure you want to unpair sensor <strong>{deviceToUnpair.serialNumber}</strong> from <strong>{deviceToUnpair.patient.name}</strong> (#{deviceToUnpair.patient.patient_id})?
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-4 space-y-3 text-xs text-slate-600">
+                            {(deviceToUnpair.patient.paired_devices || []).length > 1 && (
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Select Sensor to Unpair</label>
+                                    <select
+                                        value={deviceToUnpair.serialNumber}
+                                        onChange={(e) => {
+                                            const found = deviceToUnpair.patient.paired_devices.find(d => d.serial_number === e.target.value);
+                                            setDeviceToUnpair(prev => prev ? {
+                                                ...prev,
+                                                serialNumber: e.target.value,
+                                                deviceName: found?.device_name
+                                            } : null);
+                                        }}
+                                        className="w-full h-8 text-xs px-2 border border-slate-200 rounded bg-slate-50 font-mono text-slate-700"
+                                    >
+                                        {deviceToUnpair.patient.paired_devices.map(d => (
+                                            <option key={d.serial_number} value={d.serial_number}>
+                                                {d.serial_number} ({d.device_name || 'Sensor'})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Unpair Mode</label>
+                                <div className="grid grid-cols-1 gap-1.5">
+                                    <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer text-[11px] ${
+                                        deviceToUnpair.mode === 'permanent' ? 'bg-rose-50 border-rose-300 text-rose-900 font-semibold' : 'bg-white border-slate-200 text-slate-600'
+                                    }`}>
+                                        <input
+                                            type="radio"
+                                            checked={deviceToUnpair.mode === 'permanent'}
+                                            onChange={() => setDeviceToUnpair(prev => prev ? { ...prev, mode: 'permanent' } : null)}
+                                            className="mt-0.5 accent-rose-600"
+                                        />
+                                        <span><strong>Permanent Unpair:</strong> Completely detaches {deviceToUnpair.serialNumber} from {deviceToUnpair.patient.name} and returns it to Available inventory.</span>
+                                    </label>
+                                    <label className={`flex items-start gap-2 p-2 rounded border cursor-pointer text-[11px] ${
+                                        deviceToUnpair.mode === 'change' ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold' : 'bg-white border-slate-200 text-slate-600'
+                                    }`}>
+                                        <input
+                                            type="radio"
+                                            checked={deviceToUnpair.mode === 'change'}
+                                            onChange={() => setDeviceToUnpair(prev => prev ? { ...prev, mode: 'change' } : null)}
+                                            className="mt-0.5 accent-amber-600"
+                                        />
+                                        <span><strong>Temporary Standby (Diaper Change / Bath):</strong> Keeps {deviceToUnpair.serialNumber} assigned to {deviceToUnpair.patient.name} in Standby mode.</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={() => setDeviceToUnpair(null)}
+                                    className="h-8 text-xs border-slate-200 text-slate-600 cursor-pointer"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    disabled={isActionSubmitting}
+                                    onClick={confirmUnpairDevice}
+                                    className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer"
+                                >
+                                    {isActionSubmitting ? 'Processing...' : 'Yes, Confirm Unpair'}
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* ======================= 6. EDIT PATIENT PROFILE & BED LOCATION MODAL ======================= */}
             {editingPatient && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
                     <Card className="w-full max-w-md mx-4 shadow-2xl border-slate-200 bg-white">
                         <CardHeader className="pb-3">
                             <CardTitle className="text-slate-800 text-sm flex items-center gap-2">
-                                <Edit className="w-4 h-4 text-teal-600" /> Edit Patient Profile
+                                <Edit className="w-4 h-4 text-teal-600" /> Edit Patient Profile &amp; Bed Assignment
                             </CardTitle>
                             <CardDescription className="text-[10px] text-slate-400">
-                                Modify administrative details for Patient #{editingPatient.patient_id}.
+                                Modify administrative details and Ward/Room/Bed placement for Patient #{editingPatient.patient_id}.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">

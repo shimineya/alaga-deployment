@@ -1579,6 +1579,57 @@ router.post('/patients/:patientId/assign-staff-by-email', async (req, res) => {
     }
 });
 
+// Unassign a staff member or caregiver from a patient
+router.delete('/patients/:patientId/unassign-staff', async (req, res) => {
+    const { patientId } = req.params;
+    const { caregiver_id, user_id } = req.body;
+    const targetUserId = caregiver_id || user_id;
+
+    if (!targetUserId) {
+        return res.status(400).json({ success: false, message: 'Staff or Caregiver ID is required.' });
+    }
+
+    try {
+        const isAdminOrStaff = ['admin', 'system_admin', 'sysadmin', 'facility_admin', 'medical_staff'].includes(req.user.role?.toLowerCase());
+        if (!isAdminOrStaff) {
+            const accessCheck = await pool.query(
+                `SELECT access_id FROM patient_access WHERE user_id = $1 AND patient_id = $2 AND is_archived IS DISTINCT FROM TRUE`,
+                [req.user.id, patientId]
+            );
+            if (accessCheck.rows.length === 0) {
+                return res.status(403).json({ success: false, message: 'You do not have permission to unassign care team members from this patient.' });
+            }
+        }
+
+        const result = await pool.query(
+            `DELETE FROM patient_access WHERE patient_id = $1 AND user_id = $2`,
+            [patientId, targetUserId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.json({ success: true, message: 'That care team member was not assigned to this patient.' });
+        }
+
+        await pool.query(
+            `INSERT INTO access_logs (user_id, action, resource_affected, severity)
+             VALUES ($1, 'PATIENT_STAFF_UNASSIGN', $2, 'WARNING')`,
+            [req.user.id, `Removed User ${targetUserId} from Patient ${patientId}`]
+        );
+
+        refreshAllClientsAccess();
+        broadcastAlert('assignment_update', {
+            action: 'unassign_staff',
+            patient_id: Number(patientId),
+            user_id: Number(targetUserId)
+        });
+
+        res.json({ success: true, message: 'Care team member has been unassigned from this patient.' });
+    } catch (err) {
+        console.error('Unassign Staff Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to unassign care team member.' });
+    }
+});
+
 // ==========================================
 // 2.1. UPDATE PATIENT DETAILS
 // [OWASP A01] Ownership check: only users with Edit/Admin access may modify the record.
@@ -1808,20 +1859,30 @@ const handleArchiveCaregiverPatient = async (req, res) => {
         const patientId = req.params.id;
         const userId = req.user.id;
 
-        const patientCheck = await client.query('SELECT name, facility_id FROM patients WHERE patient_id = $1', [patientId]);
+        const patientCheck = await client.query(
+            `SELECT p.name,
+                    COALESCE(
+                        p.facility_id,
+                        (SELECT u.facility_id FROM users u WHERE u.user_id = p.created_by AND u.facility_id IS NOT NULL LIMIT 1),
+                        (SELECT u.facility_id FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE pa.patient_id = p.patient_id AND u.facility_id IS NOT NULL LIMIT 1)
+                    ) AS resolved_facility_id
+             FROM patients p
+             WHERE p.patient_id = $1`,
+            [patientId]
+        );
         if (patientCheck.rows.length === 0) {
             client.release();
             return res.status(404).json({ success: false, message: 'Patient not found.' });
         }
         const patientName = patientCheck.rows[0].name;
-        const facilityId = patientCheck.rows[0].facility_id;
+        const facilityId = patientCheck.rows[0].resolved_facility_id || req.user.facility_id || null;
 
         await client.query('BEGIN');
         // [GDPR] Flag as archived (soft delete). The record is retained for the 1-year
         // data retention period mandated by the DPA/GDPR retention policy.
         await client.query(
-            `UPDATE patients SET is_archived = TRUE, updated_at = NOW() WHERE patient_id = $1`,
-            [patientId]
+            `UPDATE patients SET is_archived = TRUE, facility_id = COALESCE(facility_id, $2), updated_at = NOW() WHERE patient_id = $1`,
+            [patientId, facilityId]
         );
         await client.query(
             `UPDATE patient_access SET is_archived = TRUE, invite_status = 'Archived' WHERE patient_id = $1`,

@@ -88,7 +88,7 @@ router.get('/', async (req, res) => {
                 return res.status(403).json({ success: false, message: 'Forbidden: No facility assigned to this account.' });
             }
 
-            // Facility admin sees only archives scoped to their facility
+            // Facility admin sees archives scoped to their facility (including patients linked to their facility)
             const query = `
                 SELECT 
                     a.archive_id,
@@ -97,13 +97,26 @@ router.get('/', async (req, res) => {
                     a.target_name,
                     a.archived_at,
                     a.status,
-                    a.facility_id,
-                    f.facility_name,
+                    COALESCE(a.facility_id, $1) AS facility_id,
+                    COALESCE(f.facility_name, (SELECT facility_name FROM facilities WHERE facility_id = $1)) AS facility_name,
                     u.username as archived_by_name
                 FROM archives a
                 LEFT JOIN users u ON a.archived_by = u.user_id
-                LEFT JOIN facilities f ON a.facility_id = f.facility_id
+                LEFT JOIN facilities f ON COALESCE(a.facility_id, $1) = f.facility_id
                 WHERE a.facility_id = $1
+                   OR (
+                       a.entity_type = 'Patient'
+                       AND a.target_id ~ '^[0-9]+$'
+                       AND EXISTS (
+                           SELECT 1 FROM patients p
+                           WHERE p.patient_id = a.target_id::int
+                             AND (
+                                 p.facility_id = $1
+                                 OR EXISTS (SELECT 1 FROM users cu WHERE cu.user_id = p.created_by AND cu.facility_id = $1)
+                                 OR EXISTS (SELECT 1 FROM patient_access pa JOIN users pu ON pa.user_id = pu.user_id WHERE pa.patient_id = p.patient_id AND pu.facility_id = $1)
+                             )
+                       )
+                   )
                 ORDER BY a.archived_at DESC
             `;
             const result = await pool.query(query, [facility_id]);
@@ -144,7 +157,7 @@ router.post('/:archiveId/unarchive', async (req, res) => {
         if (!isSysAdmin) {
             const userCheck = await client.query('SELECT facility_id, role FROM users WHERE user_id = $1', [userId]);
             const dbUser = userCheck.rows[0];
-            if (dbUser && dbUser.facility_id && archive.facility_id !== dbUser.facility_id) {
+            if (dbUser && dbUser.facility_id && archive.facility_id && archive.facility_id !== dbUser.facility_id) {
                 await client.query('ROLLBACK');
                 client.release();
                 return res.status(403).json({ success: false, message: 'Forbidden: You cannot restore records from another facility.' });
@@ -155,9 +168,12 @@ router.post('/:archiveId/unarchive', async (req, res) => {
 
         // Perform entity specific restore
         switch (archive.entity_type) {
-            case 'Patient':
-                await client.query('UPDATE patients SET is_archived = FALSE, updated_at = NOW() WHERE patient_id = $1', [parseInt(archive.target_id, 10)]);
+            case 'Patient': {
+                const restPatientId = parseInt(archive.target_id, 10);
+                await client.query('UPDATE patients SET is_archived = FALSE, updated_at = NOW() WHERE patient_id = $1', [restPatientId]);
+                await client.query("UPDATE patient_access SET is_archived = FALSE, invite_status = 'Accepted' WHERE patient_id = $1 AND invite_status = 'Archived'", [restPatientId]);
                 break;
+            }
             case 'User':
                 await client.query("UPDATE users SET is_archived = FALSE, account_status = 'Verified' WHERE user_id = $1", [parseInt(archive.target_id, 10)]);
                 break;

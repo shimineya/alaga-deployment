@@ -718,49 +718,57 @@ router.put('/patients/:patientId/assign-staff', async (req, res) => {
     }
 });
 
-// Remove a specific caregiver from a patient
-// [OWASP A01 / IDOR] Patient must belong to this facility
+// Remove a specific caregiver/staff from a patient
+// [OWASP A01 / IDOR] Patient must belong to this facility (or sysAdmin override)
 router.delete('/patients/:patientId/unassign-staff', async (req, res) => {
     const facilityId = req.user.facility_id;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
     const { patientId } = req.params;
-    const { caregiver_id } = req.body;
+    const { caregiver_id, user_id } = req.body;
+    const targetUserId = caregiver_id || user_id;
 
-    if (!caregiver_id) {
-        return res.status(400).json({ success: false, message: 'Caregiver ID is required.' });
+    if (!targetUserId) {
+        return res.status(400).json({ success: false, message: 'Staff or Caregiver ID is required.' });
     }
 
     try {
         // Verify patient belongs to this facility
-        const patientCheck = await pool.query(
-            'SELECT patient_id FROM patients WHERE patient_id = $1 AND facility_id = $2',
-            [patientId, facilityId]
-        );
+        const patientCheck = isSysAdmin
+            ? await pool.query('SELECT patient_id, name FROM patients WHERE patient_id = $1', [patientId])
+            : await pool.query('SELECT patient_id, name FROM patients WHERE patient_id = $1 AND facility_id = $2', [patientId, facilityId]);
         if (patientCheck.rows.length === 0) {
             return res.status(403).json({ success: false, message: 'Patient not found in your facility.' });
         }
 
-        // Remove the specific caregiver assignment
+        // Remove the specific staff/caregiver assignment
         const result = await pool.query(
             `DELETE FROM patient_access
              WHERE patient_id = $1 AND user_id = $2`,
-            [patientId, caregiver_id]
+            [patientId, targetUserId]
         );
 
         if (result.rowCount === 0) {
-            return res.json({ success: true, message: 'That caregiver was not assigned to this patient.' });
+            return res.json({ success: true, message: 'That staff member was not assigned to this patient.' });
         }
 
         // [OWASP A09] Audit trail
         await pool.query(
             `INSERT INTO access_logs (user_id, action, resource_affected, severity)
              VALUES ($1, 'PATIENT_STAFF_UNASSIGN', $2, 'WARNING')`,
-            [req.user.id, `Removed Caregiver ${caregiver_id} from Patient ${patientId}`]
+            [req.user.id, `Removed User ${targetUserId} from Patient ${patientId}`]
         );
 
-        res.json({ success: true, message: 'Caregiver has been unassigned from this patient.' });
+        refreshAllClientsAccess();
+        broadcastAlert('assignment_update', {
+            action: 'unassign_staff',
+            patient_id: Number(patientId),
+            user_id: Number(targetUserId)
+        });
+
+        res.json({ success: true, message: 'Care team member has been unassigned from this patient.' });
     } catch (err) {
         console.error('Unassign error:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to unassign caregiver.' });
+        res.status(500).json({ success: false, message: 'Failed to unassign care team member.' });
     }
 });
 
@@ -2360,7 +2368,14 @@ router.delete('/patients/:patientId', async (req, res) => {
         let finalFacilityId = facilityId;
 
         const patientCheck = await pool.query(
-            'SELECT patient_id, name, facility_id FROM patients WHERE patient_id = $1',
+            `SELECT p.patient_id, p.name,
+                    COALESCE(
+                        p.facility_id,
+                        (SELECT u.facility_id FROM users u WHERE u.user_id = p.created_by AND u.facility_id IS NOT NULL LIMIT 1),
+                        (SELECT u.facility_id FROM patient_access pa JOIN users u ON pa.user_id = u.user_id WHERE pa.patient_id = p.patient_id AND u.facility_id IS NOT NULL LIMIT 1)
+                    ) AS resolved_facility_id
+             FROM patients p
+             WHERE p.patient_id = $1`,
             [patientId]
         );
 
@@ -2370,7 +2385,7 @@ router.delete('/patients/:patientId', async (req, res) => {
 
         const patient = patientCheck.rows[0];
         patientName = patient.name;
-        finalFacilityId = patient.facility_id;
+        finalFacilityId = patient.resolved_facility_id || facilityId || null;
 
         if (!isSysAdmin && finalFacilityId !== facilityId) {
             return res.status(403).json({ success: false, message: 'Unauthorized: Patient not found in your facility.' });
@@ -2378,9 +2393,9 @@ router.delete('/patients/:patientId', async (req, res) => {
 
         await pool.query(
             `UPDATE patients
-             SET is_archived = TRUE
+             SET is_archived = TRUE, facility_id = COALESCE(facility_id, $2)
              WHERE patient_id = $1`,
-            [patientId]
+            [patientId, finalFacilityId]
         );
 
         await pool.query(

@@ -26,10 +26,12 @@ class NotificationScreen extends StatefulWidget {
 
 class _NotificationScreenState extends State<NotificationScreen> {
   List<dynamic> _alerts = [];
+  List<dynamic> _devices = [];
   bool _isLoading = true;
   String? _errorMessage;
   late bool _showClinicalAlerts;
   StreamSubscription? _alertSub;
+  Timer? _syncTimer;
   final Set<int> _flaggingIds = {};
 
   String _searchQuery = '';
@@ -146,7 +148,45 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _alertSub = AlertNotificationService.onAlertUpdate.listen((event) {
       if (!mounted) return;
       final eventType = event['event']?.toString() ?? '';
-      if (eventType == 'new_alert' ||
+      final data = event['data'];
+      if (eventType == 'device_status_update' && data is Map) {
+        final targetSerial = (data['serial_number'] ?? data['serialNumber'] ?? '').toString().toLowerCase();
+        if (targetSerial.isNotEmpty) {
+          final isOnline = data['status'] == 'ACTIVE' || data['is_online'] == true;
+          setState(() {
+            _devices = _devices.map((d) {
+              if (d is Map && (d['serial_number'] ?? '').toString().toLowerCase() == targetSerial) {
+                final updated = Map<String, dynamic>.from(d);
+                updated['status'] = data['status'] ?? (isOnline ? 'ACTIVE' : 'INACTIVE');
+                updated['is_online'] = isOnline;
+                if (data['battery_level'] != null) updated['battery_level'] = data['battery_level'];
+                updated['signal_strength'] = isOnline ? (data['signal_strength'] ?? updated['signal_strength'] ?? 'Good') : 'Offline';
+                return updated;
+              }
+              return d;
+            }).toList();
+          });
+        }
+        _fetchAlerts(silent: true);
+      } else if (eventType == 'patient_telemetry_update' && data is Map) {
+        final targetSerial = (data['serial_number'] ?? '').toString().toLowerCase();
+        if (targetSerial.isNotEmpty) {
+          setState(() {
+            _devices = _devices.map((d) {
+              if (d is Map && (d['serial_number'] ?? '').toString().toLowerCase() == targetSerial) {
+                final updated = Map<String, dynamic>.from(d);
+                updated['status'] = 'ACTIVE';
+                updated['is_online'] = true;
+                if (data['battery_level'] != null) updated['battery_level'] = data['battery_level'];
+                updated['signal_strength'] = data['signal_strength'] ?? 'Good';
+                return updated;
+              }
+              return d;
+            }).toList();
+          });
+        }
+        _fetchAlerts(silent: true);
+      } else if (eventType == 'new_alert' ||
           eventType == 'new_clinical_alert' ||
           eventType == 'alert_acknowledged' ||
           eventType == 'alert_archived' ||
@@ -158,12 +198,19 @@ class _NotificationScreenState extends State<NotificationScreen> {
         _fetchAlerts(silent: true);
       }
     });
+
+    _syncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted) {
+        _fetchAlerts(silent: true);
+      }
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _alertSub?.cancel();
+    _syncTimer?.cancel();
     super.dispose();
   }
 
@@ -185,15 +232,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
     }
 
     try {
-      final result = await ApiService.get(
-        _showClinicalAlerts ? '/api/alerts/clinical' : '/api/alerts/system',
-      );
+      final results = await Future.wait([
+        ApiService.get(_showClinicalAlerts ? '/api/alerts/clinical' : '/api/alerts/system'),
+        if (!_showClinicalAlerts) ApiService.get('/api/caregiver/devices'),
+      ]);
+      final result = results[0];
+      final devResult = !_showClinicalAlerts && results.length > 1 ? results[1] : null;
 
       if (!mounted) return;
 
       if (result['success'] == true) {
         final rawList = List<dynamic>.from(result['data'] ?? []);
         setState(() {
+          if (devResult != null && devResult['success'] == true) {
+            _devices = List<dynamic>.from(devResult['data'] ?? []);
+          }
           if (_showClinicalAlerts) {
             _alerts = rawList.where((a) {
               final status = (a['status'] ?? '').toString();
@@ -922,6 +975,50 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     final items = _filteredAlerts;
 
+    if (!_showClinicalAlerts) {
+      return RefreshIndicator(
+        color: const Color(0xFF5FA9A9),
+        onRefresh: () => _fetchAlerts(silent: false),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          children: [
+            _buildSyncedDevicesDiagnosticsSection(),
+            const SizedBox(height: 12),
+            if (items.isEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.black12),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.check_circle_outline_rounded, size: 42, color: Color(0xFF16A34A)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'No Active Hardware Alerts',
+                      style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'All connected devices are operating within normal parameters.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.albertSans(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...items.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _buildAlertCard(item),
+                  )),
+          ],
+        ),
+      );
+    }
+
     if (items.isEmpty) {
       return Center(
         child: Column(
@@ -975,6 +1072,109 @@ class _NotificationScreenState extends State<NotificationScreen> {
         itemCount: items.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, index) => _buildAlertCard(items[index]),
+      ),
+    );
+  }
+
+  Widget _buildSyncedDevicesDiagnosticsSection() {
+    if (_devices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFCCFBF1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.sensors_rounded, color: Color(0xFF0D9488), size: 18),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Patient Devices Diagnostics (Synced)',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF134E4A),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ..._devices.map((rawDev) {
+            final dev = Map<String, dynamic>.from(rawDev as Map);
+            final serial = (dev['serial_number'] ?? '').toString();
+            final name = (dev['device_name'] ?? 'Sensor Device').toString();
+            final status = (dev['status'] ?? 'INACTIVE').toString();
+            final isOnline = status == 'ACTIVE' || dev['is_online'] == true;
+            final bat = dev['battery_level'];
+            final sig = isOnline ? (dev['signal_strength'] ?? 'Good').toString() : 'Offline';
+            final patientName = (dev['assigned_patient_name'] ?? 'Unassigned').toString();
+            final statusColor = status == 'ACTIVE'
+                ? const Color(0xFF16A34A)
+                : status == 'STANDBY'
+                    ? const Color(0xFFD97706)
+                    : status == 'AVAILABLE'
+                        ? const Color(0xFF2563EB)
+                        : const Color(0xFFDC2626);
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isOnline ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isOnline ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '$name ($serial)',
+                          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      _chip(status, statusColor),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Patient: $patientName',
+                    style: GoogleFonts.albertSans(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      _chip('Battery: ${bat != null ? '$bat%' : '--'}', const Color(0xFF0D9488)),
+                      _chip('Signal: $sig', isOnline ? const Color(0xFF15803D) : Colors.blueGrey),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -1066,7 +1266,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
             const SizedBox(height: 8),
 
-            // Chips row: severity + AI type + OC-SVM score
+            // Chips row: severity + AI type + OC-SVM score + Hardware Device Sync
             Wrap(
               spacing: 6,
               runSpacing: 4,
@@ -1080,6 +1280,20 @@ class _NotificationScreenState extends State<NotificationScreen> {
                     'Score: ${double.tryParse(ocsvmScore.toString())?.toStringAsFixed(2) ?? ocsvmScore}',
                     Colors.blueGrey,
                   ),
+                if (!_showClinicalAlerts && alert['device_serial_number'] != null)
+                  _chip('SN: ${alert['device_serial_number']}', Colors.blueGrey),
+                if (!_showClinicalAlerts && alert['device_status'] != null)
+                  _chip(
+                    'Status: ${alert['device_status']}',
+                    alert['device_status'] == 'ACTIVE' ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                  ),
+                if (!_showClinicalAlerts)
+                  _chip(
+                    'Battery: ${alert['battery_level'] != null ? '${alert['battery_level']}%' : '--'}',
+                    const Color(0xFF0D9488),
+                  ),
+                if (!_showClinicalAlerts && alert['signal_strength'] != null)
+                  _chip('Signal: ${alert['signal_strength']}', Colors.blueGrey),
               ],
             ),
 

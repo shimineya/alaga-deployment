@@ -582,22 +582,9 @@ export default function FacilityTopologyBuilder() {
             return toast.error("A bed with this name already exists in this room");
         }
 
-        const parsedPatientId = bedForm.patientId ? parseInt(bedForm.patientId, 10) : null;
-        if (parsedPatientId) {
-            for (const w of currentTopology) {
-                for (const r of (w.rooms || [])) {
-                    for (const b of (r.beds || [])) {
-                        if (b.patientId === parsedPatientId) {
-                            b.patientId = null;
-                        }
-                    }
-                }
-            }
-        }
-
         targetRoom.beds.push({
             name: bedForm.name.trim(),
-            patientId: parsedPatientId
+            patientId: null
         });
 
         const ok = await saveTopology(currentTopology);
@@ -831,24 +818,21 @@ export default function FacilityTopologyBuilder() {
                                                                     {/* Beds list */}
                                                                     {isRoomExpanded && room.beds.map((bed, bIdx) => {
                                                                         const pairedPatient = findBedOccupant(fac, ward.name, room.name, bed);
+                                                                        const isOccupied = Boolean(pairedPatient || bed.patientId);
                                                                         return (
                                                                             <tr key={bIdx} className="bg-slate-100/30 border-l-2 border-l-teal-500 hover:bg-slate-100/50 transition-colors">
                                                                                 <td className="px-4 py-1.5 pl-20"></td>
                                                                                 <td className="px-2 py-1.5 pl-8 flex items-center gap-2">
                                                                                     <Bed className="w-3 h-3 text-teal-600" />
                                                                                     <span className="font-semibold text-slate-800">{bed.name}</span>
-                                                                                    {pairedPatient ? (
-                                                                                        <>
-                                                                                            <ArrowRight className="w-2.5 h-2.5 text-slate-400" />
-                                                                                            <span className="font-bold text-slate-900">{pairedPatient.name}</span>
-                                                                                            {pairedPatient.device_serial_number && (
-                                                                                                <Badge className="bg-teal-50 text-teal-700 font-mono text-[8px] h-3.5 border-none font-semibold">
-                                                                                                    {pairedPatient.device_serial_number}
-                                                                                                </Badge>
-                                                                                            )}
-                                                                                        </>
+                                                                                    {isOccupied ? (
+                                                                                        <Badge className="bg-amber-50 text-amber-700 border border-amber-200 text-[9px] h-4 px-1.5 font-bold">
+                                                                                            Occupied
+                                                                                        </Badge>
                                                                                     ) : (
-                                                                                        <span className="text-[10px] text-slate-400 italic">(Empty Bed)</span>
+                                                                                        <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] h-4 px-1.5 font-semibold">
+                                                                                            Available
+                                                                                        </Badge>
                                                                                     )}
                                                                                 </td>
                                                                             </tr>
@@ -1231,7 +1215,7 @@ export default function FacilityTopologyBuilder() {
                     <DialogHeader>
                         <DialogTitle>Add New Bed</DialogTitle>
                         <DialogDescription className="text-xs">
-                            Configure a bed slot under a registered Ward and Room, and optionally assign a registered patient.
+                            Configure a bed slot under a registered Ward and Room.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -1368,63 +1352,6 @@ export default function FacilityTopologyBuilder() {
                                             </span>
                                         </button>
                                     ))}
-                                </div>
-                            )}
-                        </div>
-                        <div className="space-y-1 relative">
-                            <Label className="text-xs font-semibold text-slate-600">Patient Name (Optional)</Label>
-                            <Input
-                                value={bedForm.patientSearch}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    setBedForm(prev => ({
-                                        ...prev,
-                                        patientSearch: val,
-                                        patientId: val.trim() === '' ? '' : prev.patientId
-                                    }));
-                                    setShowBedPatientSuggestions(true);
-                                }}
-                                onFocus={() => setShowBedPatientSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowBedPatientSuggestions(false), 200)}
-                                className="h-8 text-xs border-slate-200"
-                                placeholder="Search or select patient name (Optional)..."
-                            />
-                            {showBedPatientSuggestions && (
-                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-44 overflow-y-auto">
-                                    <button
-                                        type="button"
-                                        onMouseDown={(e) => {
-                                            e.preventDefault();
-                                            setBedForm(prev => ({ ...prev, patientId: '', patientSearch: '' }));
-                                            setShowBedPatientSuggestions(false);
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-500 italic border-b border-slate-100"
-                                    >
-                                        -- Leave Bed Unassigned (Empty Bed) --
-                                    </button>
-                                    {facilityPatientsList
-                                        .filter(p => !bedForm.patientSearch.trim() || p.name.toLowerCase().includes(bedForm.patientSearch.trim().toLowerCase()) || String(p.patient_id).includes(bedForm.patientSearch.trim()))
-                                        .map((p) => (
-                                            <button
-                                                key={p.patient_id}
-                                                type="button"
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault();
-                                                    setBedForm(prev => ({
-                                                        ...prev,
-                                                        patientId: String(p.patient_id),
-                                                        patientSearch: `${p.name} (#${p.patient_id})`
-                                                    }));
-                                                    setShowBedPatientSuggestions(false);
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-teal-50 text-slate-700 flex items-center justify-between"
-                                            >
-                                                <span className="font-semibold">{p.name} <span className="font-mono text-slate-400">#{p.patient_id}</span></span>
-                                                <span className="text-[10px] text-slate-400">
-                                                    {p.baseline_data?.room ? `${p.baseline_data.ward ? `${p.baseline_data.ward} / ` : ''}${p.baseline_data.room}` : 'No room yet'}
-                                                </span>
-                                            </button>
-                                        ))}
                                 </div>
                             )}
                         </div>

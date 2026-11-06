@@ -4,7 +4,7 @@ const pool = require('../db');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { flagAsNormal } = require('../services/alagarAIService');
 const { handleAlertStream, broadcastAlert, setMuteStatus, getMuteStatus } = require('../services/alertRealtimeService');
-const { recordHardwareAlert } = require('../services/hardwareDiagnosticsService');
+const { recordHardwareAlert, syncDeviceDiagnostics } = require('../services/hardwareDiagnosticsService');
 
 // Secure all routes with JWT verification
 router.use(verifyToken);
@@ -642,13 +642,22 @@ router.get('/system', async (req, res) => {
         let query;
         let params;
 
+        await syncDeviceDiagnostics().catch(() => {});
+
         if (role === 'admin' || role === 'sysadmin' || role === 'system_admin') {
             query = `
                 SELECT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
-                       h.status, h.resolved_at, h.resolution_notes,
-                       p.patient_id, p.name as patient_name
+                       h.status, h.resolved_at, h.resolution_notes, h.device_mac_address,
+                       p.patient_id, p.name as patient_name,
+                       dw.serial_number as device_serial_number,
+                       dw.device_name,
+                       dw.status as raw_device_status,
+                       dw.last_heartbeat,
+                       dw.battery_level,
+                       dw.signal_strength
                 FROM hardware_system_alerts h
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
+                LEFT JOIN device_whitelist dw ON LOWER(h.device_mac_address) = LOWER(dw.serial_number)
                 ${includeResolved ? '' : "WHERE h.status = 'Active'"}
                 ORDER BY h.triggered_at DESC
                 LIMIT 100
@@ -658,10 +667,17 @@ router.get('/system', async (req, res) => {
             // Scoped to facility admin's provisioned users, assignments, and their patients and devices
             query = `
                 SELECT DISTINCT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
-                       h.status, h.resolved_at, h.resolution_notes,
-                       p.patient_id, p.name as patient_name
+                       h.status, h.resolved_at, h.resolution_notes, h.device_mac_address,
+                       p.patient_id, p.name as patient_name,
+                       dw.serial_number as device_serial_number,
+                       dw.device_name,
+                       dw.status as raw_device_status,
+                       dw.last_heartbeat,
+                       dw.battery_level,
+                       dw.signal_strength
                 FROM hardware_system_alerts h
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
+                LEFT JOIN device_whitelist dw ON LOWER(h.device_mac_address) = LOWER(dw.serial_number)
                 WHERE ${includeResolved ? 'TRUE' : "h.status = 'Active'"} AND (
                     p.facility_id = (SELECT facility_id FROM users WHERE user_id = $1)
                     OR p.patient_id IN (
@@ -699,8 +715,14 @@ router.get('/system', async (req, res) => {
             // Scoped to caregiver's/medical staff's/parent's assigned patients or registered devices
             query = `
                 SELECT DISTINCT h.sys_alert_id, h.alert_type, h.severity, h.description, h.triggered_at, 
-                       h.status, h.resolved_at, h.resolution_notes,
-                       p.patient_id, p.name as patient_name
+                       h.status, h.resolved_at, h.resolution_notes, h.device_mac_address,
+                       p.patient_id, p.name as patient_name,
+                       dw.serial_number as device_serial_number,
+                       dw.device_name,
+                       dw.status as raw_device_status,
+                       dw.last_heartbeat,
+                       dw.battery_level,
+                       dw.signal_strength
                 FROM hardware_system_alerts h
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
                 LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
@@ -715,19 +737,33 @@ router.get('/system', async (req, res) => {
         const isSysAdmin = ['sysadmin', 'system_admin'].includes(role?.toLowerCase());
         const result = await pool.query(query, params);
         const data = result.rows.map(r => {
+            const isOnline = r.raw_device_status !== 'STANDBY' && r.last_heartbeat && (Date.now() - new Date(r.last_heartbeat).getTime()) < 12000;
+            let liveDeviceStatus = isOnline ? 'ACTIVE' : 'INACTIVE';
+            if (r.raw_device_status === 'STANDBY') liveDeviceStatus = 'STANDBY';
+            else if (r.raw_device_status === 'AVAILABLE' && !r.patient_id) liveDeviceStatus = 'AVAILABLE';
+
+            const enriched = {
+                ...r,
+                device_serial_number: r.device_serial_number || r.device_mac_address || null,
+                device_status: r.device_serial_number ? liveDeviceStatus : null,
+                is_device_online: !!isOnline,
+                battery_level: r.battery_level !== null && r.battery_level !== undefined ? Number(r.battery_level) : null,
+                signal_strength: r.device_serial_number ? (isOnline ? (r.signal_strength || 'Good') : 'Offline') : null
+            };
+
             if (isSysAdmin) {
                 const anonId = r.patient_id ? `Subject #${r.patient_id} (De-identified)` : null;
                 const sanitizedDesc = r.patient_name && r.patient_id 
                     ? anonymizeMessageForSysAdmin(r.description, r.patient_name, r.patient_id) 
                     : r.description;
                 return {
-                    ...r,
+                    ...enriched,
                     patient_name: anonId,
                     description: sanitizedDesc,
                     is_anonymized: Boolean(r.patient_id)
                 };
             }
-            return r;
+            return enriched;
         });
         res.json({ success: true, data });
     } catch (err) {

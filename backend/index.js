@@ -32,6 +32,7 @@ const { Resend } = require('resend');
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const { runPrediction } = require('./services/alagarAIService');
 const { evaluateClinicalRules, mergeRuleAndAiAlerts } = require('./services/ruleAnomalyEngine');
+const { recordHardwareAlert } = require('./services/hardwareDiagnosticsService');
 
 // --- IMPORTS: ROUTE MODULES ---
 // [ISO 25010] Modularity: Separating Admin logic from the main server file
@@ -1650,11 +1651,54 @@ app.post('/api/device/data', async (req, res) => {
         broadcastAlert('device_status_update', {
             serial_number: device_id,
             status: 'ACTIVE',
+            is_online: true,
             patient_id: patientId,
             battery_level: batteryVal,
             signal_strength: signalVal,
             timestamp: new Date().toISOString()
         });
+
+        // Sync Hardware Diagnostics with live device status, battery, and signal
+        pool.query(
+            `UPDATE hardware_system_alerts
+             SET status = 'Resolved', resolved_at = NOW(), resolution_notes = 'Auto-resolved: Device reconnected.'
+             WHERE status = 'Active' AND LOWER(device_mac_address) = LOWER($1) AND alert_type ILIKE '%Disconnected%'`,
+            [device_id]
+        ).catch(() => {});
+
+        if (batteryVal !== null && batteryVal >= 20) {
+            pool.query(
+                `UPDATE hardware_system_alerts
+                 SET status = 'Resolved', resolved_at = NOW(), resolution_notes = 'Auto-resolved: Battery level normal.'
+                 WHERE status = 'Active' AND LOWER(device_mac_address) = LOWER($1) AND alert_type ILIKE '%Battery%'`,
+                [device_id]
+            ).catch(() => {});
+        } else if (batteryVal !== null && batteryVal > 0 && batteryVal < 20) {
+            recordHardwareAlert({
+                patient_id: patientId || null,
+                device_mac_address: device_id,
+                alert_type: 'Low Battery Warning',
+                severity: batteryVal < 10 ? 'Critical' : 'Warning',
+                description: `IoT Device "${devRow.device_name || device_id}" (${device_id}) battery is at ${batteryVal}%. Recharging required.`
+            }).catch(() => {});
+        }
+
+        if (signalVal === 'Weak') {
+            recordHardwareAlert({
+                patient_id: patientId || null,
+                device_mac_address: device_id,
+                alert_type: 'Weak Signal',
+                severity: 'Warning',
+                description: `IoT Device "${devRow.device_name || device_id}" (${device_id}) is reporting Weak WiFi signal strength.`
+            }).catch(() => {});
+        } else {
+            pool.query(
+                `UPDATE hardware_system_alerts
+                 SET status = 'Resolved', resolved_at = NOW(), resolution_notes = 'Auto-resolved: WiFi signal restored.'
+                 WHERE status = 'Active' AND LOWER(device_mac_address) = LOWER($1) AND alert_type ILIKE '%Signal%'`,
+                [device_id]
+            ).catch(() => {});
+        }
 
         // Verify device is assigned to an active patient
         if (!patientId) {
@@ -2176,6 +2220,14 @@ setInterval(async () => {
                 });
 
                 if (dev.assigned_patient_id) {
+                    recordHardwareAlert({
+                        patient_id: dev.assigned_patient_id,
+                        device_mac_address: dev.serial_number,
+                        alert_type: 'Device Disconnected',
+                        severity: 'Warning',
+                        description: `IoT Device "${dev.device_name || dev.serial_number}" (${dev.serial_number}) went offline (no heartbeat received).`
+                    }).catch(() => {});
+
                     broadcastAlert('patient_telemetry_update', {
                         patient_id: dev.assigned_patient_id,
                         serial_number: dev.serial_number,

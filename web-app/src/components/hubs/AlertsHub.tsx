@@ -5,8 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Badge } from '../ui/badge';
 import { 
     AlertCircle, CheckCircle2, Shield, Activity, HardDrive, Flag, Sparkles, Archive, 
-    Volume2, VolumeX, BellRing, Search, Filter, BatteryCharging, WifiOff, AlertTriangle, 
-    Droplets, HeartPulse, X, Play 
+    Volume2, VolumeX, BellRing, Search, Filter, BatteryCharging, Wifi, WifiOff, AlertTriangle, 
+    Droplets, HeartPulse, X, Play, Radio 
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth-context';
 import { AcknowledgeModal } from '../ui/AcknowledgeModal';
@@ -39,6 +39,24 @@ interface SystemAlert {
     triggered_at: string;
     patient_name: string;
     is_anonymized?: boolean;
+    device_serial_number?: string | null;
+    device_name?: string | null;
+    device_status?: string | null;
+    is_device_online?: boolean;
+    battery_level?: number | null;
+    signal_strength?: string | null;
+}
+
+interface SyncedDevice {
+    serial_number: string;
+    device_name: string;
+    status: string;
+    is_online?: boolean;
+    last_heartbeat: string | null;
+    battery_level: number | null;
+    signal_strength: string | null;
+    assigned_patient_id: number | null;
+    assigned_patient_name: string | null;
 }
 
 const AlertsHub: React.FC = () => {
@@ -75,6 +93,8 @@ const AlertsHub: React.FC = () => {
     const [activeTab, setActiveTab] = useState(isSysAdmin ? 'system' : 'clinical');
     const [clinicalAlerts, setClinicalAlerts] = useState<ClinicalAlert[]>([]);
     const [systemAlerts, setSystemAlerts] = useState<SystemAlert[]>([]);
+    const [devices, setDevices] = useState<SyncedDevice[]>([]);
+    const [pingingSerial, setPingingSerial] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     const [isInactive, setIsInactive] = useState(false);
@@ -159,7 +179,8 @@ const AlertsHub: React.FC = () => {
             list = list.filter(a => 
                 (a.patient_name && a.patient_name.toLowerCase().includes(q)) ||
                 (a.description && a.description.toLowerCase().includes(q)) ||
-                (a.alert_type && a.alert_type.toLowerCase().includes(q))
+                (a.alert_type && a.alert_type.toLowerCase().includes(q)) ||
+                (a.device_serial_number && a.device_serial_number.toLowerCase().includes(q))
             );
         }
         if (systemFilterType === 'low_battery') {
@@ -255,13 +276,35 @@ const AlertsHub: React.FC = () => {
     // AlertsHub updates when alerts are acknowledged/flagged/archived.
 
 
-    const fetchAlerts = async () => {
+    const displayedDevices = useMemo(() => {
+        let list = devices;
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            list = list.filter(d =>
+                (d.serial_number && d.serial_number.toLowerCase().includes(q)) ||
+                (d.device_name && d.device_name.toLowerCase().includes(q)) ||
+                (d.assigned_patient_name && d.assigned_patient_name.toLowerCase().includes(q)) ||
+                (d.status && d.status.toLowerCase().includes(q))
+            );
+        }
+        if (systemFilterType === 'low_battery') {
+            list = list.filter(d => d.battery_level !== null && d.battery_level !== undefined && d.battery_level < 20);
+        } else if (systemFilterType === 'disconnected') {
+            list = list.filter(d => d.status === 'INACTIVE' || (!d.is_online && d.assigned_patient_id !== null));
+        } else if (systemFilterType === 'weak_signal') {
+            list = list.filter(d => (d.signal_strength || '').toLowerCase() === 'weak');
+        }
+        return list;
+    }, [devices, searchQuery, systemFilterType]);
+
+    const fetchAlerts = async (silent = false) => {
         if (!token) return;
-        setIsLoading(true);
+        if (!silent) setIsLoading(true);
         try {
-            const [clinicalRes, sysRes] = await Promise.all([
+            const [clinicalRes, sysRes, devRes] = await Promise.all([
                 axios.get(`${API_BASE}/api/alerts/clinical`, getHeaders()),
-                axios.get(`${API_BASE}/api/alerts/system`, getHeaders())
+                axios.get(`${API_BASE}/api/alerts/system`, getHeaders()),
+                axios.get(`${API_BASE}/api/caregiver/devices`, getHeaders()).catch(() => ({ data: { data: [] } }))
             ]);
             const activeClinical = (clinicalRes.data.data || []).filter((a: any) =>
                 a.status !== 'Acknowledged' &&
@@ -274,20 +317,80 @@ const AlertsHub: React.FC = () => {
             const activeSystem = (sysRes.data.data || []).filter((a: any) => a.status === 'Active');
             setClinicalAlerts(activeClinical);
             setSystemAlerts(activeSystem);
+            if (Array.isArray(devRes.data?.data)) {
+                setDevices(devRes.data.data);
+            }
         } catch (error) {
             console.error("Failed to load alerts", error);
         } finally {
-            setIsLoading(false);
+            if (!silent) setIsLoading(false);
+        }
+    };
+
+    const handlePingDevice = async (serialNumber: string) => {
+        if (!token) return;
+        setPingingSerial(serialNumber);
+        try {
+            const res = await axios.post(`${API_BASE}/api/caregiver/devices/${encodeURIComponent(serialNumber)}/ping`, {}, getHeaders());
+            if (res.data?.is_online) {
+                toast.success(res.data.message || `Device ${serialNumber} is Online.`);
+            } else {
+                toast.warning(res.data?.message || `Device ${serialNumber} is Offline.`);
+            }
+            fetchAlerts(true);
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || `Failed to ping ${serialNumber}.`);
+        } finally {
+            setPingingSerial(null);
         }
     };
 
     useEffect(() => {
         if (token) {
-            fetchAlerts();
-            const pollId = setInterval(fetchAlerts, 10000);
+            fetchAlerts(false);
+            const pollId = setInterval(() => fetchAlerts(true), 3000);
 
-            const handleRealtimeSync = () => {
-                fetchAlerts();
+            const handleRealtimeSync = (e: Event) => {
+                const detail = (e as CustomEvent)?.detail;
+                const eventType = detail?.type;
+                const payload = detail?.data;
+
+                if (eventType === 'device_status_update' && payload) {
+                    const targetSerial = payload.serial_number || payload.serialNumber;
+                    if (targetSerial) {
+                        const isOnline = payload.status === 'ACTIVE' || payload.is_online === true;
+                        setDevices(prev => prev.map(d => {
+                            if (d.serial_number.toLowerCase() === String(targetSerial).toLowerCase()) {
+                                return {
+                                    ...d,
+                                    status: payload.status || (isOnline ? 'ACTIVE' : 'INACTIVE'),
+                                    is_online: isOnline,
+                                    battery_level: payload.battery_level !== undefined && payload.battery_level !== null ? Number(payload.battery_level) : d.battery_level,
+                                    signal_strength: isOnline ? (payload.signal_strength || (d.signal_strength !== 'Offline' ? d.signal_strength : 'Good') || 'Good') : 'Offline',
+                                    last_heartbeat: isOnline ? (payload.timestamp || new Date().toISOString()) : d.last_heartbeat
+                                };
+                            }
+                            return d;
+                        }));
+                    }
+                } else if (eventType === 'patient_telemetry_update' && payload) {
+                    const targetSerial = payload.serial_number;
+                    setDevices(prev => prev.map(d => {
+                        if (targetSerial && d.serial_number.toLowerCase() === String(targetSerial).toLowerCase()) {
+                            return {
+                                ...d,
+                                status: 'ACTIVE',
+                                is_online: true,
+                                battery_level: payload.battery_level !== undefined && payload.battery_level !== null ? Number(payload.battery_level) : d.battery_level,
+                                signal_strength: payload.signal_strength || (d.signal_strength !== 'Offline' ? d.signal_strength : 'Good') || 'Good',
+                                last_heartbeat: payload.recorded_at || new Date().toISOString()
+                            };
+                        }
+                        return d;
+                    }));
+                }
+
+                fetchAlerts(true);
             };
             window.addEventListener('alaga_alert_update', handleRealtimeSync);
             window.addEventListener('alaga_manual_refresh', handleRealtimeSync);
@@ -784,6 +887,123 @@ const AlertsHub: React.FC = () => {
                             </button>
                         </div>
                     </div>
+                    {/* Live Synced Patient Devices Telemetry & Diagnostics Matrix */}
+                    <Card className="bg-white border-slate-200 shadow-2xs rounded-2xl overflow-hidden">
+                        <CardContent className="p-4 sm:p-5 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                        <HardDrive className="w-4 h-4 text-teal-600" />
+                                        Patient Devices Live Diagnostics (Synced with Patients&apos; Devices)
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500">
+                                        Real-time status, battery level, and WiFi signal strength synchronized with registered patient sensors.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 text-[11px] font-semibold">
+                                    <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                                        {devices.filter(d => d.status === 'ACTIVE').length} Active
+                                    </Badge>
+                                    <Badge className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px]">
+                                        {devices.filter(d => d.status === 'INACTIVE').length} Inactive
+                                    </Badge>
+                                    <Badge className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px]">
+                                        {devices.filter(d => d.battery_level !== null && d.battery_level < 20).length} Low Battery
+                                    </Badge>
+                                </div>
+                            </div>
+
+                            {displayedDevices.length === 0 ? (
+                                <div className="text-center py-6 text-xs text-slate-400 italic">
+                                    No patient devices match the current filter.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    {displayedDevices.map(dev => {
+                                        const isOnline = dev.status === 'ACTIVE' || dev.is_online === true;
+                                        const bat = dev.battery_level !== null && dev.battery_level !== undefined ? Number(dev.battery_level) : null;
+                                        const sig = isOnline ? (dev.signal_strength || 'Good') : 'Offline';
+                                        return (
+                                            <div
+                                                key={dev.serial_number}
+                                                className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                                                    isOnline
+                                                        ? 'bg-emerald-50/20 border-emerald-200/80'
+                                                        : dev.status === 'INACTIVE'
+                                                        ? 'bg-slate-50/70 border-slate-200'
+                                                        : 'bg-white border-slate-200'
+                                                }`}
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <span className="font-bold text-xs text-slate-800 truncate">{dev.device_name}</span>
+                                                            <Badge variant="outline" className="font-mono text-[10px] bg-white text-slate-700 border-slate-200 px-1.5 py-0">
+                                                                {dev.serial_number}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                                            Patient: <span className="font-semibold text-slate-700">{dev.assigned_patient_name || 'Unassigned'}</span>
+                                                        </p>
+                                                    </div>
+                                                    <Badge
+                                                        className={`text-[10px] font-bold px-2 py-0.5 border shrink-0 ${
+                                                            dev.status === 'ACTIVE'
+                                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                                : dev.status === 'STANDBY'
+                                                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                                : dev.status === 'AVAILABLE'
+                                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                        }`}
+                                                    >
+                                                        {dev.status}
+                                                    </Badge>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 text-[11px]">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <BatteryCharging className={`w-3.5 h-3.5 ${bat !== null && bat < 20 ? 'text-rose-600' : 'text-teal-600'}`} />
+                                                        <span className="text-slate-500">Battery:</span>
+                                                        <span className={`font-bold ${bat !== null && bat < 20 ? 'text-rose-600' : 'text-slate-800'}`}>
+                                                            {bat !== null ? `${bat}%` : '--'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        {isOnline ? (
+                                                            <Wifi className={`w-3.5 h-3.5 ${sig.toLowerCase() === 'weak' ? 'text-amber-600' : 'text-emerald-600'}`} />
+                                                        ) : (
+                                                            <WifiOff className="w-3.5 h-3.5 text-slate-400" />
+                                                        )}
+                                                        <span className="text-slate-500">Signal:</span>
+                                                        <span className={`font-bold ${!isOnline ? 'text-slate-500' : sig.toLowerCase() === 'weak' ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                                            {sig}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
+                                                    <span>
+                                                        Last Heartbeat: {dev.last_heartbeat ? new Date(dev.last_heartbeat).toLocaleTimeString() : 'Never'}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handlePingDevice(dev.serial_number)}
+                                                        disabled={pingingSerial === dev.serial_number}
+                                                        className="px-2 py-1 rounded-md bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 font-semibold flex items-center gap-1 transition cursor-pointer"
+                                                    >
+                                                        <Radio className="w-3 h-3" />
+                                                        {pingingSerial === dev.serial_number ? 'Pinging...' : 'Ping'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
                     {displayedSystemAlerts.length === 0 && !isLoading ? (
                         <Card className="border-dashed border-slate-200 bg-white shadow-sm rounded-2xl">
                             <CardContent className="flex flex-col items-center justify-center p-12 text-slate-500">
@@ -793,51 +1013,90 @@ const AlertsHub: React.FC = () => {
                             </CardContent>
                         </Card>
                     ) : (
-                        displayedSystemAlerts.map(alert => (
-                            <Card key={alert.sys_alert_id} className={`overflow-hidden bg-white border-slate-200 rounded-2xl ${alert.status !== 'Active' ? 'opacity-60 border-slate-200' : 'shadow-sm'}`}>
-                                <CardContent className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                                    <div className="flex gap-4 items-start">
-                                        <div className={`p-3.5 rounded-2xl ${alert.status === 'Active' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
-                                            <HardDrive className="h-6 w-6" />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-2 flex-wrap mb-1">
-                                                <h3 className="font-bold text-slate-800 text-lg">{alert.alert_type}</h3>
-                                                <Badge className={getSeverityColor(alert.severity)} variant="outline">{alert.severity}</Badge>
-                                                {alert.patient_name && (
-                                                    <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-xl font-semibold">
-                                                        {alert.is_anonymized ? alert.patient_name : `Device: ${alert.patient_name}`}
-                                                    </span>
+                        displayedSystemAlerts.map(alert => {
+                            const matchedDev = devices.find(d =>
+                                alert.device_serial_number &&
+                                d.serial_number.toLowerCase() === alert.device_serial_number.toLowerCase()
+                            );
+                            const liveStatus = matchedDev?.status || alert.device_status || null;
+                            const liveBattery = matchedDev?.battery_level ?? alert.battery_level ?? null;
+                            const liveSignal = matchedDev
+                                ? ((matchedDev.status === 'ACTIVE' || matchedDev.is_online) ? (matchedDev.signal_strength || 'Good') : 'Offline')
+                                : (alert.signal_strength || null);
+                            const serialNum = matchedDev?.serial_number || alert.device_serial_number || null;
+
+                            return (
+                                <Card key={alert.sys_alert_id} className={`overflow-hidden bg-white border-slate-200 rounded-2xl ${alert.status !== 'Active' ? 'opacity-60 border-slate-200' : 'shadow-sm'}`}>
+                                    <CardContent className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                                        <div className="flex gap-4 items-start">
+                                            <div className={`p-3.5 rounded-2xl ${alert.status === 'Active' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
+                                                <HardDrive className="h-6 w-6" />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                    <h3 className="font-bold text-slate-800 text-lg">{alert.alert_type}</h3>
+                                                    <Badge className={getSeverityColor(alert.severity)} variant="outline">{alert.severity}</Badge>
+                                                    {serialNum && (
+                                                        <Badge variant="outline" className="font-mono text-xs bg-slate-50 text-slate-700 border-slate-200">
+                                                            SN: {serialNum}
+                                                        </Badge>
+                                                    )}
+                                                    {alert.patient_name && (
+                                                        <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-xl font-semibold">
+                                                            {alert.is_anonymized ? alert.patient_name : `Patient: ${alert.patient_name}`}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-sm text-slate-700 font-medium">{alert.description}</p>
+                                                {(liveStatus || liveBattery !== null || liveSignal) && (
+                                                    <div className="flex items-center gap-2 flex-wrap pt-1">
+                                                        {liveStatus && (
+                                                            <Badge className={`text-[10px] font-bold border ${
+                                                                liveStatus === 'ACTIVE'
+                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                            }`}>
+                                                                Status: {liveStatus}
+                                                            </Badge>
+                                                        )}
+                                                        <Badge variant="outline" className="text-[10px] font-semibold bg-slate-50 text-slate-700 border-slate-200">
+                                                            Battery: {liveBattery !== null && liveBattery !== undefined ? `${liveBattery}%` : '--'}
+                                                        </Badge>
+                                                        {liveSignal && (
+                                                            <Badge variant="outline" className="text-[10px] font-semibold bg-slate-50 text-slate-700 border-slate-200">
+                                                                Signal: {liveSignal}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
                                                 )}
+                                                <p className="text-xs text-slate-400 pt-1">Logged: {new Date(alert.triggered_at).toLocaleString()}</p>
                                             </div>
-                                            <p className="text-sm text-slate-700 font-medium">{alert.description}</p>
-                                            <p className="text-xs text-slate-400 pt-1">Logged: {new Date(alert.triggered_at).toLocaleString()}</p>
                                         </div>
-                                    </div>
-                                    <div className="w-full md:w-auto flex items-center justify-end gap-2.5 shrink-0">
-                                        {alert.status === 'Active' && (
+                                        <div className="w-full md:w-auto flex items-center justify-end gap-2.5 shrink-0">
+                                            {alert.status === 'Active' && (
+                                                <button 
+                                                    onClick={() => handleResolveSystemAlert(alert.sys_alert_id)}
+                                                    className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition shadow-sm w-full md:w-auto"
+                                                >
+                                                    Resolve Alert
+                                                </button>
+                                            )}
+                                            {alert.status !== 'Active' && (
+                                                <div className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
+                                                    <CheckCircle2 className="h-4 w-4" /> Resolved
+                                                </div>
+                                            )}
                                             <button 
-                                                onClick={() => handleResolveSystemAlert(alert.sys_alert_id)}
-                                                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition shadow-sm w-full md:w-auto"
+                                                onClick={() => handleArchiveAlert('system_' + alert.sys_alert_id)}
+                                                className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold rounded-xl transition"
                                             >
-                                                Resolve Alert
+                                                Archive
                                             </button>
-                                        )}
-                                        {alert.status !== 'Active' && (
-                                            <div className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
-                                                <CheckCircle2 className="h-4 w-4" /> Resolved
-                                            </div>
-                                        )}
-                                        <button 
-                                            onClick={() => handleArchiveAlert('system_' + alert.sys_alert_id)}
-                                            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold rounded-xl transition"
-                                        >
-                                            Archive
-                                        </button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })
                     )}
                 </TabsContent>
             </Tabs>

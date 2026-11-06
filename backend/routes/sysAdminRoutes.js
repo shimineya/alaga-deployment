@@ -59,7 +59,7 @@ router.get('/stats', requirePermission('dashboard_overview'), async (req, res) =
         ] = await Promise.all([
             pool.query("SELECT COUNT(*) FROM patients WHERE is_archived = FALSE"),
             pool.query("SELECT COUNT(*) FROM alert_notifications WHERE severity = 'CRITICAL' AND status = 'Sent'"),
-            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE status = 'ACTIVE' AND is_archived IS DISTINCT FROM TRUE"),
+            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE status = 'ACTIVE' AND last_heartbeat >= NOW() - INTERVAL '12 seconds' AND is_archived IS DISTINCT FROM TRUE"),
             pool.query("SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review' AND is_archived IS DISTINCT FROM TRUE"),
             pool.query("SELECT COUNT(*) FROM facilities"),
             pool.query("SELECT COUNT(*) FROM access_logs WHERE action = 'BREAK_GLASS_ACCESS' AND timestamp >= NOW() - INTERVAL '15 minutes'"),
@@ -67,7 +67,7 @@ router.get('/stats', requirePermission('dashboard_overview'), async (req, res) =
             pool.query("SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size"),
             pool.query("SELECT count(*) FROM pg_stat_activity"),
             pool.query("SELECT COUNT(*) FROM device_whitelist WHERE is_archived IS DISTINCT FROM TRUE"),
-            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE status = 'INACTIVE' AND is_archived IS DISTINCT FROM TRUE")
+            pool.query("SELECT COUNT(*) FROM device_whitelist WHERE (status != 'ACTIVE' OR last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '12 seconds') AND is_archived IS DISTINCT FROM TRUE")
         ]);
  
         res.json({
@@ -1279,7 +1279,12 @@ router.get('/device-assignments', async (req, res) => {
     try {
         const [assignments, unassigned, patients] = await Promise.all([
             pool.query(
-                `SELECT dw.serial_number, dw.device_name, dw.status,
+                `SELECT dw.serial_number, dw.device_name,
+                        CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END AS status,
+                        (dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds') AS is_online,
+                        dw.battery_level,
+                        CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END AS signal_strength,
+                        dw.last_heartbeat,
                         p.patient_id, 
                         'Patient #' || p.patient_id || ' (De-identified)' AS patient_name,
                         f.facility_name,
@@ -1293,7 +1298,11 @@ router.get('/device-assignments', async (req, res) => {
                  ORDER BY p.patient_id ASC`
             ),
             pool.query(
-                `SELECT dw.serial_number, dw.device_name, dw.status,
+                `SELECT dw.serial_number, dw.device_name,
+                        COALESCE(dw.status, 'AVAILABLE') AS status,
+                        dw.battery_level,
+                        'Offline' AS signal_strength,
+                        dw.last_heartbeat,
                         f.facility_name,
                         u.username AS added_by_username,
                         to_char(dw.created_at, 'YYYY-MM-DD') AS created_at

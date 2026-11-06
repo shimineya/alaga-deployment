@@ -73,45 +73,99 @@ async function recordHardwareAlert({ patient_id, device_mac_address, alert_type,
 }
 
 /**
- * Periodically evaluate active devices for offline / disconnection timeouts
+ * Periodically evaluate active devices for offline / disconnection timeouts, low battery, and weak signal,
+ * and auto-resolve alerts when device health recovers.
  */
-async function checkDeviceHeartbeats() {
+async function syncDeviceDiagnostics() {
     try {
-        // Query assigned active devices with no sensor reading in past 10 minutes
-        const inactiveDevices = await pool.query(
-            `SELECT d.serial_number, d.device_name, d.assigned_patient_id, p.name as patient_name,
-                    MAX(r.recorded_at) as last_seen
+        // 1. Auto-resolve "Device Disconnected" alerts when the device is back online (heartbeat within 12s)
+        await pool.query(
+            `UPDATE hardware_system_alerts h
+             SET status = 'Resolved',
+                 resolved_at = NOW(),
+                 resolution_notes = 'Auto-resolved: Device reconnected and is transmitting telemetry.'
+             FROM device_whitelist d
+             WHERE h.status = 'Active'
+               AND h.alert_type ILIKE '%Disconnected%'
+               AND LOWER(h.device_mac_address) = LOWER(d.serial_number)
+               AND d.status = 'ACTIVE'
+               AND d.last_heartbeat >= NOW() - INTERVAL '12 seconds'`
+        ).catch(() => {});
+
+        // 2. Auto-resolve "Low Battery" alerts when battery_level >= 20
+        await pool.query(
+            `UPDATE hardware_system_alerts h
+             SET status = 'Resolved',
+                 resolved_at = NOW(),
+                 resolution_notes = 'Auto-resolved: Battery level recharged to normal range.'
+             FROM device_whitelist d
+             WHERE h.status = 'Active'
+               AND h.alert_type ILIKE '%Battery%'
+               AND LOWER(h.device_mac_address) = LOWER(d.serial_number)
+               AND d.battery_level IS NOT NULL
+               AND d.battery_level >= 20`
+        ).catch(() => {});
+
+        // 3. Auto-resolve "Weak Signal" alerts when signal_strength is Good or Excellent and online
+        await pool.query(
+            `UPDATE hardware_system_alerts h
+             SET status = 'Resolved',
+                 resolved_at = NOW(),
+                 resolution_notes = 'Auto-resolved: Signal strength restored.'
+             FROM device_whitelist d
+             WHERE h.status = 'Active'
+               AND h.alert_type ILIKE '%Signal%'
+               AND LOWER(h.device_mac_address) = LOWER(d.serial_number)
+               AND d.status = 'ACTIVE'
+               AND d.last_heartbeat >= NOW() - INTERVAL '12 seconds'
+               AND d.signal_strength IN ('Good', 'Excellent')`
+        ).catch(() => {});
+
+        // 4. Check paired devices for Low Battery (<20%) or Weak Signal while online
+        const pairedDevices = await pool.query(
+            `SELECT d.serial_number, d.device_name, d.status, d.last_heartbeat,
+                    d.battery_level, d.signal_strength, d.assigned_patient_id,
+                    p.name as patient_name
              FROM device_whitelist d
              JOIN patients p ON d.assigned_patient_id = p.patient_id
-             LEFT JOIN sensor_readings r ON r.patient_id = p.patient_id
              WHERE d.is_archived IS DISTINCT FROM TRUE
-               AND d.status = 'active'
-             GROUP BY d.serial_number, d.device_name, d.assigned_patient_id, p.name
-             HAVING MAX(r.recorded_at) < NOW() - INTERVAL '10 minutes'
-                 OR MAX(r.recorded_at) IS NULL`
+               AND p.is_archived IS DISTINCT FROM TRUE`
         );
 
-        for (const row of inactiveDevices.rows) {
-            const lastTimeStr = row.last_seen 
-                ? new Date(row.last_seen).toLocaleTimeString() 
-                : 'Never';
-            await recordHardwareAlert({
-                patient_id: row.assigned_patient_id,
-                device_mac_address: row.serial_number,
-                alert_type: 'Device Disconnected',
-                severity: 'Warning',
-                description: `IoT Device "${row.device_name || row.serial_number}" appears offline. No telemetry received since ${lastTimeStr}.`
-            });
+        for (const dev of pairedDevices.rows) {
+            const isOnline = dev.status !== 'STANDBY' && dev.last_heartbeat && (Date.now() - new Date(dev.last_heartbeat).getTime()) < 12000;
+
+            if (dev.battery_level !== null && dev.battery_level !== undefined && Number(dev.battery_level) > 0 && Number(dev.battery_level) < 20) {
+                const bat = Number(dev.battery_level);
+                await recordHardwareAlert({
+                    patient_id: dev.assigned_patient_id,
+                    device_mac_address: dev.serial_number,
+                    alert_type: 'Low Battery Warning',
+                    severity: bat < 10 ? 'Critical' : 'Warning',
+                    description: `IoT Device "${dev.device_name || dev.serial_number}" (${dev.serial_number}) battery is at ${bat}%. Recharging required.`
+                });
+            }
+
+            if (isOnline && String(dev.signal_strength || '').toLowerCase() === 'weak') {
+                await recordHardwareAlert({
+                    patient_id: dev.assigned_patient_id,
+                    device_mac_address: dev.serial_number,
+                    alert_type: 'Weak Signal',
+                    severity: 'Warning',
+                    description: `IoT Device "${dev.device_name || dev.serial_number}" (${dev.serial_number}) is reporting Weak WiFi signal strength.`
+                });
+            }
         }
     } catch (err) {
-        // Silent catch for background heartbeat probe
+        // Silent catch for background diagnostics sync
     }
 }
 
-// Run periodic check every 3 minutes
-setInterval(checkDeviceHeartbeats, 3 * 60 * 1000);
+// Run periodic check every 15 seconds
+setInterval(syncDeviceDiagnostics, 15 * 1000);
 
 module.exports = {
     recordHardwareAlert,
-    checkDeviceHeartbeats
+    checkDeviceHeartbeats: syncDeviceDiagnostics,
+    syncDeviceDiagnostics
 };

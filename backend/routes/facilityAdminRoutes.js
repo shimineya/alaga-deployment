@@ -18,14 +18,30 @@ router.use(verifyFacilityAdmin);
 // =================================================================
 router.get('/stats', async (req, res) => {
     const facilityId = req.user.facility_id;
-    const isSysAdmin = req.user.is_sys_admin_override;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
     try {
         if (isSysAdmin) {
             // [Omniscient View] System Admin: aggregate stats across ALL facilities
             const [sensorStats, batteryWarnings, pendingStaff] = await Promise.all([
-                pool.query(`SELECT COUNT(*) FILTER (WHERE status = 'ACTIVE') AS online_count, COUNT(*) FILTER (WHERE status != 'ACTIVE') AS offline_count FROM device_whitelist`),
-                pool.query(`SELECT dw.serial_number, dw.device_name, 100 AS battery_level, p.name AS first_name, '' AS last_name FROM device_whitelist dw JOIN patients p ON dw.assigned_patient_id = p.patient_id WHERE FALSE`),
-                pool.query(`SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review'`)
+                pool.query(`
+                    SELECT
+                        COUNT(*) FILTER (WHERE status = 'ACTIVE' AND last_heartbeat >= NOW() - INTERVAL '12 seconds') AS online_count,
+                        COUNT(*) FILTER (WHERE status != 'ACTIVE' OR last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '12 seconds') AS offline_count
+                    FROM device_whitelist
+                    WHERE is_archived IS DISTINCT FROM TRUE
+                `),
+                pool.query(`
+                    SELECT dw.serial_number, dw.device_name, dw.battery_level,
+                           COALESCE(dw.signal_strength, 'Offline') AS signal_strength,
+                           'Patient #' || p.patient_id || ' (De-identified)' AS first_name, '' AS last_name
+                    FROM device_whitelist dw
+                    LEFT JOIN patients p ON dw.assigned_patient_id = p.patient_id
+                    WHERE dw.is_archived IS DISTINCT FROM TRUE
+                      AND dw.battery_level IS NOT NULL
+                      AND dw.battery_level > 0
+                      AND dw.battery_level < 20
+                `),
+                pool.query(`SELECT COUNT(*) FROM users WHERE account_status = 'Pending_Review' AND is_archived IS DISTINCT FROM TRUE`)
             ]);
             return res.json({
                 success: true,
@@ -39,29 +55,43 @@ router.get('/stats', async (req, res) => {
         }
 
         const [sensorStats, batteryWarnings, pendingStaff] = await Promise.all([
-            // [RLS] Count sensors only for this facility's patients
+            // [RLS] Count sensors only for this facility's patients / devices
             pool.query(
                 `SELECT
-                    COUNT(*) FILTER (WHERE dw.status = 'ACTIVE') AS online_count,
-                    COUNT(*) FILTER (WHERE dw.status != 'ACTIVE') AS offline_count
+                    COUNT(*) FILTER (WHERE dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds') AS online_count,
+                    COUNT(*) FILTER (WHERE dw.status != 'ACTIVE' OR dw.last_heartbeat IS NULL OR dw.last_heartbeat < NOW() - INTERVAL '12 seconds') AS offline_count
                  FROM device_whitelist dw
-                 JOIN patients p ON dw.assigned_patient_id = p.patient_id
-                 WHERE p.facility_id = $1`,
-                [facilityId]
+                 LEFT JOIN patients p ON dw.assigned_patient_id = p.patient_id
+                 WHERE dw.is_archived IS DISTINCT FROM TRUE
+                   AND (
+                       p.facility_id = $1
+                       OR dw.added_by = $2
+                       OR dw.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                   )`,
+                [facilityId, req.user.id]
             ),
-            // [RLS] Battery warnings for this facility's devices (Safe Query)
+            // [RLS] Battery warnings for this facility's devices
             pool.query(
-                `SELECT dw.serial_number, dw.device_name, 100 AS battery_level,
-                        p.name AS first_name, '' AS last_name
+                `SELECT dw.serial_number, dw.device_name, dw.battery_level,
+                        COALESCE(dw.signal_strength, 'Offline') AS signal_strength,
+                        COALESCE(p.name, 'Unassigned') AS first_name, '' AS last_name
                  FROM device_whitelist dw
-                 JOIN patients p ON dw.assigned_patient_id = p.patient_id
-                 WHERE FALSE`,
-                []
+                 LEFT JOIN patients p ON dw.assigned_patient_id = p.patient_id
+                 WHERE dw.is_archived IS DISTINCT FROM TRUE
+                   AND dw.battery_level IS NOT NULL
+                   AND dw.battery_level > 0
+                   AND dw.battery_level < 20
+                   AND (
+                       p.facility_id = $1
+                       OR dw.added_by = $2
+                       OR dw.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
+                   )`,
+                [facilityId, req.user.id]
             ),
             // Pending staff approval for this facility
             pool.query(
                 `SELECT COUNT(*) FROM users
-                 WHERE facility_id = $1 AND account_status = 'Pending_Review'`,
+                 WHERE facility_id = $1 AND account_status = 'Pending_Review' AND is_archived IS DISTINCT FROM TRUE`,
                 [facilityId]
             )
         ]);
@@ -1458,26 +1488,32 @@ router.put('/alerts/thresholds', async (req, res) => {
 // Mandate: DPA — Strips ip_address and user_agent from patient access logs
 // =================================================================
 
-// Ping device to test signal (read-only, does not alter device config)
+// Ping device to test signal (read-only, synced with Patients' Devices status, battery, and signal)
 router.get('/diagnostics/ping/:serialNumber', async (req, res) => {
     const facilityId = req.user.facility_id;
     const { serialNumber } = req.params;
+    const isSysAdmin = req.user.is_sys_admin_override || ['system_admin', 'admin', 'sysadmin'].includes(req.user.role?.toLowerCase());
 
     try {
-        // [OWASP A01 / IDOR] Verify device belongs to this facility (either patient or registered by user/admin of facility)
+        // [OWASP A01 / IDOR] Verify device belongs to this facility (or allow System Admin)
         const deviceCheck = await pool.query(
             `SELECT dw.serial_number, dw.device_name, dw.status, dw.last_heartbeat,
-                    p.first_name, p.last_name
+                    dw.battery_level, dw.signal_strength, dw.assigned_patient_id,
+                    p.patient_id, p.name AS patient_name
              FROM device_whitelist dw
              LEFT JOIN patients p ON dw.assigned_patient_id = p.patient_id
              LEFT JOIN users u_added ON dw.added_by = u_added.user_id
-             WHERE dw.serial_number = $1 
+             WHERE LOWER(dw.serial_number) = LOWER($1)
+               AND dw.is_archived IS DISTINCT FROM TRUE
                AND (
-                   dw.added_by = $2
+                   $4::boolean = TRUE
+                   OR dw.added_by = $2
+                   OR dw.added_by IN (SELECT user_id FROM users WHERE created_by = $2)
                    OR p.facility_id = $3
                    OR u_added.facility_id = $3
+                   OR dw.assigned_patient_id IN (SELECT patient_id FROM patient_access WHERE invited_by = $2)
                )`,
-            [serialNumber, req.user.id, facilityId]
+            [serialNumber, req.user.id, facilityId, !!isSysAdmin]
         );
 
         if (deviceCheck.rows.length === 0) {
@@ -1485,18 +1521,35 @@ router.get('/diagnostics/ping/:serialNumber', async (req, res) => {
         }
 
         const device = deviceCheck.rows[0];
-        const isOnline = device.last_heartbeat &&
-            (new Date() - new Date(device.last_heartbeat)) < 60000; // Online if heartbeat < 60s ago
+        const isUnassigned = !device.assigned_patient_id || device.status === 'AVAILABLE' || device.status === 'UNASSIGNED';
+        const isOnline = Boolean(
+            !isUnassigned &&
+            device.status !== 'STANDBY' &&
+            device.last_heartbeat &&
+            (Date.now() - new Date(device.last_heartbeat).getTime()) < 12000
+        );
+
+        let displayStatus = isOnline ? 'ACTIVE' : (isUnassigned ? 'AVAILABLE' : 'INACTIVE');
+        if (device.status === 'STANDBY') displayStatus = 'STANDBY';
+        else if (device.status === 'MAINTENANCE') displayStatus = 'MAINTENANCE';
+
+        const batteryLevel = device.battery_level !== null && device.battery_level !== undefined ? Number(device.battery_level) : null;
+        const signalStrength = isOnline ? (device.signal_strength || 'Good') : 'Offline';
+        const patientDisplay = device.patient_id
+            ? (isSysAdmin ? `Patient #${device.patient_id} (De-identified)` : (device.patient_name || `Patient #${device.patient_id}`))
+            : 'Unassigned';
 
         res.json({
             success: true,
             data: {
                 serial_number: device.serial_number,
                 device_name: device.device_name,
-                status: device.status,
+                status: displayStatus,
                 last_heartbeat: device.last_heartbeat,
                 is_online: isOnline,
-                patient: `${device.first_name} ${device.last_name}`
+                battery_level: batteryLevel,
+                signal_strength: signalStrength,
+                patient: patientDisplay
             }
         });
     } catch (err) {
@@ -1809,7 +1862,9 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                                     json_build_object(
                                         'serial_number', dw.serial_number,
                                         'device_name', dw.device_name,
-                                        'status', dw.status
+                                        'status', CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+                                        'battery_level', dw.battery_level,
+                                        'signal_strength', CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END
                                     )
                                 )
                                 FROM device_whitelist dw
@@ -1858,7 +1913,9 @@ router.get('/patients-added-and-assigned', async (req, res) => {
                                     json_build_object(
                                         'serial_number', dw.serial_number,
                                         'device_name', dw.device_name,
-                                        'status', dw.status
+                                        'status', CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+                                        'battery_level', dw.battery_level,
+                                        'signal_strength', CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END
                                     )
                                 )
                                 FROM device_whitelist dw
@@ -1944,7 +2001,9 @@ router.get('/unassigned-patients', async (req, res) => {
                                     json_build_object(
                                         'serial_number', dw.serial_number,
                                         'device_name', dw.device_name,
-                                        'status', dw.status
+                                        'status', CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+                                        'battery_level', dw.battery_level,
+                                        'signal_strength', CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END
                                     )
                                 )
                                 FROM device_whitelist dw
@@ -1979,7 +2038,9 @@ router.get('/unassigned-patients', async (req, res) => {
                                     json_build_object(
                                         'serial_number', dw.serial_number,
                                         'device_name', dw.device_name,
-                                        'status', dw.status
+                                        'status', CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+                                        'battery_level', dw.battery_level,
+                                        'signal_strength', CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END
                                     )
                                 )
                                 FROM device_whitelist dw
@@ -2483,7 +2544,9 @@ router.get('/dashboard/patients', async (req, res) => {
                                     json_build_object(
                                         'serial_number', dw.serial_number,
                                         'device_name', dw.device_name,
-                                        'status', dw.status,
+                                        'status', CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+                                        'battery_level', dw.battery_level,
+                                        'signal_strength', CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END,
                                         'last_heartbeat', to_char(dw.last_heartbeat, 'YYYY-MM-DD HH24:MI')
                                     )
                                 )
@@ -2522,7 +2585,9 @@ router.get('/dashboard/patients', async (req, res) => {
                                     json_build_object(
                                         'serial_number', dw.serial_number,
                                         'device_name', dw.device_name,
-                                        'status', dw.status,
+                                        'status', CASE WHEN dw.status = 'STANDBY' THEN 'STANDBY' WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+                                        'battery_level', dw.battery_level,
+                                        'signal_strength', CASE WHEN dw.status = 'ACTIVE' AND dw.last_heartbeat >= NOW() - INTERVAL '12 seconds' THEN COALESCE(dw.signal_strength, 'Good') ELSE 'Offline' END,
                                         'last_heartbeat', to_char(dw.last_heartbeat, 'YYYY-MM-DD HH24:MI')
                                     )
                                 )

@@ -714,7 +714,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const sp = latestVital ? Math.round(latestVital.spo2) : null;
               const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (temp !== null && temp > 0));
               const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
-              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (temp === 0 || temp === null || temp <= 30.0);
+              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (temp === 0 || temp === null || temp <= 30.0 || hr === 0 || hr === null || sp === 0 || sp === null);
               const isCrit = effectiveVitalsOnline && temp !== null && !isMisaligned && !isCalibrating && (temp > 38.5 || temp < 35.0);
               const isWarn = effectiveVitalsOnline && temp !== null && !isMisaligned && !isCalibrating && (temp > 37.5 || temp < 36.0) && !isCrit;
 
@@ -765,10 +765,10 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         <div className="flex items-center gap-1.5">
                           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
                           <span className="text-sm sm:text-base font-black text-amber-900">
-                            Check Probe
+                            Misaligned
                           </span>
                         </div>
-                        <p className="text-[10px] text-amber-700 font-medium">Ensure probe touches body</p>
+                        <p className="text-[10px] text-amber-700 font-medium">Reposition probe on skin</p>
                       </div>
                     ) : (
                       <div className="flex items-baseline gap-1.5 pt-0.5">

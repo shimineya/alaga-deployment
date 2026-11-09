@@ -179,6 +179,12 @@ void readBattery() {
 
 // Read Body Temperature in Real Time from MAX30102 Wrist Sensor (or NTC fallback)
 void readTemperature() {
+  // When sensor is misaligned / detached from wrist/finger (BPM = 0, SpO2 = 0), report 0.0 (Misaligned)
+  if (!fingerDetected) {
+    temperatureC = 0.0;
+    return;
+  }
+
   int adcValue = analogRead(THERMISTOR_PIN);
 
   // If external thermistor is properly wired (ADC not zero or saturated open-circuit)
@@ -1685,6 +1691,7 @@ void loop() {
           fingerDetected       = false;
           beatAvg              = 0.0;
           currentSpO2          = 0.0;
+          temperatureC         = 0.0;
           dcIR                 = 0;
           dcRed                = 0;
           lastACIR             = 0;

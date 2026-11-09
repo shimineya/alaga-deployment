@@ -1769,19 +1769,19 @@ app.post('/api/device/data', async (req, res) => {
             isVsActive = !!(vsCheck.rows && vsCheck.rows.length > 0);
 
             if (isVsActive) {
-                // Vital Signs sensor is actively online: preserve recent active vitals
+                // Vital Signs sensor is actively online: preserve current vitals state (or 0 if misaligned)
                 const lastVitals = await pool.query(
                     `SELECT heart_rate, temperature, spo2 
                      FROM sensor_readings 
-                     WHERE patient_id = $1 AND (heart_rate > 0 OR spo2 > 0 OR temperature > 0)
+                     WHERE patient_id = $1
                      ORDER BY recorded_at DESC LIMIT 1`,
                     [patientId]
                 ).catch(() => ({ rows: [] }));
                 if (lastVitals.rows && lastVitals.rows.length > 0) {
                     const prevV = lastVitals.rows[0];
                     hr = parseFloat(prevV.heart_rate) || 0;
-                    temp = parseFloat(prevV.temperature) || 0;
                     sp = parseFloat(prevV.spo2) || 0;
+                    temp = (hr > 0 || sp > 0) ? (parseFloat(prevV.temperature) || 0) : 0;
                 }
             } else {
                 // Vital Signs sensor is NOT active - do not fabricate or carry forward stale vitals!
@@ -1791,6 +1791,10 @@ app.post('/api/device/data', async (req, res) => {
             }
         } else if (isVS) {
             isVsActive = true;
+            // When BPM and SpO2 are misaligned / probe detached (0), temperature is also misaligned (0)
+            if (hr <= 0 || sp <= 0) {
+                temp = 0;
+            }
             // Check if the patient has an active Smart Diaper sensor currently reporting
             const sdCheck = await pool.query(
                 `SELECT 1 FROM device_whitelist 

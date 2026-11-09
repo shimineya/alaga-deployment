@@ -2605,7 +2605,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final bool isVitalsCalibrating = isVitalsActive && (!hasVitalsTelem || (isFingerOn && (hrNum == 0 || hrNum == null)));
     final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null) && !isFingerOn;
     final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null) && !isFingerOn;
-    final bool isTempMisaligned = isVitalsActive && (tempNum == 0 || tempNum == null);
+    final bool isTempMisaligned = isVitalsActive && (tempNum == 0 || tempNum == null || tempNum <= 30.0 || isHrMisaligned || isSpo2Misaligned);
     final bool isMoistCalibrating = isMoistureActive && (rawMoist == null);
     final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
     final bool isAnyCalibrating = isVitalsCalibrating || isMoistCalibrating;

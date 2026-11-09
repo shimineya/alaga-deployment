@@ -1375,7 +1375,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 const isFingerOnSensor = !!((patient as any).latest_telemetry?.finger_detected || latestVital?.finger_detected);
                                 const isPulseDetached = effectiveVitalsOnline && pulseNum === 0 && !isFingerOnSensor;
                                 const isSpo2Detached = effectiveVitalsOnline && spo2Num === 0 && !isFingerOnSensor;
-                                const isTempDetached = effectiveVitalsOnline && (tempNum === 0 || tempNum === null || tempNum === undefined);
+                                const isTempDetached = effectiveVitalsOnline && (tempNum === 0 || tempNum === null || tempNum === undefined || tempNum <= 30.0 || isPulseDetached || isSpo2Detached);
 
                                 const isVitalsCalibrating = effectiveVitalsOnline && (pulseVal === null || pulseVal === undefined || (pulseNum === 0 && isFingerOnSensor));
                                 const isMoistureCalibrating = effectiveMoistureOnline && (wetnessVal === null || wetnessVal === undefined);

@@ -122,17 +122,21 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                 className={`flex flex-col items-center p-2 rounded-lg border transition-all ${
                   isCalibrating 
                     ? 'bg-cyan-50/60 border-cyan-200' 
+                    : isMisaligned 
+                    ? 'bg-amber-50/70 border-amber-200' 
                     : 'bg-slate-50 border-slate-100'
                 }`}
-                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Stabilizing temperature probe...' : 'Live streaming'}
+                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Stabilizing temperature probe...' : isMisaligned ? 'Temperature probe misaligned' : 'Live streaming'}
               >
-                <Thermometer className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : 'text-amber-500'}`} />
+                <Thermometer className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : isMisaligned ? 'text-amber-600' : 'text-amber-500'}`} />
                 {isCalibrating ? (
                   <Loader2 className="h-4 w-4 text-cyan-600 animate-spin my-0.5" />
+                ) : isMisaligned ? (
+                  <AlertTriangle className="h-4 w-4 text-amber-600 animate-bounce my-0.5" />
                 ) : (
                   <span className="text-sm sm:text-base font-bold text-slate-900">{temp !== undefined && temp !== null ? `${Number(temp).toFixed(1)}°` : '--'}</span>
                 )}
-                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : '°C'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? 'Check' : '°C'}</span>
               </div>
 
               {/* Diaper Wetness / Moisture */}

@@ -248,6 +248,14 @@ int calculateWetnessPercentage() {
     static int unpluggedCount      = 0;
     static int pluggedCount        = 0;
     static int wetDebounceCount    = 0;
+    static int wetLostBridgeCount  = 0;
+    static bool wasWet100          = false;
+
+    if (isDiaperJustChanged) {
+      wasWet100 = false;
+      wetLostBridgeCount = 0;
+      wetDebounceCount = 0;
+    }
 
     int touchVal = -1;
     if (water_pin == 4 || water_pin == 0 || water_pin == 2 || water_pin == 12 || water_pin == 13 || water_pin == 14 || water_pin == 15 || water_pin == 27 || water_pin == 32 || water_pin == 33) {
@@ -260,38 +268,84 @@ int calculateWetnessPercentage() {
       rawDigitalVal = digitalRead(water_pin);
 
       bool isHighScale = (touchVal > 200 || attachedDryBaseline > 200);
+      int wetTouchLimit = isHighScale ? 180 : 8;
+      bool isLiquidBridged = (rawDigitalVal == HIGH) || (touchVal >= 0 && touchVal <= wetTouchLimit);
 
-      // Learn attached dry tape baseline when tape is plugged in and dry (below 1180 unplugged ceiling)
-      if (rawDigitalVal == LOW) {
-        if ((isHighScale && touchVal >= 450 && touchVal <= 1170) || (!isHighScale && touchVal >= 18 && touchVal <= 64)) {
-          if (attachedDryBaseline < 0) {
-            attachedDryBaseline = touchVal;
-          } else {
-            attachedDryBaseline = (int)((attachedDryBaseline * 9 + touchVal) / 10);
+      // 1. If diaper was at 100% WET and user disconnects it (liquid bridge lost),
+      //    immediately latch DISCONNECTED instead of dropping to 0% DRY.
+      if (wasWet100) {
+        if (!isLiquidBridged) {
+          wetLostBridgeCount++;
+          if (wetLostBridgeCount >= 2) {
+            isTapeConnected = false;
+            pluggedCount = 0;
+            wetDebounceCount = 0;
           }
+        } else {
+          wetLostBridgeCount = 0;
         }
       }
 
-      // Detect 2-pin plug disconnection:
-      // Unplugged bare pin reads ~1248-1264 (>= 1190 on high scale, or >= 68 on low scale).
-      // Plugging in the 2-pin capacitive tape adds foil strip capacitance and pulls Touch(D4) below 1180.
-      bool looksUnplugged = (rawDigitalVal == LOW) && (
-        isHighScale
-          ? (touchVal >= 1190 || (attachedDryBaseline >= 450 && touchVal >= (attachedDryBaseline + 120) && touchVal >= 1150))
-          : (touchVal >= 68   || (attachedDryBaseline > 0 && attachedDryBaseline < 200 && touchVal >= (attachedDryBaseline + 12) && touchVal >= 58))
-      );
-
-      if (looksUnplugged) {
-        unpluggedCount++;
-        pluggedCount = 0;
-        if (unpluggedCount >= 2) {
-          isTapeConnected = false;
+      // 2. Hysteresis & State Latching:
+      //    - If currently DISCONNECTED (!isTapeConnected): stay DISCONNECTED until firmly
+      //      connected to a new smart diaper (touchVal pulled down into true foil-strip
+      //      capacitive load 220..1060 on high scale / 14..54 on low scale for >= 5 consecutive
+      //      samples, OR active liquid bridge for >= 4 samples).
+      //    - If currently CONNECTED (isTapeConnected): only transition to DISCONNECTED when
+      //      unplugged open-pin ceiling is reached (>= 1140 on high scale / >= 62 on low scale)
+      //      or when disconnecting from 100% wet (handled above).
+      if (!isTapeConnected) {
+        bool looksFirmlyConnectedDry = (rawDigitalVal == LOW) && (
+          isHighScale
+            ? (touchVal >= 220 && touchVal <= 1060)
+            : (touchVal >= 14  && touchVal <= 54)
+        );
+        if (looksFirmlyConnectedDry) {
+          pluggedCount++;
+          if (pluggedCount >= 5) {
+            isTapeConnected = true;
+            wasWet100 = false;
+            wetLostBridgeCount = 0;
+            unpluggedCount = 0;
+          }
+        } else if (isLiquidBridged) {
+          pluggedCount++;
+          if (pluggedCount >= 4) {
+            isTapeConnected = true;
+            wasWet100 = true;
+            wetLostBridgeCount = 0;
+            unpluggedCount = 0;
+          }
+        } else {
+          pluggedCount = 0; // Stay latched DISCONNECTED (never flicker to 0% on open-pin noise)
         }
       } else {
-        pluggedCount++;
-        unpluggedCount = 0;
-        if (pluggedCount >= 2) {
-          isTapeConnected = true;
+        // Currently CONNECTED: learn dry baseline when well within dry foil range
+        if (rawDigitalVal == LOW && !wasWet100) {
+          if ((isHighScale && touchVal >= 450 && touchVal <= 1060) || (!isHighScale && touchVal >= 18 && touchVal <= 54)) {
+            if (attachedDryBaseline < 0) {
+              attachedDryBaseline = touchVal;
+            } else {
+              attachedDryBaseline = (int)((attachedDryBaseline * 9 + touchVal) / 10);
+            }
+          }
+        }
+
+        bool looksUnplugged = (rawDigitalVal == LOW) && (
+          isHighScale
+            ? (touchVal >= 1140 || (attachedDryBaseline >= 450 && touchVal >= (attachedDryBaseline + 110) && touchVal >= 1100))
+            : (touchVal >= 62   || (attachedDryBaseline > 0 && attachedDryBaseline < 200 && touchVal >= (attachedDryBaseline + 10) && touchVal >= 56))
+        );
+
+        if (looksUnplugged) {
+          unpluggedCount++;
+          pluggedCount = 0;
+          if (unpluggedCount >= 2) {
+            isTapeConnected = false;
+            wetDebounceCount = 0;
+          }
+        } else {
+          unpluggedCount = 0;
         }
       }
     } else {
@@ -309,11 +363,15 @@ int calculateWetnessPercentage() {
     bool isLiquidBridged = (rawDigitalVal == HIGH) || (touchVal >= 0 && touchVal <= wetTouchLimit);
     if (isLiquidBridged) {
       wetDebounceCount++;
-      if (wetDebounceCount >= 3) {
+      if (wetDebounceCount >= 3 || wasWet100) {
         percent = 100;
+        wasWet100 = true;
       } else {
         percent = 0;
       }
+    } else if (wasWet100) {
+      // Hold 100% during the 1-sample transition before wetLostBridgeCount >= 2 latches DISCONNECTED
+      percent = 100;
     } else {
       wetDebounceCount = 0;
       percent = 0; // Strictly 0% when dry (even under physical pressure)

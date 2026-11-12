@@ -153,6 +153,10 @@ router.get('/clinical', async (req, res) => {
         await recordDueSchedules();
 
         const includeReviewed = req.query.includeReviewed === 'true' || Boolean(patientId);
+        const sortMode = String(req.query.sort || 'severity').toLowerCase(); // 'severity' (Option 1 Default) | 'chronological' (Option 2)
+        const clinicalOrderByClause = sortMode === 'chronological'
+            ? `ORDER BY a.sent_at DESC`
+            : `ORDER BY CASE WHEN LOWER(a.severity) = 'critical' THEN 1 WHEN LOWER(a.severity) IN ('high', 'warning') THEN 2 ELSE 3 END ASC, a.sent_at DESC`;
         const activeFilterClause = includeReviewed
             ? ''
             : `AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged')
@@ -187,7 +191,7 @@ router.get('/clinical', async (req, res) => {
                 query += ` AND p.patient_id = $1`;
                 params.push(parseInt(patientId));
             }
-            query += ` ORDER BY a.sent_at DESC LIMIT 100`;
+            query += ` ${clinicalOrderByClause} LIMIT 100`;
         } else if (role === 'facility_admin') {
             // Facility admin sees alerts from patients in their facility, patients they added, assignments they created, or staff they provisioned
             query = `
@@ -240,7 +244,7 @@ router.get('/clinical', async (req, res) => {
                 query += ` AND p.patient_id = $2`;
                 params.push(parseInt(patientId));
             }
-            query += ` ORDER BY a.sent_at DESC LIMIT 100`;
+            query += ` ${clinicalOrderByClause} LIMIT 100`;
         } else {
             // Caregivers see alerts for assigned patients OR patients paired with their registered devices
             query = `
@@ -274,12 +278,12 @@ router.get('/clinical', async (req, res) => {
                 query += ` AND p.patient_id = $2`;
                 params.push(parseInt(patientId));
             }
-            query += ` ORDER BY a.sent_at DESC LIMIT 50`;
+            query += ` ${clinicalOrderByClause} LIMIT 100`;
         }
 
         const isSysAdmin = ['sysadmin', 'system_admin'].includes(role?.toLowerCase());
         const result = await pool.query(query, params);
-        const data = result.rows.map(r => {
+        let mappedRows = result.rows.map(r => {
             const flagCount = parseInt(r.flag_count || 0, 10);
             const remainingFlags = Math.max(0, 5 - flagCount);
             const baseObj = {
@@ -302,6 +306,30 @@ router.get('/clinical', async (req, res) => {
             }
             return baseObj;
         });
+
+        // Option 2 (Chronological + Deduplicate Consecutive Identical Alerts per Patient):
+        // When sort === 'chronological' and viewing active feed (!includeReviewed), collapse consecutive
+        // duplicate alerts of the same anomaly family for the same patient while keeping the latest on top.
+        if (sortMode === 'chronological' && !includeReviewed) {
+            const deduped = [];
+            const lastAnomalyByPatient = new Map();
+            for (const row of mappedRows) {
+                const pKey = String(row.patient_id || row.patient_name || 'unknown');
+                const rawAnom = String(row.anomaly_type || row.alert_category || '').toLowerCase();
+                const anomFamily = rawAnom.includes('heart_rate') ? 'heart_rate'
+                    : rawAnom.includes('temp') ? 'temperature'
+                    : rawAnom.includes('spo2') ? 'spo2'
+                    : rawAnom.includes('moisture') ? 'moisture'
+                    : rawAnom || String(row.message || '').slice(0, 40);
+                if (lastAnomalyByPatient.get(pKey) === anomFamily) {
+                    continue; // Skip consecutive identical anomaly for this patient
+                }
+                lastAnomalyByPatient.set(pKey, anomFamily);
+                deduped.push(row);
+            }
+            mappedRows = deduped;
+        }
+        const data = mappedRows;
         res.json({ success: true, data });
     } catch (err) {
         console.error("Clinical Alerts Error:", err.message);
@@ -378,7 +406,7 @@ router.put('/clinical/:id/acknowledge', async (req, res) => {
                  action_taken = $2,
                  resolution_notes = $3
              WHERE alert_id = $4 AND status != 'Acknowledged'
-             RETURNING alert_id, event_id`,
+             RETURNING alert_id, event_id, message, severity, alert_category`,
             [userId, action_taken, resolution_notes || null, alertId]
         );
 
@@ -386,25 +414,71 @@ router.put('/clinical/:id/acknowledge', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Alert not found or already acknowledged.' });
         }
 
-        const eventId = result.rows[0].event_id;
+        const ackRow = result.rows[0];
+        const eventId = ackRow.event_id;
 
         const eventCheck = await pool.query(
-            `SELECT anomaly_type, reading_id FROM anomaly_events WHERE event_id = $1`,
+            `SELECT anomaly_type, reading_id, patient_id FROM anomaly_events WHERE event_id = $1`,
             [eventId]
         );
 
-        if (eventCheck.rowCount > 0 && eventCheck.rows[0].anomaly_type === 'schedule_due') {
-            const scheduleId = eventCheck.rows[0].reading_id;
-            await pool.query(
-                `UPDATE schedules SET status = 'Completed' WHERE schedule_id = $1`,
-                [scheduleId]
-            );
+        let ackPatientId = null;
+        let ackAnomalyType = 'clinical_alert';
+        if (eventCheck.rowCount > 0) {
+            ackPatientId = eventCheck.rows[0].patient_id;
+            ackAnomalyType = eventCheck.rows[0].anomaly_type || 'clinical_alert';
+            if (ackAnomalyType === 'schedule_due') {
+                const scheduleId = eventCheck.rows[0].reading_id;
+                await pool.query(
+                    `UPDATE schedules SET status = 'Completed' WHERE schedule_id = $1`,
+                    [scheduleId]
+                );
+            }
         }
 
-        // Real-time broadcast to Web and Mobile
-        broadcastAlert('alert_acknowledged', { alertId, userId, action: 'acknowledge' });
+        // Save acknowledged & reviewed clinical alert into Care Logs (and AI Insights via alert_notifications + care_logs)
+        if (ackPatientId) {
+            try {
+                await pool.query(`
+                    CREATE TABLE IF NOT EXISTS care_logs (
+                        log_id SERIAL PRIMARY KEY,
+                        patient_id INTEGER REFERENCES patients(patient_id) ON DELETE CASCADE,
+                        author_id INTEGER,
+                        author_name VARCHAR(255) DEFAULT 'Caregiver',
+                        content TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        status VARCHAR(50) DEFAULT 'Active'
+                    )
+                `);
+                const userRes = await pool.query('SELECT full_name, username FROM users WHERE user_id = $1', [userId]).catch(() => ({ rows: [] }));
+                const authorName = userRes.rows[0]?.full_name || userRes.rows[0]?.username || 'Caregiver';
+                const formattedAnomaly = String(ackAnomalyType).replace(/^rule_/, '').replace(/_/g, ' ').toUpperCase();
+                const logContent = `[Alert Reviewed & Acknowledged — ${ackRow.severity || 'Clinical'} ${formattedAnomaly}] ${ackRow.message || ''} | Action Taken: ${action_taken.trim()}${resolution_notes ? ` (${resolution_notes.trim()})` : ''}`;
+                await pool.query(
+                    `INSERT INTO care_logs (patient_id, author_id, author_name, content, status)
+                     VALUES ($1, $2, $3, $4, 'Active')`,
+                    [ackPatientId, userId, authorName, logContent]
+                );
+            } catch (logErr) {
+                console.warn('[ACKNOWLEDGE] Care log insert warning:', logErr.message);
+            }
+        }
 
-        res.json({ success: true, message: 'Alert acknowledged successfully. Audit trail updated.' });
+        // Real-time broadcast to Web and Mobile (single alert removal only)
+        broadcastAlert('alert_acknowledged', {
+            alertId,
+            patientId: ackPatientId,
+            userId,
+            action: 'acknowledge',
+            action_taken: action_taken.trim(),
+            cleared_alert_ids: [alertId]
+        });
+
+        res.json({
+            success: true,
+            message: 'Alert acknowledged and saved to Care Logs & AI Insights.',
+            cleared_alert_ids: [alertId]
+        });
     } catch (err) {
         console.error("Acknowledge Alert Error:", err.message);
         res.status(500).json({ success: false, message: 'Server Error during acknowledgment' });
@@ -563,20 +637,71 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
             ? 'AI Baseline Updated - Flagged as Normal (5/5). Pattern learned and future alerts suppressed.'
             : `Flagged as Normal (${newFlagCount}/5) - AI Baseline Learning (${remainingFlags} more flags needed)`;
 
-        // Mark this flagged alert as Acknowledged/Flagged so it is removed from the active Alerts Module
-        // and included in the patient's AI Insights history.
-        await pool.query(
-            `UPDATE alert_notifications
+        // Bulk-remove (mark as Acknowledged) ALL previous and current unacknowledged alerts
+        // of the same anomaly/vital family for this patient so the caregiver never has to click
+        // through duplicate packets from the same physiological episode.
+        const bulkClearRes = await pool.query(
+            `UPDATE alert_notifications a
              SET status = 'Acknowledged',
                  action_taken = $1,
-                 acknowledged_by = COALESCE(acknowledged_by, $2),
-                 acknowledged_at = COALESCE(acknowledged_at, NOW())
-             WHERE alert_id = $3`,
-            [flagActionNote, userId, alertId]
-        ).catch(() => {});
+                 acknowledged_by = COALESCE(a.acknowledged_by, $2),
+                 acknowledged_at = COALESCE(a.acknowledged_at, NOW())
+             FROM anomaly_events e
+             WHERE a.event_id = e.event_id
+               AND e.patient_id = $3
+               AND (
+                   a.alert_id = $4
+                   OR (
+                       a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged', 'Archived')
+                       AND a.acknowledged_at IS NULL
+                       AND (
+                           e.anomaly_type = $5
+                           OR e.anomaly_type = $6
+                           OR ($6 = 'heart_rate' AND e.anomaly_type ILIKE '%heart_rate%')
+                           OR ($6 = 'temperature' AND e.anomaly_type ILIKE '%temp%')
+                           OR ($6 = 'spo2' AND e.anomaly_type ILIKE '%spo2%')
+                           OR ($6 = 'moisture' AND e.anomaly_type ILIKE '%moisture%')
+                       )
+                   )
+               )
+             RETURNING a.alert_id`,
+            [flagActionNote, userId, patientId, alertId, anomalyType, vitalName]
+        ).catch(() => ({ rows: [{ alert_id: alertId }] }));
+
+        const clearedAlertIds = bulkClearRes.rows && bulkClearRes.rows.length > 0
+            ? bulkClearRes.rows.map(r => r.alert_id)
+            : [alertId];
+
+        // Save Flagged-as-Normal action into Care Logs (and AI Insights via alert_notifications + care_logs)
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS care_logs (
+                    log_id SERIAL PRIMARY KEY,
+                    patient_id INTEGER REFERENCES patients(patient_id) ON DELETE CASCADE,
+                    author_id INTEGER,
+                    author_name VARCHAR(255) DEFAULT 'Caregiver',
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    status VARCHAR(50) DEFAULT 'Active'
+                )
+            `);
+            const userRes = await pool.query('SELECT full_name, username FROM users WHERE user_id = $1', [userId]).catch(() => ({ rows: [] }));
+            const authorName = userRes.rows[0]?.full_name || userRes.rows[0]?.username || 'Caregiver';
+            const formattedVital = String(vitalName || anomalyType).replace(/^rule_/, '').replace(/_/g, ' ').toUpperCase();
+            const clearedSuffix = clearedAlertIds.length > 1 ? ` (Cleared ${clearedAlertIds.length} related ${formattedVital} alerts for this patient)` : '';
+            const logContent = `[Alert Flagged as Normal (${newFlagCount}/5) — ${formattedVital}] ${alert.message || ''} | ${flagActionNote}${clearedSuffix}`;
+            await pool.query(
+                `INSERT INTO care_logs (patient_id, author_id, author_name, content, status)
+                 VALUES ($1, $2, $3, $4, 'Active')`,
+                [patientId, userId, authorName, logContent]
+            );
+        } catch (logErr) {
+            console.warn('[FLAG_NORMAL] Care log insert warning:', logErr.message);
+        }
 
         broadcastAlert('alert_acknowledged', {
             alertId,
+            cleared_alert_ids: clearedAlertIds,
             patientId,
             acknowledgedBy: userId,
             action: newFlagCount >= 5 ? 'flag_normal_learned' : 'flag_normal',
@@ -585,8 +710,10 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
 
         broadcastAlert('alert_flagged_normal', {
             alertId,
+            cleared_alert_ids: clearedAlertIds,
             patientId,
             vitalName,
+            anomaly_type: anomalyType,
             flag_count: newFlagCount,
             remaining_flags: remainingFlags,
             suppressed: newFlagCount >= 5
@@ -603,6 +730,7 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
                 clientIp,
                 JSON.stringify({
                     alert_id: alertId,
+                    cleared_alert_ids: clearedAlertIds,
                     vital: vitalName,
                     anomaly_type: anomalyType,
                     flag_count: newFlagCount,
@@ -615,15 +743,16 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
             ? "The AI model has learned this patient's pattern. Baseline updated (0 more flags needed). Alerts for this pattern are now suppressed."
             : `The AI model learns from the patient's pattern. Modifying it's baseline needs to be learned repeatedly. (${remainingFlags} more flags needed)`;
 
-        // Real-time broadcast to Web and Mobile
-        broadcastAlert('alert_flagged_normal', { alertId, newFlagCount, remainingFlags });
-
         return res.json({
             success: true,
             message: conditionMessage,
             flag_count: newFlagCount,
             remaining_flags: remainingFlags,
-            suppressed: newFlagCount >= 5
+            suppressed: newFlagCount >= 5,
+            cleared_alert_ids: clearedAlertIds,
+            vital_name: vitalName,
+            anomaly_type: anomalyType,
+            patient_id: patientId
         });
     } catch (err) {
         console.error("Flag Alert As Normal Error:", err.message);
@@ -639,6 +768,10 @@ router.get('/system', async (req, res) => {
     try {
         const { role, id: userId } = req.user;
         const includeResolved = req.query.includeResolved === 'true';
+        const sortMode = String(req.query.sort || 'severity').toLowerCase();
+        const systemOrderByClause = sortMode === 'chronological'
+            ? `ORDER BY h.triggered_at DESC`
+            : `ORDER BY CASE WHEN LOWER(h.severity) = 'critical' THEN 1 WHEN LOWER(h.severity) IN ('high', 'warning') THEN 2 ELSE 3 END ASC, h.triggered_at DESC`;
         let query;
         let params;
 
@@ -659,7 +792,7 @@ router.get('/system', async (req, res) => {
                 LEFT JOIN patients p ON h.patient_id = p.patient_id
                 LEFT JOIN device_whitelist dw ON LOWER(h.device_mac_address) = LOWER(dw.serial_number)
                 ${includeResolved ? '' : "WHERE h.status = 'Active'"}
-                ORDER BY h.triggered_at DESC
+                ${systemOrderByClause}
                 LIMIT 100
             `;
             params = [];
@@ -707,7 +840,7 @@ router.get('/system', async (req, res) => {
                         WHERE added_by = $1 OR added_by IN (SELECT user_id FROM users WHERE created_by = $1)
                     )
                 )
-                ORDER BY h.triggered_at DESC
+                ${systemOrderByClause}
                 LIMIT 100
             `;
             params = [userId];
@@ -728,8 +861,8 @@ router.get('/system', async (req, res) => {
                 LEFT JOIN patient_access pa ON p.patient_id = pa.patient_id
                 LEFT JOIN device_whitelist dw ON LOWER(h.device_mac_address) = LOWER(dw.serial_number)
                 WHERE ${includeResolved ? 'TRUE' : "h.status = 'Active'"} AND (pa.user_id = $1 OR dw.added_by = $1)
-                ORDER BY h.triggered_at DESC
-                LIMIT 50
+                ${systemOrderByClause}
+                LIMIT 100
             `;
             params = [userId];
         }

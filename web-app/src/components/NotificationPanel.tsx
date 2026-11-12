@@ -28,8 +28,40 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
   // [FIX] CRITICAL SAFETY CHECK
   // This line prevents the "Cannot read properties of undefined (reading 'filter')" crash
   const safeAlerts = Array.isArray(alerts) ? alerts : [];
+  const [sortOrder, setSortOrder] = useState<'severity' | 'chronological'>('severity');
 
-  const unacknowledgedAlerts = safeAlerts.filter(a => !a.acknowledged);
+  const unacknowledgedAlerts = React.useMemo(() => {
+    const raw = safeAlerts.filter(a => !a.acknowledged);
+    const sorted = [...raw].sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      if (sortOrder === 'severity') {
+        const getRank = (sev?: string) => {
+          const s = (sev || '').toLowerCase();
+          if (s === 'critical') return 1;
+          if (s === 'high' || s === 'warning') return 2;
+          return 3;
+        };
+        const rA = getRank(a.severity);
+        const rB = getRank(b.severity);
+        if (rA !== rB) return rA - rB;
+      }
+      return timeB - timeA;
+    });
+    if (sortOrder === 'chronological') {
+      const deduped: Alert[] = [];
+      const lastByPatient = new Map<string, string>();
+      for (const item of sorted) {
+        const pKey = String(item.patientId || 'system');
+        const sig = `${item.type || ''}:${(item.title || item.message || '').slice(0, 30).toLowerCase()}`;
+        if (lastByPatient.get(pKey) === sig) continue;
+        lastByPatient.set(pKey, sig);
+        deduped.push(item);
+      }
+      return deduped;
+    }
+    return sorted;
+  }, [safeAlerts, sortOrder]);
   const notificationCount = unacknowledgedAlerts.length;
 
   // Calculate dynamic height based on notification count
@@ -156,13 +188,30 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
           className="absolute right-0 mt-2 w-96 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-300 ease-out"
           style={{ maxHeight: getMaxHeight(), boxShadow: '0 10px 40px rgba(77, 184, 179, 0.15)', animation: 'slideDown 200ms ease-out' }}
         >
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between sticky top-0 z-10 bg-card" style={{ backgroundColor: 'var(--teal-50)' }}>
-            <div className="flex items-center gap-2">
-              <Bell className="w-5 h-5" style={{ color: 'var(--teal-700)' }} />
-              <h3 className="text-sm">Notifications</h3>
-              {notificationCount > 0 && <Badge className="bg-[var(--teal-600)] text-white text-xs">{notificationCount}</Badge>}
+          <div className="px-4 py-3 border-b border-border sticky top-0 z-10 bg-card space-y-2" style={{ backgroundColor: 'var(--teal-50)' }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5" style={{ color: 'var(--teal-700)' }} />
+                <h3 className="text-sm font-bold">Notifications</h3>
+                {notificationCount > 0 && <Badge className="bg-[var(--teal-600)] text-white text-xs">{notificationCount}</Badge>}
+              </div>
+              <button onClick={() => setIsOpen(false)} className="p-1 rounded hover:bg-muted transition-colors"><X className="w-4 h-4" /></button>
             </div>
-            <button onClick={() => setIsOpen(false)} className="p-1 rounded hover:bg-muted transition-colors"><X className="w-4 h-4" /></button>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="font-semibold text-slate-600">Sort:</span>
+              <button
+                onClick={() => setSortOrder('severity')}
+                className={`px-2 py-0.5 rounded-md font-semibold transition ${sortOrder === 'severity' ? 'bg-teal-700 text-white' : 'bg-white/80 text-slate-600 border border-slate-200'}`}
+              >
+                1. Severity First
+              </button>
+              <button
+                onClick={() => setSortOrder('chronological')}
+                className={`px-2 py-0.5 rounded-md font-semibold transition ${sortOrder === 'chronological' ? 'bg-teal-700 text-white' : 'bg-white/80 text-slate-600 border border-slate-200'}`}
+              >
+                2. Latest (Deduped)
+              </button>
+            </div>
           </div>
 
           {unacknowledgedAlerts.length === 0 ? (

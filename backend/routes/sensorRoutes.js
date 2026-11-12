@@ -1138,6 +1138,17 @@ router.get(
                 };
             });
 
+            // 4b. Query Care Logs (including Acknowledged/Reviewed & Flagged-as-Normal alert logs)
+            const careLogsRes = await pool.query(
+                `SELECT log_id as id, patient_id, author_id, author_name as "authorName", content, created_at as "createdAt", status
+                 FROM care_logs
+                 WHERE patient_id = $1 AND status = 'Active'
+                 ORDER BY created_at DESC
+                 LIMIT 30`,
+                [patientId]
+            ).catch(() => ({ rows: [] }));
+            const careLogs = careLogsRes.rows || [];
+
             // 5. Statistical Aggregates Calculation
             const hrVals = [];
             const spo2Vals = [];
@@ -1371,12 +1382,14 @@ router.get(
                 const flaggedCount = reviewedAlerts.filter(a => a.review_type.includes('Flagged') || a.review_type.includes('Learned')).length;
                 const ackCount = reviewedAlerts.length - flaggedCount;
                 if (flaggedCount > 0 && ackCount > 0) {
-                    keyInsights.push(`${reviewedAlerts.length} clinical alert(s) have been reviewed (${ackCount} acknowledged with clinical intervention, ${flaggedCount} flagged as normal to calibrate the patient's OC-SVM baseline).`);
+                    keyInsights.push(`${reviewedAlerts.length} clinical alert(s) have been reviewed and logged to Care Logs (${ackCount} acknowledged with clinical intervention, ${flaggedCount} flagged as normal to calibrate the patient's OC-SVM baseline).`);
                 } else if (flaggedCount > 0) {
-                    keyInsights.push(`${flaggedCount} alert pattern(s) were flagged as normal by the care team to train and adapt the patient's personalized AI baseline.`);
+                    keyInsights.push(`${flaggedCount} alert pattern(s) were flagged as normal by the care team and logged in Care Logs to train and adapt the patient's personalized AI baseline.`);
                 } else {
-                    keyInsights.push(`${ackCount} clinical alert(s) were reviewed and acknowledged by the care team with documented clinical actions.`);
+                    keyInsights.push(`${ackCount} clinical alert(s) were reviewed, acknowledged, and saved into Care Logs with documented clinical actions.`);
                 }
+            } else if (careLogs.length > 0) {
+                keyInsights.push(`${careLogs.length} active clinical care log entry(ies) documented by the care team.`);
             }
 
             // If no illnesses detected:
@@ -1504,6 +1517,7 @@ router.get(
                 possibleIllnesses,
                 keyInsights,
                 reviewedAlerts,
+                careLogs,
                 chartData
             };
 

@@ -112,6 +112,7 @@ const AlertsHub: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState(initialSearch);
     const [clinicalFilterType, setClinicalFilterType] = useState<'all' | 'ai_anomaly' | 'emergency' | 'wet_diaper' | 'vitals'>('all');
     const [systemFilterType, setSystemFilterType] = useState<'all' | 'low_battery' | 'disconnected' | 'sensor_malfunction' | 'weak_signal'>('all');
+    const [sortOrder, setSortOrder] = useState<'severity' | 'chronological'>('severity');
 
     useEffect(() => {
         if (initialSelectedId) {
@@ -165,8 +166,49 @@ const AlertsHub: React.FC = () => {
                        msg.includes('fever') || msg.includes('hypothermia') || msg.includes('spo2') || msg.includes('pulse');
             });
         }
-        return list;
-    }, [clinicalAlerts, filterAlertId, searchQuery, clinicalFilterType]);
+
+        // Apply user-selected Sort Option:
+        // Option 1 ('severity', Default): Severity-First (Critical -> Warning -> Info), then Newest on Top (sent_at DESC)
+        // Option 2 ('chronological'): Pure Chronological (sent_at DESC) + Deduplicate Consecutive Identical Alerts per Patient
+        const sorted = [...list].sort((a, b) => {
+            const timeA = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+            const timeB = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+            if (sortOrder === 'severity') {
+                const getRank = (sev?: string) => {
+                    const s = (sev || '').toLowerCase();
+                    if (s === 'critical') return 1;
+                    if (s === 'high' || s === 'warning') return 2;
+                    return 3;
+                };
+                const rA = getRank(a.severity);
+                const rB = getRank(b.severity);
+                if (rA !== rB) return rA - rB;
+            }
+            return timeB - timeA;
+        });
+
+        if (sortOrder === 'chronological') {
+            const deduped: ClinicalAlert[] = [];
+            const lastAnomalyByPatient = new Map<string, string>();
+            for (const row of sorted) {
+                const pKey = String((row as any).patient_id || row.patient_name || 'unknown');
+                const rawAnom = String(row.anomaly_type || row.alert_category || '').toLowerCase();
+                const anomFamily = rawAnom.includes('heart_rate') ? 'heart_rate'
+                    : rawAnom.includes('temp') ? 'temperature'
+                    : rawAnom.includes('spo2') ? 'spo2'
+                    : rawAnom.includes('moisture') ? 'moisture'
+                    : rawAnom || String(row.message || '').slice(0, 40);
+                if (lastAnomalyByPatient.get(pKey) === anomFamily) {
+                    continue;
+                }
+                lastAnomalyByPatient.set(pKey, anomFamily);
+                deduped.push(row);
+            }
+            return deduped;
+        }
+
+        return sorted;
+    }, [clinicalAlerts, filterAlertId, searchQuery, clinicalFilterType, sortOrder]);
 
     const displayedSystemAlerts = useMemo(() => {
         let list = systemAlerts;
@@ -211,8 +253,23 @@ const AlertsHub: React.FC = () => {
                 (a.description || '').toLowerCase().includes('rssi')
             );
         }
-        return list;
-    }, [systemAlerts, filterAlertId, searchQuery, systemFilterType]);
+        return [...list].sort((a, b) => {
+            const timeA = a.triggered_at ? new Date(a.triggered_at).getTime() : 0;
+            const timeB = b.triggered_at ? new Date(b.triggered_at).getTime() : 0;
+            if (sortOrder === 'severity') {
+                const getRank = (sev?: string) => {
+                    const s = (sev || '').toLowerCase();
+                    if (s === 'critical') return 1;
+                    if (s === 'high' || s === 'warning') return 2;
+                    return 3;
+                };
+                const rA = getRank(a.severity);
+                const rB = getRank(b.severity);
+                if (rA !== rB) return rA - rB;
+            }
+            return timeB - timeA;
+        });
+    }, [systemAlerts, filterAlertId, searchQuery, systemFilterType, sortOrder]);
 
     const API_BASE = import.meta.env.VITE_API_URL || '';
     const getHeaders = () => ({
@@ -302,8 +359,8 @@ const AlertsHub: React.FC = () => {
         if (!silent) setIsLoading(true);
         try {
             const [clinicalRes, sysRes, devRes] = await Promise.all([
-                axios.get(`${API_BASE}/api/alerts/clinical`, getHeaders()),
-                axios.get(`${API_BASE}/api/alerts/system`, getHeaders()),
+                axios.get(`${API_BASE}/api/alerts/clinical?sort=${sortOrder}`, getHeaders()),
+                axios.get(`${API_BASE}/api/alerts/system?sort=${sortOrder}`, getHeaders()),
                 axios.get(`${API_BASE}/api/caregiver/devices`, getHeaders()).catch(() => ({ data: { data: [] } }))
             ]);
             const activeClinical = (clinicalRes.data.data || []).filter((a: any) =>
@@ -409,9 +466,9 @@ const AlertsHub: React.FC = () => {
             await axios.put(`${API_BASE}/api/alerts/clinical/${selectedAlert.alert_id}/acknowledge`, {
                 action_taken: actionTaken
             }, getHeaders());
-            // Immediately remove acknowledged alert from Alerts Module (it is now moved to AI Insights)
+            // Single removal only for Acknowledge (saved to Care Logs & AI Insights)
             setClinicalAlerts(prev => prev.filter(a => a.alert_id !== selectedAlert.alert_id));
-            toast.success('Alert acknowledged and moved to AI Insights.');
+            toast.success('Alert acknowledged and saved to Care Logs & AI Insights.');
             window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
             await fetchAlerts();
         } catch (error) {
@@ -444,9 +501,30 @@ const AlertsHub: React.FC = () => {
                 getHeaders()
             );
             if (res.data.success) {
-                toast.info(res.data.message);
-                // Remove the flagged alert from the active Alerts Module (it is now recorded in AI Insights)
-                setClinicalAlerts(prev => prev.filter(a => a.alert_id !== alert.alert_id));
+                const clearedIds: number[] = Array.isArray(res.data.cleared_alert_ids)
+                    ? res.data.cleared_alert_ids.map((id: any) => Number(id))
+                    : [alert.alert_id];
+                const getAnomFamily = (anom?: string) => {
+                    const s = (anom || '').toLowerCase();
+                    if (s.includes('heart_rate')) return 'heart_rate';
+                    if (s.includes('temp')) return 'temperature';
+                    if (s.includes('spo2')) return 'spo2';
+                    if (s.includes('moisture')) return 'moisture';
+                    return s;
+                };
+                const targetFamily = getAnomFamily(alert.anomaly_type);
+                const targetPatientKey = String((alert as any).patient_id || alert.patient_name || '');
+
+                // Bulk removal: remove this alert AND all previous similar alerts for that patient
+                setClinicalAlerts(prev => prev.filter(a => {
+                    if (clearedIds.includes(Number(a.alert_id))) return false;
+                    const aPatientKey = String((a as any).patient_id || a.patient_name || '');
+                    if (targetPatientKey && aPatientKey === targetPatientKey && getAnomFamily(a.anomaly_type) === targetFamily) {
+                        return false;
+                    }
+                    return true;
+                }));
+                toast.info(`${res.data.message} Saved to Care Logs & AI Insights.`);
                 window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 fetchAlerts();
             } else {
@@ -654,41 +732,62 @@ const AlertsHub: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Filter Pills */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1">
-                                <Filter className="w-3 h-3 text-slate-400" /> Filter:
-                            </span>
-                            <button
-                                onClick={() => setClinicalFilterType('all')}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${clinicalFilterType === 'all' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                            >
-                                All Alerts ({clinicalAlerts.length})
-                            </button>
-                            <button
-                                onClick={() => setClinicalFilterType('ai_anomaly')}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'ai_anomaly' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100'}`}
-                            >
-                                <Sparkles className="w-3 h-3" /> AI Anomaly Detected
-                            </button>
-                            <button
-                                onClick={() => setClinicalFilterType('emergency')}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'emergency' ? 'bg-red-600 text-white shadow-2xs' : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'}`}
-                            >
-                                <AlertTriangle className="w-3 h-3" /> Emergency
-                            </button>
-                            <button
-                                onClick={() => setClinicalFilterType('wet_diaper')}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'wet_diaper' ? 'bg-blue-600 text-white shadow-2xs' : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'}`}
-                            >
-                                <Droplets className="w-3 h-3" /> Wet Diaper
-                            </button>
-                            <button
-                                onClick={() => setClinicalFilterType('vitals')}
-                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'vitals' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'}`}
-                            >
-                                <HeartPulse className="w-3 h-3" /> Vital Signs Anomaly
-                            </button>
+                        {/* Filter Pills & 2-Option Sort Selector */}
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pt-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1">
+                                    <Filter className="w-3 h-3 text-slate-400" /> Filter:
+                                </span>
+                                <button
+                                    onClick={() => setClinicalFilterType('all')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${clinicalFilterType === 'all' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    All Alerts ({clinicalAlerts.length})
+                                </button>
+                                <button
+                                    onClick={() => setClinicalFilterType('ai_anomaly')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'ai_anomaly' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100'}`}
+                                >
+                                    <Sparkles className="w-3 h-3" /> AI Anomaly Detected
+                                </button>
+                                <button
+                                    onClick={() => setClinicalFilterType('emergency')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'emergency' ? 'bg-red-600 text-white shadow-2xs' : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'}`}
+                                >
+                                    <AlertTriangle className="w-3 h-3" /> Emergency
+                                </button>
+                                <button
+                                    onClick={() => setClinicalFilterType('wet_diaper')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'wet_diaper' ? 'bg-blue-600 text-white shadow-2xs' : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'}`}
+                                >
+                                    <Droplets className="w-3 h-3" /> Wet Diaper
+                                </button>
+                                <button
+                                    onClick={() => setClinicalFilterType('vitals')}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1 ${clinicalFilterType === 'vitals' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'}`}
+                                >
+                                    <HeartPulse className="w-3 h-3" /> Vital Signs Anomaly
+                                </button>
+                            </div>
+
+                            {/* 2 Sorting Options for User */}
+                            <div className="flex items-center gap-1.5 flex-wrap border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-100">
+                                <span className="text-[11px] font-bold text-slate-500 mr-0.5">Sort Priority:</span>
+                                <button
+                                    onClick={() => setSortOrder('severity')}
+                                    title="Option 1 (Default Recommended Clinical Standard): Critical alerts pinned at the top, then Warning, then Info — ordered newest first within each tier"
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${sortOrder === 'severity' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    1. Severity First (Default)
+                                </button>
+                                <button
+                                    onClick={() => setSortOrder('chronological')}
+                                    title="Option 2: Pure Chronological (Newest on Top) with consecutive identical alerts per patient deduplicated"
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${sortOrder === 'chronological' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    2. Latest First (Deduplicated)
+                                </button>
+                            </div>
                         </div>
                     </div>
                     {displayedClinicalAlerts.length === 0 && !isLoading ? (

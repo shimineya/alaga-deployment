@@ -1571,6 +1571,8 @@ app.post('/api/auth/upload-document', upload.single('document_file'), async (req
 
 // Diaper change tare & reset tracking: stores temporary reset windows for diaper replacement
 const pendingDiaperResets = new Map(); // patientId -> expiry timestamp (ms)
+// Smart Diaper Disconnection & Anti-Flicker State Machine (patientId -> { isDisconnected, wasWet100, consecutiveConnectedCount })
+const diaperConnectionState = new Map();
 
 // Endpoint to receive data from ESP32s
 app.post('/api/device/data', async (req, res) => {
@@ -1759,6 +1761,12 @@ app.post('/api/device/data', async (req, res) => {
             if (req.body.event === 'diaper_changed' || req.body.action === 'diaper_reset') {
                 moist = 0;
                 isDiaperReset = true;
+                isTapeDisconnected = false;
+                diaperConnectionState.set(resetKey, {
+                    isDisconnected: false,
+                    wasWet100: false,
+                    consecutiveConnectedCount: 4
+                });
                 // Auto-resolve active moisture alerts for this patient
                 await pool.query(
                     `UPDATE alert_notifications 
@@ -1776,6 +1784,68 @@ app.post('/api/device/data', async (req, res) => {
                     [patientId, JSON.stringify({ serial: device_id, source: 'hardware_boot_button' })]
                 ).catch(() => {});
             }
+
+            // Smart Diaper Disconnection & Anti-Flicker Latch:
+            // 1. If 100% wet (moist >= 75) and the user disconnects it (or moisture drops without reset),
+            //    immediately latch DISCONNECTED until connected to a new smart diaper.
+            // 2. If disconnected, stay DISCONNECTED until >= 4 consecutive uninterrupted connected packets
+            //    arrive (or explicit diaper reset), eliminating any 0% <-> Disconnected flickering.
+            const prevConnState = diaperConnectionState.get(resetKey) || {
+                isDisconnected: false,
+                wasWet100: false,
+                consecutiveConnectedCount: 0
+            };
+
+            if (isDiaperReset) {
+                prevConnState.isDisconnected = false;
+                prevConnState.wasWet100 = false;
+                prevConnState.consecutiveConnectedCount = 4;
+                isTapeDisconnected = false;
+                moist = 0;
+            } else if (isTapeDisconnected) {
+                prevConnState.isDisconnected = true;
+                prevConnState.consecutiveConnectedCount = 0;
+                isTapeDisconnected = true;
+                moist = -1;
+            } else if (moist >= 75) {
+                // Active wet diaper connected
+                if (prevConnState.isDisconnected) {
+                    prevConnState.consecutiveConnectedCount = (prevConnState.consecutiveConnectedCount || 0) + 1;
+                    if (prevConnState.consecutiveConnectedCount >= 2) {
+                        prevConnState.isDisconnected = false;
+                        prevConnState.wasWet100 = true;
+                    } else {
+                        isTapeDisconnected = true;
+                        moist = -1;
+                    }
+                } else {
+                    prevConnState.wasWet100 = true;
+                    prevConnState.consecutiveConnectedCount = 4;
+                }
+            } else {
+                // Incoming packet reports 0% DRY and tape_connected === true
+                if (prevConnState.wasWet100 && !prevConnState.isDisconnected) {
+                    // Was 100% wet and suddenly lost liquid bridge without reset -> user disconnected wet diaper!
+                    prevConnState.isDisconnected = true;
+                    prevConnState.consecutiveConnectedCount = 0;
+                    isTapeDisconnected = true;
+                    moist = -1;
+                } else if (prevConnState.isDisconnected) {
+                    // Currently latched DISCONNECTED: require 4 consecutive uninterrupted dry connected packets
+                    // (~15-16s of stable new diaper capacitance) before unlatching to 0% DRY
+                    prevConnState.consecutiveConnectedCount = (prevConnState.consecutiveConnectedCount || 0) + 1;
+                    if (prevConnState.consecutiveConnectedCount >= 4) {
+                        prevConnState.isDisconnected = false;
+                        prevConnState.wasWet100 = false;
+                        isTapeDisconnected = false;
+                        moist = 0;
+                    } else {
+                        isTapeDisconnected = true;
+                        moist = -1;
+                    }
+                }
+            }
+            diaperConnectionState.set(resetKey, prevConnState);
 
             // Check if the patient has an active Vital Signs sensor currently reporting
             const vsCheck = await pool.query(
@@ -2059,6 +2129,11 @@ app.post(['/api/caregiver/patients/:id/diaper-change', '/api/sensor/diaper-chang
     try {
         // Enforce a 60-second diaper tare/reset window so any lingering dampness from replaced diaper is suppressed
         pendingDiaperResets.set(String(patientId), Date.now() + 60000);
+        diaperConnectionState.set(String(patientId), {
+            isDisconnected: false,
+            wasWet100: false,
+            consecutiveConnectedCount: 4
+        });
 
         // Fetch current active vitals so they are preserved
         const lastVitals = await pool.query(

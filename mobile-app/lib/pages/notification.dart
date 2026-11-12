@@ -37,7 +37,17 @@ class _NotificationScreenState extends State<NotificationScreen> {
   String _searchQuery = '';
   String _clinicalFilterType = 'All';
   String _systemFilterType = 'All';
+  String _sortOrder = 'severity'; // 'severity' (Option 1 Default) | 'chronological' (Option 2)
   late final TextEditingController _searchController;
+
+  String _getAnomalyFamily(String? rawAnom) {
+    final s = (rawAnom ?? '').toLowerCase();
+    if (s.contains('heart_rate')) return 'heart_rate';
+    if (s.contains('temp')) return 'temperature';
+    if (s.contains('spo2')) return 'spo2';
+    if (s.contains('moisture')) return 'moisture';
+    return s;
+  }
 
   List<dynamic> get _filteredAlerts {
     var list = List<dynamic>.from(_alerts);
@@ -106,6 +116,45 @@ class _NotificationScreenState extends State<NotificationScreen> {
           return type.contains('signal') || type.contains('rssi') || desc.contains('signal') || desc.contains('rssi');
         }).toList();
       }
+    }
+
+    // Apply user-selected Sort Option:
+    // Option 1 ('severity', Default): Severity-First (Critical -> Warning -> Info), then Newest on Top
+    // Option 2 ('chronological'): Pure Chronological (sent_at DESC) + Deduplicate Consecutive Identical Alerts per Patient
+    int getSeverityRank(dynamic item) {
+      final s = (item['severity'] ?? '').toString().toLowerCase();
+      if (s == 'critical') return 1;
+      if (s == 'high' || s == 'warning') return 2;
+      return 3;
+    }
+
+    DateTime getAlertTime(dynamic item) {
+      final raw = (item['sent_at'] ?? item['triggered_at'] ?? '').toString();
+      return DateTime.tryParse(raw) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    list.sort((a, b) {
+      if (_sortOrder == 'severity') {
+        final rA = getSeverityRank(a);
+        final rB = getSeverityRank(b);
+        if (rA != rB) return rA.compareTo(rB);
+      }
+      return getAlertTime(b).compareTo(getAlertTime(a));
+    });
+
+    if (_sortOrder == 'chronological' && _showClinicalAlerts) {
+      final deduped = <dynamic>[];
+      final lastAnomalyByPatient = <String, String>{};
+      for (final row in list) {
+        final pKey = (row['patient_id'] ?? row['patient_name'] ?? 'unknown').toString();
+        final anomFamily = _getAnomalyFamily((row['anomaly_type'] ?? row['alert_category'] ?? '').toString());
+        if (lastAnomalyByPatient[pKey] == anomFamily) {
+          continue;
+        }
+        lastAnomalyByPatient[pKey] = anomFamily;
+        deduped.add(row);
+      }
+      return deduped;
     }
 
     return list;
@@ -233,7 +282,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     try {
       final results = await Future.wait([
-        ApiService.get(_showClinicalAlerts ? '/api/alerts/clinical' : '/api/alerts/system'),
+        ApiService.get(_showClinicalAlerts ? '/api/alerts/clinical?sort=$_sortOrder' : '/api/alerts/system?sort=$_sortOrder'),
         if (!_showClinicalAlerts) ApiService.get('/api/caregiver/devices'),
       ]);
       final result = results[0];
@@ -361,7 +410,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       SnackBar(
         content: Text(
           result['success'] == true
-              ? 'Alert acknowledged. Audit trail updated.'
+              ? 'Alert acknowledged and saved to Care Logs & AI Insights.'
               : result['message'] ?? 'Acknowledgment failed.',
         ),
         backgroundColor: result['success'] == true
@@ -371,6 +420,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     );
 
     if (result['success'] == true) {
+      // Single removal only for Acknowledge
       setState(() {
         _alerts.removeWhere((a) => a['alert_id'] == alertId);
       });
@@ -382,6 +432,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   // --------------------------------------------------------------------------
   // Flag alert as normal (AI Adaptive Baseline learning, 0/5 to 5/5)
+  // Bulk-removes all previous similar alerts for that patient and logs to Care Logs & AI Insights
   // --------------------------------------------------------------------------
   Future<void> _flagAsNormal(Map<String, dynamic> alert) async {
     final alertId = alert['alert_id'];
@@ -396,15 +447,39 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (!mounted) return;
 
       if (res['success'] == true) {
+        final clearedRaw = res['cleared_alert_ids'];
+        final clearedIds = <int>{alertId as int};
+        if (clearedRaw is List) {
+          for (final item in clearedRaw) {
+            final parsed = int.tryParse('$item');
+            if (parsed != null) clearedIds.add(parsed);
+          }
+        }
+        final targetPatientKey = (alert['patient_id'] ?? alert['patient_name'] ?? '').toString();
+        final targetFamily = _getAnomalyFamily((alert['anomaly_type'] ?? '').toString());
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(res['message'] ?? 'Pattern flagged as normal and moved to AI Insights.'),
+            content: Text('${res['message'] ?? 'Pattern flagged as normal.'} Saved to Care Logs & AI Insights.'),
             backgroundColor: const Color(0xFF0D9488),
           ),
         );
         setState(() {
-          _alerts.removeWhere((a) => a['alert_id'] == alertId);
+          _alerts.removeWhere((a) {
+            final id = int.tryParse('${a['alert_id']}');
+            if (id != null && clearedIds.contains(id)) return true;
+            final pKey = (a['patient_id'] ?? a['patient_name'] ?? '').toString();
+            if (targetPatientKey.isNotEmpty && pKey == targetPatientKey) {
+              if (_getAnomalyFamily((a['anomaly_type'] ?? '').toString()) == targetFamily) {
+                return true;
+              }
+            }
+            return false;
+          });
         });
+        for (final id in clearedIds) {
+          AlertNotificationService.cancelNotification(id);
+        }
         _fetchAlerts();
         AlertNotificationService.checkAlerts();
       } else {
@@ -902,7 +977,53 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       ],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
+
+            // 2 User-Selectable Alert Sorting Options
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Text(
+                    'Sort Priority:',
+                    style: GoogleFonts.albertSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip(
+                            '1. Severity First (Default)',
+                            _sortOrder == 'severity',
+                            () {
+                              setState(() => _sortOrder = 'severity');
+                              _fetchAlerts(silent: true);
+                            },
+                            icon: Icons.priority_high_rounded,
+                          ),
+                          _buildFilterChip(
+                            '2. Latest First (Deduplicated)',
+                            _sortOrder == 'chronological',
+                            () {
+                              setState(() => _sortOrder = 'chronological');
+                              _fetchAlerts(silent: true);
+                            },
+                            icon: Icons.schedule_rounded,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
 
             Expanded(child: _buildBody()),
           ],

@@ -39,6 +39,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
   List<double> tempHistory = [];
   List<double> spo2History = [];
   List<double> moistureHistory = [];
+  List<Map<String, dynamic>> _careLogs = [];
 
   Future<void> _handleDiaperChange() async {
     final targetPatientId = (_patient['patient_id'] ?? _patient['id'])?.toString();
@@ -262,11 +263,22 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
       final results = await Future.wait([
         ApiService.get('/sensor/history/$targetPatientId?timeframe=$tfParam'),
         ApiService.get('/api/caregiver/patients/$targetPatientId'),
+        ApiService.get('/api/caregiver/patients/$targetPatientId/care-logs'),
       ]);
       final result = results[0];
       final patResult = results[1];
+      final logsResult = results.length > 2 ? results[2] : null;
 
       if (!mounted) return;
+
+      if (logsResult != null && logsResult['success'] == true && logsResult['data'] is List) {
+        setState(() {
+          _careLogs = (logsResult['data'] as List)
+              .whereType<Map>()
+              .map(Map<String, dynamic>.from)
+              .toList();
+        });
+      }
 
       if (patResult['success'] == true && patResult['data'] is Map) {
         final freshPat = Map<String, dynamic>.from(patResult['data']);
@@ -1220,6 +1232,111 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                         ),
                       ],
                     ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // Clinical Care Logs & Alert Reviews Section
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Clinical Care Logs & Alert Reviews',
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF1E293B),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDFA),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF99F6E4)),
+                        ),
+                        child: Text(
+                          '${_careLogs.length}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF0F766E),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: _careLogs.isEmpty
+                        ? Text(
+                            'No care logs or alert review notes recorded for this patient yet.',
+                            style: GoogleFonts.albertSans(
+                              fontSize: 12,
+                              color: const Color(0xFF64748B),
+                            ),
+                          )
+                        : Column(
+                            children: _careLogs.take(10).map((log) {
+                              final author = (log['authorName'] ?? log['author_name'] ?? 'Caregiver').toString();
+                              final content = (log['content'] ?? '').toString();
+                              final rawDate = (log['createdAt'] ?? log['created_at'] ?? '').toString();
+                              String timeStr = '';
+                              try {
+                                final dt = DateTime.parse(rawDate).toLocal();
+                                timeStr = DateFormat('MMM d, h:mm a').format(dt);
+                              } catch (_) {}
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          author,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: const Color(0xFF0F766E),
+                                          ),
+                                        ),
+                                        Text(
+                                          timeStr,
+                                          style: GoogleFonts.albertSans(
+                                            fontSize: 10.5,
+                                            color: const Color(0xFF64748B),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      content,
+                                      style: GoogleFonts.albertSans(
+                                        fontSize: 12,
+                                        color: const Color(0xFF1E293B),
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
                   ),
 
                   const SizedBox(height: 24),

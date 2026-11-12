@@ -219,7 +219,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
             final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2 == 0 || spo2 == null);
             final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || isHrMisaligned || isSpo2Misaligned);
             final bool isTapeDisconnected = isMoistureActive && ((moist != null && moist < 0) || telemetry['is_diaper_unclipped'] == true || telemetry['tape_connected'] == false || p['is_diaper_unclipped'] == true);
-            final bool isMoistCalibrating = false;
+            final bool isMoistCalibrating = isMoistureActive && !isTapeDisconnected && telemetry['is_moisture_calibrating'] == true;
             final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned || isTapeDisconnected;
 
             final String hrDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? 'Misaligned' : '$hr';

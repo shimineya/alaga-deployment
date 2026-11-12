@@ -476,7 +476,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
     final bool isTapeDisconnected = isMoistureActive && (mNum < 0 || telemetry['is_diaper_unclipped'] == true || telemetry['tape_connected'] == false || patient['is_diaper_unclipped'] == true);
-    final bool isMoistCalibrating = false;
+    final bool isMoistCalibrating = isMoistureActive && !isTapeDisconnected && telemetry['is_moisture_calibrating'] == true;
     final isWet = !isTapeDisconnected && (mNum >= 70 || mNum == 100 || patient['wetness'] == 'Wet');
     final isDamp = !isTapeDisconnected && (mNum >= 30 && !isWet);
 

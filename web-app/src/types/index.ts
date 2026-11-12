@@ -22,6 +22,14 @@ export interface Patient {
   deviceId: string;
   deviceBattery: number;
   deviceConnected: boolean;
+  hrDeviceConnected?: boolean;
+  hrDeviceBattery?: number;
+  diaperDeviceConnected?: boolean;
+  diaperDeviceBattery?: number;
+  is_vitals_online?: boolean;
+  is_moisture_online?: boolean;
+  is_diaper_unclipped?: boolean;
+  finger_detected?: boolean;
   lastUpdated: Date;
   assignedCaregiverName?: string; // [NEW] Added for UI display
   doctorsOrders?: DoctorsOrdersData;

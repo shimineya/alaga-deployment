@@ -2612,7 +2612,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2Num == 0 || spo2Num == null);
     final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && (tempNum == 0 || tempNum == null || tempNum <= 30.0 || isHrMisaligned || isSpo2Misaligned);
     final bool isTapeDisconnected = isMoistureActive && (mNum < 0 || telemetry['is_diaper_unclipped'] == true || telemetry['tape_connected'] == false || patient['is_diaper_unclipped'] == true);
-    final bool isMoistCalibrating = false;
+    final bool isMoistCalibrating = isMoistureActive && !isTapeDisconnected && telemetry['is_moisture_calibrating'] == true;
     final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned || isTapeDisconnected;
     final bool isAnyCalibrating = isVitalsCalibrating || isMoistCalibrating;
 

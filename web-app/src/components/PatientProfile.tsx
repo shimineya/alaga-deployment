@@ -299,6 +299,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
           if (data.history.length > 0) {
             setVitalSigns(data.history.map((row: any, idx: number) => ({
               id: `v-${idx}-${new Date(row.recorded_at).getTime()}`,
+              patientId: String(patient.id || (patient as any)?.patient_id || ''),
               timestamp: new Date(row.recorded_at),
               heartRate: Number(row.heart_rate) || 0,
               temperature: Number(row.temperature) || 0,
@@ -310,6 +311,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
             if (telem.heart_rate || telem.temperature || telem.spo2 || telem.moisture || telem.moisture_value) {
               setVitalSigns([{
                 id: `v-telem-${Date.now()}`,
+                patientId: String(patient.id || (patient as any)?.patient_id || ''),
                 timestamp: new Date(telem.recorded_at || Date.now()),
                 heartRate: Number(telem.heart_rate) || 0,
                 temperature: Number(telem.temperature) || 0,
@@ -465,6 +467,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                   ...prev,
                   {
                     id: `v-live-${ts.getTime()}`,
+                    patientId: String(patient.id || (patient as any)?.patient_id || ''),
                     timestamp: ts,
                     heartRate: finalHr,
                     temperature: finalTemp,

@@ -1627,7 +1627,20 @@ app.post('/api/device/data', async (req, res) => {
 
         // 2. Update device heartbeat, battery, signal, and IP even if unpaired
         const rawBattery = req.body.battery !== undefined ? req.body.battery : req.body.battery_level;
-        const batteryVal = rawBattery !== undefined && rawBattery !== null ? parseInt(rawBattery, 10) : null;
+        let batteryVal = rawBattery !== undefined && rawBattery !== null ? parseInt(rawBattery, 10) : null;
+        // Software Coulomb / Runtime Discharge Estimator fallback when hardware voltage divider is absent (reports static 100%)
+        if ((batteryVal === null || batteryVal === 100) && req.body.uptime_ms !== undefined && req.body.uptime_ms !== null) {
+            const uptimeMs = parseFloat(req.body.uptime_ms);
+            const seqNum = req.body.seq !== undefined ? parseFloat(req.body.seq) : 0;
+            if (!isNaN(uptimeMs) && uptimeMs > 0) {
+                const isVitalSigns = String(device_id).toUpperCase().startsWith('VS');
+                const baseCurrentMa = isVitalSigns ? 58.0 : 48.0;
+                const hoursRunning = uptimeMs / 3600000.0;
+                const mAhUsed = (baseCurrentMa * hoursRunning) + (0.0052 * (isNaN(seqNum) ? 0 : seqNum));
+                const pctRemaining = Math.round(100.0 - ((mAhUsed / 500.0) * 100.0));
+                batteryVal = Math.max(5, Math.min(100, pctRemaining));
+            }
+        }
         const rawRssi = req.body.rssi !== undefined && req.body.rssi !== null ? parseFloat(req.body.rssi) : null;
         const signalVal = req.body.signal ? String(req.body.signal).slice(0, 20) : (rawRssi !== null ? (rawRssi > -65 ? 'Excellent' : rawRssi > -80 ? 'Good' : 'Weak') : 'Good');
         const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';

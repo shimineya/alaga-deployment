@@ -9,5 +9,6 @@
         "HOTSPOT",
         "unpair",
         "Unpair"
-    ]
+    ],
+    "python.terminal.useEnvFile": true
 }

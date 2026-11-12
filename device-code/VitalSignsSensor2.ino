@@ -159,10 +159,15 @@ void readBattery() {
   float pinVoltage = (rawAdc / 4095.0) * 3.3 * 1.05;
   batteryVoltage = pinVoltage * 2.0;
 
-  // If running via USB without an external battery divider connected, default to 4.2V
-  if (batteryVoltage < 2.0) {
-    batteryVoltage = 4.20;
-    batteryPercent = 100;
+  // If no external hardware voltage divider is wired (< 2.5V), use Software Coulomb
+  // / Runtime Discharge Estimation based on active ESP32 + MAX30102 current draw and
+  // Wi-Fi TX bursts on a nominal 500 mAh wearable LiPo cell (~58 mA base + 0.0052 mAh/TX)
+  if (batteryVoltage < 2.5) {
+    float hoursRunning = (float)millis() / 3600000.0;
+    float mAhUsed = (58.0 * hoursRunning) + (0.0052 * (float)packetSequence);
+    float pctRemaining = 100.0 - ((mAhUsed / 500.0) * 100.0);
+    batteryPercent = constrain((int)round(pctRemaining), 5, 100);
+    batteryVoltage = 3.40 + ((float)batteryPercent / 100.0) * 0.80;
     return;
   }
 

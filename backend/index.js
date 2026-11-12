@@ -1988,56 +1988,127 @@ app.post('/api/device/data', async (req, res) => {
                 const consolidatedAlerts = mergeRuleAndAiAlerts(ruleAlerts, aiResult?.alerts || []);
 
                 // If any anomaly detected, write to anomaly_events and alert_notifications
+                // Enforces 5-Alert Cap per (patient_id + anomaly_type):
+                // - Up to 5 active unacknowledged alerts are created per (patient + anomaly_type).
+                // - Different anomaly types on the same patient each have their own independent pool of 5.
+                // - Once 5 active alerts exist for the same (patient + anomaly_type), persisting anomalies
+                //   bump the newest alert's timestamp (sent_at = NOW()) and message in-place instead of duplicating.
                 if (consolidatedAlerts.length > 0) {
+                    const pInfo = await pool.query('SELECT name FROM patients WHERE patient_id = $1', [patientId]).catch(() => ({ rows: [] }));
+                    const patientName = pInfo.rows[0]?.name || `Patient #${patientId}`;
+
                     for (const alert of consolidatedAlerts) {
                         const ocsvmScore = alert.vital === 'multi_feature' ? -1.0 : 0.0;
                         const anomalyType = alert.vital === 'multi_feature' ? 'ocsvm_anomaly' : (alert.anomaly_type || `rule_${alert.vital}`);
+                        const rawAnom = String(anomalyType || '').toLowerCase();
+                        const anomFamily = rawAnom.includes('heart_rate') ? 'heart_rate'
+                            : rawAnom.includes('temp') ? 'temperature'
+                            : rawAnom.includes('spo2') ? 'spo2'
+                            : rawAnom.includes('moisture') ? 'moisture'
+                            : rawAnom;
+                        const mappedSeverity = alert.severity === 'critical' ? 'Critical' : 'Warning';
 
-                        const eventResult = await pool.query(
-                            `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
-                             VALUES ($1, $2, $3, $4) RETURNING event_id`,
-                            [patientId, readingId, anomalyType, ocsvmScore]
-                        );
-                        const eventId = eventResult.rows[0]?.event_id;
+                        const activeSameRes = await pool.query(
+                            `SELECT a.alert_id, a.event_id
+                             FROM alert_notifications a
+                             JOIN anomaly_events e ON a.event_id = e.event_id
+                             WHERE e.patient_id = $1
+                               AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged', 'Archived')
+                               AND a.acknowledged_at IS NULL
+                               AND (
+                                   e.anomaly_type = $2
+                                   OR ($3 = 'heart_rate' AND e.anomaly_type ILIKE '%heart_rate%')
+                                   OR ($3 = 'temperature' AND e.anomaly_type ILIKE '%temp%')
+                                   OR ($3 = 'spo2' AND e.anomaly_type ILIKE '%spo2%')
+                                   OR ($3 = 'moisture' AND e.anomaly_type ILIKE '%moisture%')
+                               )
+                             ORDER BY a.sent_at DESC`,
+                            [patientId, anomalyType, anomFamily]
+                        ).catch(() => ({ rows: [] }));
+
+                        const activeSameRows = activeSameRes.rows || [];
+                        let alertId = null;
+                        let eventId = null;
+
+                        if (activeSameRows.length >= 5) {
+                            // Already at 5 active alerts for this (patient + anomaly_type):
+                            // Bump the newest alert to NOW() with the latest reading/message instead of creating a 6th duplicate
+                            alertId = activeSameRows[0].alert_id;
+                            eventId = activeSameRows[0].event_id;
+
+                            await pool.query(
+                                `UPDATE anomaly_events
+                                 SET reading_id = $1, anomaly_type = $2, ocsvm_score = $3, detected_at = NOW()
+                                 WHERE event_id = $4`,
+                                [readingId, anomalyType, ocsvmScore, eventId]
+                            ).catch(() => {});
+
+                            await pool.query(
+                                `UPDATE alert_notifications
+                                 SET sent_at = NOW(), message = $1, severity = $2
+                                 WHERE alert_id = $3`,
+                                [alert.message, mappedSeverity, alertId]
+                            ).catch(() => {});
+
+                            // If any legacy excess duplicates (> 5) exist in DB for this (patient + anomaly_type), remove them from DB
+                            if (activeSameRows.length > 5) {
+                                const excessAlertIds = activeSameRows.slice(5).map(r => r.alert_id);
+                                const excessEventIds = activeSameRows.slice(5).map(r => r.event_id).filter(Boolean);
+                                await pool.query(
+                                    `DELETE FROM alert_notifications WHERE alert_id = ANY($1)`,
+                                    [excessAlertIds]
+                                ).catch(() => {});
+                                if (excessEventIds.length > 0) {
+                                    await pool.query(
+                                        `DELETE FROM anomaly_events WHERE event_id = ANY($1)
+                                         AND NOT EXISTS (SELECT 1 FROM alert_notifications an WHERE an.event_id = anomaly_events.event_id)`,
+                                        [excessEventIds]
+                                    ).catch(() => {});
+                                }
+                            }
+                        } else {
+                            // Fewer than 5 active alerts for this (patient + anomaly_type): insert new alert (up to 5)
+                            const eventResult = await pool.query(
+                                `INSERT INTO anomaly_events (patient_id, reading_id, anomaly_type, ocsvm_score)
+                                 VALUES ($1, $2, $3, $4) RETURNING event_id`,
+                                [patientId, readingId, anomalyType, ocsvmScore]
+                            );
+                            eventId = eventResult.rows[0]?.event_id;
 
                             if (eventId) {
                                 const notifRes = await pool.query(
                                     `INSERT INTO alert_notifications (event_id, status, message, severity, alert_category)
                                      VALUES ($1, 'Sent', $2, $3, 'Clinical')
                                      RETURNING alert_id`,
-                                    [
-                                        eventId,
-                                        alert.message,
-                                        alert.severity === 'critical' ? 'Critical' : 'Warning'
-                                     ]
+                                    [eventId, alert.message, mappedSeverity]
                                 );
-                                const alertId = notifRes.rows[0]?.alert_id;
-
-                                const pInfo = await pool.query('SELECT name FROM patients WHERE patient_id = $1', [patientId]).catch(() => ({ rows: [] }));
-                                const patientName = pInfo.rows[0]?.name || `Patient #${patientId}`;
-
-                                const payload = {
-                                    alert_id: alertId,
-                                    event_id: eventId,
-                                    patient_id: patientId,
-                                    patient_name: patientName,
-                                    severity: alert.severity === 'critical' ? 'Critical' : 'Warning',
-                                    message: alert.message,
-                                    anomaly_type: anomalyType,
-                                    category: 'Clinical',
-                                    timestamp: new Date().toISOString(),
-                                    playSound: true
-                                };
-
-                                broadcastAlert('new_alert', payload);
-                                broadcastAlert('new_clinical_alert', {
-                                    ...payload,
-                                    patientId,
-                                    anomalyType
-                                });
+                                alertId = notifRes.rows[0]?.alert_id;
                             }
                         }
+
+                        if (alertId && eventId) {
+                            const payload = {
+                                alert_id: alertId,
+                                event_id: eventId,
+                                patient_id: patientId,
+                                patient_name: patientName,
+                                severity: mappedSeverity,
+                                message: alert.message,
+                                anomaly_type: anomalyType,
+                                category: 'Clinical',
+                                timestamp: new Date().toISOString(),
+                                playSound: true
+                            };
+
+                            broadcastAlert('new_alert', payload);
+                            broadcastAlert('new_clinical_alert', {
+                                ...payload,
+                                patientId,
+                                anomalyType
+                            });
+                        }
                     }
+                }
                 }
         } catch (aiErr) {
             console.error('[DEVICE_DATA] AI evaluation error:', aiErr.message);

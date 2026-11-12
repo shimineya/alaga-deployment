@@ -32,35 +32,39 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
 
   const unacknowledgedAlerts = React.useMemo(() => {
     const raw = safeAlerts.filter(a => !a.acknowledged);
-    const sorted = [...raw].sort((a, b) => {
+    const byNewest = [...raw].sort((a, b) => {
       const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
       const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      if (sortOrder === 'severity') {
-        const getRank = (sev?: string) => {
-          const s = (sev || '').toLowerCase();
-          if (s === 'critical') return 1;
-          if (s === 'high' || s === 'warning') return 2;
-          return 3;
-        };
-        const rA = getRank(a.severity);
-        const rB = getRank(b.severity);
-        if (rA !== rB) return rA - rB;
-      }
       return timeB - timeA;
     });
-    if (sortOrder === 'chronological') {
-      const deduped: Alert[] = [];
-      const lastByPatient = new Map<string, string>();
-      for (const item of sorted) {
-        const pKey = String(item.patientId || 'system');
-        const sig = `${item.type || ''}:${(item.title || item.message || '').slice(0, 30).toLowerCase()}`;
-        if (lastByPatient.get(pKey) === sig) continue;
-        lastByPatient.set(pKey, sig);
-        deduped.push(item);
-      }
-      return deduped;
+    const countByPatientAnomaly = new Map<string, number>();
+    const capped: Alert[] = [];
+    for (const item of byNewest) {
+      const pKey = String(item.patientId || 'system');
+      const sig = `${item.type || ''}:${(item.title || item.message || '').slice(0, 30).toLowerCase()}`;
+      const pairKey = `${pKey}::${sig}`;
+      const cur = countByPatientAnomaly.get(pairKey) || 0;
+      if (cur >= 5) continue;
+      countByPatientAnomaly.set(pairKey, cur + 1);
+      capped.push(item);
     }
-    return sorted;
+    if (sortOrder === 'chronological') {
+      return capped;
+    }
+    return [...capped].sort((a, b) => {
+      const getRank = (sev?: string) => {
+        const s = (sev || '').toLowerCase();
+        if (s === 'critical') return 1;
+        if (s === 'high' || s === 'warning') return 2;
+        return 3;
+      };
+      const rA = getRank(a.severity);
+      const rB = getRank(b.severity);
+      if (rA !== rB) return rA - rB;
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
+    });
   }, [safeAlerts, sortOrder]);
   const notificationCount = unacknowledgedAlerts.length;
 
@@ -209,7 +213,7 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                 onClick={() => setSortOrder('chronological')}
                 className={`px-2 py-0.5 rounded-md font-semibold transition ${sortOrder === 'chronological' ? 'bg-teal-700 text-white' : 'bg-white/80 text-slate-600 border border-slate-200'}`}
               >
-                2. Latest (Deduped)
+                2. Latest First
               </button>
             </div>
           </div>

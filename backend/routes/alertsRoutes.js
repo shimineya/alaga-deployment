@@ -152,6 +152,37 @@ router.get('/clinical', async (req, res) => {
         // Auto-record due schedules first
         await recordDueSchedules();
 
+        // Permanently remove any excess active alerts (> 5 per patient_id + anomaly_type) from the database
+        // so the backend database strictly retains at most 5 active alerts per (patient + anomaly_type).
+        await pool.query(`
+            WITH ranked_active AS (
+                SELECT a.alert_id, a.event_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY e.patient_id,
+                           CASE
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%heart_rate%' THEN 'heart_rate'
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%temp%' THEN 'temperature'
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%spo2%' THEN 'spo2'
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%moisture%' THEN 'moisture'
+                               ELSE LOWER(COALESCE(e.anomaly_type, a.alert_category, 'clinical'))
+                           END
+                           ORDER BY a.sent_at DESC, a.alert_id DESC
+                       ) AS rn
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                WHERE a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged', 'Archived')
+                  AND a.acknowledged_at IS NULL
+            ),
+            deleted_notifs AS (
+                DELETE FROM alert_notifications
+                WHERE alert_id IN (SELECT alert_id FROM ranked_active WHERE rn > 5)
+                RETURNING event_id
+            )
+            DELETE FROM anomaly_events
+            WHERE event_id IN (SELECT event_id FROM deleted_notifs WHERE event_id IS NOT NULL)
+              AND NOT EXISTS (SELECT 1 FROM alert_notifications an WHERE an.event_id = anomaly_events.event_id)
+        `).catch(err => console.warn('[ALERTS_CLEANUP] Excess alert trim warning:', err.message));
+
         const includeReviewed = req.query.includeReviewed === 'true' || Boolean(patientId);
         const sortMode = String(req.query.sort || 'severity').toLowerCase(); // 'severity' (Option 1 Default) | 'chronological' (Option 2)
         const clinicalOrderByClause = sortMode === 'chronological'
@@ -307,13 +338,21 @@ router.get('/clinical', async (req, res) => {
             return baseObj;
         });
 
-        // Option 2 (Chronological + Deduplicate Consecutive Identical Alerts per Patient):
-        // When sort === 'chronological' and viewing active feed (!includeReviewed), collapse consecutive
-        // duplicate alerts of the same anomaly family for the same patient while keeping the latest on top.
-        if (sortMode === 'chronological' && !includeReviewed) {
-            const deduped = [];
-            const lastAnomalyByPatient = new Map();
-            for (const row of mappedRows) {
+        // Enforce 5-Alert Cap per (patient_id + anomaly_type) on active alerts (!includeReviewed):
+        // - Each unique (patient_id + anomaly_type) can have up to 5 active alerts.
+        // - Same patient with a different anomaly type has its own independent pool of 5.
+        // - Both Option 1 ('severity') and Option 2 ('chronological') keep up to 5 alerts per (patient + anomaly_type)
+        //   without collapsing down to 1 card.
+        if (!includeReviewed) {
+            // Sort newest-first temporarily to pick the 5 most recent alerts per (patient_id + anomaly_type)
+            const byNewest = [...mappedRows].sort((a, b) => {
+                const tA = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+                const tB = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+                return tB - tA;
+            });
+            const countByPatientAnomaly = new Map();
+            const capped = [];
+            for (const row of byNewest) {
                 const pKey = String(row.patient_id || row.patient_name || 'unknown');
                 const rawAnom = String(row.anomaly_type || row.alert_category || '').toLowerCase();
                 const anomFamily = rawAnom.includes('heart_rate') ? 'heart_rate'
@@ -321,13 +360,35 @@ router.get('/clinical', async (req, res) => {
                     : rawAnom.includes('spo2') ? 'spo2'
                     : rawAnom.includes('moisture') ? 'moisture'
                     : rawAnom || String(row.message || '').slice(0, 40);
-                if (lastAnomalyByPatient.get(pKey) === anomFamily) {
-                    continue; // Skip consecutive identical anomaly for this patient
+                const pairKey = `${pKey}::${anomFamily}`;
+                const currentCount = countByPatientAnomaly.get(pairKey) || 0;
+                if (currentCount >= 5) {
+                    continue; // Cap at 5 alerts for the same (patient + anomaly_type)
                 }
-                lastAnomalyByPatient.set(pKey, anomFamily);
-                deduped.push(row);
+                countByPatientAnomaly.set(pairKey, currentCount + 1);
+                capped.push(row);
             }
-            mappedRows = deduped;
+
+            if (sortMode === 'chronological') {
+                // Option 2: Latest First (sent_at DESC), keeping up to 5 per (patient + anomaly_type)
+                mappedRows = capped;
+            } else {
+                // Option 1 (Default): Severity First (Critical -> Warning -> Info), then Newest First (sent_at DESC)
+                const getRank = (sev) => {
+                    const s = String(sev || '').toLowerCase();
+                    if (s === 'critical') return 1;
+                    if (s === 'high' || s === 'warning') return 2;
+                    return 3;
+                };
+                mappedRows = capped.sort((a, b) => {
+                    const rA = getRank(a.severity);
+                    const rB = getRank(b.severity);
+                    if (rA !== rB) return rA - rB;
+                    const tA = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+                    const tB = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+                    return tB - tA;
+                });
+            }
         }
         const data = mappedRows;
         res.json({ success: true, data });
@@ -637,40 +698,56 @@ router.post('/clinical/:id/flag-normal', async (req, res) => {
             ? 'AI Baseline Updated - Flagged as Normal (5/5). Pattern learned and future alerts suppressed.'
             : `Flagged as Normal (${newFlagCount}/5) - AI Baseline Learning (${remainingFlags} more flags needed)`;
 
-        // Bulk-remove (mark as Acknowledged) ALL previous and current unacknowledged alerts
-        // of the same anomaly/vital family for this patient so the caregiver never has to click
-        // through duplicate packets from the same physiological episode.
-        const bulkClearRes = await pool.query(
-            `UPDATE alert_notifications a
+        // Flag-as-Normal Removal Rule:
+        // - Flags 1/5 through 4/5: Remove ONLY the single clicked alert so the caregiver can continue
+        //   flagging the remaining alerts (up to 5/5) for this (patient + anomaly_type).
+        // - Flag 5/5 (newFlagCount >= 5): The AI baseline has officially learned this pattern as Normal,
+        //   so mark the 5th alert as Acknowledged (for AI Insights) and permanently remove any remaining
+        //   unacknowledged alerts for this same (patient + anomaly_type).
+        let clearedAlertIds = [alertId];
+        await pool.query(
+            `UPDATE alert_notifications
              SET status = 'Acknowledged',
                  action_taken = $1,
-                 acknowledged_by = COALESCE(a.acknowledged_by, $2),
-                 acknowledged_at = COALESCE(a.acknowledged_at, NOW())
-             FROM anomaly_events e
-             WHERE a.event_id = e.event_id
-               AND e.patient_id = $3
-               AND (
-                   a.alert_id = $4
-                   OR (
-                       a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged', 'Archived')
-                       AND a.acknowledged_at IS NULL
-                       AND (
-                           e.anomaly_type = $5
-                           OR e.anomaly_type = $6
-                           OR ($6 = 'heart_rate' AND e.anomaly_type ILIKE '%heart_rate%')
-                           OR ($6 = 'temperature' AND e.anomaly_type ILIKE '%temp%')
-                           OR ($6 = 'spo2' AND e.anomaly_type ILIKE '%spo2%')
-                           OR ($6 = 'moisture' AND e.anomaly_type ILIKE '%moisture%')
-                       )
-                   )
-               )
-             RETURNING a.alert_id`,
-            [flagActionNote, userId, patientId, alertId, anomalyType, vitalName]
-        ).catch(() => ({ rows: [{ alert_id: alertId }] }));
+                 acknowledged_by = COALESCE(acknowledged_by, $2),
+                 acknowledged_at = COALESCE(acknowledged_at, NOW())
+             WHERE alert_id = $3`,
+            [flagActionNote, userId, alertId]
+        ).catch(() => {});
 
-        const clearedAlertIds = bulkClearRes.rows && bulkClearRes.rows.length > 0
-            ? bulkClearRes.rows.map(r => r.alert_id)
-            : [alertId];
+        if (newFlagCount >= 5) {
+            const bulkDeleteRes = await pool.query(
+                `DELETE FROM alert_notifications a
+                 USING anomaly_events e
+                 WHERE a.event_id = e.event_id
+                   AND e.patient_id = $1
+                   AND a.alert_id != $2
+                   AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged', 'Archived')
+                   AND a.acknowledged_at IS NULL
+                   AND (
+                       e.anomaly_type = $3
+                       OR e.anomaly_type = $4
+                       OR ($4 = 'heart_rate' AND e.anomaly_type ILIKE '%heart_rate%')
+                       OR ($4 = 'temperature' AND e.anomaly_type ILIKE '%temp%')
+                       OR ($4 = 'spo2' AND e.anomaly_type ILIKE '%spo2%')
+                       OR ($4 = 'moisture' AND e.anomaly_type ILIKE '%moisture%')
+                   )
+                 RETURNING a.alert_id, a.event_id`,
+                [patientId, alertId, anomalyType, vitalName]
+            ).catch(() => ({ rows: [] }));
+
+            if (bulkDeleteRes.rows && bulkDeleteRes.rows.length > 0) {
+                clearedAlertIds = [alertId, ...bulkDeleteRes.rows.map(r => r.alert_id)];
+                const orphanEventIds = bulkDeleteRes.rows.map(r => r.event_id).filter(Boolean);
+                if (orphanEventIds.length > 0) {
+                    await pool.query(
+                        `DELETE FROM anomaly_events WHERE event_id = ANY($1)
+                         AND NOT EXISTS (SELECT 1 FROM alert_notifications an WHERE an.event_id = anomaly_events.event_id)`,
+                        [orphanEventIds]
+                    ).catch(() => {});
+                }
+            }
+        }
 
         // Save Flagged-as-Normal action into Care Logs (and AI Insights via alert_notifications + care_logs)
         try {
@@ -997,6 +1074,37 @@ router.get('/schedules', async (req, res) => {
 
         // Auto-record due schedules first
         await recordDueSchedules();
+
+        // Permanently remove any excess active alerts (> 5 per patient_id + anomaly_type) from the database
+        // so the backend database strictly retains at most 5 active alerts per (patient + anomaly_type).
+        await pool.query(`
+            WITH ranked_active AS (
+                SELECT a.alert_id, a.event_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY e.patient_id,
+                           CASE
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%heart_rate%' THEN 'heart_rate'
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%temp%' THEN 'temperature'
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%spo2%' THEN 'spo2'
+                               WHEN LOWER(COALESCE(e.anomaly_type, '')) LIKE '%moisture%' THEN 'moisture'
+                               ELSE LOWER(COALESCE(e.anomaly_type, a.alert_category, 'clinical'))
+                           END
+                           ORDER BY a.sent_at DESC, a.alert_id DESC
+                       ) AS rn
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                WHERE a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged', 'Archived')
+                  AND a.acknowledged_at IS NULL
+            ),
+            deleted_notifs AS (
+                DELETE FROM alert_notifications
+                WHERE alert_id IN (SELECT alert_id FROM ranked_active WHERE rn > 5)
+                RETURNING event_id
+            )
+            DELETE FROM anomaly_events
+            WHERE event_id IN (SELECT event_id FROM deleted_notifs WHERE event_id IS NOT NULL)
+              AND NOT EXISTS (SELECT 1 FROM alert_notifications an WHERE an.event_id = anomaly_events.event_id)
+        `).catch(err => console.warn('[ALERTS_CLEANUP] Excess alert trim warning:', err.message));
 
         if (role === 'admin' || role === 'sysadmin' || role === 'system_admin' || role === 'facility_admin') {
             query = `

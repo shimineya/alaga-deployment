@@ -167,47 +167,51 @@ const AlertsHub: React.FC = () => {
             });
         }
 
-        // Apply user-selected Sort Option:
-        // Option 1 ('severity', Default): Severity-First (Critical -> Warning -> Info), then Newest on Top (sent_at DESC)
-        // Option 2 ('chronological'): Pure Chronological (sent_at DESC) + Deduplicate Consecutive Identical Alerts per Patient
-        const sorted = [...list].sort((a, b) => {
+        // Enforce 5-Alert Cap per (patient_id + anomaly_type):
+        // - Up to 5 active alerts per (patient + anomaly_type); different anomalies on the same patient have their own pool of 5.
+        // - Both Option 1 ('severity') and Option 2 ('chronological') keep up to 5 alerts without collapsing to 1.
+        const byNewest = [...list].sort((a, b) => {
             const timeA = a.sent_at ? new Date(a.sent_at).getTime() : 0;
             const timeB = b.sent_at ? new Date(b.sent_at).getTime() : 0;
-            if (sortOrder === 'severity') {
-                const getRank = (sev?: string) => {
-                    const s = (sev || '').toLowerCase();
-                    if (s === 'critical') return 1;
-                    if (s === 'high' || s === 'warning') return 2;
-                    return 3;
-                };
-                const rA = getRank(a.severity);
-                const rB = getRank(b.severity);
-                if (rA !== rB) return rA - rB;
-            }
             return timeB - timeA;
         });
 
-        if (sortOrder === 'chronological') {
-            const deduped: ClinicalAlert[] = [];
-            const lastAnomalyByPatient = new Map<string, string>();
-            for (const row of sorted) {
-                const pKey = String((row as any).patient_id || row.patient_name || 'unknown');
-                const rawAnom = String(row.anomaly_type || row.alert_category || '').toLowerCase();
-                const anomFamily = rawAnom.includes('heart_rate') ? 'heart_rate'
-                    : rawAnom.includes('temp') ? 'temperature'
-                    : rawAnom.includes('spo2') ? 'spo2'
-                    : rawAnom.includes('moisture') ? 'moisture'
-                    : rawAnom || String(row.message || '').slice(0, 40);
-                if (lastAnomalyByPatient.get(pKey) === anomFamily) {
-                    continue;
-                }
-                lastAnomalyByPatient.set(pKey, anomFamily);
-                deduped.push(row);
-            }
-            return deduped;
+        const countByPatientAnomaly = new Map<string, number>();
+        const capped: ClinicalAlert[] = [];
+        for (const row of byNewest) {
+            const pKey = String((row as any).patient_id || row.patient_name || 'unknown');
+            const rawAnom = String(row.anomaly_type || row.alert_category || '').toLowerCase();
+            const anomFamily = rawAnom.includes('heart_rate') ? 'heart_rate'
+                : rawAnom.includes('temp') ? 'temperature'
+                : rawAnom.includes('spo2') ? 'spo2'
+                : rawAnom.includes('moisture') ? 'moisture'
+                : rawAnom || String(row.message || '').slice(0, 40);
+            const pairKey = `${pKey}::${anomFamily}`;
+            const cur = countByPatientAnomaly.get(pairKey) || 0;
+            if (cur >= 5) continue;
+            countByPatientAnomaly.set(pairKey, cur + 1);
+            capped.push(row);
         }
 
-        return sorted;
+        if (sortOrder === 'chronological') {
+            return capped; // Option 2: Latest First (sent_at DESC), keeping up to 5 per (patient + anomaly_type)
+        }
+
+        // Option 1 (Default): Severity-First (Critical -> Warning -> Info), then Newest on Top (sent_at DESC)
+        return [...capped].sort((a, b) => {
+            const getRank = (sev?: string) => {
+                const s = (sev || '').toLowerCase();
+                if (s === 'critical') return 1;
+                if (s === 'high' || s === 'warning') return 2;
+                return 3;
+            };
+            const rA = getRank(a.severity);
+            const rB = getRank(b.severity);
+            if (rA !== rB) return rA - rB;
+            const timeA = a.sent_at ? new Date(a.sent_at).getTime() : 0;
+            const timeB = b.sent_at ? new Date(b.sent_at).getTime() : 0;
+            return timeB - timeA;
+        });
     }, [clinicalAlerts, filterAlertId, searchQuery, clinicalFilterType, sortOrder]);
 
     const displayedSystemAlerts = useMemo(() => {
@@ -501,6 +505,7 @@ const AlertsHub: React.FC = () => {
                 getHeaders()
             );
             if (res.data.success) {
+                const newFlagCount = Number(res.data.flag_count || ((alert.flag_count || 0) + 1));
                 const clearedIds: number[] = Array.isArray(res.data.cleared_alert_ids)
                     ? res.data.cleared_alert_ids.map((id: any) => Number(id))
                     : [alert.alert_id];
@@ -515,15 +520,32 @@ const AlertsHub: React.FC = () => {
                 const targetFamily = getAnomFamily(alert.anomaly_type);
                 const targetPatientKey = String((alert as any).patient_id || alert.patient_name || '');
 
-                // Bulk removal: remove this alert AND all previous similar alerts for that patient
-                setClinicalAlerts(prev => prev.filter(a => {
-                    if (clearedIds.includes(Number(a.alert_id))) return false;
-                    const aPatientKey = String((a as any).patient_id || a.patient_name || '');
-                    if (targetPatientKey && aPatientKey === targetPatientKey && getAnomFamily(a.anomaly_type) === targetFamily) {
-                        return false;
-                    }
-                    return true;
-                }));
+                if (newFlagCount >= 5) {
+                    // Flag 5/5 reached (pattern learned as Normal): bulk-remove all remaining alerts for this (patient + anomaly_type)
+                    setClinicalAlerts(prev => prev.filter(a => {
+                        if (clearedIds.includes(Number(a.alert_id))) return false;
+                        const aPatientKey = String((a as any).patient_id || a.patient_name || '');
+                        if (targetPatientKey && aPatientKey === targetPatientKey && getAnomFamily(a.anomaly_type) === targetFamily) {
+                            return false;
+                        }
+                        return true;
+                    }));
+                } else {
+                    // Flags 1/5 through 4/5: remove ONLY the 1 clicked alert and update flag_count on remaining similar alerts for this patient
+                    setClinicalAlerts(prev => prev
+                        .filter(a => Number(a.alert_id) !== Number(alert.alert_id))
+                        .map(a => {
+                            const aPatientKey = String((a as any).patient_id || a.patient_name || '');
+                            if (targetPatientKey && aPatientKey === targetPatientKey && getAnomFamily(a.anomaly_type) === targetFamily) {
+                                return {
+                                    ...a,
+                                    flag_count: newFlagCount
+                                };
+                            }
+                            return a;
+                        })
+                    );
+                }
                 toast.info(`${res.data.message} Saved to Care Logs & AI Insights.`);
                 window.dispatchEvent(new CustomEvent('alaga_manual_refresh'));
                 fetchAlerts();
@@ -782,10 +804,10 @@ const AlertsHub: React.FC = () => {
                                 </button>
                                 <button
                                     onClick={() => setSortOrder('chronological')}
-                                    title="Option 2: Pure Chronological (Newest on Top) with consecutive identical alerts per patient deduplicated"
+                                    title="Option 2: Pure Chronological (Newest on Top across all patients and alert types, capped at 5 per patient + anomaly type)"
                                     className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${sortOrder === 'chronological' ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                 >
-                                    2. Latest First (Deduplicated)
+                                    2. Latest First (Chronological)
                                 </button>
                             </div>
                         </div>

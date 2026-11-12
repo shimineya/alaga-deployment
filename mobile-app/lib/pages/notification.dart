@@ -118,9 +118,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
       }
     }
 
-    // Apply user-selected Sort Option:
+    // Apply 5-Alert Cap per (patient_id + anomaly_type) and user-selected Sort Option:
     // Option 1 ('severity', Default): Severity-First (Critical -> Warning -> Info), then Newest on Top
-    // Option 2 ('chronological'): Pure Chronological (sent_at DESC) + Deduplicate Consecutive Identical Alerts per Patient
+    // Option 2 ('chronological'): Pure Chronological (sent_at DESC), keeping up to 5 per (patient + anomaly_type)
     int getSeverityRank(dynamic item) {
       final s = (item['severity'] ?? '').toString().toLowerCase();
       if (s == 'critical') return 1;
@@ -133,28 +133,31 @@ class _NotificationScreenState extends State<NotificationScreen> {
       return DateTime.tryParse(raw) ?? DateTime.fromMillisecondsSinceEpoch(0);
     }
 
-    list.sort((a, b) {
-      if (_sortOrder == 'severity') {
-        final rA = getSeverityRank(a);
-        final rB = getSeverityRank(b);
-        if (rA != rB) return rA.compareTo(rB);
-      }
-      return getAlertTime(b).compareTo(getAlertTime(a));
-    });
+    // First sort newest-first to cap at 5 per (patient_id + anomaly_type)
+    list.sort((a, b) => getAlertTime(b).compareTo(getAlertTime(a)));
 
-    if (_sortOrder == 'chronological' && _showClinicalAlerts) {
-      final deduped = <dynamic>[];
-      final lastAnomalyByPatient = <String, String>{};
+    if (_showClinicalAlerts) {
+      final capped = <dynamic>[];
+      final countByPatientAnomaly = <String, int>{};
       for (final row in list) {
         final pKey = (row['patient_id'] ?? row['patient_name'] ?? 'unknown').toString();
         final anomFamily = _getAnomalyFamily((row['anomaly_type'] ?? row['alert_category'] ?? '').toString());
-        if (lastAnomalyByPatient[pKey] == anomFamily) {
-          continue;
-        }
-        lastAnomalyByPatient[pKey] = anomFamily;
-        deduped.add(row);
+        final pairKey = '$pKey::$anomFamily';
+        final cur = countByPatientAnomaly[pairKey] ?? 0;
+        if (cur >= 5) continue;
+        countByPatientAnomaly[pairKey] = cur + 1;
+        capped.add(row);
       }
-      return deduped;
+      list = capped;
+    }
+
+    if (_sortOrder == 'severity') {
+      list.sort((a, b) {
+        final rA = getSeverityRank(a);
+        final rB = getSeverityRank(b);
+        if (rA != rB) return rA.compareTo(rB);
+        return getAlertTime(b).compareTo(getAlertTime(a));
+      });
     }
 
     return list;
@@ -447,6 +450,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (!mounted) return;
 
       if (res['success'] == true) {
+        final prevCount = int.tryParse('${alert['flag_count'] ?? 0}') ?? 0;
+        final newFlagCount = int.tryParse('${res['flag_count'] ?? (prevCount + 1)}') ?? (prevCount + 1);
         final clearedRaw = res['cleared_alert_ids'];
         final clearedIds = <int>{alertId as int};
         if (clearedRaw is List) {
@@ -465,17 +470,36 @@ class _NotificationScreenState extends State<NotificationScreen> {
           ),
         );
         setState(() {
-          _alerts.removeWhere((a) {
-            final id = int.tryParse('${a['alert_id']}');
-            if (id != null && clearedIds.contains(id)) return true;
-            final pKey = (a['patient_id'] ?? a['patient_name'] ?? '').toString();
-            if (targetPatientKey.isNotEmpty && pKey == targetPatientKey) {
-              if (_getAnomalyFamily((a['anomaly_type'] ?? '').toString()) == targetFamily) {
-                return true;
+          if (newFlagCount >= 5) {
+            // Flag 5/5 reached (pattern learned as Normal): bulk-remove all remaining alerts for this (patient + anomaly_type)
+            _alerts.removeWhere((a) {
+              final id = int.tryParse('${a['alert_id']}');
+              if (id != null && clearedIds.contains(id)) return true;
+              final pKey = (a['patient_id'] ?? a['patient_name'] ?? '').toString();
+              if (targetPatientKey.isNotEmpty && pKey == targetPatientKey) {
+                if (_getAnomalyFamily((a['anomaly_type'] ?? '').toString()) == targetFamily) {
+                  return true;
+                }
               }
-            }
-            return false;
-          });
+              return false;
+            });
+          } else {
+            // Flags 1/5 through 4/5: remove ONLY the 1 clicked alert and update flag_count on remaining alerts for this (patient + anomaly_type)
+            _alerts.removeWhere((a) => int.tryParse('${a['alert_id']}') == (alertId));
+            _alerts = _alerts.map((a) {
+              if (a is Map) {
+                final pKey = (a['patient_id'] ?? a['patient_name'] ?? '').toString();
+                if (targetPatientKey.isNotEmpty && pKey == targetPatientKey &&
+                    _getAnomalyFamily((a['anomaly_type'] ?? '').toString()) == targetFamily) {
+                  final updated = Map<String, dynamic>.from(a);
+                  updated['flag_count'] = newFlagCount;
+                  updated['remaining_flags'] = (5 - newFlagCount).clamp(0, 5);
+                  return updated;
+                }
+              }
+              return a;
+            }).toList();
+          }
         });
         for (final id in clearedIds) {
           AlertNotificationService.cancelNotification(id);
@@ -1008,7 +1032,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                             icon: Icons.priority_high_rounded,
                           ),
                           _buildFilterChip(
-                            '2. Latest First (Deduplicated)',
+                            '2. Latest First (Chronological)',
                             _sortOrder == 'chronological',
                             () {
                               setState(() => _sortOrder = 'chronological');

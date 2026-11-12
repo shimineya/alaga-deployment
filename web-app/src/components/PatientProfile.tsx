@@ -420,6 +420,10 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const nextVitalSn = isPermanentUnpair && prev?.vital_device_sn === sn ? null : prev?.vital_device_sn;
               const nextDiaperSn = isPermanentUnpair && prev?.diaper_device_sn === sn ? null : prev?.diaper_device_sn;
 
+              const isTapeUnplugged = detail.is_diaper_unclipped === true || detail.tape_connected === false || detail.latest_telemetry?.is_diaper_unclipped === true || detail.latest_telemetry?.tape_connected === false || (rawMoist !== undefined && rawMoist !== null && Number(rawMoist) < 0);
+              const isFinger = detail.finger_detected !== undefined ? !!detail.finger_detected : (detail.latest_telemetry?.finger_detected !== undefined ? !!detail.latest_telemetry?.finger_detected : undefined);
+              const existingTelem = prev?.latest_telemetry || {};
+
               return {
                 ...prev,
                 vital_device_sn: nextVitalSn,
@@ -431,18 +435,31 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                 deviceConnected: isVOnline || isMOnline,
                 is_vitals_online: isVOnline,
                 is_moisture_online: isMOnline,
+                is_diaper_unclipped: isMOnline ? (isSD ? isTapeUnplugged : !!prev?.is_diaper_unclipped) : false,
+                latest_telemetry: {
+                  ...existingTelem,
+                  heart_rate: isVOnline ? (rawHr !== undefined && rawHr !== null && (!isSD || Number(rawHr) > 0) ? Number(rawHr) : existingTelem.heart_rate) : 0,
+                  temperature: isVOnline ? (rawTemp !== undefined && rawTemp !== null && (!isSD || Number(rawTemp) > 0) ? Number(rawTemp) : existingTelem.temperature) : 0,
+                  spo2: isVOnline ? (rawSp !== undefined && rawSp !== null && (!isSD || Number(rawSp) > 0) ? Number(rawSp) : existingTelem.spo2) : 0,
+                  moisture: isMOnline ? (isSD && isTapeUnplugged ? -1 : (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture)) : 0,
+                  is_diaper_unclipped: isMOnline ? (isSD ? isTapeUnplugged : !!existingTelem.is_diaper_unclipped) : false,
+                  tape_connected: isMOnline ? (isSD ? !isTapeUnplugged : existingTelem.tape_connected !== false) : true,
+                  finger_detected: isVOnline && isFinger !== undefined ? isFinger : false,
+                  recorded_at: detail.recorded_at || detail.timestamp || new Date().toISOString()
+                }
               };
             });
 
-            if (rawHr !== undefined || rawTemp !== undefined || rawSp !== undefined || rawMoist !== undefined) {
+            if (rawHr !== undefined || rawTemp !== undefined || rawSp !== undefined || rawMoist !== undefined || detail.is_diaper_unclipped !== undefined || detail.tape_connected !== undefined) {
               const isVOnline = isVS ? isAct : (detail.is_vitals_active !== undefined ? !!detail.is_vitals_active : (patient as any)?.is_vitals_online);
               const isMOnline = isSD ? isAct : (detail.is_moisture_active !== undefined ? !!detail.is_moisture_active : (patient as any)?.is_moisture_online);
+              const isTapeUnplugged = detail.is_diaper_unclipped === true || detail.tape_connected === false || detail.latest_telemetry?.is_diaper_unclipped === true || detail.latest_telemetry?.tape_connected === false || (rawMoist !== undefined && rawMoist !== null && Number(rawMoist) < 0);
               setVitalSigns(prev => {
                 const prevVital = prev[prev.length - 1];
-                const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : (prevVital?.heartRate ?? 0)) : 0;
-                const finalTemp = isVOnline ? (rawTemp !== undefined && rawTemp !== null ? Number(rawTemp) : (prevVital?.temperature ?? 0)) : 0;
-                const finalSp = isVOnline ? (rawSp !== undefined && rawSp !== null ? Number(rawSp) : (prevVital?.spo2 ?? 0)) : 0;
-                const finalMoist = isMOnline ? (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0)) : 0;
+                const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null && (!isSD || Number(rawHr) > 0) ? Number(rawHr) : (prevVital?.heartRate ?? 0)) : 0;
+                const finalTemp = isVOnline ? (rawTemp !== undefined && rawTemp !== null && (!isSD || Number(rawTemp) > 0) ? Number(rawTemp) : (prevVital?.temperature ?? 0)) : 0;
+                const finalSp = isVOnline ? (rawSp !== undefined && rawSp !== null && (!isSD || Number(rawSp) > 0) ? Number(rawSp) : (prevVital?.spo2 ?? 0)) : 0;
+                const finalMoist = isMOnline ? (isSD && isTapeUnplugged ? -1 : (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : (prevVital?.moistureLevel ?? 0))) : 0;
 
                 return [
                   ...prev,
@@ -614,9 +631,9 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
-              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (hr !== null && hr > 0));
-              const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
-              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (hr === 0 || hr === null);
+              const isFingerOnSensor = !!(latestTelem?.finger_detected);
+              const isCalibrating = effectiveVitalsOnline && isFingerOnSensor && (hr === 0 || hr === null);
+              const isMisaligned = effectiveVitalsOnline && !isCalibrating && (hr === 0 || hr === null);
               const isCrit = effectiveVitalsOnline && hr !== null && !isMisaligned && !isCalibrating && (hr > 130 || hr < 50);
               const isWarn = effectiveVitalsOnline && hr !== null && !isMisaligned && !isCalibrating && (hr > 100 || hr < 60) && !isCrit;
 
@@ -712,9 +729,9 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const temp = latestVital ? latestVital.temperature : null;
               const hr = latestVital ? Math.round(latestVital.heartRate) : null;
               const sp = latestVital ? Math.round(latestVital.spo2) : null;
-              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (temp !== null && temp > 0));
-              const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
-              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (temp === 0 || temp === null || temp <= 30.0 || hr === 0 || hr === null || sp === 0 || sp === null);
+              const isFingerOnSensor = !!(latestTelem?.finger_detected);
+              const isCalibrating = effectiveVitalsOnline && isFingerOnSensor && (hr === 0 || hr === null);
+              const isMisaligned = effectiveVitalsOnline && !isCalibrating && (temp === 0 || temp === null || temp <= 30.0 || hr === 0 || hr === null || sp === 0 || sp === null);
               const isCrit = effectiveVitalsOnline && temp !== null && !isMisaligned && !isCalibrating && (temp > 38.5 || temp < 35.0);
               const isWarn = effectiveVitalsOnline && temp !== null && !isMisaligned && !isCalibrating && (temp > 37.5 || temp < 36.0) && !isCrit;
 
@@ -808,9 +825,9 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const effectiveVitalsOnline = isVitalsOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const spo2 = latestVital ? Math.round(latestVital.spo2) : null;
-              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || (spo2 !== null && spo2 > 0));
-              const isCalibrating = effectiveVitalsOnline && !hasAnyTelemetry;
-              const isMisaligned = effectiveVitalsOnline && hasAnyTelemetry && (spo2 === 0 || spo2 === null);
+              const isFingerOnSensor = !!(latestTelem?.finger_detected);
+              const isCalibrating = effectiveVitalsOnline && isFingerOnSensor && (spo2 === 0 || spo2 === null);
+              const isMisaligned = effectiveVitalsOnline && !isCalibrating && (spo2 === 0 || spo2 === null);
               const isCrit = effectiveVitalsOnline && spo2 !== null && !isMisaligned && !isCalibrating && spo2 < 90;
               const isWarn = effectiveVitalsOnline && spo2 !== null && !isMisaligned && !isCalibrating && spo2 < 95 && !isCrit;
 
@@ -904,9 +921,8 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
               const effectiveMoistureOnline = isMoistureOnline || (pairedDevs.length === 0 && isDevOnline);
 
               const moisture = latestVital ? Math.round(latestVital.moistureLevel) : null;
-              const hasAnyTelemetry = !!(latestTelem?.recorded_at || latestHistoryVital || moisture !== null);
-              const isCalibrating = effectiveMoistureOnline && !hasAnyTelemetry;
-              const isMisaligned = effectiveMoistureOnline && hasAnyTelemetry && (moisture === null || (patient as any).is_diaper_unclipped === true);
+              const isCalibrating = false;
+              const isMisaligned = effectiveMoistureOnline && ((moisture !== null && moisture < 0) || (patient as any).is_diaper_unclipped === true || latestTelem?.is_diaper_unclipped === true || latestTelem?.tape_connected === false);
               const isWet = effectiveMoistureOnline && !isMisaligned && !isCalibrating && moisture !== null && moisture >= 70;
               const isDamp = effectiveMoistureOnline && !isMisaligned && !isCalibrating && moisture !== null && moisture >= 30 && !isWet;
 
@@ -919,7 +935,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                 statusText = 'Calibrating...';
                 statusBadge = 'bg-cyan-50 text-cyan-800 border-cyan-300 animate-pulse';
               } else if (isMisaligned) {
-                statusText = 'Check Clips';
+                statusText = 'Disconnected';
                 statusBadge = 'bg-amber-50 text-amber-900 border-amber-300';
               } else if (isWet) {
                 statusText = 'Change Diaper';
@@ -939,7 +955,7 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         </div>
                         <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-tight">Diaper Wetness</span>
                       </div>
-                      <span className={`flex h-2 w-2 rounded-full ${!effectiveMoistureOnline ? 'bg-slate-300' : isCalibrating ? 'bg-cyan-500 animate-ping' : isMisaligned ? 'bg-amber-400 animate-pulse' : isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveMoistureOnline ? 'Offline' : isCalibrating ? 'Calibrating Smart Grid...' : isMisaligned ? 'Check Garment Clips' : 'Live Streaming'} />
+                      <span className={`flex h-2 w-2 rounded-full ${!effectiveMoistureOnline ? 'bg-slate-300' : isCalibrating ? 'bg-cyan-500 animate-ping' : isMisaligned ? 'bg-amber-400 animate-pulse' : isWet ? 'bg-rose-500' : isDamp ? 'bg-amber-400' : 'bg-emerald-500 alaga-streaming-radar'}`} title={!effectiveMoistureOnline ? 'Offline' : isCalibrating ? 'Calibrating Smart Grid...' : isMisaligned ? '2-Pin Capacitive Tape Disconnected' : 'Live Streaming'} />
                     </div>
 
                     {isCalibrating ? (
@@ -957,15 +973,15 @@ export const PatientProfile: React.FC<PatientProfileProps> = ({ patient: initial
                         <div className="flex items-center gap-1.5">
                           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
                           <span className="text-sm sm:text-base font-black text-amber-900">
-                            Check Clips
+                            Disconnected
                           </span>
                         </div>
-                        <p className="text-[10px] text-amber-700 font-medium">Fasten garment contacts</p>
+                        <p className="text-[10px] text-amber-700 font-medium">2-pin capacitive tape unplugged</p>
                       </div>
                     ) : (
                       <div className="flex items-baseline gap-1.5 pt-0.5">
                         <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                          {!effectiveMoistureOnline ? '--' : (moisture !== null ? `${moisture}` : '0')}
+                          {!effectiveMoistureOnline ? '--' : (moisture !== null ? `${Math.max(0, moisture)}` : '0')}
                         </span>
                         <span className="text-xs font-medium text-slate-500">%</span>
                       </div>

@@ -67,9 +67,10 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
           const temp = (patient as any).temperature ?? telem.temperature;
           const moist = (patient as any).moisture ?? (patient as any).moisture_value ?? telem.moisture ?? telem.moisture_value;
 
-          const hasTelem = !!(telem.recorded_at || (hr !== undefined && hr !== null && hr > 0) || (temp !== undefined && temp !== null && temp > 0));
-          const isCalibrating = isOnline && !hasTelem;
-          const isMisaligned = isOnline && hasTelem && (hr === 0 || hr === null);
+          const isFingerOn = !!telem.finger_detected;
+          const isCalibrating = isOnline && isFingerOn && (hr === 0 || hr === null || hr === undefined);
+          const isMisaligned = isOnline && !isCalibrating && (hr === 0 || hr === null || hr === undefined);
+          const isTapeDisconnected = isOnline && ((moist !== undefined && moist !== null && Number(moist) < 0) || (patient as any).is_diaper_unclipped === true || telem.is_diaper_unclipped === true || telem.tape_connected === false);
 
           return (
             <div className="grid grid-cols-4 gap-2 mt-2">
@@ -144,17 +145,21 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                 className={`flex flex-col items-center p-2 rounded-lg border transition-all ${
                   isCalibrating 
                     ? 'bg-cyan-50/60 border-cyan-200' 
+                    : isTapeDisconnected
+                    ? 'bg-amber-50/70 border-amber-200'
                     : 'bg-slate-50 border-slate-100'
                 }`}
-                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Smart diaper sensor ready' : 'Live streaming'}
+                title={!isOnline ? 'Sensor offline' : isTapeDisconnected ? '2-pin capacitive diaper tape disconnected' : isCalibrating ? 'Smart diaper sensor ready' : 'Live streaming'}
               >
-                <Droplets className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : 'text-teal-500'}`} />
+                <Droplets className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : isTapeDisconnected ? 'text-amber-600' : 'text-teal-500'}`} />
                 {isCalibrating ? (
                   <Loader2 className="h-4 w-4 text-cyan-600 animate-spin my-0.5" />
+                ) : isTapeDisconnected ? (
+                  <AlertTriangle className="h-4 w-4 text-amber-600 animate-bounce my-0.5" />
                 ) : (
-                  <span className="text-sm sm:text-base font-bold text-slate-900">{moist !== undefined && moist !== null ? `${Math.round(Number(moist))}%` : '--'}</span>
+                  <span className="text-sm sm:text-base font-bold text-slate-900">{moist !== undefined && moist !== null ? `${Math.max(0, Math.round(Number(moist)))}%` : '--'}</span>
                 )}
-                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : 'Wet'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isTapeDisconnected ? 'Disconnected' : 'Wet'}</span>
               </div>
             </div>
           );

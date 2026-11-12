@@ -1719,6 +1719,8 @@ app.post('/api/device/data', async (req, res) => {
         let isVsActive = false;
         let isSdActive = false;
         let isDiaperReset = false;
+        const isFingerDetected = req.body.finger_detected === true || req.body.finger_detected === 'true';
+        let isTapeDisconnected = req.body.tape_connected === false || req.body.tape_connected === 'false' || req.body.is_diaper_unclipped === true || req.body.is_diaper_unclipped === 'true' || moist < 0;
 
         if (isSD) {
             isSdActive = true;
@@ -1732,6 +1734,13 @@ app.post('/api/device/data', async (req, res) => {
             } else if (resetUntil) {
                 pendingDiaperResets.delete(resetKey);
                 pendingDiaperResets.delete(devKey);
+            }
+
+            if (isTapeDisconnected) {
+                moist = -1; // 2-pin capacitive tape plug disconnected from ESP32
+            } else if (moist > 0 && moist < 75) {
+                // Suppress intermediate capacitive-pressure artifacts (e.g. 56% when pressing dry sensor) so dry stays strictly 0%
+                moist = 0;
             }
 
             if (req.body.event === 'diaper_changed' || req.body.action === 'diaper_reset') {
@@ -1791,8 +1800,10 @@ app.post('/api/device/data', async (req, res) => {
             }
         } else if (isVS) {
             isVsActive = true;
-            // When BPM and SpO2 are misaligned / probe detached (0), temperature is also misaligned (0)
-            if (hr <= 0 || sp <= 0) {
+            // When skin-to-sensor contact is absent or BPM/SpO2 are misaligned (0), immediately zero all 3 vitals
+            if (req.body.finger_detected === false || req.body.finger_detected === 'false' || hr <= 0 || sp <= 0) {
+                hr = 0;
+                sp = 0;
                 temp = 0;
             }
             // Check if the patient has an active Smart Diaper sensor currently reporting
@@ -1812,12 +1823,14 @@ app.post('/api/device/data', async (req, res) => {
                 const lastMoist = await pool.query(
                     `SELECT moisture_value 
                      FROM sensor_readings 
-                     WHERE patient_id = $1 AND moisture_value > 0
+                     WHERE patient_id = $1
                      ORDER BY recorded_at DESC LIMIT 1`,
                     [patientId]
                 ).catch(() => ({ rows: [] }));
                 if (lastMoist.rows && lastMoist.rows.length > 0) {
-                    moist = parseInt(lastMoist.rows[0].moisture_value, 10) || 0;
+                    const prevM = parseInt(lastMoist.rows[0].moisture_value, 10);
+                    moist = !isNaN(prevM) ? prevM : 0;
+                    if (moist < 0) isTapeDisconnected = true;
                 }
             } else {
                 moist = 0;
@@ -1948,8 +1961,6 @@ app.post('/api/device/data', async (req, res) => {
         }
 
 
-        const isFingerDetected = req.body.finger_detected === true || req.body.finger_detected === 'true';
-
         // Real-time SSE Broadcast: device turned online or refreshed telemetry
         broadcastAlert('device_status_update', {
             serial_number: device_id,
@@ -1958,6 +1969,8 @@ app.post('/api/device/data', async (req, res) => {
             battery_level: batteryVal,
             signal_strength: signalVal,
             finger_detected: isFingerDetected,
+            tape_connected: !isTapeDisconnected,
+            is_diaper_unclipped: isTapeDisconnected,
             is_offline_buffer: !!req.body.is_offline_buffer,
             event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
             latest_telemetry: {
@@ -1966,6 +1979,8 @@ app.post('/api/device/data', async (req, res) => {
                 spo2: sp,
                 moisture: moist,
                 finger_detected: isFingerDetected,
+                tape_connected: !isTapeDisconnected,
+                is_diaper_unclipped: isTapeDisconnected,
                 recorded_at: recordedAt
             },
             timestamp: new Date().toISOString()
@@ -1983,6 +1998,8 @@ app.post('/api/device/data', async (req, res) => {
             spo2: sp,
             moisture: moist,
             finger_detected: isFingerDetected,
+            tape_connected: !isTapeDisconnected,
+            is_diaper_unclipped: isTapeDisconnected,
             battery_level: batteryVal,
             signal_strength: signalVal,
             recorded_at: recordedAt,
@@ -1993,6 +2010,8 @@ app.post('/api/device/data', async (req, res) => {
                 spo2: sp,
                 moisture: moist,
                 finger_detected: isFingerDetected,
+                tape_connected: !isTapeDisconnected,
+                is_diaper_unclipped: isTapeDisconnected,
                 recorded_at: recordedAt
             }
         });

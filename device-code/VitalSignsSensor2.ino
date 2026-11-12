@@ -179,6 +179,12 @@ void readBattery() {
 
 // Read Body Temperature in Real Time from MAX30102 Wrist Sensor (or NTC fallback)
 void readTemperature() {
+  // When sensor is misaligned / detached from wrist/finger (BPM = 0, SpO2 = 0), report 0.0 (Misaligned)
+  if (!fingerDetected) {
+    temperatureC = 0.0;
+    return;
+  }
+
   int adcValue = analogRead(THERMISTOR_PIN);
 
   // If external thermistor is properly wired (ADC not zero or saturated open-circuit)
@@ -392,9 +398,10 @@ void sendImmediateOnlineHandshake() {
   payload += "\"device_type\":\"all_in_one\",";
   payload += "\"event\":\"device_online\",";
   payload += "\"status\":\"ACTIVE\",";
-  payload += "\"heart_rate\":" + String(beatAvg > 0 ? (int)round(beatAvg) : 0) + ",";
-  payload += "\"spo2\":" + String(currentSpO2 > 0 ? (int)round(currentSpO2) : 0) + ",";
-  payload += "\"temperature\":" + String(temperatureC, 1) + ",";
+  payload += "\"finger_detected\":" + String(fingerDetected ? "true" : "false") + ",";
+  payload += "\"heart_rate\":" + String(fingerDetected && beatAvg > 0 ? (int)round(beatAvg) : 0) + ",";
+  payload += "\"spo2\":" + String(fingerDetected && currentSpO2 > 0 ? (int)round(currentSpO2) : 0) + ",";
+  payload += "\"temperature\":" + String(fingerDetected ? temperatureC : 0.0, 1) + ",";
   payload += "\"moisture\":" + String(moisturePercent) + ",";
   payload += "\"battery\":" + String(batteryPercent) + ",";
   payload += "\"signal\":\"" + String(WiFi.RSSI()) + " dBm\",";
@@ -1543,9 +1550,9 @@ void loop() {
       }
 
       // Real human finger/wrist tissue detection:
-      // Real skin contact produces balanced optical transmission on BOTH IR and Red channels (15,000 to 200,000 counts)
-      // Open air produces < 15,000 counts; direct ambient light/saturation produces >= 210,000 counts
-      bool validWristContact = (currentIR >= 15000 && currentIR <= 210000 && currentRed >= 12000 && currentRed <= 210000);
+      // Direct skin contact produces strong optical reflection on BOTH IR (>= 35,000) and Red (>= 25,000) channels
+      // Open air or hovering produces < 35,000 counts; direct ambient light/saturation produces >= 210,000 counts
+      bool validWristContact = (currentIR >= 35000 && currentIR <= 210000 && currentRed >= 25000 && currentRed <= 210000);
 
       // Optical filter & peak detector states
       static float dcIR = 0;
@@ -1676,9 +1683,9 @@ void loop() {
         }
 
       } else {
-        // Wrist contact lost: require only 3 consecutive absent samples (~45ms) before declaring detachment
+        // Wrist contact lost: declare detachment INSTANTLY on first absent sample (zero lag)
         contactAbsentCount++;
-        if (contactAbsentCount >= 3) {
+        if (contactAbsentCount >= 1) {
           if (wasWristContact) {
             Serial.println("🖐️ [OPTICAL] Sensor detached from wrist/finger. Reporting detached status immediately.");
             wasWristContact = false;
@@ -1686,6 +1693,7 @@ void loop() {
           fingerDetected       = false;
           beatAvg              = 0.0;
           currentSpO2          = 0.0;
+          temperatureC         = 0.0;
           dcIR                 = 0;
           dcRed                = 0;
           lastACIR             = 0;
@@ -1814,8 +1822,8 @@ void loop() {
     inAlertState     = false;
   }
 
-  // 8. Adaptive Dispatch Cadence on Battery (2.5s active on wrist, 10s idle standby)
-  unsigned long currentCadence = fingerDetected ? 2500 : 10000;
+  // 8. Continuous 2.0s Dispatch Cadence (plus instant triggers on touch/detachment)
+  unsigned long currentCadence = 2000;
   if (immediateTrigger || (millis() - lastSendTime >= currentCadence)) {
     lastSendTime = millis();
     sendToBackend();

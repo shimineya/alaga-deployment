@@ -87,6 +87,8 @@ float batteryVoltage   = 0.0;
 int batteryPercent     = 100;
 int lastBackendCode    = 0;
 bool isDevicePaired    = true;
+bool isTapeConnected   = true;   // True when 2-pin capacitive tape plug is connected; false when unplugged
+int lastTouchReading   = 0;
 
 // Diaper Change Tare & Recovery
 bool isDiaperJustChanged          = false;
@@ -225,43 +227,96 @@ int calculateWetnessPercentage() {
     }
   } else if (sensor_type == 2) {
     // -------------------------------------------------------------------------
-    // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / Capacitive Tape
-    // Dry = LOW (0V / 0%) & Touch at dry baseline | Wet = HIGH (3.3V) or Touch collapse
+    // SENSOR TYPE 2: Active-HIGH Conductive Diaper Probe / 2-Pin Capacitive Tape
+    // 1. 2-Pin Plug Disconnection Detection:
+    //    - Bare ESP32 pin (2-pin plug disconnected): minimal parasitic capacitance (~2pF)
+    //      causes touchRead(4) to sit at the unloaded open-pin ceiling (>= 70 counts, or
+    //      >= attachedDryBaseline + 12 counts with rawDigitalVal == LOW).
+    //    - 2-Pin Capacitive Tape Connected (Dry): wire + dual foil strips add ~15-40pF
+    //      load, pulling touchRead(4) down into the attached dry range (15 to 66 counts).
+    // 2. Pressure Immunity & Strict 0% Dry:
+    //    - Eliminates intermediate capacitive-pressure mapping (which caused 56% / 100%
+    //      false readings when pressing on a dry diaper).
+    //    - Dry stays strictly 0% unless actual conductive liquid bridges the strips
+    //      (rawDigitalVal == HIGH or touchVal <= 8 sustained across >= 3 consecutive samples).
     // -------------------------------------------------------------------------
-    static int dryTouchBaseline = -1;
+    static int attachedDryBaseline = -1;
+    static int unpluggedCount      = 0;
+    static int pluggedCount        = 0;
+    static int wetDebounceCount    = 0;
+
     int touchVal = -1;
     if (water_pin == 4 || water_pin == 0 || water_pin == 2 || water_pin == 12 || water_pin == 13 || water_pin == 14 || water_pin == 15 || water_pin == 27 || water_pin == 32 || water_pin == 33) {
-      touchVal = touchRead(water_pin);
-      pinMode(water_pin, INPUT_PULLDOWN); // Restore pull-down immediately after touchRead
-      if (touchVal > dryTouchBaseline) {
-        dryTouchBaseline = touchVal;
+      long touchSum = 0;
+      for (int i = 0; i < 8; i++) {
+        touchSum += touchRead(water_pin);
+        delayMicroseconds(150);
       }
+      touchVal = (int)(touchSum / 8);
+      lastTouchReading = touchVal;
+      pinMode(water_pin, INPUT_PULLDOWN); // Restore pull-down immediately after touchRead
+      delayMicroseconds(50);
+      rawDigitalVal = digitalRead(water_pin);
+
+      // Learn attached dry tape baseline when tape is plugged in and dry (18..66 range)
+      if (rawDigitalVal == LOW && touchVal >= 18 && touchVal <= 66) {
+        if (attachedDryBaseline < 0) {
+          attachedDryBaseline = touchVal;
+        } else {
+          attachedDryBaseline = (int)((attachedDryBaseline * 9 + touchVal) / 10);
+        }
+      }
+
+      // Detect 2-pin plug disconnection: bare pin rises to >= 70 (or >= attachedDryBaseline + 12)
+      bool looksUnplugged = (rawDigitalVal == LOW) && (
+        touchVal >= 70 ||
+        (attachedDryBaseline > 0 && touchVal >= (attachedDryBaseline + 12) && touchVal >= 58)
+      );
+
+      if (looksUnplugged) {
+        unpluggedCount++;
+        pluggedCount = 0;
+        if (unpluggedCount >= 3) {
+          isTapeConnected = false;
+        }
+      } else {
+        pluggedCount++;
+        unpluggedCount = 0;
+        if (pluggedCount >= 2) {
+          isTapeConnected = true;
+        }
+      }
+    } else {
+      isTapeConnected = true;
     }
 
-    int wetTouchThreshold  = (dryTouchBaseline > 500) ? 400 : max(15, (int)(dryTouchBaseline * 0.42));
-    int dampTouchThreshold = (dryTouchBaseline > 500) ? 800 : max(25, (int)(dryTouchBaseline * 0.68));
+    if (!isTapeConnected) {
+      wetDebounceCount = 0;
+      return 0; // Reported as Disconnected (-1) in payload via isTapeConnected = false
+    }
 
-    if (rawDigitalVal == HIGH) {
-      percent = 100;
-    } else if (touchVal >= 0 && dryTouchBaseline > 20 && touchVal < wetTouchThreshold) {
-      // Capacitive Touch collapsed well below dry baseline due to liquid bridging
-      percent = 100;
-    } else if (touchVal >= wetTouchThreshold && dryTouchBaseline > 20 && touchVal < dampTouchThreshold) {
-      // Intermediate moisture / dampness
-      percent = map(touchVal, dampTouchThreshold, wetTouchThreshold, 20, 85);
-      percent = constrain(percent, 0, 100);
+    // Strict liquid-bridge check (immune to dry mechanical pressure)
+    bool isLiquidBridged = (rawDigitalVal == HIGH) || (touchVal >= 0 && touchVal <= 8);
+    if (isLiquidBridged) {
+      wetDebounceCount++;
+      if (wetDebounceCount >= 3) {
+        percent = 100;
+      } else {
+        percent = 0;
+      }
     } else {
-      percent = 0;
+      wetDebounceCount = 0;
+      percent = 0; // Strictly 0% when dry (even under physical pressure)
     }
 
     if (rawMoistureADC > 100) {
       int clamped = constrain(rawMoistureADC, 200, 3200);
       int analogPercent = map(clamped, 200, 3200, 0, 100);
       analogPercent = constrain(analogPercent, 0, 100);
-      if (rawDigitalVal == HIGH || (touchVal >= 0 && dryTouchBaseline > 20 && touchVal < wetTouchThreshold)) {
+      if (isLiquidBridged && wetDebounceCount >= 3) {
         percent = max(percent, max(analogPercent, 85));
       } else {
-        percent = analogPercent;
+        percent = 0;
       }
     }
   } else if (sensor_type == 1) {
@@ -290,8 +345,8 @@ String getWetnessLevelDescription(int percent) {
 // ==============================================================================
 void readSensors() {
   wetnessPercent  = calculateWetnessPercentage();
-  wetnessLevel    = getWetnessLevelDescription(wetnessPercent);
-  waterState      = (wetnessPercent >= 35) ? HIGH : LOW;
+  wetnessLevel    = !isTapeConnected ? "DISCONNECTED" : getWetnessLevelDescription(wetnessPercent);
+  waterState      = (isTapeConnected && wetnessPercent >= 35) ? HIGH : LOW;
 
   readBattery();
 }
@@ -420,7 +475,9 @@ void sendImmediateOnlineHandshake() {
     "\"event\":\"device_online\","
     "\"status\":\"ACTIVE\","
     "\"has_moisture_sensor\":true,"
-    "\"moisture\":" + String(wetnessPercent) + ","
+    "\"tape_connected\":" + String(isTapeConnected ? "true" : "false") + ","
+    "\"is_diaper_unclipped\":" + String(!isTapeConnected ? "true" : "false") + ","
+    "\"moisture\":" + String(isTapeConnected ? wetnessPercent : -1) + ","
     "\"battery\":" + String(batteryPercent) + ","
     "\"signal\":\"" + String(WiFi.RSSI()) + " dBm\","
     "\"uptime_ms\":" + String(millis()) +
@@ -478,8 +535,10 @@ void sendToBackend() {
       "\"device_type\":\"moisture\","
       "\"setup_password\":\"" + ap_password + "\","
       "\"has_moisture_sensor\":true,"
+      "\"tape_connected\":" + String(isTapeConnected ? "true" : "false") + ","
+      "\"is_diaper_unclipped\":" + String(!isTapeConnected ? "true" : "false") + ","
       + diaperEventJson +
-      "\"moisture\":" + String(wetnessPercent) + ","
+      "\"moisture\":" + String(isTapeConnected ? wetnessPercent : -1) + ","
       "\"battery\":" + String(batteryPercent) + ","
       "\"signal\":\"" + signalStr + "\","
       "\"seq\":" + String(packetSequence++) + ","
@@ -1769,12 +1828,21 @@ void loop() {
   // 5. Immediate Telemetry Trigger Logic
   bool immediateTrigger = false;
   static int lastSentMoisture = 0;
+  static bool lastSentTapeState = true;
   static bool firstRun = true;
 
   if (firstRun && WiFi.status() == WL_CONNECTED) {
     immediateTrigger = true;
     firstRun = false;
     lastSentMoisture = wetnessPercent;
+    lastSentTapeState = isTapeConnected;
+  }
+
+  // Trigger immediately on 2-pin capacitive tape connection/disconnection
+  if (isTapeConnected != lastSentTapeState) {
+    Serial.printf("🔌 [IMMEDIATE TRIGGER] 2-Pin Capacitive Tape %s! Transmitting immediately!\n", isTapeConnected ? "CONNECTED" : "DISCONNECTED");
+    immediateTrigger = true;
+    lastSentTapeState = isTapeConnected;
   }
 
   // Trigger on diaper moisture change (>= 15% shift or wetness threshold >= 35% crossed)
@@ -1786,19 +1854,19 @@ void loop() {
     lastSentMoisture = wetnessPercent;
   }
 
-  // 6. Adaptive Dispatch Cadence on Battery (2.5s when wet >= 35%, 10s when dry/standby)
-  unsigned long currentCadence = (wetnessPercent >= 35) ? 2500 : 10000;
+  // 6. Continuous 2.0s Dispatch Cadence (plus instant triggers on wetness/plug transition)
+  unsigned long currentCadence = 2000;
   if (immediateTrigger || (millis() - lastSendTime >= currentCadence)) {
     lastSendTime = millis();
 
     // Print to Serial Monitor
-    int touchVal = (water_pin == 4) ? touchRead(4) : -1;
-    Serial.printf("[MONITOR] Wetness: %d%% (%s) | Pin %d: %s | Touch(D4): %d | Battery: %d%% (%.2fV)\n",
+    Serial.printf("[MONITOR] Tape: %s | Wetness: %d%% (%s) | Pin %d: %s | Touch(D4): %d | Battery: %d%% (%.2fV)\n",
+                  isTapeConnected ? "CONNECTED" : "DISCONNECTED",
                   wetnessPercent,
                   wetnessLevel.c_str(),
                   water_pin,
                   (rawDigitalVal == HIGH ? (sensor_type == 2 ? "HIGH (1 - WET)" : "HIGH (1 - DRY)") : (sensor_type == 2 ? "LOW (0 - DRY)" : "LOW (0 - WET)")),
-                  touchVal,
+                  lastTouchReading,
                   batteryPercent,
                   batteryVoltage);
 

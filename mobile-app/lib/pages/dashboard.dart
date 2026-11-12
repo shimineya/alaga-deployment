@@ -217,6 +217,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 final sp = data['spo2'] ?? rawTelem?['spo2'];
                 final moist = data['moisture'] ?? data['moisture_value'] ?? rawTelem?['moisture'] ?? rawTelem?['moisture_value'];
                 final finger = data['finger_detected'] ?? rawTelem?['finger_detected'];
+                final tapeUnplugged = data['is_diaper_unclipped'] == true || data['tape_connected'] == false || rawTelem?['is_diaper_unclipped'] == true || rawTelem?['tape_connected'] == false || (moist is num && moist < 0);
 
                 if (!newVOnline) {
                   existingTelem.remove('heart_rate');
@@ -231,11 +232,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                 if (!newMOnline) {
                   existingTelem.remove('moisture');
                   existingTelem.remove('moisture_value');
-                } else if (moist != null) {
-                  existingTelem['moisture'] = moist;
+                  existingTelem['is_diaper_unclipped'] = false;
+                  existingTelem['tape_connected'] = true;
+                } else if (isSD || moist != null) {
+                  existingTelem['moisture'] = tapeUnplugged ? -1 : (moist ?? existingTelem['moisture'] ?? 0);
+                  existingTelem['is_diaper_unclipped'] = tapeUnplugged;
+                  existingTelem['tape_connected'] = !tapeUnplugged;
                 }
 
                 if (finger != null) existingTelem['finger_detected'] = finger;
+                existingTelem['recorded_at'] = data['recorded_at'] ?? rawTelem?['recorded_at'] ?? DateTime.now().toIso8601String();
 
                 _patients[i] = {
                   ...p,
@@ -2601,13 +2607,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
 
     final bool isFingerOn = telemetry['finger_detected'] == true || patient['finger_detected'] == true;
-    final bool hasVitalsTelem = telemetry.isNotEmpty && (telemetry['recorded_at'] != null || (hrNum != null && hrNum > 0) || (tempNum != null && tempNum > 0));
-    final bool isVitalsCalibrating = isVitalsActive && (!hasVitalsTelem || (isFingerOn && (hrNum == 0 || hrNum == null)));
-    final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null) && !isFingerOn;
-    final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null) && !isFingerOn;
-    final bool isTempMisaligned = isVitalsActive && (tempNum == 0 || tempNum == null || tempNum <= 30.0 || isHrMisaligned || isSpo2Misaligned);
-    final bool isMoistCalibrating = isMoistureActive && (rawMoist == null);
-    final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned;
+    final bool isVitalsCalibrating = isVitalsActive && isFingerOn && (hrNum == 0 || hrNum == null);
+    final bool isHrMisaligned = isVitalsActive && !isVitalsCalibrating && (hrNum == 0 || hrNum == null);
+    final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2Num == 0 || spo2Num == null);
+    final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && (tempNum == 0 || tempNum == null || tempNum <= 30.0 || isHrMisaligned || isSpo2Misaligned);
+    final bool isTapeDisconnected = isMoistureActive && (mNum < 0 || telemetry['is_diaper_unclipped'] == true || telemetry['tape_connected'] == false || patient['is_diaper_unclipped'] == true);
+    final bool isMoistCalibrating = false;
+    final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned || isTapeDisconnected;
     final bool isAnyCalibrating = isVitalsCalibrating || isMoistCalibrating;
 
     final List<String> safetyBreaches = [];
@@ -2872,12 +2878,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                         if (!isMoistureActive) {
                           return _vitalStat("DIAPER WETNESS", "--", Icons.opacity, Colors.grey, subtitle: "OFFLINE");
                         }
+                        if (isTapeDisconnected) {
+                          return _vitalStat("DIAPER WETNESS", "Disconnected", Icons.opacity, const Color(0xFFD97706), subtitle: "DISCONNECTED", isMisaligned: true);
+                        }
                         if (isMoistCalibrating) {
                           return _vitalStat("DIAPER WETNESS", "Acquiring...", Icons.opacity, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
                         }
-                        final isWet = mNum >= 70 || mNum == 100;
-                        final isDamp = mNum >= 30 && !isWet;
-                        final label = isWet ? "Wet ($mNum%)" : (isDamp ? "Damp ($mNum%)" : "Dry ($mNum%)");
+                        final safeMoist = mNum < 0 ? 0 : mNum;
+                        final isWet = safeMoist >= 70 || safeMoist == 100;
+                        final isDamp = safeMoist >= 30 && !isWet;
+                        final label = isWet ? "Wet ($safeMoist%)" : (isDamp ? "Damp ($safeMoist%)" : "Dry ($safeMoist%)");
                         return _vitalStat(
                           "DIAPER WETNESS",
                           label,
@@ -2979,7 +2989,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     Color subColor = color;
     if (subtitle == 'OFFLINE') subColor = const Color(0xFF64748B);
     if (subtitle == 'ACQUIRING') subColor = const Color(0xFF0891B2);
-    if (subtitle == 'MISALIGNED') subColor = const Color(0xFFD97706);
+    if (subtitle == 'MISALIGNED' || subtitle == 'DISCONNECTED') subColor = const Color(0xFFD97706);
 
     return Column(
       children: [

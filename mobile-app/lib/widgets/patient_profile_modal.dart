@@ -223,11 +223,23 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
             if (!newMOnline) {
               _telemetry.remove('moisture');
               _telemetry.remove('moisture_value');
-            } else if (moist != null) {
-              _telemetry['moisture'] = moist;
-              _telemetry['moisture_value'] = moist;
-              moistureHistory = [...moistureHistory, (moist as num).toDouble()];
+              _telemetry['is_diaper_unclipped'] = false;
+              _telemetry['tape_connected'] = true;
+            } else if (isSD || moist != null) {
+              final tapeUnplugged = data['is_diaper_unclipped'] == true || data['tape_connected'] == false || data['latest_telemetry']?['is_diaper_unclipped'] == true || data['latest_telemetry']?['tape_connected'] == false || (moist is num && moist < 0);
+              final nextMoist = tapeUnplugged ? -1 : (moist ?? _telemetry['moisture'] ?? 0);
+              _telemetry['moisture'] = nextMoist;
+              _telemetry['moisture_value'] = nextMoist;
+              _telemetry['is_diaper_unclipped'] = tapeUnplugged;
+              _telemetry['tape_connected'] = !tapeUnplugged;
+              if (!tapeUnplugged && nextMoist is num) {
+                moistureHistory = [...moistureHistory, nextMoist.toDouble()];
+              }
             }
+            if (data['finger_detected'] != null || data['latest_telemetry']?['finger_detected'] != null) {
+              _telemetry['finger_detected'] = data['finger_detected'] ?? data['latest_telemetry']?['finger_detected'];
+            }
+            _telemetry['recorded_at'] = data['recorded_at'] ?? data['latest_telemetry']?['recorded_at'] ?? DateTime.now().toIso8601String();
 
             _patient['latest_telemetry'] = _telemetry;
           });
@@ -454,18 +466,19 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final rawSpo2 = telemetry['spo2'] ?? patient['spo2'];
     final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
 
-    final bool hasVitalsTelem = telemetry.isNotEmpty && (telemetry['recorded_at'] != null || (hrNum != null && hrNum > 0) || (tempNum != null && tempNum > 0));
-    final bool isVitalsCalibrating = isVitalsActive && !hasVitalsTelem;
+    final bool isFingerOn = telemetry['finger_detected'] == true || patient['finger_detected'] == true;
+    final bool isVitalsCalibrating = isVitalsActive && isFingerOn && (hrNum == 0 || hrNum == null);
 
-    final bool isHrMisaligned = isVitalsActive && hasVitalsTelem && (hrNum == 0 || hrNum == null);
-    final bool isSpo2Misaligned = isVitalsActive && hasVitalsTelem && (spo2Num == 0 || spo2Num == null);
-    final bool isTempMisaligned = isVitalsActive && hasVitalsTelem && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || (isHrMisaligned && isSpo2Misaligned));
+    final bool isHrMisaligned = isVitalsActive && !isVitalsCalibrating && (hrNum == 0 || hrNum == null);
+    final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2Num == 0 || spo2Num == null);
+    final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || isHrMisaligned || isSpo2Misaligned);
 
     final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
-    final bool isMoistCalibrating = isMoistureActive && (rawMoist == null);
-    final isWet = mNum >= 70 || mNum == 100 || patient['wetness'] == 'Wet';
-    final isDamp = mNum >= 30 && !isWet;
+    final bool isTapeDisconnected = isMoistureActive && (mNum < 0 || telemetry['is_diaper_unclipped'] == true || telemetry['tape_connected'] == false || patient['is_diaper_unclipped'] == true);
+    final bool isMoistCalibrating = false;
+    final isWet = !isTapeDisconnected && (mNum >= 70 || mNum == 100 || patient['wetness'] == 'Wet');
+    final isDamp = !isTapeDisconnected && (mNum >= 30 && !isWet);
 
     // Heart Rate config
     final hr = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? 'Misaligned' : '$hrNum';
@@ -486,10 +499,11 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final spo2BadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isSpo2Misaligned ? const Color(0xFFFEF3C7) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
     // Moisture config
-    final wetnessVal = !isMoistureActive ? '--' : isMoistCalibrating ? 'Acquiring...' : '$mNum%';
-    final wetnessBadge = !isMoistureActive ? 'OFFLINE' : isMoistCalibrating ? 'ACQUIRING' : isWet ? 'WET / CHANGE' : isDamp ? 'DAMP' : 'DRY & CLEAN';
-    final wetnessBadgeColor = !isMoistureActive ? const Color(0xFF64748B) : isMoistCalibrating ? const Color(0xFF0891B2) : (isWet ? const Color(0xFFDC2626) : isDamp ? const Color(0xFFD97706) : const Color(0xFF16A34A));
-    final wetnessBadgeBg = !isMoistureActive ? const Color(0xFFF1F5F9) : isMoistCalibrating ? const Color(0xFFECFEFF) : (isWet ? const Color(0xFFFEE2E2) : isDamp ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7));
+    final safeMNum = mNum < 0 ? 0 : mNum;
+    final wetnessVal = !isMoistureActive ? '--' : isTapeDisconnected ? 'Disconnected' : isMoistCalibrating ? 'Acquiring...' : '$safeMNum%';
+    final wetnessBadge = !isMoistureActive ? 'OFFLINE' : isTapeDisconnected ? 'DISCONNECTED' : isMoistCalibrating ? 'ACQUIRING' : isWet ? 'WET / CHANGE' : isDamp ? 'DAMP' : 'DRY & CLEAN';
+    final wetnessBadgeColor = !isMoistureActive ? const Color(0xFF64748B) : isTapeDisconnected ? const Color(0xFFB45309) : isMoistCalibrating ? const Color(0xFF0891B2) : (isWet ? const Color(0xFFDC2626) : isDamp ? const Color(0xFFD97706) : const Color(0xFF16A34A));
+    final wetnessBadgeBg = !isMoistureActive ? const Color(0xFFF1F5F9) : isTapeDisconnected ? const Color(0xFFFEF3C7) : isMoistCalibrating ? const Color(0xFFECFEFF) : (isWet ? const Color(0xFFFEE2E2) : isDamp ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7));
 
     return Container(
       constraints: BoxConstraints(
@@ -825,11 +839,12 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           badgeColor: wetnessBadgeColor,
                           badgeBg: wetnessBadgeBg,
                           icon: Icons.opacity,
-                          color: isMoistCalibrating ? const Color(0xFF0891B2) : isWet ? const Color(0xFFEA580C) : isDamp ? const Color(0xFFD97706) : const Color(0xFF0D9488),
-                          bg: isMoistCalibrating ? const Color(0xFFF0FDFA) : isWet ? const Color(0xFFFFF7ED) : isDamp ? const Color(0xFFFFFBEB) : const Color(0xFFF0FDFA),
-                          border: isMoistCalibrating ? const Color(0xFFA5F3FC) : isWet ? const Color(0xFFFED7AA) : isDamp ? const Color(0xFFFDE68A) : const Color(0xFF99F6E4),
+                          color: isMoistCalibrating ? const Color(0xFF0891B2) : isTapeDisconnected ? const Color(0xFFD97706) : isWet ? const Color(0xFFEA580C) : isDamp ? const Color(0xFFD97706) : const Color(0xFF0D9488),
+                          bg: isMoistCalibrating ? const Color(0xFFF0FDFA) : isTapeDisconnected ? const Color(0xFFFFFBEB) : isWet ? const Color(0xFFFFF7ED) : isDamp ? const Color(0xFFFFFBEB) : const Color(0xFFF0FDFA),
+                          border: isMoistCalibrating ? const Color(0xFFA5F3FC) : isTapeDisconnected ? const Color(0xFFFDE68A) : isWet ? const Color(0xFFFED7AA) : isDamp ? const Color(0xFFFDE68A) : const Color(0xFF99F6E4),
                           isCalibrating: isMoistCalibrating,
-                          helperText: isMoistCalibrating ? 'Calibrating moisture sensor...' : null,
+                          isMisaligned: isTapeDisconnected,
+                          helperText: isMoistCalibrating ? 'Calibrating moisture sensor...' : isTapeDisconnected ? '2-pin capacitive tape unplugged' : null,
                         ),
                       ),
                     ],
@@ -1310,7 +1325,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                 const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
                 const SizedBox(width: 4),
                 Text(
-                  'Misaligned',
+                  value == 'Disconnected' ? 'Disconnected' : 'Misaligned',
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,

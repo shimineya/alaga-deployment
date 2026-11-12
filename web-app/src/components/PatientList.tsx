@@ -560,11 +560,17 @@ const PatientTable: React.FC<PatientTableProps> = ({
                         {patients.map((patient) => {
                             const vital = getLatestVital(patient.id);
                             const isOffline = !((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
-                            const hasVitalsTelem = !!(patient.latest_telemetry?.recorded_at || (vital && (vital.heartRate > 0 || vital.temperature > 0)));
-                            const isCalibrating = !isOffline && (!vital || !hasVitalsTelem);
-                            const isPulseMisaligned = !isOffline && !isCalibrating && vital?.heartRate === 0;
-                            const isSpo2Misaligned = !isOffline && !isCalibrating && vital?.spo2 === 0;
-                            const isTempMisaligned = !isOffline && !isCalibrating && (vital?.temperature <= 30.0 || (vital?.heartRate === 0 && vital?.spo2 === 0));
+                            const isFingerOn = !!(patient.latest_telemetry as any)?.finger_detected;
+                            const isCalibrating = !isOffline && isFingerOn && (!vital || vital.heartRate === 0);
+                            const isPulseMisaligned = !isOffline && !isCalibrating && (!vital || vital.heartRate === 0);
+                            const isSpo2Misaligned = !isOffline && !isCalibrating && (!vital || vital.spo2 === 0);
+                            const isTempMisaligned = !isOffline && !isCalibrating && (!vital || vital.temperature <= 30.0 || isPulseMisaligned || isSpo2Misaligned);
+                            const isTapeDisconnected = !isOffline && (
+                                (patient as any).is_diaper_unclipped === true ||
+                                (patient.latest_telemetry as any)?.is_diaper_unclipped === true ||
+                                (patient.latest_telemetry as any)?.tape_connected === false ||
+                                (patient.latest_telemetry?.moisture !== undefined && Number(patient.latest_telemetry.moisture) < 0)
+                            );
 
                             let statusColor = "bg-slate-100 text-slate-800";
                             let statusText = "Stable";
@@ -646,14 +652,14 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                     <TableCell>
                                         {patient.latest_telemetry && !isOffline ? (
                                             <Badge variant="outline" className={`
-                                                ${patient.latest_telemetry.moisture >= 70 
+                                                ${isTapeDisconnected
+                                                    ? 'bg-amber-50 text-amber-800 border-amber-300 font-bold'
+                                                    : patient.latest_telemetry.moisture >= 70 
                                                     ? 'bg-red-50 text-red-700 border-red-200 font-bold animate-pulse' 
-                                                    : patient.latest_telemetry.moisture <= 0
-                                                    ? 'bg-slate-50 text-slate-600 border-slate-200'
-                                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                 }
                                             `}>
-                                                {patient.latest_telemetry.moisture >= 70 ? 'WET' : patient.latest_telemetry.moisture <= 0 ? 'DETACHED' : 'DRY'} ({patient.latest_telemetry.moisture}%)
+                                                {isTapeDisconnected ? 'DISCONNECTED' : `${patient.latest_telemetry.moisture >= 70 ? 'WET' : 'DRY'} (${Math.max(0, Number(patient.latest_telemetry.moisture) || 0)}%)`}
                                             </Badge>
                                         ) : (
                                             <span className="text-xs text-slate-400 italic">--</span>

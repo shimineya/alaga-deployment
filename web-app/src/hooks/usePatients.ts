@@ -171,10 +171,11 @@ export const usePatients = (token: string | null) => {
                                     ? isOnline
                                     : paired.some((d: any) => d.is_online === true && (String(d.serial_number).startsWith('SD-') || String(d.device_name).toLowerCase().includes('diaper') || String(d.device_name).toLowerCase().includes('moisture')))));
 
+                        const isTapeUnplugged = detail.is_diaper_unclipped === true || detail.tape_connected === false || detail.latest_telemetry?.is_diaper_unclipped === true || detail.latest_telemetry?.tape_connected === false || (rawMoist !== undefined && rawMoist !== null && Number(rawMoist) < 0);
                         const finalHr = isVOnline ? (rawHr !== undefined && rawHr !== null ? Number(rawHr) : existingTelem.heart_rate) : 0;
                         const finalTemp = isVOnline ? (rawTemp !== undefined && rawTemp !== null ? Number(rawTemp) : existingTelem.temperature) : 0;
                         const finalSp = isVOnline ? (rawSp !== undefined && rawSp !== null ? Number(rawSp) : existingTelem.spo2) : 0;
-                        const finalMoist = isMOnline ? (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture) : 0;
+                        const finalMoist = isMOnline ? (isTapeUnplugged ? -1 : (rawMoist !== undefined && rawMoist !== null ? Number(rawMoist) : existingTelem.moisture)) : 0;
 
                         return {
                             ...p,
@@ -186,6 +187,7 @@ export const usePatients = (token: string | null) => {
                             isOnline: isVOnline || isMOnline,
                             is_vitals_online: isVOnline,
                             is_moisture_online: isMOnline,
+                            is_diaper_unclipped: isMOnline && isTapeUnplugged,
                             heart_rate: finalHr,
                             temperature: finalTemp,
                             spo2: finalSp,
@@ -203,6 +205,8 @@ export const usePatients = (token: string | null) => {
                                 temperature: finalTemp,
                                 spo2: finalSp,
                                 moisture: finalMoist,
+                                is_diaper_unclipped: isMOnline && isTapeUnplugged,
+                                tape_connected: !(isMOnline && isTapeUnplugged),
                                 finger_detected: isVOnline && isFinger !== undefined ? isFinger : false,
                                 recorded_at: detail.recorded_at || detail.timestamp || new Date().toISOString()
                             },

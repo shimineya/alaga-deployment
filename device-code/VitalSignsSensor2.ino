@@ -1440,7 +1440,8 @@ void setup() {
     preferences.putString("url", DEFAULT_SERVER_URL);
   }
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
-  if (!device_id.startsWith("VS-") || device_id == "VS-2026-0001") {
+  if (device_id != DEFAULT_DEVICE_ID) {
+    Serial.println("[MIGRATION] Updating NVS device_id from " + device_id + " to " + String(DEFAULT_DEVICE_ID));
     device_id = DEFAULT_DEVICE_ID;
     preferences.putString("devid", DEFAULT_DEVICE_ID);
   }

@@ -251,36 +251,40 @@ int calculateWetnessPercentage() {
 
     int touchVal = -1;
     if (water_pin == 4 || water_pin == 0 || water_pin == 2 || water_pin == 12 || water_pin == 13 || water_pin == 14 || water_pin == 15 || water_pin == 27 || water_pin == 32 || water_pin == 33) {
-      long touchSum = 0;
-      for (int i = 0; i < 8; i++) {
-        touchSum += touchRead(water_pin);
-        delayMicroseconds(150);
-      }
-      touchVal = (int)(touchSum / 8);
+      pinMode(water_pin, INPUT); // Detach pull-down briefly for clean capacitive touch measurement
+      delayMicroseconds(50);
+      touchVal = touchRead(water_pin);
       lastTouchReading = touchVal;
       pinMode(water_pin, INPUT_PULLDOWN); // Restore pull-down immediately after touchRead
       delayMicroseconds(50);
       rawDigitalVal = digitalRead(water_pin);
 
-      // Learn attached dry tape baseline when tape is plugged in and dry (18..66 range)
-      if (rawDigitalVal == LOW && touchVal >= 18 && touchVal <= 66) {
-        if (attachedDryBaseline < 0) {
-          attachedDryBaseline = touchVal;
-        } else {
-          attachedDryBaseline = (int)((attachedDryBaseline * 9 + touchVal) / 10);
+      bool isHighScale = (touchVal > 200 || attachedDryBaseline > 200);
+
+      // Learn attached dry tape baseline when tape is plugged in and dry (below 1180 unplugged ceiling)
+      if (rawDigitalVal == LOW) {
+        if ((isHighScale && touchVal >= 450 && touchVal <= 1170) || (!isHighScale && touchVal >= 18 && touchVal <= 64)) {
+          if (attachedDryBaseline < 0) {
+            attachedDryBaseline = touchVal;
+          } else {
+            attachedDryBaseline = (int)((attachedDryBaseline * 9 + touchVal) / 10);
+          }
         }
       }
 
-      // Detect 2-pin plug disconnection: bare pin rises to >= 70 (or >= attachedDryBaseline + 12)
+      // Detect 2-pin plug disconnection:
+      // Unplugged bare pin reads ~1248-1264 (>= 1190 on high scale, or >= 68 on low scale).
+      // Plugging in the 2-pin capacitive tape adds foil strip capacitance and pulls Touch(D4) below 1180.
       bool looksUnplugged = (rawDigitalVal == LOW) && (
-        touchVal >= 70 ||
-        (attachedDryBaseline > 0 && touchVal >= (attachedDryBaseline + 12) && touchVal >= 58)
+        isHighScale
+          ? (touchVal >= 1190 || (attachedDryBaseline >= 450 && touchVal >= (attachedDryBaseline + 120) && touchVal >= 1150))
+          : (touchVal >= 68   || (attachedDryBaseline > 0 && attachedDryBaseline < 200 && touchVal >= (attachedDryBaseline + 12) && touchVal >= 58))
       );
 
       if (looksUnplugged) {
         unpluggedCount++;
         pluggedCount = 0;
-        if (unpluggedCount >= 3) {
+        if (unpluggedCount >= 2) {
           isTapeConnected = false;
         }
       } else {
@@ -300,7 +304,9 @@ int calculateWetnessPercentage() {
     }
 
     // Strict liquid-bridge check (immune to dry mechanical pressure)
-    bool isLiquidBridged = (rawDigitalVal == HIGH) || (touchVal >= 0 && touchVal <= 8);
+    bool isHighScaleWet = (attachedDryBaseline > 200 || touchVal > 200);
+    int wetTouchLimit = isHighScaleWet ? 180 : 8;
+    bool isLiquidBridged = (rawDigitalVal == HIGH) || (touchVal >= 0 && touchVal <= wetTouchLimit);
     if (isLiquidBridged) {
       wetDebounceCount++;
       if (wetDebounceCount >= 3) {
@@ -1650,8 +1656,10 @@ void setup() {
     preferences.putString("url", DEFAULT_SERVER_URL);
   }
   device_id     = preferences.getString("devid", DEFAULT_DEVICE_ID);
-  if (!device_id.startsWith("SD-")) {
+  if (device_id != DEFAULT_DEVICE_ID) {
+    Serial.println("[MIGRATION] Updating NVS device_id from " + device_id + " to " + String(DEFAULT_DEVICE_ID));
     device_id = DEFAULT_DEVICE_ID;
+    preferences.putString("devid", DEFAULT_DEVICE_ID);
   }
   device_token  = preferences.getString("token", DEFAULT_DEVICE_TOKEN);
   admin_pin     = preferences.getString("pin", DEFAULT_ADMIN_PIN);

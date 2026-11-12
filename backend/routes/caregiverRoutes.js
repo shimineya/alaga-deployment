@@ -121,6 +121,42 @@ router.get('/devices', async (req, res) => {
             );
         }
 
+        // Fetch active alerts count per assigned_patient_id and per device serial_number for prioritization
+        const alertCountsByPatient = {};
+        const alertCountsBySerial = {};
+        try {
+            const clinAlertRes = await pool.query(`
+                SELECT e.patient_id, COUNT(*)::int AS cnt
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = e.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = e.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged')
+                  AND a.acknowledged_at IS NULL
+                  AND COALESCE(pb.flag_count, pb2.flag_count, 0) < 5
+                GROUP BY e.patient_id
+            `);
+            clinAlertRes.rows.forEach(r => {
+                alertCountsByPatient[r.patient_id] = (alertCountsByPatient[r.patient_id] || 0) + (r.cnt || 0);
+            });
+            const sysAlertRes = await pool.query(`
+                SELECT LOWER(device_mac_address) AS sn, COUNT(*)::int AS cnt
+                FROM hardware_system_alerts
+                WHERE status = 'Active' AND device_mac_address IS NOT NULL
+                GROUP BY LOWER(device_mac_address)
+            `);
+            sysAlertRes.rows.forEach(r => {
+                if (r.sn) alertCountsBySerial[r.sn] = (alertCountsBySerial[r.sn] || 0) + (r.cnt || 0);
+            });
+        } catch (_) {}
+
         // Dynamically compute real-time connection status (Online if heartbeat received within last 12 seconds and assigned)
         const processedRows = result.rows.map(row => {
             const isUnassigned = !row.assigned_patient_id || row.status === 'AVAILABLE' || row.status === 'UNASSIGNED';
@@ -131,14 +167,44 @@ router.get('/devices', async (req, res) => {
             } else if (row.status === 'MAINTENANCE') {
                 displayStatus = 'MAINTENANCE';
             }
+            const patAlertCount = row.assigned_patient_id ? (alertCountsByPatient[row.assigned_patient_id] || 0) : 0;
+            const devAlertCount = row.serial_number ? (alertCountsBySerial[String(row.serial_number).toLowerCase()] || 0) : 0;
+            const totalActiveAlerts = patAlertCount + devAlertCount;
             return {
                 ...row,
                 is_online: !!isOnline,
                 status: displayStatus,
+                active_alerts_count: totalActiveAlerts,
+                has_active_alert: totalActiveAlerts > 0,
                 battery_level: row.battery_level !== null && row.battery_level !== undefined ? Number(row.battery_level) : null,
                 signal_strength: isOnline ? (row.signal_strength || 'Good') : 'Offline',
                 setup_password: row.setup_password || '@Password123'
             };
+        });
+
+        // Priority Sort:
+        // 1. Devices with Active Alerts (and Active/Online first among those with alerts)
+        // 2. Active/Online Monitoring Devices (status === 'ACTIVE' / is_online === true)
+        // 3. Assigned Standby / Inactive Devices
+        // 4. Unassigned / Available Devices
+        processedRows.sort((a, b) => {
+            const aAlert = a.has_active_alert ? 1 : 0;
+            const bAlert = b.has_active_alert ? 1 : 0;
+            if (aAlert !== bAlert) return bAlert - aAlert;
+
+            const aOnline = (a.is_online || a.status === 'ACTIVE') ? 1 : 0;
+            const bOnline = (b.is_online || b.status === 'ACTIVE') ? 1 : 0;
+            if (aOnline !== bOnline) return bOnline - aOnline;
+
+            if (a.active_alerts_count !== b.active_alerts_count) {
+                return (b.active_alerts_count || 0) - (a.active_alerts_count || 0);
+            }
+
+            const aAssigned = a.assigned_patient_id ? 1 : 0;
+            const bAssigned = b.assigned_patient_id ? 1 : 0;
+            if (aAssigned !== bAssigned) return bAssigned - aAssigned;
+
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
         });
 
         res.json({ success: true, data: processedRows });
@@ -2686,7 +2752,81 @@ router.get('/patients', async (req, res) => {
         }
 
         const result = await pool.query(query, params);
-        res.json({ success: true, data: result.rows });
+
+        // Attach active unacknowledged clinical alert counts per patient and sort by priority:
+        // 1. Patients with Active Alerts (Critical first, then highest alert count)
+        // 2. Patients with Active Device Monitoring (is_online === true)
+        // 3. Patients with Paired Devices (offline/standby)
+        // 4. Unassigned/Offline Patients (newest first)
+        const patientAlertMap = {};
+        const patientCritMap = {};
+        try {
+            const alertRes = await pool.query(`
+                SELECT e.patient_id,
+                       COUNT(*)::int AS cnt,
+                       BOOL_OR(LOWER(a.severity) = 'critical') AS has_crit
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = e.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = e.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged')
+                  AND a.acknowledged_at IS NULL
+                  AND COALESCE(pb.flag_count, pb2.flag_count, 0) < 5
+                GROUP BY e.patient_id
+            `);
+            alertRes.rows.forEach(r => {
+                patientAlertMap[r.patient_id] = r.cnt || 0;
+                patientCritMap[r.patient_id] = !!r.has_crit;
+            });
+        } catch (_) {}
+
+        const prioritizedPatients = result.rows.map(p => {
+            const alertCount = patientAlertMap[p.patient_id] || 0;
+            const hasCrit = !!patientCritMap[p.patient_id];
+            return {
+                ...p,
+                active_alerts_count: alertCount,
+                has_active_alert: alertCount > 0,
+                has_critical_alert: hasCrit
+            };
+        }).sort((a, b) => {
+            const aAlert = a.has_active_alert ? 1 : 0;
+            const bAlert = b.has_active_alert ? 1 : 0;
+            if (aAlert !== bAlert) return bAlert - aAlert;
+
+            if (aAlert && bAlert) {
+                const aCrit = a.has_critical_alert ? 1 : 0;
+                const bCrit = b.has_critical_alert ? 1 : 0;
+                if (aCrit !== bCrit) return bCrit - aCrit;
+            }
+
+            const aOnline = (a.is_online || a.is_vitals_online || a.is_moisture_online) ? 1 : 0;
+            const bOnline = (b.is_online || b.is_vitals_online || b.is_moisture_online) ? 1 : 0;
+            if (aOnline !== bOnline) return bOnline - aOnline;
+
+            if (a.active_alerts_count !== b.active_alerts_count) {
+                return (b.active_alerts_count || 0) - (a.active_alerts_count || 0);
+            }
+
+            const aBothOnline = (a.is_vitals_online && a.is_moisture_online) ? 1 : 0;
+            const bBothOnline = (b.is_vitals_online && b.is_moisture_online) ? 1 : 0;
+            if (aBothOnline !== bBothOnline) return bBothOnline - aBothOnline;
+
+            const aPaired = (Array.isArray(a.paired_devices) && a.paired_devices.length > 0) ? 1 : 0;
+            const bPaired = (Array.isArray(b.paired_devices) && b.paired_devices.length > 0) ? 1 : 0;
+            if (aPaired !== bPaired) return bPaired - aPaired;
+
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+
+        res.json({ success: true, data: prioritizedPatients });
     } catch (err) {
         console.error("Get Patients Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch patients' });
@@ -2860,7 +3000,81 @@ router.get('/patients-added-and-assigned', async (req, res) => {
         }
 
         const result = await pool.query(query, params);
-        res.json({ success: true, data: result.rows });
+
+        // Attach active unacknowledged clinical alert counts per patient and sort by priority:
+        // 1. Patients with Active Alerts (Critical first, then highest alert count)
+        // 2. Patients with Active Device Monitoring (is_online === true)
+        // 3. Patients with Paired Devices (offline/standby)
+        // 4. Unassigned/Offline Patients (newest first)
+        const patientAlertMap = {};
+        const patientCritMap = {};
+        try {
+            const alertRes = await pool.query(`
+                SELECT e.patient_id,
+                       COUNT(*)::int AS cnt,
+                       BOOL_OR(LOWER(a.severity) = 'critical') AS has_crit
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = e.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = e.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged')
+                  AND a.acknowledged_at IS NULL
+                  AND COALESCE(pb.flag_count, pb2.flag_count, 0) < 5
+                GROUP BY e.patient_id
+            `);
+            alertRes.rows.forEach(r => {
+                patientAlertMap[r.patient_id] = r.cnt || 0;
+                patientCritMap[r.patient_id] = !!r.has_crit;
+            });
+        } catch (_) {}
+
+        const prioritizedPatients = result.rows.map(p => {
+            const alertCount = patientAlertMap[p.patient_id] || 0;
+            const hasCrit = !!patientCritMap[p.patient_id];
+            return {
+                ...p,
+                active_alerts_count: alertCount,
+                has_active_alert: alertCount > 0,
+                has_critical_alert: hasCrit
+            };
+        }).sort((a, b) => {
+            const aAlert = a.has_active_alert ? 1 : 0;
+            const bAlert = b.has_active_alert ? 1 : 0;
+            if (aAlert !== bAlert) return bAlert - aAlert;
+
+            if (aAlert && bAlert) {
+                const aCrit = a.has_critical_alert ? 1 : 0;
+                const bCrit = b.has_critical_alert ? 1 : 0;
+                if (aCrit !== bCrit) return bCrit - aCrit;
+            }
+
+            const aOnline = (a.is_online || a.is_vitals_online || a.is_moisture_online) ? 1 : 0;
+            const bOnline = (b.is_online || b.is_vitals_online || b.is_moisture_online) ? 1 : 0;
+            if (aOnline !== bOnline) return bOnline - aOnline;
+
+            if (a.active_alerts_count !== b.active_alerts_count) {
+                return (b.active_alerts_count || 0) - (a.active_alerts_count || 0);
+            }
+
+            const aBothOnline = (a.is_vitals_online && a.is_moisture_online) ? 1 : 0;
+            const bBothOnline = (b.is_vitals_online && b.is_moisture_online) ? 1 : 0;
+            if (aBothOnline !== bBothOnline) return bBothOnline - aBothOnline;
+
+            const aPaired = (Array.isArray(a.paired_devices) && a.paired_devices.length > 0) ? 1 : 0;
+            const bPaired = (Array.isArray(b.paired_devices) && b.paired_devices.length > 0) ? 1 : 0;
+            if (aPaired !== bPaired) return bPaired - aPaired;
+
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+
+        res.json({ success: true, data: prioritizedPatients });
     } catch (err) {
         console.error("Get Patients Added & Assigned Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch patients' });
@@ -3012,7 +3226,81 @@ router.get('/unassigned-patients', async (req, res) => {
         }
 
         const result = await pool.query(query, params);
-        res.json({ success: true, data: result.rows });
+
+        // Attach active unacknowledged clinical alert counts per patient and sort by priority:
+        // 1. Patients with Active Alerts (Critical first, then highest alert count)
+        // 2. Patients with Active Device Monitoring (is_online === true)
+        // 3. Patients with Paired Devices (offline/standby)
+        // 4. Unassigned/Offline Patients (newest first)
+        const patientAlertMap = {};
+        const patientCritMap = {};
+        try {
+            const alertRes = await pool.query(`
+                SELECT e.patient_id,
+                       COUNT(*)::int AS cnt,
+                       BOOL_OR(LOWER(a.severity) = 'critical') AS has_crit
+                FROM alert_notifications a
+                JOIN anomaly_events e ON a.event_id = e.event_id
+                LEFT JOIN patient_baselines pb ON pb.patient_id = e.patient_id AND pb.vital_name = e.anomaly_type
+                LEFT JOIN patient_baselines pb2 ON pb2.patient_id = e.patient_id AND (
+                    (e.anomaly_type LIKE '%heart_rate%' AND pb2.vital_name = 'heart_rate') OR
+                    (e.anomaly_type LIKE '%temp%' AND pb2.vital_name = 'temperature') OR
+                    (e.anomaly_type LIKE '%spo2%' AND pb2.vital_name = 'spo2') OR
+                    (e.anomaly_type LIKE '%moisture%' AND pb2.vital_name = 'moisture') OR
+                    (e.anomaly_type = 'ocsvm_anomaly' AND pb2.vital_name IN ('ocsvm_anomaly', 'multi_feature'))
+                )
+                WHERE a.status IS DISTINCT FROM 'Archived'
+                  AND a.status NOT IN ('Acknowledged', 'Reviewed', 'Flagged')
+                  AND a.acknowledged_at IS NULL
+                  AND COALESCE(pb.flag_count, pb2.flag_count, 0) < 5
+                GROUP BY e.patient_id
+            `);
+            alertRes.rows.forEach(r => {
+                patientAlertMap[r.patient_id] = r.cnt || 0;
+                patientCritMap[r.patient_id] = !!r.has_crit;
+            });
+        } catch (_) {}
+
+        const prioritizedPatients = result.rows.map(p => {
+            const alertCount = patientAlertMap[p.patient_id] || 0;
+            const hasCrit = !!patientCritMap[p.patient_id];
+            return {
+                ...p,
+                active_alerts_count: alertCount,
+                has_active_alert: alertCount > 0,
+                has_critical_alert: hasCrit
+            };
+        }).sort((a, b) => {
+            const aAlert = a.has_active_alert ? 1 : 0;
+            const bAlert = b.has_active_alert ? 1 : 0;
+            if (aAlert !== bAlert) return bAlert - aAlert;
+
+            if (aAlert && bAlert) {
+                const aCrit = a.has_critical_alert ? 1 : 0;
+                const bCrit = b.has_critical_alert ? 1 : 0;
+                if (aCrit !== bCrit) return bCrit - aCrit;
+            }
+
+            const aOnline = (a.is_online || a.is_vitals_online || a.is_moisture_online) ? 1 : 0;
+            const bOnline = (b.is_online || b.is_vitals_online || b.is_moisture_online) ? 1 : 0;
+            if (aOnline !== bOnline) return bOnline - aOnline;
+
+            if (a.active_alerts_count !== b.active_alerts_count) {
+                return (b.active_alerts_count || 0) - (a.active_alerts_count || 0);
+            }
+
+            const aBothOnline = (a.is_vitals_online && a.is_moisture_online) ? 1 : 0;
+            const bBothOnline = (b.is_vitals_online && b.is_moisture_online) ? 1 : 0;
+            if (aBothOnline !== bBothOnline) return bBothOnline - aBothOnline;
+
+            const aPaired = (Array.isArray(a.paired_devices) && a.paired_devices.length > 0) ? 1 : 0;
+            const bPaired = (Array.isArray(b.paired_devices) && b.paired_devices.length > 0) ? 1 : 0;
+            if (aPaired !== bPaired) return bPaired - aPaired;
+
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+
+        res.json({ success: true, data: prioritizedPatients });
     } catch (err) {
         console.error("Get Unassigned Patients Error:", err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch unassigned patients' });

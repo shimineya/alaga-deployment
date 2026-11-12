@@ -303,7 +303,41 @@ class _PatientListScreenState extends State<PatientListScreen> {
           (p['vs_id'] ?? '').toLowerCase().contains(query) ||
           (p['sd_id'] ?? '').toLowerCase().contains(query);
       return matchesFilter && matchesSearch;
-    }).toList();
+    }).toList()
+      ..sort((a, b) {
+        int hasAlertScore(Map<String, dynamic> p) {
+          final int alertCnt = (p['active_alerts_count'] as num?)?.toInt() ?? 0;
+          final bool isWet = p['is_wet'] == true;
+          final double hr = (p['hr_num'] as num?)?.toDouble() ?? 0.0;
+          final double temp = (p['temp_num'] as num?)?.toDouble() ?? 0.0;
+          final double spo2 = (p['spo2_num'] as num?)?.toDouble() ?? 0.0;
+          final bool vOnline = p['is_vitals_online'] == true;
+          final bool breach = isWet || (vOnline && ((hr > 0 && (hr < 50 || hr > 120)) || temp > 38.0 || (spo2 > 0 && spo2 < 92)));
+          return (p['has_active_alert'] == true || alertCnt > 0 || breach) ? 1 : 0;
+        }
+
+        final aAlert = hasAlertScore(a);
+        final bAlert = hasAlertScore(b);
+        if (aAlert != bAlert) return bAlert - aAlert;
+
+        final aCrit = (a['has_critical_alert'] == true || a['is_wet'] == true) ? 1 : 0;
+        final bCrit = (b['has_critical_alert'] == true || b['is_wet'] == true) ? 1 : 0;
+        if (aAlert == 1 && bAlert == 1 && aCrit != bCrit) return bCrit - aCrit;
+
+        final aOnline = (a['is_online'] == true || a['is_vitals_online'] == true || a['is_moisture_online'] == true) ? 1 : 0;
+        final bOnline = (b['is_online'] == true || b['is_vitals_online'] == true || b['is_moisture_online'] == true) ? 1 : 0;
+        if (aOnline != bOnline) return bOnline - aOnline;
+
+        final aAlertCnt = (a['active_alerts_count'] as num?)?.toInt() ?? 0;
+        final bAlertCnt = (b['active_alerts_count'] as num?)?.toInt() ?? 0;
+        if (aAlertCnt != bAlertCnt) return bAlertCnt - aAlertCnt;
+
+        final aBoth = (a['is_vitals_online'] == true && a['is_moisture_online'] == true) ? 1 : 0;
+        final bBoth = (b['is_vitals_online'] == true && b['is_moisture_online'] == true) ? 1 : 0;
+        if (aBoth != bBoth) return bBoth - aBoth;
+
+        return 0;
+      });
 
     return Scaffold(
       backgroundColor: bgColor,

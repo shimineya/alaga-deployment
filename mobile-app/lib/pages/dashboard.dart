@@ -387,6 +387,90 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  List<Map<String, dynamic>> get _sortedPatients {
+    final list = List<Map<String, dynamic>>.from(_patients);
+    Map<String, int> priorityOf(Map<String, dynamic> patient) {
+      final telemetry = patient['latest_telemetry'] ?? {};
+      final pairedList = patient['paired_devices'] is List ? (patient['paired_devices'] as List) : [];
+
+      final bool isVitalsActive = patient['is_vitals_online'] is bool
+          ? (patient['is_vitals_online'] == true)
+          : pairedList.any((d) =>
+              d['is_online'] == true &&
+              ((d['serial_number']?.toString().startsWith('VS-') ?? false) ||
+                  (d['device_name']?.toString().toLowerCase().contains('vital') ?? false)));
+
+      final bool isMoistureActive = patient['is_moisture_online'] is bool
+          ? (patient['is_moisture_online'] == true)
+          : pairedList.any((d) =>
+              d['is_online'] == true &&
+              ((d['serial_number']?.toString().startsWith('SD-') ?? false) ||
+                  (d['device_name']?.toString().toLowerCase().contains('diaper') ?? false) ||
+                  (d['device_name']?.toString().toLowerCase().contains('moisture') ?? false)));
+
+      final bool isDeviceActive = isVitalsActive || isMoistureActive || patient['is_online'] == true;
+      final patientId = patient['patient_id']?.toString() ?? patient['id']?.toString();
+      final patientName = (patient['name'] ?? '').toString().toLowerCase().trim();
+
+      final patientAlerts = _clinicalAlerts.where((a) {
+        final aPid = a['patient_id']?.toString();
+        final aName = (a['patient_name'] ?? '').toString().toLowerCase().trim();
+        final isMatch = (patientId != null && aPid == patientId) || (patientName.isNotEmpty && aName == patientName);
+        final isUnack = (a['status'] ?? '').toString() != 'Acknowledged' &&
+                        ((a['flag_count'] as num?)?.toInt() ?? 0) < 5;
+        return isMatch && isUnack;
+      }).toList();
+
+      final rawHr = telemetry['heart_rate'] ?? patient['heart_rate'] ?? patient['heartRate'];
+      final hrNum = rawHr is num ? rawHr.round() : int.tryParse(rawHr?.toString() ?? '');
+      final rawTemp = telemetry['temperature'] ?? patient['temperature'];
+      final tempNum = rawTemp is num ? rawTemp.toDouble() : double.tryParse(rawTemp?.toString() ?? '');
+      final rawSpo2 = telemetry['spo2'] ?? patient['spo2'];
+      final spo2Num = rawSpo2 is num ? rawSpo2.round() : int.tryParse(rawSpo2?.toString() ?? '');
+      final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
+      final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
+
+      bool hasBreach = false;
+      if (isVitalsActive) {
+        if (spo2Num != null && spo2Num > 0 && spo2Num < AppPreferences.spo2Min.value) hasBreach = true;
+        if (hrNum != null && hrNum > 0 && (hrNum < AppPreferences.hrMin.value || hrNum > AppPreferences.hrMax.value)) hasBreach = true;
+        if (tempNum != null && tempNum > 30.0 && (tempNum < AppPreferences.tempMin.value || tempNum > AppPreferences.tempMax.value)) hasBreach = true;
+      }
+      if (isMoistureActive && mNum >= 70) hasBreach = true;
+
+      final int backendAlerts = (patient['active_alerts_count'] as num?)?.toInt() ?? 0;
+      final int alertCount = patientAlerts.length > backendAlerts ? patientAlerts.length : backendAlerts;
+      final bool hasAlert = alertCount > 0 || patient['has_active_alert'] == true || hasBreach;
+      final bool isCrit = patientAlerts.any((a) => (a['severity'] ?? '').toString().toLowerCase() == 'critical') ||
+          patient['has_critical_alert'] == true ||
+          hasBreach;
+
+      return {
+        'hasAlert': hasAlert ? 1 : 0,
+        'isCrit': isCrit ? 1 : 0,
+        'isOnline': isDeviceActive ? 1 : 0,
+        'bothOnline': (isVitalsActive && isMoistureActive) ? 1 : 0,
+        'alertCount': alertCount,
+        'hasPaired': pairedList.isNotEmpty ? 1 : 0,
+      };
+    }
+
+    list.sort((a, b) {
+      final pa = priorityOf(a);
+      final pb = priorityOf(b);
+      if (pa['hasAlert'] != pb['hasAlert']) return pb['hasAlert']! - pa['hasAlert']!;
+      if (pa['hasAlert'] == 1 && pb['hasAlert'] == 1 && pa['isCrit'] != pb['isCrit']) {
+        return pb['isCrit']! - pa['isCrit']!;
+      }
+      if (pa['isOnline'] != pb['isOnline']) return pb['isOnline']! - pa['isOnline']!;
+      if (pa['alertCount'] != pb['alertCount']) return pb['alertCount']! - pa['alertCount']!;
+      if (pa['bothOnline'] != pb['bothOnline']) return pb['bothOnline']! - pa['bothOnline']!;
+      if (pa['hasPaired'] != pb['hasPaired']) return pb['hasPaired']! - pa['hasPaired']!;
+      return 0;
+    });
+    return list;
+  }
+
   Future<void> _refreshDashboard() async {
     await SessionManager.loadSession();
     await _fetchDashboardData();
@@ -582,12 +666,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                       SliverPadding(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 24, vertical: 10),
-                        sliver: SliverList(
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) =>
-                                _buildPatientCard(_patients[index]),
-                            childCount: _patients.length,
-                          ),
+                        sliver: Builder(
+                          builder: (context) {
+                            final prioritized = _sortedPatients;
+                            return SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) =>
+                                    _buildPatientCard(prioritized[index]),
+                                childCount: prioritized.length,
+                              ),
+                            );
+                          },
                         ),
                       ),
                   ],

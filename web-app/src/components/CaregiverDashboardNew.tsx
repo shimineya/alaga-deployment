@@ -292,6 +292,9 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                         isOnline: !!p.is_online,
                         is_vitals_online: !!p.is_vitals_online,
                         is_moisture_online: !!p.is_moisture_online,
+                        active_alerts_count: Number(p.active_alerts_count) || 0,
+                        has_active_alert: !!p.has_active_alert || (Number(p.active_alerts_count) || 0) > 0,
+                        has_critical_alert: !!p.has_critical_alert,
                         assignedCaregiverName: p.assigned_caregiver_name || (p.caregivers && p.caregivers.length > 0 ? (p.caregivers[0].username || p.caregivers[0].name) : undefined) || (p.assigned_users && p.assigned_users.length > 0 ? (p.assigned_users[0].username || p.assigned_users[0].first_name) : undefined),
                         deleted: false,
                         archived: false,
@@ -1066,10 +1069,71 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
 
 
-    const filteredPatients = useMemo(() =>
-        patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())),
-        [patients, searchQuery]
-    );
+    const filteredPatients = useMemo(() => {
+        const getPatientPriority = (patient: Patient) => {
+            const pAny = patient as any;
+            const latestVital: any = vitalSigns.find(v => String(v.patientId) === String(patient.id)) || pAny.latest_telemetry || {};
+            const patientUnackAlerts = clinicalAlerts.filter(a =>
+                (a.patient_id?.toString() === patient.id?.toString() || a.patient_name === patient.name) &&
+                a.status !== 'Acknowledged' &&
+                (a.flag_count || 0) < 5 &&
+                !a.is_suppressed
+            );
+            const activeLocalAlerts = alerts.filter(a => String(a.patientId) === String(patient.id) && !a.acknowledged);
+            const alertCount = Math.max(patientUnackAlerts.length + activeLocalAlerts.length, Number(pAny.active_alerts_count) || 0);
+
+            const pairedDevs = (pAny.paired_devices || pAny.devices || []) as any[];
+            const isVOnline = pAny.is_vitals_online !== undefined
+                ? !!pAny.is_vitals_online
+                : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+            const isMOnline = pAny.is_moisture_online !== undefined
+                ? !!pAny.is_moisture_online
+                : pairedDevs.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
+            const isAnyOnline = isVOnline || isMOnline || !!(pAny.is_online ?? pAny.isOnline ?? patient.deviceConnected);
+
+            const pTelem = pAny.latest_telemetry || {};
+            const pulseNum = isVOnline ? Number(latestVital.heartRate ?? latestVital.heart_rate ?? pTelem.heart_rate ?? 0) : 0;
+            const tempNum = isVOnline ? Number(latestVital.temperature ?? pTelem.temperature ?? 0) : 0;
+            const spo2Num = isVOnline ? Number(latestVital.spo2 ?? pTelem.spo2 ?? 0) : 0;
+            const wetnessNum = isMOnline ? Number(latestVital.moistureLevel ?? latestVital.moisture ?? pTelem.moisture ?? 0) : 0;
+
+            const isPulseBreached = isVOnline && pulseNum > 0 && (pulseNum < safetyThresholds.heartRateMin || pulseNum > safetyThresholds.heartRateMax);
+            const isTempBreached = isVOnline && tempNum > 30.0 && (tempNum < safetyThresholds.tempMin || tempNum > safetyThresholds.tempMax);
+            const isSpo2Breached = isVOnline && spo2Num > 0 && spo2Num < safetyThresholds.spo2Min;
+            const isWetnessBreached = isMOnline && wetnessNum >= 70;
+            const hasSafetyBreach = isPulseBreached || isTempBreached || isSpo2Breached || isWetnessBreached;
+
+            const hasAlert = alertCount > 0 || hasSafetyBreach || !!pAny.has_active_alert;
+            const isCrit = patientUnackAlerts.some(a => a.severity?.toLowerCase() === 'critical') ||
+                activeLocalAlerts.some(a => a.severity === 'critical') ||
+                !!pAny.has_critical_alert ||
+                hasSafetyBreach;
+            const hasPaired = pairedDevs.length > 0 || (pAny.active_devices && pAny.active_devices.length > 0);
+
+            return {
+                hasAlert: hasAlert ? 1 : 0,
+                isCrit: isCrit ? 1 : 0,
+                isAnyOnline: isAnyOnline ? 1 : 0,
+                bothOnline: (isVOnline && isMOnline) ? 1 : 0,
+                alertCount,
+                hasPaired: hasPaired ? 1 : 0
+            };
+        };
+
+        return patients
+            .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+            .sort((a, b) => {
+                const pa = getPatientPriority(a);
+                const pb = getPatientPriority(b);
+                if (pa.hasAlert !== pb.hasAlert) return pb.hasAlert - pa.hasAlert;
+                if (pa.hasAlert && pb.hasAlert && pa.isCrit !== pb.isCrit) return pb.isCrit - pa.isCrit;
+                if (pa.isAnyOnline !== pb.isAnyOnline) return pb.isAnyOnline - pa.isAnyOnline;
+                if (pa.alertCount !== pb.alertCount) return pb.alertCount - pa.alertCount;
+                if (pa.bothOnline !== pb.bothOnline) return pb.bothOnline - pa.bothOnline;
+                if (pa.hasPaired !== pb.hasPaired) return pb.hasPaired - pa.hasPaired;
+                return 0;
+            });
+    }, [patients, searchQuery, clinicalAlerts, alerts, vitalSigns, safetyThresholds]);
     const totalPages = Math.max(1, Math.ceil(filteredPatients.length / itemsPerPage));
 
 

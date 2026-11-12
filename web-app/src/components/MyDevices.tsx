@@ -65,6 +65,8 @@ interface Device {
     assigned_patient_baseline?: any;
     assigned_patient_name?: string;
     setup_password?: string;
+    active_alerts_count?: number;
+    has_active_alert?: boolean;
 }
 
 export const MyDevices: React.FC = () => {
@@ -435,13 +437,39 @@ export const MyDevices: React.FC = () => {
         }
     };
 
-    // --- FILTERING & PAGINATION ---
-    const filteredDevices = devices.filter(d => {
-        const matchesSearch = (d.device_name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-            (d.serial_number?.toLowerCase() || '').includes(searchQuery.toLowerCase());
-        const matchesStatus = statusFilter === 'ALL' || d.status === statusFilter;
-        return matchesSearch && matchesStatus;
-    });
+    // --- FILTERING, PRIORITIZATION & PAGINATION ---
+    // Priority Order:
+    // 1. Devices with Active Alerts (and Active/Online first among those with alerts)
+    // 2. Active/Online Monitoring Devices (status === 'ACTIVE' / is_online === true)
+    // 3. Assigned Standby / Inactive Devices
+    // 4. Unassigned / Available Devices
+    const filteredDevices = devices
+        .filter(d => {
+            const matchesSearch = (d.device_name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+                (d.serial_number?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+                (d.assigned_patient_name?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+            const matchesStatus = statusFilter === 'ALL' || d.status === statusFilter;
+            return matchesSearch && matchesStatus;
+        })
+        .sort((a, b) => {
+            const aAlert = (a.has_active_alert || (a.active_alerts_count || 0) > 0) ? 1 : 0;
+            const bAlert = (b.has_active_alert || (b.active_alerts_count || 0) > 0) ? 1 : 0;
+            if (aAlert !== bAlert) return bAlert - aAlert;
+
+            const aOnline = (a.status === 'ACTIVE' || a.is_online) ? 1 : 0;
+            const bOnline = (b.status === 'ACTIVE' || b.is_online) ? 1 : 0;
+            if (aOnline !== bOnline) return bOnline - aOnline;
+
+            const aAlertCnt = a.active_alerts_count || 0;
+            const bAlertCnt = b.active_alerts_count || 0;
+            if (aAlertCnt !== bAlertCnt) return bAlertCnt - aAlertCnt;
+
+            const aAssigned = a.assigned_patient_id ? 1 : 0;
+            const bAssigned = b.assigned_patient_id ? 1 : 0;
+            if (aAssigned !== bAssigned) return bAssigned - aAssigned;
+
+            return 0;
+        });
 
     const totalPages = Math.ceil(filteredDevices.length / itemsPerPage);
     const paginatedDevices = filteredDevices.slice(

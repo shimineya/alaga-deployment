@@ -157,7 +157,7 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
 
   List<Map<String, dynamic>> get _filteredDevices {
     final query = _searchQuery.toLowerCase();
-    return _allDevices.where((d) {
+    final list = _allDevices.where((d) {
       final sn = (d['serial_number'] ?? '').toString().toLowerCase();
       final name = (d['device_name'] ?? '').toString().toLowerCase();
       final patient = (d['assigned_patient_name'] ?? '').toString().toLowerCase();
@@ -171,6 +171,33 @@ class _DeviceManagementScreenState extends State<DeviceManagementScreen> {
           (_selectedStatus == 'Inactive' && status != 'ACTIVE');
       return matchesSearch && matchesStatus;
     }).toList();
+
+    // Priority Sort:
+    // 1. Devices with Active Alerts (and Active/Online first among those with alerts)
+    // 2. Active/Online Monitoring Devices (status == 'ACTIVE' / is_online == true)
+    // 3. Assigned Standby / Inactive Devices
+    // 4. Unassigned / Available Devices
+    list.sort((a, b) {
+      final aAlertCnt = (a['active_alerts_count'] as num?)?.toInt() ?? 0;
+      final bAlertCnt = (b['active_alerts_count'] as num?)?.toInt() ?? 0;
+      final aAlert = (a['has_active_alert'] == true || aAlertCnt > 0) ? 1 : 0;
+      final bAlert = (b['has_active_alert'] == true || bAlertCnt > 0) ? 1 : 0;
+      if (aAlert != bAlert) return bAlert - aAlert;
+
+      final aOnline = (a['is_online'] == true || (a['status'] ?? '').toString().toUpperCase() == 'ACTIVE') ? 1 : 0;
+      final bOnline = (b['is_online'] == true || (b['status'] ?? '').toString().toUpperCase() == 'ACTIVE') ? 1 : 0;
+      if (aOnline != bOnline) return bOnline - aOnline;
+
+      if (aAlertCnt != bAlertCnt) return bAlertCnt - aAlertCnt;
+
+      final aAssigned = a['assigned_patient_id'] != null ? 1 : 0;
+      final bAssigned = b['assigned_patient_id'] != null ? 1 : 0;
+      if (aAssigned != bAssigned) return bAssigned - aAssigned;
+
+      return 0;
+    });
+
+    return list;
   }
 
   Widget _popupFieldWrapper(String label, Widget child) {

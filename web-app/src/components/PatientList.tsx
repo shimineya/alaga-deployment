@@ -87,14 +87,65 @@ export const PatientList: React.FC<PatientListProps> = ({ patients, onSelectPati
     const { token, user } = useAuth();
     const role = user?.role?.toLowerCase() || '';
 
-    // Filter Logic
-    const filteredPatients = patients.filter(patient => {
-        const matchesSearch = patient.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            patient.roomNumber?.toLowerCase().includes(searchQuery.toLowerCase());
-        const isActive = patient.deviceConnected || patient.status === 'Critical' || patient.status === 'Warning';
-        const matchesTab = activeTab === 'all' ? true : isActive;
-        return matchesSearch && matchesTab && !patient.deleted && !patient.archived;
-    });
+    // Filter & Prioritization Logic:
+    // 1. Patients with Active Alerts (or Critical/Warning status / threshold breach) at the very top
+    // 2. Patients with Active Device Monitoring (online Vital Signs or Smart Diaper sensor) next
+    // 3. Patients with Paired Devices (offline/standby) ahead of Unassigned patients
+    const filteredPatients = patients
+        .filter(patient => {
+            const matchesSearch = patient.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                patient.roomNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+            const pAny = patient as any;
+            const isOnline = !!(patient.deviceConnected || pAny.is_online || pAny.is_vitals_online || pAny.is_moisture_online);
+            const hasAlert = !!(pAny.has_active_alert || (pAny.active_alerts_count || 0) > 0 || pAny.status === 'Critical' || pAny.status === 'Warning');
+            const isActive = isOnline || hasAlert;
+            const matchesTab = activeTab === 'all' ? true : isActive;
+            return matchesSearch && matchesTab && !patient.deleted && !patient.archived;
+        })
+        .sort((a, b) => {
+            const getPriority = (pat: Patient) => {
+                const pAny = pat as any;
+                const paired = (pAny.paired_devices || pAny.devices || []) as any[];
+                const isVOnline = pAny.is_vitals_online !== undefined
+                    ? !!pAny.is_vitals_online
+                    : paired.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('VS-') || String(d.device_name || '').toLowerCase().includes('vital')));
+                const isMOnline = pAny.is_moisture_online !== undefined
+                    ? !!pAny.is_moisture_online
+                    : paired.some(d => (d.status === 'ACTIVE' || d.is_online) && (String(d.serial_number || '').startsWith('SD-') || String(d.device_name || '').toLowerCase().includes('diaper') || String(d.device_name || '').toLowerCase().includes('moisture')));
+                const isAnyOnline = isVOnline || isMOnline || !!(pat.deviceConnected || pAny.is_online || pAny.isOnline);
+
+                const telem = pAny.latest_telemetry || {};
+                const hr = isVOnline ? Number(telem.heart_rate || 0) : 0;
+                const temp = isVOnline ? Number(telem.temperature || 0) : 0;
+                const spo2 = isVOnline ? Number(telem.spo2 || 0) : 0;
+                const moist = isMOnline ? Number(telem.moisture ?? telem.moisture_value ?? 0) : 0;
+                const hasVitalBreach = (isVOnline && ((hr > 0 && (hr < 50 || hr > 120)) || (temp > 38.0) || (spo2 > 0 && spo2 < 92))) || (isMOnline && moist >= 70);
+
+                const alertCount = Number(pAny.active_alerts_count) || 0;
+                const hasAlert = !!(pAny.has_active_alert || alertCount > 0 || pAny.status === 'Critical' || pAny.status === 'Warning' || hasVitalBreach);
+                const isCrit = !!(pAny.has_critical_alert || pAny.status === 'Critical' || hasVitalBreach);
+                const hasPaired = paired.length > 0 || !!(pAny.vital_device_sn || pAny.diaper_device_sn);
+
+                return {
+                    hasAlert: hasAlert ? 1 : 0,
+                    isCrit: isCrit ? 1 : 0,
+                    isAnyOnline: isAnyOnline ? 1 : 0,
+                    bothOnline: (isVOnline && isMOnline) ? 1 : 0,
+                    alertCount,
+                    hasPaired: hasPaired ? 1 : 0
+                };
+            };
+
+            const pa = getPriority(a);
+            const pb = getPriority(b);
+            if (pa.hasAlert !== pb.hasAlert) return pb.hasAlert - pa.hasAlert;
+            if (pa.hasAlert && pb.hasAlert && pa.isCrit !== pb.isCrit) return pb.isCrit - pa.isCrit;
+            if (pa.isAnyOnline !== pb.isAnyOnline) return pb.isAnyOnline - pa.isAnyOnline;
+            if (pa.alertCount !== pb.alertCount) return pb.alertCount - pa.alertCount;
+            if (pa.bothOnline !== pb.bothOnline) return pb.bothOnline - pa.bothOnline;
+            if (pa.hasPaired !== pb.hasPaired) return pb.hasPaired - pa.hasPaired;
+            return 0;
+        });
 
     const getLatestVital = (patientId: string) => {
         const patientVitals = vitalSigns.filter(v => v.patientId === patientId);

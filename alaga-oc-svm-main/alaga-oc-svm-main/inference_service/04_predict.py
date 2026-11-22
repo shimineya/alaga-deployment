@@ -10,8 +10,8 @@ BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 MODEL_PATH = os.path.join(MODEL_DIR, "ocsvm_model.pkl")
 SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
-MODEL_SHA256 = "d9c4a4529005444195f8d44f138c29983aaca244d5d4d2bfb65da70a89e029c4"
-SCALER_SHA256 = "04bcb56547a23801035478a0b59e29b0a68bd3e4cd35cf3c355b65a74af09d4a"
+MODEL_SHA256 = "c4b93ae0be78fa2b17202ee7acfa01b1515b5cb2e8690b13f4d32fb1ffe69743"
+SCALER_SHA256 = "d8b25144cf2703d988a4e335ddcc9ced20364ac5053659452a7edca0c3e73653"
 
 
 def _sha256(path):

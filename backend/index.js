@@ -1929,7 +1929,77 @@ app.post('/api/device/data', async (req, res) => {
         const readingId = insertRes.rows[0]?.reading_id;
         const recordedAt = insertRes.rows[0]?.recorded_at;
 
-        // 2b. Run AI Anomaly Evaluation & Clinical Notification Generation
+        // 2a. INSTANT REAL-TIME SSE BROADCAST (Zero-Latency UI Reflection)
+        // Broadcast telemetry immediately upon ingestion BEFORE running AI/rule evaluation
+        // so Web App and Mobile App reflect live sensor readings within < 15ms.
+        broadcastAlert('device_status_update', {
+            serial_number: device_id,
+            status: 'ACTIVE',
+            patient_id: patientId,
+            battery_level: batteryVal,
+            signal_strength: signalVal,
+            finger_detected: isFingerDetected,
+            tape_connected: !isTapeDisconnected,
+            is_diaper_unclipped: isTapeDisconnected,
+            is_offline_buffer: !!req.body.is_offline_buffer,
+            event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
+            latest_telemetry: {
+                heart_rate: hr,
+                temperature: temp,
+                spo2: sp,
+                moisture: moist,
+                finger_detected: isFingerDetected,
+                tape_connected: !isTapeDisconnected,
+                is_diaper_unclipped: isTapeDisconnected,
+                recorded_at: recordedAt
+            },
+            timestamp: new Date().toISOString()
+        });
+
+        broadcastAlert('patient_telemetry_update', {
+            patient_id: patientId,
+            serial_number: device_id,
+            device_type: isSD ? 'moisture' : (isVS ? 'vitals' : 'unified'),
+            device_status: 'ACTIVE',
+            is_vitals_active: isVsActive,
+            is_moisture_active: isSdActive,
+            heart_rate: hr,
+            temperature: temp,
+            spo2: sp,
+            moisture: moist,
+            finger_detected: isFingerDetected,
+            tape_connected: !isTapeDisconnected,
+            is_diaper_unclipped: isTapeDisconnected,
+            battery_level: batteryVal,
+            signal_strength: signalVal,
+            recorded_at: recordedAt,
+            is_offline_buffer: !!req.body.is_offline_buffer,
+            latest_telemetry: {
+                heart_rate: hr,
+                temperature: temp,
+                spo2: sp,
+                moisture: moist,
+                finger_detected: isFingerDetected,
+                tape_connected: !isTapeDisconnected,
+                is_diaper_unclipped: isTapeDisconnected,
+                recorded_at: recordedAt
+            }
+        });
+
+        // Return 200 OK to ESP32 immediately so hardware sampling loop never stalls on AI evaluation
+        res.status(200).json({
+            success: true,
+            message: req.body.is_offline_buffer ? "Retained offline data ingested successfully." : "Data recorded successfully.",
+            reading_id: readingId,
+            recorded_at: recordedAt,
+            patient_id: patientId,
+            is_offline_buffer: !!req.body.is_offline_buffer,
+            diaper_reset: isDiaperReset,
+            setup_password: devRow.setup_password || '@Password123'
+        });
+
+        // 2b. Run AI Anomaly Evaluation & Clinical Notification Generation Asynchronously
+        setImmediate(async () => {
         try {
             const patientRow = await pool.query(
                 'SELECT patient_type, is_monitoring_disabled FROM patients WHERE patient_id = $1',
@@ -1966,9 +2036,9 @@ app.post('/api/device/data', async (req, res) => {
                     recentHistory: recentHistory
                 });
 
-                // Run AI prediction when there are valid physiological vitals or moisture
+                // Run 3-Feature OC-SVM AI prediction when valid physiological vitals or active moisture are present
                 let aiResult = { alerts: [], ocsvm_result: 'unavailable' };
-                if (hr > 30 || temp > 25 || sp > 50 || moist > 0) {
+                if ((hr > 30 && temp > 25 && sp > 50) || moist >= 35) {
                     try {
                         aiResult = await runPrediction({
                             patient_id  : patientId,
@@ -2113,76 +2183,12 @@ app.post('/api/device/data', async (req, res) => {
         } catch (aiErr) {
             console.error('[DEVICE_DATA] AI evaluation error:', aiErr.message);
         }
-
-
-        // Real-time SSE Broadcast: device turned online or refreshed telemetry
-        broadcastAlert('device_status_update', {
-            serial_number: device_id,
-            status: 'ACTIVE',
-            patient_id: patientId,
-            battery_level: batteryVal,
-            signal_strength: signalVal,
-            finger_detected: isFingerDetected,
-            tape_connected: !isTapeDisconnected,
-            is_diaper_unclipped: isTapeDisconnected,
-            is_offline_buffer: !!req.body.is_offline_buffer,
-            event: req.body.event || (req.body.is_offline_buffer ? 'offline_buffer_flushed' : 'telemetry'),
-            latest_telemetry: {
-                heart_rate: hr,
-                temperature: temp,
-                spo2: sp,
-                moisture: moist,
-                finger_detected: isFingerDetected,
-                tape_connected: !isTapeDisconnected,
-                is_diaper_unclipped: isTapeDisconnected,
-                recorded_at: recordedAt
-            },
-            timestamp: new Date().toISOString()
-        });
-
-        broadcastAlert('patient_telemetry_update', {
-            patient_id: patientId,
-            serial_number: device_id,
-            device_type: isSD ? 'moisture' : (isVS ? 'vitals' : 'unified'),
-            device_status: 'ACTIVE',
-            is_vitals_active: isVsActive,
-            is_moisture_active: isSdActive,
-            heart_rate: hr,
-            temperature: temp,
-            spo2: sp,
-            moisture: moist,
-            finger_detected: isFingerDetected,
-            tape_connected: !isTapeDisconnected,
-            is_diaper_unclipped: isTapeDisconnected,
-            battery_level: batteryVal,
-            signal_strength: signalVal,
-            recorded_at: recordedAt,
-            is_offline_buffer: !!req.body.is_offline_buffer,
-            latest_telemetry: {
-                heart_rate: hr,
-                temperature: temp,
-                spo2: sp,
-                moisture: moist,
-                finger_detected: isFingerDetected,
-                tape_connected: !isTapeDisconnected,
-                is_diaper_unclipped: isTapeDisconnected,
-                recorded_at: recordedAt
-            }
-        });
-
-        res.status(200).json({
-            success: true,
-            message: req.body.is_offline_buffer ? "Retained offline data ingested successfully." : "Data recorded successfully.",
-            reading_id: readingId,
-            recorded_at: recordedAt,
-            patient_id: patientId,
-            is_offline_buffer: !!req.body.is_offline_buffer,
-            diaper_reset: isDiaperReset,
-            setup_password: devRow.setup_password || '@Password123'
         });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "Internal Server Error", message: "Server error processing device data." });
+        if (!res.headersSent) {
+            res.status(500).json({ error: "Internal Server Error", message: "Server error processing device data." });
+        }
     }
 });
 

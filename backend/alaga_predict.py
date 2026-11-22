@@ -35,17 +35,7 @@ spec.loader.exec_module(predict_module)
 predict = predict_module.predict
 flag_as_normal = predict_module.flag_as_normal
 
-# ── Read input from Node.js ────────────────────────────────────────────────
-try:
-    input_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
-    if input_str.startswith("{"):
-        input_data = json.loads(input_str)
-    else:
-        try:
-            import base64
-            input_data = json.loads(base64.b64decode(input_str).decode('utf-8'))
-        except Exception:
-            input_data = json.loads(input_str)
+def handle_request(input_data):
     action = input_data.get('action', 'predict')
 
     if action == 'predict':
@@ -67,25 +57,47 @@ try:
                         "flagged_values": b.get('flagged_values') or []
                     }
 
+        hr = float(input_data.get('heart_rate', 0))
+        temp = float(input_data.get('temperature', 36.5))
+        sp = float(input_data.get('spo2', 97))
+        moist = int(input_data.get('moisture', 0))
+        ptype = input_data.get('patient_type', 'adult')
+
+        # If vitals sensor is inactive/misaligned (0), only evaluate moisture rules in Python
+        # so 04_predict.py doesn't treat 0 BPM / 0°C / 0% SpO2 as cardiac arrest/hypothermia
+        has_valid_vitals = (hr > 30 and temp > 25 and sp > 50)
+        eval_hr = hr if has_valid_vitals else (120.0 if ptype == 'infant' else 75.0)
+        eval_temp = temp if has_valid_vitals else 36.8
+        eval_sp = sp if has_valid_vitals else 98.0
+
         result = predict(
             patient_id=pid,
-            heart_rate=float(input_data.get('heart_rate', 0)),
-            temperature=float(input_data.get('temperature', 36.5)),
-            spo2=float(input_data.get('spo2', 97)),
-            moisture=int(input_data.get('moisture', 0)),
-            patient_type=input_data.get('patient_type', 'adult')
+            heart_rate=eval_hr,
+            temperature=eval_temp,
+            spo2=eval_sp,
+            moisture=moist,
+            patient_type=ptype
         )
-        print(json.dumps({
+        alerts = result.get('alerts', [])
+        if not has_valid_vitals:
+            alerts = [a for a in alerts if a.get('vital') in ('moisture', 'urination_frequent', 'urination_prolonged_absence')]
+
+        return {
             "success": True,
-            "status": result.get('status', 'NORMAL'),
-            "alerts": result.get('alerts', []),
-            "ocsvm_result": result.get('ocsvm_result', 'unavailable'),
-            "ocsvm_label": result.get('ocsvm_label'),
-            "ocsvm_score": result.get('ocsvm_score'),
+            "status": result.get('status', 'NORMAL') if (has_valid_vitals or alerts) else 'NORMAL',
+            "alerts": alerts,
+            "ocsvm_result": result.get('ocsvm_result', 'unavailable') if has_valid_vitals else 'unavailable',
+            "ocsvm_label": result.get('ocsvm_label') if has_valid_vitals else None,
+            "ocsvm_score": result.get('ocsvm_score') if has_valid_vitals else None,
             "patient_id": result.get('patient_id'),
-            "readings": result.get('readings', {}),
+            "readings": {
+                "heart_rate": hr,
+                "temperature": temp,
+                "spo2": sp,
+                "moisture": moist
+            },
             "timestamp": result.get('timestamp')
-        }))
+        }
 
     elif action == 'flag':
         msg = flag_as_normal(
@@ -93,13 +105,43 @@ try:
             input_data.get('vital'),
             float(input_data.get('value'))
         )
-        print(json.dumps({
+        return {
             "success": True,
             "message": msg
-        }))
+        }
 
     else:
-        print(json.dumps({"success": False, "error": f"Unknown action: {action}"}))
+        return {"success": False, "error": f"Unknown action: {action}"}
 
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
+
+# ── Persistent Worker Mode (--worker) or Single-Shot CLI Mode ──────────────
+if len(sys.argv) > 1 and sys.argv[1] == '--worker':
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        req_id = None
+        try:
+            payload = json.loads(line)
+            req_id = payload.get('_req_id')
+            res = handle_request(payload)
+            res['_req_id'] = req_id
+            sys.stdout.write(json.dumps(res) + '\n')
+            sys.stdout.flush()
+        except Exception as e:
+            sys.stdout.write(json.dumps({"_req_id": req_id, "success": False, "error": str(e)}) + '\n')
+            sys.stdout.flush()
+else:
+    try:
+        input_str = sys.argv[1] if len(sys.argv) > 1 else "{}"
+        if input_str.startswith("{"):
+            input_data = json.loads(input_str)
+        else:
+            try:
+                import base64
+                input_data = json.loads(base64.b64decode(input_str).decode('utf-8'))
+            except Exception:
+                input_data = json.loads(input_str)
+        print(json.dumps(handle_request(input_data)))
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}))

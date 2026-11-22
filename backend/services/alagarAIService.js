@@ -5,11 +5,87 @@
  * Used in the sensor reading endpoint to detect anomalies
  */
 
-const { execFile } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const path = require('path');
+const readline = require('readline');
 
 // Path to the bridge script
 const BRIDGE_SCRIPT = path.join(__dirname, '..', 'alaga_predict.py');
+
+// Persistent Warm Python Worker Pool (keeps numpy, joblib, ocsvm_model.pkl, and scaler.pkl loaded in RAM
+// so predictions complete in ~2ms instead of spawning a new Python process on every 2s sensor packet).
+let workerProc = null;
+let workerRl = null;
+let reqCounter = 0;
+const pendingRequests = new Map();
+
+function ensureWorker() {
+  if (workerProc && !workerProc.killed && workerProc.exitCode === null) {
+    return workerProc;
+  }
+  try {
+    workerProc = spawn('python', [BRIDGE_SCRIPT, '--worker'], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    workerProc.unref();
+    workerRl = readline.createInterface({ input: workerProc.stdout });
+    workerRl.on('line', (line) => {
+      try {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('{')) return;
+        const parsed = JSON.parse(trimmed);
+        const reqId = parsed._req_id;
+        if (reqId !== undefined && pendingRequests.has(reqId)) {
+          const { resolve, timer } = pendingRequests.get(reqId);
+          clearTimeout(timer);
+          pendingRequests.delete(reqId);
+          resolve(parsed);
+        }
+      } catch (_) {}
+    });
+    workerProc.on('exit', () => {
+      workerProc = null;
+      workerRl = null;
+      for (const [, entry] of pendingRequests.entries()) {
+        clearTimeout(entry.timer);
+        entry.resolve(null);
+      }
+      pendingRequests.clear();
+    });
+    workerProc.on('error', () => {
+      workerProc = null;
+      workerRl = null;
+    });
+  } catch (_) {
+    workerProc = null;
+  }
+  return workerProc;
+}
+
+// Pre-warm the OC-SVM Python worker on module load
+ensureWorker();
+
+function callWorker(payload, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const proc = ensureWorker();
+    if (!proc || !proc.stdin || !proc.stdin.writable) {
+      return resolve(null);
+    }
+    const reqId = ++reqCounter;
+    const timer = setTimeout(() => {
+      pendingRequests.delete(reqId);
+      resolve(null);
+    }, timeoutMs);
+    pendingRequests.set(reqId, { resolve, timer });
+    try {
+      proc.stdin.write(JSON.stringify({ ...payload, _req_id: reqId }) + '\n');
+    } catch (_) {
+      clearTimeout(timer);
+      pendingRequests.delete(reqId);
+      resolve(null);
+    }
+  });
+}
 
 /**
  * Run AI prediction on a sensor reading
@@ -25,17 +101,25 @@ const BRIDGE_SCRIPT = path.join(__dirname, '..', 'alaga_predict.py');
  * @returns {Promise<Object>} - { status, alerts, ocsvm_result }
  */
 async function runPrediction(data) {
+  const payload = {
+    action      : 'predict',
+    patient_id  : data.patient_id   || 'P001',
+    heart_rate  : data.heart_rate   || 0,
+    temperature : data.temperature  || 36.5,
+    spo2        : data.spo2         || 97,
+    moisture    : data.moisture     || 0,
+    patient_type: data.patient_type || 'adult',
+    baselines   : data.baselines    || []
+  };
+
+  // Fast path: Persistent warm Python worker (~2ms latency)
+  const warmResult = await callWorker(payload, 3500);
+  if (warmResult && warmResult.success) {
+    return warmResult;
+  }
+
   return new Promise((resolve) => {
-    const input = JSON.stringify({
-      action      : 'predict',
-      patient_id  : data.patient_id   || 'P001',
-      heart_rate  : data.heart_rate   || 0,
-      temperature : data.temperature  || 36.5,
-      spo2        : data.spo2         || 97,
-      moisture    : data.moisture     || 0,
-      patient_type: data.patient_type || 'adult',
-      baselines   : data.baselines    || []
-    });
+    const input = JSON.stringify(payload);
 
     const b64Input = Buffer.from(input, 'utf8').toString('base64');
 

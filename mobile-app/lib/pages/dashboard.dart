@@ -217,6 +217,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 final sp = data['spo2'] ?? rawTelem?['spo2'];
                 final moist = data['moisture'] ?? data['moisture_value'] ?? rawTelem?['moisture'] ?? rawTelem?['moisture_value'];
                 final finger = data['finger_detected'] ?? rawTelem?['finger_detected'];
+                final obstructed = data['is_obstructed'] ?? rawTelem?['is_obstructed'];
                 final tapeUnplugged = data['is_diaper_unclipped'] == true || data['tape_connected'] == false || rawTelem?['is_diaper_unclipped'] == true || rawTelem?['tape_connected'] == false || (moist is num && moist < 0);
 
                 if (!newVOnline) {
@@ -241,6 +242,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                 }
 
                 if (finger != null) existingTelem['finger_detected'] = finger;
+                if (obstructed != null) {
+                  existingTelem['is_obstructed'] = newVOnline && obstructed == true;
+                } else if (!newVOnline) {
+                  existingTelem['is_obstructed'] = false;
+                }
                 existingTelem['recorded_at'] = data['recorded_at'] ?? rawTelem?['recorded_at'] ?? DateTime.now().toIso8601String();
 
                 _patients[i] = {
@@ -2697,6 +2703,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     final bool isFingerOn = telemetry['finger_detected'] == true || patient['finger_detected'] == true;
     final bool isVitalsCalibrating = isVitalsActive && isFingerOn && (hrNum == 0 || hrNum == null);
+    final bool isVitalsObstructed = isVitalsActive && !isVitalsCalibrating && (telemetry['is_obstructed'] == true || patient['is_obstructed'] == true) && (hrNum == 0 || hrNum == null);
     final bool isHrMisaligned = isVitalsActive && !isVitalsCalibrating && (hrNum == 0 || hrNum == null);
     final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2Num == 0 || spo2Num == null);
     final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && (tempNum == 0 || tempNum == null || tempNum <= 30.0 || isHrMisaligned || isSpo2Misaligned);
@@ -2704,6 +2711,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     final bool isMoistCalibrating = isMoistureActive && !isTapeDisconnected && telemetry['is_moisture_calibrating'] == true;
     final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned || isTapeDisconnected;
     final bool isAnyCalibrating = isVitalsCalibrating || isMoistCalibrating;
+    final String vitalsIssueUpper = isVitalsObstructed ? 'OBSTRUCTED' : 'MISALIGNED';
+    final String vitalsIssueCard = isVitalsObstructed ? 'Obstructed' : 'Check';
 
     final List<String> safetyBreaches = [];
     if (isVitalsActive && !isVitalsCalibrating && !isHrMisaligned && !isSpo2Misaligned) {
@@ -2892,6 +2901,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: Text(
                         !isDeviceActive
                             ? "INACTIVE"
+                            : isVitalsObstructed
+                            ? "OBSTRUCTED"
                             : isAnyMisaligned
                             ? "MISALIGNED"
                             : isAnyCalibrating
@@ -2924,7 +2935,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           return _vitalStat("BPM", "Acquiring...", Icons.favorite, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
                         }
                         if (isHrMisaligned) {
-                          return _vitalStat("BPM", "Check", Icons.favorite, const Color(0xFFD97706), subtitle: "MISALIGNED", isMisaligned: true);
+                          return _vitalStat("BPM", vitalsIssueCard, Icons.favorite, const Color(0xFFD97706), subtitle: vitalsIssueUpper, isMisaligned: true);
                         }
                         return _vitalStat("BPM", "$hrNum", Icons.favorite, Colors.red);
                       }(),
@@ -2938,7 +2949,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           return _vitalStat("TEMP", "Acquiring...", Icons.thermostat, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
                         }
                         if (isTempMisaligned) {
-                          return _vitalStat("TEMP", "Check", Icons.thermostat, const Color(0xFFD97706), subtitle: "MISALIGNED", isMisaligned: true);
+                          return _vitalStat("TEMP", vitalsIssueCard, Icons.thermostat, const Color(0xFFD97706), subtitle: vitalsIssueUpper, isMisaligned: true);
                         }
                         return _vitalStat("TEMP", "${tempNum!.toStringAsFixed(1)}°C", Icons.thermostat, Colors.orange);
                       }(),
@@ -2957,7 +2968,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           return _vitalStat("SpO2", "Acquiring...", Icons.water_drop, const Color(0xFF0891B2), subtitle: "ACQUIRING", isCalibrating: true);
                         }
                         if (isSpo2Misaligned) {
-                          return _vitalStat("SpO2", "Check", Icons.water_drop, const Color(0xFFD97706), subtitle: "MISALIGNED", isMisaligned: true);
+                          return _vitalStat("SpO2", vitalsIssueCard, Icons.water_drop, const Color(0xFFD97706), subtitle: vitalsIssueUpper, isMisaligned: true);
                         }
                         return _vitalStat("SpO2", "$spo2Num%", Icons.water_drop, Colors.blue);
                       }(),
@@ -3078,7 +3089,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     Color subColor = color;
     if (subtitle == 'OFFLINE') subColor = const Color(0xFF64748B);
     if (subtitle == 'ACQUIRING') subColor = const Color(0xFF0891B2);
-    if (subtitle == 'MISALIGNED' || subtitle == 'DISCONNECTED') subColor = const Color(0xFFD97706);
+    if (subtitle == 'MISALIGNED' || subtitle == 'OBSTRUCTED' || subtitle == 'DISCONNECTED') subColor = const Color(0xFFD97706);
 
     return Column(
       children: [

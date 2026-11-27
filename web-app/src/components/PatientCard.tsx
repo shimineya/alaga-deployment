@@ -69,8 +69,10 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
 
           const isFingerOn = !!telem.finger_detected;
           const isCalibrating = isOnline && isFingerOn && (hr === 0 || hr === null || hr === undefined);
+          const isObstructed = isOnline && !isCalibrating && (telem.is_obstructed === true || (patient as any).is_obstructed === true) && (hr === 0 || hr === null || hr === undefined);
           const isMisaligned = isOnline && !isCalibrating && (hr === 0 || hr === null || hr === undefined);
           const isTapeDisconnected = isOnline && ((moist !== undefined && moist !== null && Number(moist) < 0) || (patient as any).is_diaper_unclipped === true || telem.is_diaper_unclipped === true || telem.tape_connected === false);
+          const issueShortLabel = isObstructed ? 'Obstruct' : 'Check';
 
           return (
             <div className="grid grid-cols-4 gap-2 mt-2">
@@ -83,7 +85,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                     ? 'bg-amber-50/70 border-amber-200' 
                     : 'bg-slate-50 border-slate-100'
                 }`}
-                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Acquiring vitals baseline...' : isMisaligned ? 'Sensor misaligned - Check probe placement on patient' : 'Live streaming'}
+                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Acquiring vitals baseline...' : isObstructed ? 'Non-skin obstruction detected - Place sensor on bare skin' : isMisaligned ? 'Sensor misaligned - Check probe placement on patient' : 'Live streaming'}
               >
                 <Activity className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : isMisaligned ? 'text-amber-600' : 'text-rose-500'}`} />
                 {isCalibrating ? (
@@ -93,7 +95,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                 ) : (
                   <span className="text-sm sm:text-base font-bold text-slate-900">{hr !== undefined && hr !== null ? hr : '--'}</span>
                 )}
-                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? 'Check' : 'BPM'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? issueShortLabel : 'BPM'}</span>
               </div>
 
               {/* SpO2 */}
@@ -105,7 +107,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                     ? 'bg-amber-50/70 border-amber-200' 
                     : 'bg-slate-50 border-slate-100'
                 }`}
-                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Detecting pulse signal...' : isMisaligned ? 'Pulse probe misaligned' : 'Live streaming'}
+                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Detecting pulse signal...' : isObstructed ? 'Non-skin obstruction detected' : isMisaligned ? 'Pulse probe misaligned' : 'Live streaming'}
               >
                 <Droplets className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : isMisaligned ? 'text-amber-600' : 'text-sky-500'}`} />
                 {isCalibrating ? (
@@ -115,7 +117,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                 ) : (
                   <span className="text-sm sm:text-base font-bold text-slate-900">{sp !== undefined && sp !== null ? `${sp}%` : '--'}</span>
                 )}
-                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? 'Check' : 'SpO2'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? issueShortLabel : 'SpO2'}</span>
               </div>
 
               {/* Temperature */}
@@ -127,7 +129,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                     ? 'bg-amber-50/70 border-amber-200' 
                     : 'bg-slate-50 border-slate-100'
                 }`}
-                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Stabilizing temperature probe...' : isMisaligned ? 'Temperature probe misaligned' : 'Live streaming'}
+                title={!isOnline ? 'Sensor offline' : isCalibrating ? 'Stabilizing temperature probe...' : isObstructed ? 'Non-skin obstruction detected' : isMisaligned ? 'Temperature probe misaligned' : 'Live streaming'}
               >
                 <Thermometer className={`h-4 w-4 mb-1 ${isCalibrating ? 'text-cyan-600 animate-pulse' : isMisaligned ? 'text-amber-600' : 'text-amber-500'}`} />
                 {isCalibrating ? (
@@ -137,7 +139,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({ patient, onClick }) =>
                 ) : (
                   <span className="text-sm sm:text-base font-bold text-slate-900">{temp !== undefined && temp !== null ? `${Number(temp).toFixed(1)}°` : '--'}</span>
                 )}
-                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? 'Check' : '°C'}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">{isCalibrating ? 'Init' : isMisaligned ? issueShortLabel : '°C'}</span>
               </div>
 
               {/* Diaper Wetness / Moisture */}

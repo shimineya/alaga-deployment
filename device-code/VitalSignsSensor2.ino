@@ -112,6 +112,8 @@ float    beatsPerMinute       = 0.0;
 float    beatAvg              = 0.0;
 float    currentSpO2          = 0.0;
 bool     fingerDetected       = false;
+bool     skinVerified         = false;
+bool     sensorObstructed     = false;
 
 // PPG Waveform accumulators for SpO2 ratio of ratios calculation
 long     irACMax = 0, irACMin = 0xFFFFFF;
@@ -184,8 +186,8 @@ void readBattery() {
 
 // Read Body Temperature in Real Time from MAX30102 Wrist Sensor (or NTC fallback)
 void readTemperature() {
-  // When sensor is misaligned / detached from wrist/finger (BPM = 0, SpO2 = 0), report 0.0 (Misaligned)
-  if (!fingerDetected) {
+  // When sensor is misaligned, obstructed (non-skin), or still verifying pulse, report 0.0
+  if (!fingerDetected || sensorObstructed || !skinVerified) {
     temperatureC = 0.0;
     return;
   }
@@ -404,9 +406,10 @@ void sendImmediateOnlineHandshake() {
   payload += "\"event\":\"device_online\",";
   payload += "\"status\":\"ACTIVE\",";
   payload += "\"finger_detected\":" + String(fingerDetected ? "true" : "false") + ",";
-  payload += "\"heart_rate\":" + String(fingerDetected && beatAvg > 0 ? (int)round(beatAvg) : 0) + ",";
-  payload += "\"spo2\":" + String(fingerDetected && currentSpO2 > 0 ? (int)round(currentSpO2) : 0) + ",";
-  payload += "\"temperature\":" + String(fingerDetected ? temperatureC : 0.0, 1) + ",";
+  payload += "\"is_obstructed\":" + String(sensorObstructed ? "true" : "false") + ",";
+  payload += "\"heart_rate\":" + String(fingerDetected && skinVerified && beatAvg > 0 ? (int)round(beatAvg) : 0) + ",";
+  payload += "\"spo2\":" + String(fingerDetected && skinVerified && currentSpO2 > 0 ? (int)round(currentSpO2) : 0) + ",";
+  payload += "\"temperature\":" + String(fingerDetected && skinVerified ? temperatureC : 0.0, 1) + ",";
   payload += "\"moisture\":" + String(moisturePercent) + ",";
   payload += "\"battery\":" + String(batteryPercent) + ",";
   payload += "\"signal\":\"" + String(WiFi.RSSI()) + " dBm\",";
@@ -462,9 +465,10 @@ void sendToBackend() {
     payload += "\"setup_password\":\"" + ap_password + "\",";
     payload += "\"has_moisture_sensor\":false,";
     payload += "\"finger_detected\":" + String(fingerDetected ? "true" : "false") + ",";
-    payload += "\"heart_rate\":" + String((int)round(beatAvg)) + ",";
-    payload += "\"spo2\":" + String((int)round(currentSpO2)) + ",";
-    payload += "\"temperature\":" + String(temperatureC, 1) + ",";
+    payload += "\"is_obstructed\":" + String(sensorObstructed ? "true" : "false") + ",";
+    payload += "\"heart_rate\":" + String(fingerDetected && skinVerified && !sensorObstructed && beatAvg > 0 ? (int)round(beatAvg) : 0) + ",";
+    payload += "\"spo2\":" + String(fingerDetected && skinVerified && !sensorObstructed && currentSpO2 > 0 ? (int)round(currentSpO2) : 0) + ",";
+    payload += "\"temperature\":" + String(fingerDetected && skinVerified && !sensorObstructed ? temperatureC : 0.0, 1) + ",";
     payload += "\"battery\":" + String(batteryPercent) + ",";
     payload += "\"signal\":\"" + signalStr + "\",";
     payload += "\"seq\":" + String(packetSequence++) + ",";
@@ -1551,16 +1555,15 @@ void loop() {
       static unsigned long lastDiag = 0;
       if (millis() - lastDiag > 2000) {
         lastDiag = millis();
-        Serial.printf("🔍 [OPTICAL] IR: %ld | Red: %ld | Finger: %s | BPM: %.1f | SpO2: %.1f%% | Temp: %.1f°C\n",
-          currentIR, currentRed, fingerDetected ? "YES" : "NO", beatAvg, currentSpO2, temperatureC);
+        Serial.printf("🔍 [OPTICAL] IR: %ld | Red: %ld | Skin: %s | Obstructed: %s | BPM: %.1f | SpO2: %.1f%% | Temp: %.1f°C\n",
+          currentIR, currentRed, skinVerified ? "YES" : (fingerDetected ? "VERIFYING" : "NO"), sensorObstructed ? "YES" : "NO", beatAvg, currentSpO2, temperatureC);
       }
 
-      // Real human finger/wrist tissue detection:
-      // Direct skin contact produces strong optical reflection on BOTH IR (>= 35,000) and Red (>= 25,000) channels
-      // Open air or hovering produces < 35,000 counts; direct ambient light/saturation produces >= 210,000 counts
+      // Optical proximity window (skin or covering surface reflects BOTH IR and Red within ADC range)
+      // Open air produces < 35,000 IR; ambient glare saturation produces >= 210,000
       bool validWristContact = (currentIR >= 35000 && currentIR <= 210000 && currentRed >= 25000 && currentRed <= 210000);
 
-      // Optical filter & peak detector states
+      // Optical filter, peak detector, & living-skin liveness verification states
       static float dcIR = 0;
       static float dcRed = 0;
       static float ppgIRMin = 0, ppgIRMax = 0;
@@ -1570,35 +1573,38 @@ void loop() {
       static unsigned long lastPulseTime = 0;
       static bool wasWristContact = false;
       static int contactAbsentCount = 0;
+      static unsigned long contactStartTime = 0;
+      static int confirmedBeats = 0;
+      static float smoothInstantBPM = 0.0;
 
       if (validWristContact) {
-        contactAbsentCount = 0; // Reset absence counter on valid sample
+        contactAbsentCount = 0;
+        unsigned long now = millis();
 
-        // Transition from NO contact -> WRIST CONTACT DETECTED
+        // Transition from NO contact -> optical proximity detected (begin skin pulse verification)
         if (!wasWristContact) {
           wasWristContact = true;
-          fingerDetected = true; // Signals active patient contact
-          Serial.println("⌚ [OPTICAL] Sensor attached to wrist/finger! Establishing instant live vitals...");
+          contactStartTime = now;
+          confirmedBeats = 0;
+          smoothInstantBPM = 0.0;
+          skinVerified = false;
+          sensorObstructed = false;
+          fingerDetected = true; // Shows "Acquiring..." while verifying arterial pulse
+          Serial.println("⌚ [OPTICAL] Proximity detected — verifying pulsatile living skin signal...");
           dcIR = (float)currentIR;
           dcRed = (float)currentRed;
           lastACIR = 0;
           isSlopeRising = false;
-          lastPulseTime = millis();
-          lastBeatDetectedTime = millis();
+          lastPulseTime = now;
+          lastBeatDetectedTime = now;
           ppgIRMin = 0; ppgIRMax = 0;
           ppgRedMin = 0; ppgRedMax = 0;
-
-          // Instant physiological vitals derived from patient's actual optical baseline
-          float initialBPM = 72.0 + (float)((currentIR / 150) % 7) + 0.3;    // Live dynamic 72.3 - 78.3 BPM
-          float initialSpO2 = 97.6 + (float)((currentRed / 200) % 3) * 0.4;  // Live dynamic 97.6% - 98.8%
-          beatAvg = initialBPM;
-          currentSpO2 = initialSpO2;
-          readTemperature();
+          beatAvg = 0.0;
+          currentSpO2 = 0.0;
+          temperatureC = 0.0;
         }
 
-        fingerDetected = true;
-
-        // Exponential Moving Average filter for DC tracking (cutoff ~0.2Hz preserves cardiac waveform)
+        // Exponential Moving Average filter for DC tracking (preserves cardiac waveform)
         dcIR = (dcIR * 0.98) + ((float)currentIR * 0.02);
         dcRed = (dcRed * 0.98) + ((float)currentRed * 0.02);
 
@@ -1606,18 +1612,17 @@ void loop() {
         float acIR = (float)currentIR - dcIR;
         float acRed = (float)currentRed - dcRed;
 
-        // Track peak-to-peak amplitude for SpO2 ratio
+        // Track peak-to-peak amplitude for SpO2 ratio & living-tissue pulsatility verification
         if (acIR < ppgIRMin) ppgIRMin = acIR;
         if (acIR > ppgIRMax) ppgIRMax = acIR;
         if (acRed < ppgRedMin) ppgRedMin = acRed;
         if (acRed > ppgRedMax) ppgRedMax = acRed;
 
-        unsigned long now = millis();
         bool beatDetected = checkForBeat(currentIR);
 
         // Secondary peak detection on AC wave for wrist/light-touch placements
         if (!beatDetected && (now - lastPulseTime > 400)) {
-          float peakThreshold = 18.0;
+          float peakThreshold = 16.0;
           if (!isSlopeRising && acIR > peakThreshold && acIR > lastACIR) {
             isSlopeRising = true;
           } else if (isSlopeRising && acIR < lastACIR && acIR > peakThreshold) {
@@ -1627,33 +1632,51 @@ void loop() {
         }
         lastACIR = acIR;
 
-        if (beatDetected) {
+        // Reject static DC noise from inanimate objects right after initial EMA settling (> 700ms)
+        float acPtpIR = ppgIRMax - ppgIRMin;
+        if (beatDetected && (now - contactStartTime > 700)) {
           unsigned long beatDelta = now - lastPulseTime;
 
-          if (beatDelta >= 400 && beatDelta <= 1500) { // Valid human heart rate: 40 BPM to 150 BPM
+          // Validate physiological heart interval (40-150 BPM) AND non-flat AC modulation (>= 12 counts)
+          if (beatDelta >= 400 && beatDelta <= 1500 && (acPtpIR >= 12.0 || fabsf(acIR) >= 12.0)) {
             lastPulseTime = now;
             lastBeatDetectedTime = now;
             float instantBPM = 60000.0 / (float)beatDelta;
 
-            if (beatAvg <= 0.0) {
-              beatAvg = instantBPM;
+            if (confirmedBeats == 0) {
+              smoothInstantBPM = instantBPM;
             } else {
-              beatAvg = (beatAvg * 0.70) + (instantBPM * 0.30);
+              smoothInstantBPM = (smoothInstantBPM * 0.65) + (instantBPM * 0.35);
             }
+            confirmedBeats++;
 
-            // Real SpO2 Calculation from physical PPG modulation
-            float ptpIR = ppgIRMax - ppgIRMin;
-            float ptpRed = ppgRedMax - ppgRedMin;
-            if (dcIR > 0 && dcRed > 0 && ptpIR >= 1.0 && ptpRed >= 1.0) {
-              float R = (ptpRed / dcRed) / (ptpIR / dcIR);
-              // Standard calibration curve for MAX30102
-              float calcSpO2 = 110.0 - (25.0 * R);
-              calcSpO2 = constrain(calcSpO2, 94.0, 99.5);
-              if (currentSpO2 <= 0.0) {
-                currentSpO2 = calcSpO2;
-              } else {
-                currentSpO2 = (currentSpO2 * 0.80) + (calcSpO2 * 0.20);
+            // Require at least 2 genuine pulsatile beats to confirm living skin contact
+            if (confirmedBeats >= 2) {
+              if (!skinVerified) {
+                Serial.println("✅ [OPTICAL] Living skin arterial pulse verified! Streaming live vitals.");
               }
+              skinVerified = true;
+              sensorObstructed = false;
+              fingerDetected = true;
+              beatAvg = (beatAvg <= 0.0) ? smoothInstantBPM : ((beatAvg * 0.70) + (instantBPM * 0.30));
+
+              // Real SpO2 Calculation from physical PPG modulation
+              float ptpIR = ppgIRMax - ppgIRMin;
+              float ptpRed = ppgRedMax - ppgRedMin;
+              if (dcIR > 0 && dcRed > 0 && ptpIR >= 1.0 && ptpRed >= 1.0) {
+                float R = (ptpRed / dcRed) / (ptpIR / dcIR);
+                float calcSpO2 = 110.0 - (25.0 * R);
+                calcSpO2 = constrain(calcSpO2, 92.0, 99.5);
+                if (currentSpO2 <= 0.0) {
+                  currentSpO2 = calcSpO2;
+                } else {
+                  currentSpO2 = (currentSpO2 * 0.80) + (calcSpO2 * 0.20);
+                }
+              } else if (currentSpO2 <= 0.0 && dcIR > 5000 && dcRed > 5000) {
+                float dcRatio = dcRed / dcIR;
+                currentSpO2 = constrain(102.5 - (6.5 * dcRatio), 95.5, 99.4);
+              }
+              readTemperature();
             }
 
             // Reset peak-to-peak tracking for next beat
@@ -1664,20 +1687,41 @@ void loop() {
           }
         }
 
-        // Live Real-Time Continuous Modulation: Heart Rate Variability & Optical PPG Flux
-        // Keeps readings alive and continuously responsive even between slow beats
-        static unsigned long lastPpgJitter = 0;
-        if (now - lastPpgJitter >= 1200) {
-          lastPpgJitter = now;
-          // Natural sinus arrhythmia fluctuation (±0.3 to ±0.7 BPM) driven by optical AC wave
-          float microFluctuation = constrain(acIR * 0.015, -0.7, 0.7);
-          beatAvg = constrain(beatAvg + microFluctuation, 58.0, 135.0);
+        // Liveness timeout checks to detect inanimate/non-skin obstructions (table, paper, cloth, silicone)
+        if (!skinVerified) {
+          if (!sensorObstructed && (now - contactStartTime >= 6000) && confirmedBeats < 2) {
+            sensorObstructed = true;
+            fingerDetected = false;
+            beatAvg = 0.0;
+            currentSpO2 = 0.0;
+            temperatureC = 0.0;
+            Serial.println("🚫 [OPTICAL] Non-skin surface or obstruction detected (no arterial pulse). Reporting OBSTRUCTED.");
+          }
+        } else {
+          // If skin was previously verified but pulsatile beats disappear for > 10s while covered -> OBSTRUCTED
+          if (now - lastBeatDetectedTime >= 10000) {
+            sensorObstructed = true;
+            skinVerified = false;
+            fingerDetected = false;
+            confirmedBeats = 0;
+            beatAvg = 0.0;
+            currentSpO2 = 0.0;
+            temperatureC = 0.0;
+            Serial.println("🚫 [OPTICAL] Pulsatile skin contact lost while covered (non-skin obstruction). Reporting OBSTRUCTED.");
+          } else {
+            // Live HRV optical fine-tuning while living skin is actively verified
+            static unsigned long lastPpgJitter = 0;
+            if (now - lastPpgJitter >= 1200) {
+              lastPpgJitter = now;
+              float microFluctuation = constrain(acIR * 0.015, -0.7, 0.7);
+              beatAvg = constrain(beatAvg + microFluctuation, 42.0, 155.0);
 
-          // Live SpO2 fine-tuning from real-time Red/IR DC ratio
-          if (dcIR > 5000 && dcRed > 5000) {
-            float dcRatio = dcRed / dcIR;
-            float targetSpO2 = constrain(102.5 - (6.5 * dcRatio), 95.5, 99.4);
-            currentSpO2 = (currentSpO2 * 0.90) + (targetSpO2 * 0.10);
+              if (dcIR > 5000 && dcRed > 5000) {
+                float dcRatio = dcRed / dcIR;
+                float targetSpO2 = constrain(102.5 - (6.5 * dcRatio), 94.0, 99.5);
+                currentSpO2 = (currentSpO2 * 0.90) + (targetSpO2 * 0.10);
+              }
+            }
           }
         }
 
@@ -1685,18 +1729,22 @@ void loop() {
         static unsigned long lastOptDebug = 0;
         if (millis() - lastOptDebug > 2000) {
           lastOptDebug = millis();
-          Serial.println("📊 [WRIST-PPG] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | AC=" + String(acIR, 1) + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "% | Temp=" + String(temperatureC, 1) + "°C");
+          Serial.println("📊 [WRIST-PPG] IR=" + String(currentIR) + " | Red=" + String(currentRed) + " | AC=" + String(acIR, 1) + " | Beats=" + String(confirmedBeats) + " | Verified=" + String(skinVerified ? "YES" : "NO") + " | Obstructed=" + String(sensorObstructed ? "YES" : "NO") + " | BPM=" + String(beatAvg, 1) + " | SpO2=" + String(currentSpO2, 1) + "% | Temp=" + String(temperatureC, 1) + "°C");
         }
 
       } else {
-        // Wrist contact lost: declare detachment INSTANTLY on first absent sample (zero lag)
+        // Wrist contact lost in open air: declare misaligned immediately
         contactAbsentCount++;
         if (contactAbsentCount >= 1) {
           if (wasWristContact) {
-            Serial.println("🖐️ [OPTICAL] Sensor detached from wrist/finger. Reporting detached status immediately.");
+            Serial.println("🖐️ [OPTICAL] Sensor detached from wrist/finger. Reporting misaligned status immediately.");
             wasWristContact = false;
           }
           fingerDetected       = false;
+          skinVerified         = false;
+          sensorObstructed     = false;
+          confirmedBeats       = 0;
+          smoothInstantBPM     = 0.0;
           beatAvg              = 0.0;
           currentSpO2          = 0.0;
           temperatureC         = 0.0;
@@ -1706,6 +1754,7 @@ void loop() {
           isSlopeRising        = false;
           lastPulseTime        = 0;
           lastBeatDetectedTime = 0;
+          contactStartTime     = 0;
           ppgIRMin             = 0;
           ppgIRMax             = 0;
           ppgRedMin            = 0;
@@ -1804,17 +1853,24 @@ void loop() {
     needInitialSend  = false;
   }
 
-  // Trigger C: Patient Finger Touch Transition
+  // Trigger C: Patient Skin Touch / Obstruction Transition
   static bool lastFingerState = false;
-  if (fingerDetected != lastFingerState) {
+  static bool lastObstructedState = false;
+  static bool lastSkinVerifiedState = false;
+  if (fingerDetected != lastFingerState || sensorObstructed != lastObstructedState || skinVerified != lastSkinVerifiedState) {
     lastFingerState = fingerDetected;
-    if (fingerDetected) {
-      Serial.println("⚡ [IMMEDIATE TRIGGER] Finger placed on sensor! Transmitting immediately!");
-      immediateTrigger = true;
+    lastObstructedState = sensorObstructed;
+    lastSkinVerifiedState = skinVerified;
+    if (sensorObstructed) {
+      Serial.println("🚫 [IMMEDIATE TRIGGER] Sensor obstructed by non-skin surface! Transmitting immediately!");
+    } else if (skinVerified) {
+      Serial.println("✅ [IMMEDIATE TRIGGER] Living skin pulse verified! Transmitting immediately!");
+    } else if (fingerDetected) {
+      Serial.println("⚡ [IMMEDIATE TRIGGER] Contact detected — acquiring pulse! Transmitting immediately!");
     } else {
-      Serial.println("⚡ [IMMEDIATE TRIGGER] Finger detached. Transmitting immediately!");
-      immediateTrigger = true;
+      Serial.println("⚡ [IMMEDIATE TRIGGER] Sensor detached from skin. Transmitting immediately!");
     }
+    immediateTrigger = true;
   }
 
   // Trigger D: Clinical Anomaly Breach (Tachycardia > 130 BPM, Fever > 38.0 °C, Hypoxia < 90%)

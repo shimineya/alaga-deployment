@@ -613,9 +613,11 @@ const PatientTable: React.FC<PatientTableProps> = ({
                             const isOffline = !((patient as any).is_online ?? (patient as any).isOnline ?? patient.deviceConnected);
                             const isFingerOn = !!(patient.latest_telemetry as any)?.finger_detected;
                             const isCalibrating = !isOffline && isFingerOn && (!vital || vital.heartRate === 0);
+                            const isVitalsObstructed = !isOffline && !isCalibrating && !!((patient.latest_telemetry as any)?.is_obstructed ?? (patient as any).is_obstructed) && (!vital || vital.heartRate === 0);
                             const isPulseMisaligned = !isOffline && !isCalibrating && (!vital || vital.heartRate === 0);
                             const isSpo2Misaligned = !isOffline && !isCalibrating && (!vital || vital.spo2 === 0);
                             const isTempMisaligned = !isOffline && !isCalibrating && (!vital || vital.temperature <= 30.0 || isPulseMisaligned || isSpo2Misaligned);
+                            const vitalsIssueLabel = isVitalsObstructed ? 'Obstructed' : 'Misaligned';
                             const isTapeDisconnected = !isOffline && (
                                 (patient as any).is_diaper_unclipped === true ||
                                 (patient.latest_telemetry as any)?.is_diaper_unclipped === true ||
@@ -636,8 +638,8 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                 statusColor = "bg-amber-100 text-amber-700 border-amber-200";
                                 statusText = "Warning";
                             } else if (isPulseMisaligned || isSpo2Misaligned) {
-                                statusColor = "bg-amber-100 text-amber-800 border-amber-300";
-                                statusText = "Misaligned";
+                                statusColor = isVitalsObstructed ? "bg-rose-100 text-rose-800 border-rose-300" : "bg-amber-100 text-amber-800 border-amber-300";
+                                statusText = vitalsIssueLabel;
                             } else if (isCalibrating) {
                                 statusColor = "bg-cyan-100 text-cyan-800 border-cyan-300";
                                 statusText = "Calibrating";
@@ -729,8 +731,8 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                                 <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" /> Acquiring
                                             </span>
                                         ) : isPulseMisaligned ? (
-                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200" title="Optical sensor misaligned - reposition probe">
-                                                <AlertTriangle className="w-3 h-3 text-amber-600" /> Misaligned
+                                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${isVitalsObstructed ? 'text-rose-700 bg-rose-50/80 border-rose-200' : 'text-amber-700 bg-amber-50/80 border-amber-200'}`} title={isVitalsObstructed ? 'Non-skin obstruction detected - place sensor on bare skin' : 'Optical sensor misaligned - reposition probe'}>
+                                                <AlertTriangle className={`w-3 h-3 ${isVitalsObstructed ? 'text-rose-600' : 'text-amber-600'}`} /> {vitalsIssueLabel}
                                             </span>
                                         ) : vital ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
@@ -749,8 +751,8 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                                 <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" /> Acquiring
                                             </span>
                                         ) : isTempMisaligned ? (
-                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200" title="Temperature probe misaligned or dislodged">
-                                                <AlertTriangle className="w-3 h-3 text-amber-600" /> Misaligned
+                                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${isVitalsObstructed ? 'text-rose-700 bg-rose-50/80 border-rose-200' : 'text-amber-700 bg-amber-50/80 border-amber-200'}`} title={isVitalsObstructed ? 'Non-skin obstruction detected - place sensor on bare skin' : 'Temperature probe misaligned or dislodged'}>
+                                                <AlertTriangle className={`w-3 h-3 ${isVitalsObstructed ? 'text-rose-600' : 'text-amber-600'}`} /> {vitalsIssueLabel}
                                             </span>
                                         ) : vital ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">
@@ -769,8 +771,8 @@ const PatientTable: React.FC<PatientTableProps> = ({
                                                 <Loader2 className="w-3 h-3 text-cyan-600 animate-spin" /> Acquiring
                                             </span>
                                         ) : isSpo2Misaligned ? (
-                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200" title="Optical sensor misaligned - reposition probe">
-                                                <AlertTriangle className="w-3 h-3 text-amber-600" /> Misaligned
+                                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${isVitalsObstructed ? 'text-rose-700 bg-rose-50/80 border-rose-200' : 'text-amber-700 bg-amber-50/80 border-amber-200'}`} title={isVitalsObstructed ? 'Non-skin obstruction detected - place sensor on bare skin' : 'Optical sensor misaligned - reposition probe'}>
+                                                <AlertTriangle className={`w-3 h-3 ${isVitalsObstructed ? 'text-rose-600' : 'text-amber-600'}`} /> {vitalsIssueLabel}
                                             </span>
                                         ) : vital ? (
                                             <div className="flex items-center justify-center gap-1 font-medium text-slate-700">

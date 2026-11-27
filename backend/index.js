@@ -1734,7 +1734,8 @@ app.post('/api/device/data', async (req, res) => {
         let isVsActive = false;
         let isSdActive = false;
         let isDiaperReset = false;
-        const isFingerDetected = req.body.finger_detected === true || req.body.finger_detected === 'true';
+        let isFingerDetected = req.body.finger_detected === true || req.body.finger_detected === 'true';
+        let isObstructed = req.body.is_obstructed === true || req.body.is_obstructed === 'true';
         let isTapeDisconnected = req.body.tape_connected === false || req.body.tape_connected === 'false' || req.body.is_diaper_unclipped === true || req.body.is_diaper_unclipped === 'true' || moist < 0;
 
         if (isSD) {
@@ -1861,9 +1862,9 @@ app.post('/api/device/data', async (req, res) => {
             isVsActive = !!(vsCheck.rows && vsCheck.rows.length > 0);
 
             if (isVsActive) {
-                // Vital Signs sensor is actively online: preserve current vitals state (or 0 if misaligned)
+                // Vital Signs sensor is actively online: preserve current vitals state (or 0 if misaligned/obstructed)
                 const lastVitals = await pool.query(
-                    `SELECT heart_rate, temperature, spo2 
+                    `SELECT heart_rate, temperature, spo2, COALESCE(is_obstructed, false) AS is_obstructed
                      FROM sensor_readings 
                      WHERE patient_id = $1
                      ORDER BY recorded_at DESC LIMIT 1`,
@@ -1874,17 +1875,24 @@ app.post('/api/device/data', async (req, res) => {
                     hr = parseFloat(prevV.heart_rate) || 0;
                     sp = parseFloat(prevV.spo2) || 0;
                     temp = (hr > 0 || sp > 0) ? (parseFloat(prevV.temperature) || 0) : 0;
+                    isObstructed = !!prevV.is_obstructed && hr === 0 && sp === 0;
                 }
             } else {
                 // Vital Signs sensor is NOT active - do not fabricate or carry forward stale vitals!
                 hr = 0;
                 temp = 0;
                 sp = 0;
+                isObstructed = false;
             }
         } else if (isVS) {
             isVsActive = true;
-            // When skin-to-sensor contact is absent or BPM/SpO2 are misaligned (0), immediately zero all 3 vitals
-            if (req.body.finger_detected === false || req.body.finger_detected === 'false' || hr <= 0 || sp <= 0) {
+            // When sensor is obstructed (non-skin reflective surface) or skin contact is absent, zero all 3 vitals
+            if (isObstructed) {
+                isFingerDetected = false;
+                hr = 0;
+                sp = 0;
+                temp = 0;
+            } else if (req.body.finger_detected === false || req.body.finger_detected === 'false' || hr <= 0 || sp <= 0) {
                 hr = 0;
                 sp = 0;
                 temp = 0;
@@ -1922,9 +1930,9 @@ app.post('/api/device/data', async (req, res) => {
 
         // 2. Insert the combined readings into the database
         const insertRes = await pool.query(
-            `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, recorded_at) 
-             VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING reading_id, recorded_at`,
-            [patientId, Math.round(hr), temp, Math.round(sp), moist]
+            `INSERT INTO sensor_readings (patient_id, heart_rate, temperature, spo2, moisture_value, is_obstructed, recorded_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING reading_id, recorded_at`,
+            [patientId, Math.round(hr), temp, Math.round(sp), moist, !!isObstructed]
         );
         const readingId = insertRes.rows[0]?.reading_id;
         const recordedAt = insertRes.rows[0]?.recorded_at;
@@ -1939,6 +1947,7 @@ app.post('/api/device/data', async (req, res) => {
             battery_level: batteryVal,
             signal_strength: signalVal,
             finger_detected: isFingerDetected,
+            is_obstructed: isObstructed,
             tape_connected: !isTapeDisconnected,
             is_diaper_unclipped: isTapeDisconnected,
             is_offline_buffer: !!req.body.is_offline_buffer,
@@ -1949,6 +1958,7 @@ app.post('/api/device/data', async (req, res) => {
                 spo2: sp,
                 moisture: moist,
                 finger_detected: isFingerDetected,
+                is_obstructed: isObstructed,
                 tape_connected: !isTapeDisconnected,
                 is_diaper_unclipped: isTapeDisconnected,
                 recorded_at: recordedAt
@@ -1968,6 +1978,7 @@ app.post('/api/device/data', async (req, res) => {
             spo2: sp,
             moisture: moist,
             finger_detected: isFingerDetected,
+            is_obstructed: isObstructed,
             tape_connected: !isTapeDisconnected,
             is_diaper_unclipped: isTapeDisconnected,
             battery_level: batteryVal,
@@ -1980,6 +1991,7 @@ app.post('/api/device/data', async (req, res) => {
                 spo2: sp,
                 moisture: moist,
                 finger_detected: isFingerDetected,
+                is_obstructed: isObstructed,
                 tape_connected: !isTapeDisconnected,
                 is_diaper_unclipped: isTapeDisconnected,
                 recorded_at: recordedAt

@@ -322,6 +322,8 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                             spo2: Number(telem.spo2) || 0,
                             moistureLevel: isUnplugged ? -1 : (Number(rawM) || 0),
                             is_diaper_unclipped: isUnplugged,
+                            is_obstructed: !!telem.is_obstructed,
+                            finger_detected: !!telem.finger_detected,
                             timestamp: new Date(telem.recorded_at || Date.now())
                         });
                     }
@@ -399,6 +401,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                 const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
                 const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
                 const isFinger = detail.finger_detected !== undefined ? !!detail.finger_detected : (detail.latest_telemetry?.finger_detected !== undefined ? !!detail.latest_telemetry?.finger_detected : undefined);
+                const isObs = detail.is_obstructed !== undefined ? !!detail.is_obstructed : (detail.latest_telemetry?.is_obstructed !== undefined ? !!detail.latest_telemetry?.is_obstructed : undefined);
 
                 if (targetPatientId || sn) {
                     // 1. Immediately update patient cards in real-time without waiting for network roundtrip
@@ -481,6 +484,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 is_diaper_unclipped: isMOnline && isTapeUnplugged,
                                 tape_connected: !(isMOnline && isTapeUnplugged),
                                 finger_detected: isVOnline && isFinger !== undefined ? isFinger : false,
+                                is_obstructed: isVOnline && (isObs !== undefined ? isObs : (isSD ? !!existingTelem.is_obstructed : false)),
                                 recorded_at: detail.recorded_at || detail.timestamp || new Date().toISOString()
                             };
 
@@ -524,6 +528,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                 moistureLevel: finalMoist,
                                 is_diaper_unclipped: isTapeUnpluggedEvent,
                                 finger_detected: isFinger !== undefined ? isFinger : prevVital?.finger_detected,
+                                is_obstructed: isObs !== undefined ? isObs : (isSD ? (prevVital as any)?.is_obstructed : false),
                                 timestamp: new Date()
                             } as any
                         ];
@@ -1455,9 +1460,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
                                 const isFingerOnSensor = !!(pTelem.finger_detected || latestVital?.finger_detected);
                                 const isVitalsCalibrating = effectiveVitalsOnline && isFingerOnSensor && (pulseNum === 0 || pulseNum === null);
+                                const isVitalsObstructed = effectiveVitalsOnline && !isVitalsCalibrating && (pTelem.is_obstructed === true || (latestVital as any)?.is_obstructed === true) && (pulseNum === 0 || pulseNum === null);
                                 const isPulseDetached = effectiveVitalsOnline && !isVitalsCalibrating && (pulseNum === 0 || pulseNum === null);
                                 const isSpo2Detached = effectiveVitalsOnline && !isVitalsCalibrating && (spo2Num === 0 || spo2Num === null);
                                 const isTempDetached = effectiveVitalsOnline && !isVitalsCalibrating && (tempNum === 0 || tempNum === null || tempNum === undefined || tempNum <= 30.0 || isPulseDetached || isSpo2Detached);
+                                const vitalsIssueLabel = isVitalsObstructed ? 'Obstructed' : 'Misaligned';
 
                                 const isTapeDisconnected = effectiveMoistureOnline && ((wetnessNum !== null && wetnessNum < 0) || (patient as any).is_diaper_unclipped === true || pTelem.is_diaper_unclipped === true || pTelem.tape_connected === false || (latestVital as any)?.is_diaper_unclipped === true);
                                 const isMoistureCalibrating = false;
@@ -1516,11 +1523,11 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         isCritical ? 'text-rose-800 border-rose-200 bg-rose-50' :
                                                         !isAnySensorOnline ? 'text-slate-600 border-slate-200 bg-slate-100' :
                                                         isUnassigned ? 'text-slate-700 border-slate-200 bg-slate-100' :
-                                                        (isPulseDetached || isSpo2Detached) ? 'text-amber-900 border-amber-300 bg-amber-50' :
+                                                        (isPulseDetached || isSpo2Detached) ? (isVitalsObstructed ? 'text-rose-900 border-rose-300 bg-rose-50' : 'text-amber-900 border-amber-300 bg-amber-50') :
                                                         (isVitalsCalibrating || isMoistureCalibrating) ? 'text-cyan-900 border-cyan-300 bg-cyan-50' :
                                                             'text-emerald-900 border-emerald-200 bg-emerald-50'
                                                         }`}>
-                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isAnySensorOnline ? 'Offline' : isUnassigned ? 'Unassigned' : (isPulseDetached || isSpo2Detached) ? 'Misaligned' : (isVitalsCalibrating || isMoistureCalibrating) ? 'Calibrating' : 'Stable'}
+                                                        {hasSafetyBreach ? 'Safety Limit' : isCritical ? 'Critical' : !isAnySensorOnline ? 'Offline' : isUnassigned ? 'Unassigned' : (isPulseDetached || isSpo2Detached) ? vitalsIssueLabel : (isVitalsCalibrating || isMoistureCalibrating) ? 'Calibrating' : 'Stable'}
                                                     </Badge>
                                                 </div>
                                             </div>
@@ -1530,7 +1537,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div 
                                                     className={`${isPulseBreached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isPulseDetached ? 'bg-amber-50/80 border-amber-200' : isVitalsCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}
-                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Acquiring vitals baseline...' : isPulseDetached ? 'Sensor misaligned - Reposition probe on skin' : 'Live streaming'}
+                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Acquiring vitals baseline...' : isVitalsObstructed ? 'Non-skin surface or obstruction detected - Place sensor on bare skin' : isPulseDetached ? 'Sensor misaligned - Reposition probe on skin' : 'Live streaming'}
                                                 >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
                                                         <Heart className={`w-3 h-3 ${isPulseBreached ? 'text-rose-700 animate-bounce' : isPulseDetached ? 'text-amber-500' : isVitalsCalibrating ? 'text-cyan-600 animate-pulse' : 'text-rose-500'}`} />
@@ -1547,7 +1554,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         ) : isPulseDetached ? (
                                                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
                                                                 <AlertTriangle className="w-3 h-3 text-amber-600 animate-bounce" />
-                                                                Misaligned
+                                                                {vitalsIssueLabel}
                                                             </span>
                                                         ) : (
                                                             <span className={`text-xs font-black ${isPulseBreached ? 'text-rose-950' : 'text-slate-900'}`}>
@@ -1559,7 +1566,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
 
                                                 <div 
                                                     className={`${isTempBreached ? 'bg-amber-100/90 border-amber-300 text-amber-950' : isTempDetached ? 'bg-amber-50/80 border-amber-200' : isVitalsCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}
-                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Stabilizing temperature probe...' : isTempDetached ? 'Temperature probe misaligned or dislodged' : 'Live streaming'}
+                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Stabilizing temperature probe...' : isVitalsObstructed ? 'Sensor covered/obstructed by non-skin surface' : isTempDetached ? 'Temperature probe misaligned or dislodged' : 'Live streaming'}
                                                 >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
                                                         <Thermometer className={`w-3 h-3 ${isTempBreached ? 'text-amber-700 animate-bounce' : isTempDetached ? 'text-amber-500' : isVitalsCalibrating ? 'text-cyan-600 animate-pulse' : 'text-amber-500'}`} />
@@ -1576,7 +1583,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         ) : isTempDetached ? (
                                                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
                                                                 <AlertTriangle className="w-3 h-3 text-amber-600 animate-bounce" />
-                                                                Misaligned
+                                                                {vitalsIssueLabel}
                                                             </span>
                                                         ) : (
                                                             <span className={`text-xs font-black ${isTempBreached ? 'text-amber-950' : 'text-slate-900'}`}>
@@ -1590,7 +1597,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div 
                                                     className={`${isSpo2Breached ? 'bg-rose-100/90 border-rose-300 text-rose-900' : isSpo2Detached ? 'bg-amber-50/80 border-amber-200' : isVitalsCalibrating ? 'bg-cyan-50/60 border-cyan-200' : 'bg-slate-50 border-slate-200/80'} p-2 rounded-xl text-center border transition-colors`}
-                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Detecting pulse signal...' : isSpo2Detached ? 'Pulse probe misaligned' : 'Live streaming'}
+                                                    title={!effectiveVitalsOnline ? 'Sensor offline' : isVitalsCalibrating ? 'Detecting pulse signal...' : isVitalsObstructed ? 'Non-skin obstruction detected' : isSpo2Detached ? 'Pulse probe misaligned' : 'Live streaming'}
                                                 >
                                                     <div className="flex justify-center items-center gap-1 mb-0.5">
                                                         <Activity className={`w-3 h-3 ${isSpo2Breached ? 'text-rose-700 animate-bounce' : isSpo2Detached ? 'text-amber-500' : isVitalsCalibrating ? 'text-cyan-600 animate-pulse' : 'text-blue-500'}`} />
@@ -1607,7 +1614,7 @@ export const CaregiverDashboardNew: React.FC<CaregiverDashboardProps> = ({
                                                         ) : isSpo2Detached ? (
                                                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700">
                                                                 <AlertTriangle className="w-3 h-3 text-amber-600 animate-bounce" />
-                                                                Misaligned
+                                                                {vitalsIssueLabel}
                                                             </span>
                                                         ) : (
                                                             <span className={`text-xs font-black ${isSpo2Breached ? 'text-rose-950' : 'text-slate-900'}`}>

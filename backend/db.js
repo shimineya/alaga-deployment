@@ -67,6 +67,12 @@ pool.connect((err, client, release) => {
       ADD COLUMN IF NOT EXISTS is_monitoring_disabled BOOLEAN DEFAULT FALSE
     `).catch(err => console.error('Failed to run patients is_monitoring_disabled migration:', err));
 
+    // Auto-migration: Add is_obstructed column on sensor_readings table for non-skin obstruction status
+    pool.query(`
+      ALTER TABLE public.sensor_readings 
+      ADD COLUMN IF NOT EXISTS is_obstructed BOOLEAN DEFAULT FALSE
+    `).catch(err => console.error('Failed to run sensor_readings is_obstructed migration:', err));
+
     // Auto-migration: Expand vital_name column on patient_baselines to VARCHAR(100)
     pool.query(`
       ALTER TABLE public.patient_baselines 

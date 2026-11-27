@@ -240,6 +240,11 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
             if (data['finger_detected'] != null || data['latest_telemetry']?['finger_detected'] != null) {
               _telemetry['finger_detected'] = data['finger_detected'] ?? data['latest_telemetry']?['finger_detected'];
             }
+            if (data['is_obstructed'] != null || data['latest_telemetry']?['is_obstructed'] != null) {
+              _telemetry['is_obstructed'] = newVOnline && ((data['is_obstructed'] ?? data['latest_telemetry']?['is_obstructed']) == true);
+            } else if (!newVOnline) {
+              _telemetry['is_obstructed'] = false;
+            }
             _telemetry['recorded_at'] = data['recorded_at'] ?? data['latest_telemetry']?['recorded_at'] ?? DateTime.now().toIso8601String();
 
             _patient['latest_telemetry'] = _telemetry;
@@ -480,10 +485,13 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
 
     final bool isFingerOn = telemetry['finger_detected'] == true || patient['finger_detected'] == true;
     final bool isVitalsCalibrating = isVitalsActive && isFingerOn && (hrNum == 0 || hrNum == null);
+    final bool isVitalsObstructed = isVitalsActive && !isVitalsCalibrating && (telemetry['is_obstructed'] == true || patient['is_obstructed'] == true) && (hrNum == 0 || hrNum == null);
 
     final bool isHrMisaligned = isVitalsActive && !isVitalsCalibrating && (hrNum == 0 || hrNum == null);
     final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2Num == 0 || spo2Num == null);
     final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && ((tempNum != null && tempNum <= 30.0) || tempNum == 0 || tempNum == null || isHrMisaligned || isSpo2Misaligned);
+    final String vitalsIssueVal = isVitalsObstructed ? 'Obstructed' : 'Misaligned';
+    final String vitalsIssueBadge = isVitalsObstructed ? 'OBSTRUCTED' : 'CHECK PROBE';
 
     final rawMoist = telemetry['moisture'] ?? telemetry['moisture_value'] ?? patient['moisture'] ?? patient['moisture_value'];
     final mNum = rawMoist is num ? rawMoist.toInt() : int.tryParse(rawMoist?.toString() ?? '') ?? 0;
@@ -493,20 +501,20 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
     final isDamp = !isTapeDisconnected && (mNum >= 30 && !isWet);
 
     // Heart Rate config
-    final hr = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? 'Misaligned' : '$hrNum';
-    final hrBadge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isHrMisaligned ? 'CHECK PROBE' : (hrNum != null && (hrNum > 120 || hrNum < 50) ? 'CRITICAL' : 'NORMAL');
+    final hr = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? vitalsIssueVal : '$hrNum';
+    final hrBadge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isHrMisaligned ? vitalsIssueBadge : (hrNum != null && (hrNum > 120 || hrNum < 50) ? 'CRITICAL' : 'NORMAL');
     final hrBadgeColor = !isVitalsActive ? const Color(0xFF64748B) : isVitalsCalibrating ? const Color(0xFF0891B2) : isHrMisaligned ? const Color(0xFFB45309) : (hrBadge == 'CRITICAL' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
     final hrBadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isHrMisaligned ? const Color(0xFFFEF3C7) : (hrBadge == 'CRITICAL' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
     // Temperature config
-    final temp = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isTempMisaligned ? 'Misaligned' : (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '--');
-    final tempBadge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isTempMisaligned ? 'CHECK PROBE' : (tempNum != null && tempNum > 38.0 ? 'FEVER' : 'NORMAL');
+    final temp = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isTempMisaligned ? vitalsIssueVal : (tempNum != null && tempNum > 0 ? '${tempNum.toStringAsFixed(1)}°C' : '--');
+    final tempBadge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isTempMisaligned ? vitalsIssueBadge : (tempNum != null && tempNum > 38.0 ? 'FEVER' : 'NORMAL');
     final tempBadgeColor = !isVitalsActive ? const Color(0xFF64748B) : isVitalsCalibrating ? const Color(0xFF0891B2) : isTempMisaligned ? const Color(0xFFB45309) : (tempBadge == 'FEVER' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
     final tempBadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isTempMisaligned ? const Color(0xFFFEF3C7) : (tempBadge == 'FEVER' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
     // SpO2 config
-    final spo2 = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isSpo2Misaligned ? 'Misaligned' : (spo2Num != null && spo2Num > 0 ? '$spo2Num%' : '--');
-    final spo2Badge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isSpo2Misaligned ? 'CHECK PROBE' : (spo2Num != null && spo2Num < 90 ? 'HYPOXIA' : 'OPTIMAL');
+    final spo2 = !isVitalsActive ? '--' : isVitalsCalibrating ? 'Acquiring...' : isSpo2Misaligned ? vitalsIssueVal : (spo2Num != null && spo2Num > 0 ? '$spo2Num%' : '--');
+    final spo2Badge = !isVitalsActive ? 'OFFLINE' : isVitalsCalibrating ? 'ACQUIRING' : isSpo2Misaligned ? vitalsIssueBadge : (spo2Num != null && spo2Num < 90 ? 'HYPOXIA' : 'OPTIMAL');
     final spo2BadgeColor = !isVitalsActive ? const Color(0xFF64748B) : isVitalsCalibrating ? const Color(0xFF0891B2) : isSpo2Misaligned ? const Color(0xFFB45309) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFDC2626) : const Color(0xFF16A34A));
     final spo2BadgeBg = !isVitalsActive ? const Color(0xFFF1F5F9) : isVitalsCalibrating ? const Color(0xFFECFEFF) : isSpo2Misaligned ? const Color(0xFFFEF3C7) : (spo2Badge == 'HYPOXIA' ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7));
 
@@ -798,7 +806,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           border: isVitalsCalibrating ? const Color(0xFFA5F3FC) : isHrMisaligned ? const Color(0xFFFDE68A) : const Color(0xFFFECACA),
                           isCalibrating: isVitalsCalibrating,
                           isMisaligned: isHrMisaligned,
-                          helperText: isVitalsCalibrating ? 'Warming up sensor (3–5s)' : isHrMisaligned ? 'Reposition probe on skin' : null,
+                          helperText: isVitalsCalibrating ? 'Warming up sensor (3–5s)' : isVitalsObstructed ? 'Non-skin surface detected' : isHrMisaligned ? 'Reposition probe on skin' : null,
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -816,7 +824,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           border: isVitalsCalibrating ? const Color(0xFFA5F3FC) : isTempMisaligned ? const Color(0xFFFDE68A) : const Color(0xFFFDE68A),
                           isCalibrating: isVitalsCalibrating,
                           isMisaligned: isTempMisaligned,
-                          helperText: isVitalsCalibrating ? 'Stabilizing probe (3–5s)' : isTempMisaligned ? 'Probe dislodged / check contact' : null,
+                          helperText: isVitalsCalibrating ? 'Stabilizing probe (3–5s)' : isVitalsObstructed ? 'Non-skin surface detected' : isTempMisaligned ? 'Probe dislodged / check contact' : null,
                         ),
                       ),
                     ],
@@ -838,7 +846,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                           border: isVitalsCalibrating ? const Color(0xFFA5F3FC) : isSpo2Misaligned ? const Color(0xFFFDE68A) : const Color(0xFFBFDBFE),
                           isCalibrating: isVitalsCalibrating,
                           isMisaligned: isSpo2Misaligned,
-                          helperText: isVitalsCalibrating ? 'Acquiring pulse signal...' : isSpo2Misaligned ? 'Reposition probe on skin' : null,
+                          helperText: isVitalsCalibrating ? 'Acquiring pulse signal...' : isVitalsObstructed ? 'Non-skin surface detected' : isSpo2Misaligned ? 'Reposition probe on skin' : null,
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1442,7 +1450,7 @@ class _PatientProfileModalState extends State<PatientProfileModal> {
                 const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
                 const SizedBox(width: 4),
                 Text(
-                  value == 'Disconnected' ? 'Disconnected' : 'Misaligned',
+                  value == 'Disconnected' ? 'Disconnected' : (value == 'Obstructed' ? 'Obstructed' : 'Misaligned'),
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,

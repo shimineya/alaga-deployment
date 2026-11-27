@@ -96,20 +96,27 @@ class _PatientListScreenState extends State<PatientListScreen> {
                   rawTelem?['is_diaper_unclipped'] == true ||
                   rawTelem?['tape_connected'] == false
                 );
-                final bool isHrMisaligned = newVOnline && (hr == 0 || hr == null);
-                final bool isSpo2Misaligned = newVOnline && (spo2 == 0 || spo2 == null);
-                final bool isTempMisaligned = newVOnline && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrMisaligned && isSpo2Misaligned));
+                final fingerOn = data['finger_detected'] == true || rawTelem?['finger_detected'] == true;
+                final obstructedVal = data['is_obstructed'] ?? rawTelem?['is_obstructed'];
+                final bool isObstructed = newVOnline && (obstructedVal == true) && (hr == 0 || hr == null);
+                final bool isCalibrating = newVOnline && fingerOn && (hr == 0 || hr == null);
+                final bool isHrMisaligned = newVOnline && !isCalibrating && (hr == 0 || hr == null);
+                final bool isSpo2Misaligned = newVOnline && !isCalibrating && (spo2 == 0 || spo2 == null);
+                final bool isTempMisaligned = newVOnline && !isCalibrating && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || (isHrMisaligned && isSpo2Misaligned));
                 final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned || isTapeDisconnected;
+                final String vitalsIssueText = isObstructed ? 'Obstructed' : 'Misaligned';
 
-                final String hrDisplay = !newVOnline ? '---' : (isHrMisaligned || hr == null) ? 'Misaligned' : '${hr.round()}';
-                final String tempDisplay = !newVOnline ? '---' : (isTempMisaligned || temp == null) ? 'Misaligned' : '${temp.toStringAsFixed(1)}°C';
-                final String spo2Display = !newVOnline ? '---' : (isSpo2Misaligned || spo2 == null) ? 'Misaligned' : '${spo2.round()}%';
+                final String hrDisplay = !newVOnline ? '---' : isCalibrating ? 'Acquiring...' : (isHrMisaligned || hr == null) ? vitalsIssueText : '${hr.round()}';
+                final String tempDisplay = !newVOnline ? '---' : isCalibrating ? 'Acquiring...' : (isTempMisaligned || temp == null) ? vitalsIssueText : '${temp.toStringAsFixed(1)}°C';
+                final String spo2Display = !newVOnline ? '---' : isCalibrating ? 'Acquiring...' : (isSpo2Misaligned || spo2 == null) ? vitalsIssueText : '${spo2.round()}%';
                 final String wetDisplay = !newMOnline ? '---' : isTapeDisconnected ? 'Disconnected' : (moist == null ? 'Dry (0%)' : (moist >= 70 ? 'Wet (${moist.round()}%)' : 'Dry (${moist < 0 ? 0 : moist.round()}%)'));
-                final String patientStatus = !isDeviceActive ? 'Offline' : isAnyMisaligned ? 'Misaligned' : 'Stable';
+                final String patientStatus = !isDeviceActive ? 'Offline' : isObstructed ? 'Obstructed' : isAnyMisaligned ? 'Misaligned' : isCalibrating ? 'Calibrating' : 'Stable';
 
                 final existingTelem = p['latest_telemetry'] is Map
                     ? Map<String, dynamic>.from(p['latest_telemetry'])
                     : <String, dynamic>{};
+                existingTelem['finger_detected'] = fingerOn;
+                existingTelem['is_obstructed'] = isObstructed;
                 if (!newVOnline) {
                   existingTelem.remove('heart_rate');
                   existingTelem.remove('temperature');
@@ -215,19 +222,21 @@ class _PatientListScreenState extends State<PatientListScreen> {
 
             final bool isFingerOn = telemetry['finger_detected'] == true || p['finger_detected'] == true;
             final bool isVitalsCalibrating = isVitalsActive && isFingerOn && (hr == 0 || hr == null);
+            final bool isVitalsObstructed = isVitalsActive && !isVitalsCalibrating && (telemetry['is_obstructed'] == true || p['is_obstructed'] == true) && (hr == 0 || hr == null);
             final bool isHrMisaligned = isVitalsActive && !isVitalsCalibrating && (hr == 0 || hr == null);
             final bool isSpo2Misaligned = isVitalsActive && !isVitalsCalibrating && (spo2 == 0 || spo2 == null);
             final bool isTempMisaligned = isVitalsActive && !isVitalsCalibrating && ((temp != null && temp <= 30.0) || temp == 0 || temp == null || isHrMisaligned || isSpo2Misaligned);
             final bool isTapeDisconnected = isMoistureActive && ((moist != null && moist < 0) || telemetry['is_diaper_unclipped'] == true || telemetry['tape_connected'] == false || p['is_diaper_unclipped'] == true);
             final bool isMoistCalibrating = isMoistureActive && !isTapeDisconnected && telemetry['is_moisture_calibrating'] == true;
             final bool isAnyMisaligned = isHrMisaligned || isSpo2Misaligned || isTapeDisconnected;
+            final String vitalsIssueText = isVitalsObstructed ? 'Obstructed' : 'Misaligned';
 
-            final String hrDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? 'Misaligned' : '$hr';
-            final String tempDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isTempMisaligned ? 'Misaligned' : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
-            final String spo2Display = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isSpo2Misaligned ? 'Misaligned' : (spo2 != null ? "$spo2%" : '---');
+            final String hrDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isHrMisaligned ? vitalsIssueText : '$hr';
+            final String tempDisplay = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isTempMisaligned ? vitalsIssueText : (temp != null ? "${temp.toStringAsFixed(1)}°C" : '---');
+            final String spo2Display = !isVitalsActive ? '---' : isVitalsCalibrating ? 'Acquiring...' : isSpo2Misaligned ? vitalsIssueText : (spo2 != null ? "$spo2%" : '---');
             final String wetDisplay = !isMoistureActive ? '---' : isTapeDisconnected ? 'Disconnected' : isMoistCalibrating ? 'Acquiring...' : (moist != null && moist >= 70 ? 'Wet ($moist%)' : 'Dry (${moist != null && moist >= 0 ? moist : 0}%)');
 
-            final String patientStatus = !isDeviceActive ? 'Offline' : isAnyMisaligned ? 'Misaligned' : isVitalsCalibrating ? 'Calibrating' : 'Stable';
+            final String patientStatus = !isDeviceActive ? 'Offline' : isVitalsObstructed ? 'Obstructed' : isAnyMisaligned ? 'Misaligned' : isVitalsCalibrating ? 'Calibrating' : 'Stable';
 
             return <String, dynamic>{
               ...p,
@@ -770,13 +779,14 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
 
   Widget _buildVital(IconData icon, String label, String value, Color color, TextStyle desc, TextStyle main) {
     final bool isAcquiring = value.toLowerCase().contains("acquiring");
+    final bool isObstructed = value.toLowerCase().contains("obstructed");
     final bool isMisaligned = value.toLowerCase().contains("misaligned");
     final bool isDisconnected = value.toLowerCase().contains("disconnected");
 
     return Column(
       children: [
         Row(children: [
-          Icon((isMisaligned || isDisconnected) ? Icons.warning_amber_rounded : icon, size: 12, color: (isMisaligned || isDisconnected) ? const Color(0xFFD97706) : (isAcquiring ? const Color(0xFF0891B2) : color)),
+          Icon((isMisaligned || isObstructed || isDisconnected) ? Icons.warning_amber_rounded : icon, size: 12, color: (isMisaligned || isObstructed || isDisconnected) ? const Color(0xFFD97706) : (isAcquiring ? const Color(0xFF0891B2) : color)),
           const SizedBox(width: 4),
           Text(label, style: desc.copyWith(fontSize: 10, fontWeight: FontWeight.bold))
         ]),
@@ -796,6 +806,8 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
           )
         else if (isDisconnected)
           Text("Disconnected", style: main.copyWith(fontSize: 11, color: const Color(0xFFB45309), fontWeight: FontWeight.bold))
+        else if (isObstructed)
+          Text("Obstructed", style: main.copyWith(fontSize: 11, color: const Color(0xFFB45309), fontWeight: FontWeight.bold))
         else if (isMisaligned)
           Text("Check", style: main.copyWith(fontSize: 11, color: const Color(0xFFB45309), fontWeight: FontWeight.bold))
         else
@@ -805,6 +817,7 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
   }
 
   Widget _buildStatusBadge(bool isWet, bool isOffline, String status, TextStyle desc) {
+    final bool isObstructed = status == 'Obstructed';
     final bool isMisaligned = status == 'Misaligned';
     final bool isCalibrating = status == 'Calibrating';
 
@@ -820,6 +833,10 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
       bg = Colors.grey.shade100;
       fg = Colors.grey;
       text = "Offline";
+    } else if (isObstructed) {
+      bg = const Color(0xFFFEE2E2);
+      fg = const Color(0xFFB91C1C);
+      text = "Obstructed";
     } else if (isMisaligned) {
       bg = const Color(0xFFFEF3C7);
       fg = const Color(0xFFB45309);
@@ -835,7 +852,9 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: isMisaligned
+        border: isObstructed
+            ? Border.all(color: const Color(0xFFFCA5A5))
+            : isMisaligned
             ? Border.all(color: const Color(0xFFFDE68A))
             : isCalibrating
             ? Border.all(color: const Color(0xFFA5F3FC))
@@ -845,6 +864,7 @@ class _PatientCardWidgetState extends State<PatientCardWidget> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isWet) ...[const Icon(Icons.opacity, size: 12, color: Colors.orange), const SizedBox(width: 4)],
+          if (isObstructed) ...[const Icon(Icons.warning_amber_rounded, size: 12, color: Color(0xFFB91C1C)), const SizedBox(width: 4)],
           if (isMisaligned) ...[const Icon(Icons.warning_amber_rounded, size: 12, color: Color(0xFFB45309)), const SizedBox(width: 4)],
           if (isCalibrating) ...[
             const SizedBox(

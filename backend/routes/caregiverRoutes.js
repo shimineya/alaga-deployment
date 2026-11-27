@@ -2210,6 +2210,7 @@ router.get('/patients/:id', async (req, res) => {
                                'temperature', COALESCE(sr.temperature, 0),
                                'spo2', COALESCE(sr.spo2, 0),
                                'moisture', COALESCE(sr.moisture_value, 0),
+                               'is_obstructed', COALESCE(sr.is_obstructed, false),
                                'is_diaper_unclipped', (sr.moisture_value < 0),
                                'tape_connected', (sr.moisture_value IS NULL OR sr.moisture_value >= 0),
                                'recorded_at', sr.recorded_at
@@ -2224,6 +2225,7 @@ router.get('/patients/:id', async (req, res) => {
                            'temperature', 0,
                            'spo2', 0,
                            'moisture', 0,
+                           'is_obstructed', false,
                            'recorded_at', null
                        )
                    ) as latest_telemetry,
@@ -2406,6 +2408,7 @@ router.get('/patients', async (req, res) => {
                                 'temperature', COALESCE(sr.temperature, 0),
                                 'spo2', COALESCE(sr.spo2, 0),
                                 'moisture', COALESCE(sr.moisture_value, 0),
+                                'is_obstructed', COALESCE(sr.is_obstructed, false),
                                 'is_diaper_unclipped', (sr.moisture_value < 0),
                                 'tape_connected', (sr.moisture_value IS NULL OR sr.moisture_value >= 0),
                                 'recorded_at', sr.recorded_at
@@ -2420,6 +2423,7 @@ router.get('/patients', async (req, res) => {
                             'temperature', 0,
                             'spo2', 0,
                             'moisture', 0,
+                            'is_obstructed', false,
                             'recorded_at', null
                         )
                     ) as latest_telemetry,
@@ -2605,6 +2609,7 @@ router.get('/patients', async (req, res) => {
                                 'temperature', COALESCE(sr.temperature, 0),
                                 'spo2', COALESCE(sr.spo2, 0),
                                 'moisture', COALESCE(sr.moisture_value, 0),
+                                'is_obstructed', COALESCE(sr.is_obstructed, false),
                                 'is_diaper_unclipped', (sr.moisture_value < 0),
                                 'tape_connected', (sr.moisture_value IS NULL OR sr.moisture_value >= 0),
                                 'recorded_at', sr.recorded_at
@@ -2619,6 +2624,7 @@ router.get('/patients', async (req, res) => {
                             'temperature', 0,
                             'spo2', 0,
                             'moisture', 0,
+                            'is_obstructed', false,
                             'recorded_at', null
                         )
                     ) as latest_telemetry,

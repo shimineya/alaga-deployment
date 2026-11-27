@@ -108,6 +108,7 @@ export const usePatients = (token: string | null) => {
                 const rawSp = detail.spo2 !== undefined ? detail.spo2 : detail.latest_telemetry?.spo2;
                 const rawMoist = detail.moisture !== undefined ? detail.moisture : (detail.latest_telemetry?.moisture ?? detail.latest_telemetry?.moisture_value);
                 const isFinger = detail.finger_detected !== undefined ? !!detail.finger_detected : (detail.latest_telemetry?.finger_detected !== undefined ? !!detail.latest_telemetry?.finger_detected : undefined);
+                const isObs = detail.is_obstructed !== undefined ? !!detail.is_obstructed : (detail.latest_telemetry?.is_obstructed !== undefined ? !!detail.latest_telemetry?.is_obstructed : undefined);
 
                 setPatients(prev => prev.map(p => {
                     const pPaired = (p as any).paired_devices || [];
@@ -191,11 +192,23 @@ export const usePatients = (token: string | null) => {
                             is_vitals_online: isVOnline,
                             is_moisture_online: isMOnline,
                             is_diaper_unclipped: isMOnline && isTapeUnplugged,
+                            is_obstructed: isVOnline && (isObs !== undefined ? isObs : !!existingTelem.is_obstructed),
                             heart_rate: finalHr,
                             temperature: finalTemp,
                             spo2: finalSp,
                             moisture: finalMoist,
                             moisture_value: finalMoist,
+                            latest_telemetry: {
+                                ...existingTelem,
+                                heart_rate: finalHr,
+                                temperature: finalTemp,
+                                spo2: finalSp,
+                                moisture: finalMoist,
+                                is_diaper_unclipped: isMOnline && isTapeUnplugged,
+                                tape_connected: !(isMOnline && isTapeUnplugged),
+                                finger_detected: isVOnline && isFinger !== undefined ? isFinger : false,
+                                is_obstructed: isVOnline && (isObs !== undefined ? isObs : !!existingTelem.is_obstructed),
+                            },
                             baselineVitals: {
                                 heartRate: finalHr || 0,
                                 temperature: finalTemp || 0,
